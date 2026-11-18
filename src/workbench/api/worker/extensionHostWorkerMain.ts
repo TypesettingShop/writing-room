@@ -1,6 +1,6 @@
 import { ExtensionHostMessage } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { HostControlMessage } from '../../services/extensions/common/extensionHostProtocol.js';
-import { RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
+import { readPortMessageData, RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
 import { ExtHostExtensionService } from '../common/extHostExtensionService.js';
 import { loadCommonJSModule } from './extHostExtensionService.js';
 
@@ -27,7 +27,9 @@ listen('message', ({ data, ports }) => {
   const send = port.postMessage.bind(port);
   const rpc = new RPCProtocol(port);
   let service: ExtHostExtensionService | undefined;
-  port.addEventListener('message', ({ data }: MessageEvent<HostControlMessage>) => {
+  port.addEventListener('message', event => {
+    // Control messages stay behind this port when extension code runs in the same realm.
+    const data = readPortMessageData(event) as HostControlMessage;
     if (data.kind === ExtensionHostMessage.Initialize && !service) {
       service = new ExtHostExtensionService(rpc, loadCommonJSModule);
       void service.$deltaExtensions(data.extensions, []).then(() => send({ kind: ExtensionHostMessage.Initialized }));

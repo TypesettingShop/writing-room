@@ -1,5 +1,10 @@
 import type { ProxyIdentifier } from './proxyIdentifier.js';
 
+const messageDataGetter = Object.getOwnPropertyDescriptor(MessageEvent.prototype, 'data')?.get;
+export const readPortMessageData = messageDataGetter
+  ? Function.prototype.call.bind(messageDataGetter) as (event: MessageEvent) => unknown
+  : (event: MessageEvent) => event.data;
+
 interface SerializedError {
   name: string;
   message: string;
@@ -38,7 +43,7 @@ export class RPCProtocol {
     this.send = port.postMessage.bind(port);
     this.close = port.close.bind(port);
     port.addEventListener('message', event => {
-      const message = event.data;
+      const message = readPortMessageData(event) as RpcMessage | undefined;
       if (message?.kind === 'request' || message?.kind === 'reply' || message?.kind === 'error') {
         this.receive(message);
       }

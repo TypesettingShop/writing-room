@@ -22,6 +22,10 @@ class EditorTitleContributions extends Disposable {
   ) {
     super();
     const editor = layout.getContainer(Parts.EDITOR_PART);
+    // The editor groups render this menu in their own scoped toolbars.
+    if (editor.querySelector('[data-group-id] [role="toolbar"]')) {
+      return;
+    }
     const title = editor.ownerDocument.createElement('div');
     title.className = 'extension-editor-title-actions';
     editor.append(title);
