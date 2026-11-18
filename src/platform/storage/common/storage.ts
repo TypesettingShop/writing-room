@@ -59,18 +59,16 @@ export function storageKey(scope: StorageScope, key: string): string {
   return scope + ':' + key;
 }
 
+const storageScopes = new Map(
+  Object.values(StorageScope)
+    .filter((value): value is StorageScope => typeof value === 'number')
+    .map(scope => [String(scope), scope]),
+);
+
 export function parseStorageKey(namespacedKey: string): { scope: StorageScope; key: string } | undefined {
   const separator = namespacedKey.indexOf(':');
-  if (separator === -1) {
-    return;
-  }
-  const namespace = namespacedKey.slice(0, separator);
-  switch (namespace) {
-    case '-1':
-    case '0':
-    case '1':
-      return { scope: Number(namespace) as StorageScope, key: namespacedKey.slice(separator + 1) };
-  }
+  const scope = separator === -1 ? undefined : storageScopes.get(namespacedKey.slice(0, separator));
+  return scope === undefined ? undefined : { scope, key: namespacedKey.slice(separator + 1) };
 }
 
 export abstract class AbstractStorageService implements IStorageService, IDisposable {
@@ -93,7 +91,8 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
     const changes = Event.filter(this.valueChanges.event, event =>
       event.scope === scope && (key === undefined || event.key === key),
     );
-    return (listener, thisArgs) => changes(listener, thisArgs, disposables);
+    // The subscription lives in `disposables` and also in any store the caller passes.
+    return (listener, thisArgs, sink) => disposables.add(changes(listener, thisArgs, sink));
   }
 
   get(key: string, scope: StorageScope, fallbackValue: string): string;
@@ -113,7 +112,8 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
   getNumber(key: string, scope: StorageScope, fallbackValue?: number): number | undefined;
   getNumber(key: string, scope: StorageScope, fallbackValue?: number): number | undefined {
     const value = this.get(key, scope);
-    return value === undefined ? fallbackValue : Number.parseInt(value, 10);
+    // Number() reads back every String(number) that store() writes, fractions and exponents included.
+    return value === undefined ? fallbackValue : Number(value);
   }
 
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue: T): T;
@@ -122,13 +122,19 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
     const namespacedKey = storageKey(scope, key);
     const value = this.storage.get(namespacedKey);
     if (value !== undefined) {
+      let parsed: unknown;
       try {
-        return JSON.parse(value) as T;
+        parsed = JSON.parse(value);
       } catch {
-        if (!this.reportedInvalidObjects.has(namespacedKey)) {
-          this.reportedInvalidObjects.add(namespacedKey);
-          console.warn('Could not parse workbench storage value.', { scope, key });
-        }
+        parsed = undefined;
+      }
+      // Valid JSON such as `null` or `5` is not an object either, so it gets the fallback too.
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed as T;
+      }
+      if (!this.reportedInvalidObjects.has(namespacedKey)) {
+        this.reportedInvalidObjects.add(namespacedKey);
+        console.warn('Could not parse workbench storage value as an object.', { scope, key });
       }
     }
     return fallbackValue;

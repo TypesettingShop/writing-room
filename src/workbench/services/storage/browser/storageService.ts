@@ -1,4 +1,6 @@
+import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
+import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IStorageDatabase, IStorageUpdate } from '../../../../base/parts/storage/common/storage.js';
 import { AbstractStorageService, parseStorageKey, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
 
@@ -10,11 +12,16 @@ export const STORAGE_SCHEMA_VERSION = 1;
 type StorageMigration = (draft: Map<string, string>) => undefined;
 const migrations = new Map<number, StorageMigration>();
 
-export function registerStorageMigration(fromVersion: number, migrate: StorageMigration): void {
+export function registerStorageMigration(fromVersion: number, migrate: StorageMigration): IDisposable {
   if (!Number.isSafeInteger(fromVersion) || fromVersion < 0 || migrations.has(fromVersion)) {
     throw new Error(`Invalid or duplicate storage migration from version ${fromVersion}.`);
   }
   migrations.set(fromVersion, migrate);
+  return toDisposable(() => {
+    if (migrations.get(fromVersion) === migrate) {
+      migrations.delete(fromVersion);
+    }
+  });
 }
 
 class LocalStorageDatabase implements IStorageDatabase {
@@ -99,13 +106,11 @@ class LocalStorageDatabase implements IStorageDatabase {
     if (area.getItem(STORAGE_VERSION_KEY) !== marker) {
       throw new Error('Workbench storage schema changed during migration.');
     }
-    const previous = new Map<string, string | null>();
+    const previous = (key: string) => items.get(key.slice(STORAGE_PREFIX.length)) ?? null;
     for (const key of changes.keys()) {
-      const expected = items.get(key.slice(STORAGE_PREFIX.length)) ?? null;
-      if (area.getItem(key) !== expected) {
+      if (area.getItem(key) !== previous(key)) {
         throw new Error('Workbench storage value changed during migration.');
       }
-      previous.set(key, expected);
     }
 
     const applied: string[] = [];
@@ -120,13 +125,19 @@ class LocalStorageDatabase implements IStorageDatabase {
       area.setItem(STORAGE_VERSION_KEY, this.versionText);
     } catch (error) {
       // Restore only this migration's writes while the schema marker still matches.
+      // A failed restore must not stop the others, and the migration's error is the one reported.
       for (const key of applied.reverse()) {
-        if (area.getItem(key) === changes.get(key) && area.getItem(STORAGE_VERSION_KEY) === marker) {
-          this.write(area, key, previous.get(key) ?? null);
+        try {
+          if (area.getItem(key) === changes.get(key) && area.getItem(STORAGE_VERSION_KEY) === marker) {
+            this.write(area, key, previous(key));
+          }
+        } catch {
+          // Keep restoring the remaining keys.
         }
       }
       throw error;
     }
+    // Migration callbacks may retain the draft. Keep it separate from the live cache.
     return new Map(draft);
   }
 
@@ -205,15 +216,15 @@ export class BrowserStorageService extends AbstractStorageService {
     const database = new LocalStorageDatabase(() => browserWindow.localStorage, schemaVersion);
     super(database);
     const document = browserWindow.document;
-    const onVisibilityChange = () => {
+    this.disposables.add(addDisposableListener(document, 'visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         void this.flush();
       }
-    };
-    const onPageHide = () => {
+    }));
+    this.disposables.add(addDisposableListener(browserWindow, 'pagehide', () => {
       void this.flush(WillSaveStateReason.SHUTDOWN);
-    };
-    const onStorage = (event: StorageEvent) => {
+    }));
+    this.disposables.add(addDisposableListener(browserWindow, 'storage', event => {
       try {
         const changes = database.readExternal(event);
         if (changes) {
@@ -231,15 +242,6 @@ export class BrowserStorageService extends AbstractStorageService {
       } catch (error) {
         this.storage.useMemory(error);
       }
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    browserWindow.addEventListener('pagehide', onPageHide);
-    browserWindow.addEventListener('storage', onStorage);
-    this.disposables.add(toDisposable(() => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      browserWindow.removeEventListener('pagehide', onPageHide);
-      browserWindow.removeEventListener('storage', onStorage);
     }));
 
     this.startIdleSave(save => {

@@ -19,7 +19,7 @@ export class Memento<T extends object> extends Disposable {
     let entry = this.scopes.get(scope);
     if (!entry) {
       const stored = this.storageService.getObject<Partial<T>>(this.key, scope);
-      const value = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+      const value = stored && !Array.isArray(stored) ? stored : {};
       entry = { value, target, lastSaved: JSON.stringify(value) };
       this.scopes.set(scope, entry);
     }

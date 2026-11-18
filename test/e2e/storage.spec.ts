@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures.js';
+import { collectPageErrors, expect, test } from './fixtures.js';
 
 const harness = '/test/harness/storage.html';
 
@@ -35,6 +35,8 @@ if (process.env.E2E_TARGET === 'preview') {
 
   test('shares independent writes across tabs and converges on the last write to the same key', async ({ page, context }) => {
     const second = await context.newPage();
+    // The pageErrors fixture watches only the first page.
+    const secondErrors = collectPageErrors(second);
     try {
       await Promise.all([openHarness(page), openHarness(second)]);
       const firstResult = page.getByRole('status');
@@ -49,6 +51,7 @@ if (process.env.E2E_TARGET === 'preview') {
       await expect(firstResult).toContainText('"state":"tab B last"');
       await page.reload();
       await expect(firstResult).toHaveText('{"state":"tab B last","other":"tab B","changes":[]}');
+      expect(secondErrors.errors, 'Second page errors and console errors').toEqual([]);
     } finally {
       await second.close();
     }

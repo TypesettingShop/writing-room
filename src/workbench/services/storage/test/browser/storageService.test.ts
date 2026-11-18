@@ -16,6 +16,16 @@ function storageEvent(key: string | null, newValue: string | null): void {
   window.dispatchEvent(new StorageEvent('storage', { key, newValue, storageArea: area }));
 }
 
+function failSetItem(...failing: string[]): void {
+  const original = window.Storage.prototype.setItem;
+  vi.spyOn(window.Storage.prototype, 'setItem').mockImplementation(function (this: globalThis.Storage, key, value) {
+    if (failing.includes(key)) {
+      throw new DOMException('Quota is full', 'QuotaExceededError');
+    }
+    original.call(this, key, value);
+  });
+}
+
 beforeEach(() => area.clear());
 
 afterEach(() => {
@@ -90,23 +100,26 @@ describe('schema', () => {
 
   test('runs versionless and older migrations in order once, preserving unrelated keys', () => {
     const calls: number[] = [];
+    let returnedDraft: Map<string, string> | undefined;
     const legacy = storageKey(scope, 'legacy');
     const current = storageKey(scope, 'current');
-    registerStorageMigration(1, draft => {
+    disposables.add(registerStorageMigration(1, draft => {
       calls.push(1);
+      returnedDraft = draft;
       draft.set(current, draft.get(legacy) + ' -> 2');
       draft.delete(legacy);
-    });
-    registerStorageMigration(0, draft => {
+    }));
+    disposables.add(registerStorageMigration(0, draft => {
       calls.push(0);
       draft.set(legacy, draft.get(legacy) + ' -> 1');
-    });
+    }));
     area.setItem(physicalKey('legacy'), 'start');
     area.setItem(physicalKey('unrelated'), 'keep');
 
     const migrated = disposables.add(new BrowserStorageService(window, 2));
     const second = disposables.add(new BrowserStorageService(window, 2));
     expect(calls).toEqual([0, 1]);
+    returnedDraft?.set(current, 'mutated draft');
     expect(migrated.get('legacy', scope)).toBeUndefined();
     expect(migrated.get('current', scope)).toBe('start -> 1 -> 2');
     expect(second.get('current', scope)).toBe('start -> 1 -> 2');
@@ -119,13 +132,13 @@ describe('schema', () => {
     area.setItem(STORAGE_VERSION_KEY, '4');
     area.setItem(physicalKey('saved'), 'original');
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    registerStorageMigration(4, draft => {
+    disposables.add(registerStorageMigration(4, draft => {
       draft.delete(storageKey(scope, 'saved'));
       draft.set(storageKey(scope, 'new'), 'partially migrated');
-    });
-    registerStorageMigration(5, () => {
+    }));
+    disposables.add(registerStorageMigration(5, () => {
       throw new Error('migration failed');
-    });
+    }));
 
     const storage = disposables.add(new BrowserStorageService(window, 6));
     expect(storage.get('saved', scope)).toBeUndefined();
@@ -140,23 +153,34 @@ describe('schema', () => {
     area.setItem(STORAGE_VERSION_KEY, '8');
     area.setItem(physicalKey('saved'), 'original');
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    registerStorageMigration(8, draft => {
+    disposables.add(registerStorageMigration(8, draft => {
       draft.set(storageKey(scope, 'new'), 'migrated');
       draft.delete(storageKey(scope, 'saved'));
-    });
-    const original = window.Storage.prototype.setItem;
-    vi.spyOn(window.Storage.prototype, 'setItem').mockImplementation(function (this: globalThis.Storage, key, value) {
-      if (key === STORAGE_VERSION_KEY) {
-        throw new DOMException('Quota is full', 'QuotaExceededError');
-      }
-      original.call(this, key, value);
-    });
+    }));
+    failSetItem(STORAGE_VERSION_KEY);
 
     const storage = disposables.add(new BrowserStorageService(window, 9));
     expect(storage.get('new', scope)).toBeUndefined();
     expect(area.getItem(physicalKey('saved'))).toBe('original');
     expect(area.getItem(physicalKey('new'))).toBeNull();
     expect(area.getItem(STORAGE_VERSION_KEY)).toBe('8');
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps restoring the other migration writes when one restore fails', () => {
+    area.setItem(STORAGE_VERSION_KEY, '10');
+    area.setItem(physicalKey('first'), 'one');
+    area.setItem(physicalKey('second'), 'two');
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    disposables.add(registerStorageMigration(10, draft => {
+      draft.delete(storageKey(scope, 'first'));
+      draft.delete(storageKey(scope, 'second'));
+    }));
+    failSetItem(STORAGE_VERSION_KEY, physicalKey('second'));
+
+    disposables.add(new BrowserStorageService(window, 11));
+    expect(area.getItem(physicalKey('first'))).toBe('one');
+    expect(area.getItem(STORAGE_VERSION_KEY)).toBe('10');
     expect(warning).toHaveBeenCalledTimes(1);
   });
 
@@ -290,6 +314,8 @@ describe('fallback and browser events', () => {
     vi.advanceTimersByTime(59_999);
     expect(save).toHaveBeenCalledTimes(1);
     storage.dispose();
+    // flush() is a no-op once disposed, so only the timer count shows that disposal cancelled the schedule.
+    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(120_000);
     expect(save).toHaveBeenCalledTimes(1);
   });

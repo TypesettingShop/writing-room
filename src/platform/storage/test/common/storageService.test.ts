@@ -48,6 +48,34 @@ describe('InMemoryStorageService', () => {
     expect(warning).toHaveBeenCalledTimes(2);
   });
 
+  test('reads back fractional numbers and gives the fallback for JSON that is not an object', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const storage = disposables.add(new InMemoryStorageService());
+    storage.store('fraction', 250.5, scope, target);
+    storage.store('large', 1e21, scope, target);
+    expect(storage.getNumber('fraction', scope, 0)).toBe(250.5);
+    expect(storage.getNumber('large', scope, 0)).toBe(1e21);
+
+    const fallback = { value: 'fallback' };
+    storage.store('null', 'null', scope, target);
+    storage.store('number', '5', scope, target);
+    expect(storage.getObject('null', scope, fallback)).toBe(fallback);
+    expect(storage.getObject('number', scope, fallback)).toBe(fallback);
+    expect(warning).toHaveBeenCalledTimes(2);
+  });
+
+  test('adds the change subscription to the store given to the returned event as well', () => {
+    const storage = disposables.add(new InMemoryStorageService());
+    const service = disposables.add(new DisposableStore());
+    const listenerStore = new DisposableStore();
+    const change = vi.fn();
+    storage.onDidChangeValue(scope, 'key', service)(change, undefined, listenerStore);
+    storage.store('key', 'one', scope, target);
+    listenerStore.dispose();
+    storage.store('key', 'two', scope, target);
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
   test('isolates equal keys across scopes and persists all removal paths synchronously', () => {
     const database = new InMemoryStorageDatabase();
     const storage = disposables.add(new InMemoryStorageService(database));
