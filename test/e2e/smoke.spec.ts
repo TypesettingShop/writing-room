@@ -1,11 +1,10 @@
 import { expect, test } from './fixtures.js';
 
 test('starts the workbench and renders a codicon glyph', async ({ appPage }) => {
-  const workbench = appPage.locator('.workbench');
-  await expect(workbench).toBeVisible();
-  await expect(workbench).toHaveText('Writing Room');
+  const title = appPage.locator('[id="workbench.parts.titlebar"]');
+  await expect(title.getByText('Writing Room', { exact: true })).toBeVisible();
 
-  const icon = workbench.locator('.codicon-edit');
+  const icon = title.locator('.codicon-edit');
   const rendered = await icon.evaluate(async element => {
     const { content, fontFamily } = getComputedStyle(element, '::before');
     const glyph = content.slice(1, -1).codePointAt(0) ?? 0;
