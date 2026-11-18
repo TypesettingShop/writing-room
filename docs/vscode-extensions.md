@@ -91,7 +91,7 @@ v0.1.0 범위 밖이므로 이름만 표기: 채팅, 세션, 노트북, 터미�
   - 이미 등록되어 있고 해당 이벤트 처리가 끝났다면(`activationEventIsDone`) 즉시 핸들러를 실행한다.
   - 등록되어 있으나 호스트가 아직 시작 전인 경우, 활성화 이벤트를 비동기로 보내면서 즉시 핸들러를 실행한다.
   - 등록되어 있고 호스트가 준비된 상태라면 활성화 이벤트 완료를 대기한 뒤 실행한다.
-  - 등록되어 있지 않은 경우, 활성화 이벤트 처리와 와일드카드 `*` 활성화(`_activateStar`, 최대 30초 대기), 그리고 커맨드 등록 이벤트(`CommandsRegistry.onDidRegisterCommand`)를 경합시켜 등록되는 즉시 실행한다.
+  - 등록되어 있지 않은 경우, 활성화 이벤트 처리와 함께 와일드카드 `*` 활성화(`_activateStar`, 최대 30초 대기)와 커맨드 등록 이벤트(`CommandsRegistry.onDidRegisterCommand`) 중 먼저 끝나는 쪽을 `Promise.all`로 기다린 뒤 실행을 시도한다. 그때도 등록되지 않았으면 `command '<id>' not found`로 거부된다.
 
 ### 3.3 호스트 쪽: `ExtensionsActivator`
 
@@ -180,7 +180,7 @@ VS Code가 각 실행 방식을 선택하는 기준:
 
 ### 5.2 `RPCProtocol`의 동작
 
-- `getProxy(identifier)`는 동적 JavaScript `Proxy` 객체를 반환한다. `_createProxy`는 속성명이 `$` 문자로 시작하는(`CharCode.DollarSign`) 멤버에 최초 접근할 때 비동기 함수를 생성하여 `_remoteCall(rpcId, name, args)`를 호출하도록 연결한다. 즉 Shape 인터페이스에서 `$` 접두사가 붙은 메서드만 원격 호출 대상이다.
+- `getProxy(identifier)`는 동적 JavaScript `Proxy` 객체를 반환한다. `_createProxy`는 속성명이 `$` 문자로 시작하는(`CharCode.DollarSign`) 멤버에 최초 접근할 때 비동기 함수를 생성하여 `_remoteCall(rpcId, name, args)`를 호출하도록 연결한다. 즉 Shape 인터페이스에서 `$` 접두사가 붙은 메서드만 원격 호출 대상이다. 단, 이 제한은 보내는 쪽 프록시에만 있다. 받는 쪽 `_doInvokeHandler`는 메서드 이름의 `$` 여부를 검사하지 않고, 액터에 그 이름의 함수가 있으면 호출한다.
 - `set(identifier, value)`는 로컬 구현체 인스턴스를 내부 맵인 `_locals[identifier.nid]`에 등록한다.
 - 수신 측에서는 `_receiveRequest`가 `_invokeHandler` 및 `_doInvokeHandler`를 거쳐 처리한다: `_locals[rpcId]`에서 구현체를 찾고 전달받은 메서드명을 호출하며, 누락 시 `Unknown actor ...` 또는 `Unknown method ... on actor ...` 에러를 반환한다. 요청의 마지막 인자가 취소 토큰인 경우 수신 측에서 `CancellationTokenSource` 객체로 역직렬화한다.
 - 메인 스레드 초기화: `src/vs/workbench/services/extensions/common/extensionHostManager.ts`의 `ExtensionHostManager`가 `new RPCProtocol(protocol, logger)`를 생성하고, `ExtHostCustomersRegistry.getNamedCustomers()`에 등록된 모든 customer 클래스를 인스턴스화하여 `this._rpcProtocol.set(id, instance)`로 등록한다. 이후 `assertRegistered(mainProxyIdentifiers)`를 호출하여 누락된 프록시가 있으면 `Missing proxy instance` 예외를 던진다.
@@ -230,11 +230,11 @@ VS Code가 각 실행 방식을 선택하는 기준:
 | 확장 목록 스캔 | 스캐너 서비스 | `scanUserExtensions(profileLocation)` | 내장 커스텀 확장(워크벤치 옵션의 `additionalBuiltinExtensions`)과 사용자 설치 목록을 병합하며, 동일한 id가 존재하면 사용자가 설치한 확장이 우선한다. 시스템 확장은 `scanSystemExtensions`에서 스캔한다([vscode-web-build.md](vscode-web-build.md)). |
 
 - 설치 목록은 `IStoredWebExtension` JSON 배열이며 `withWebExtensions(file, updateFn)`이 `IFileService`로 읽고 쓴다. 파일별 `Queue`(`getResourceAccessQueue`)가 동시 갱신을 직렬화하고, `location`, `identifier`, `version`이 없는 항목은 무시한다(`Ignoring invalid extension while scanning`). 파일은 `profileLocation`, 곧 프로필의 `extensionsResource`다. 브라우저에서 `IFileService`가 그 파일을 어디에 두는지는 [vscode-state-settings.md](vscode-state-settings.md)에 있다.
-- 웹 확장의 설치는 스크립트 본체를 영구 저장하는 것이 아니라 원격 엔드포인트 URL 메타데이터를 등록하는 방식이다. 따라서 워크벤치가 시작될 때마다 지정된 URL에서 매니페스트와 스크립트를 새로 가져오며, 해당 호스트가 다운되거나 CORS 정책이 변경되면 확장이 동작하지 않는다.
+- 웹 확장의 설치는 스크립트 본체를 영구 저장하는 것이 아니라 원격 URL과 메타데이터를 등록하는 방식이다. 매니페스트는 설치 목록 항목(`IStoredWebExtension.manifest`)에 함께 저장되므로(없으면 `migrateWebExtensions`가 채운다) 시작할 때 다시 받지 않는다. 확장 코드는 활성화할 때마다 `_loadCommonJSModule`이 그 URL에서 `fetch`하므로, 해당 호스트가 다운되거나 CORS 정책이 바뀌면 확장 코드가 동작하지 않는다.
 
 ### 6.3 매니페스트 유효성 검증
 
-- `src/vs/platform/extensions/common/extensionValidator.ts`의 `validateExtensionManifest(productVersion, productDate, extensionLocation, extensionManifest, extensionIsBuiltin)`는 `[Severity, message][]`를 돌려준다. `publisher`가 문자열이 아니거나, `name`이나 `version`이 문자열이 아니거나, `engines`가 없거나, `engines.vscode`가 문자열이 아니면 `Error`로 일찍 돌아온다. `isValidExtensionVersion`과 `isEngineValid`로 엔진 범위도 검사한다.
+- `src/vs/platform/extensions/common/extensionValidator.ts`의 `validateExtensionManifest(productVersion, productDate, extensionLocation, extensionManifest, extensionIsBuiltin)`는 `[Severity, message][]`를 돌려준다. `publisher`가 있는데 문자열이 아니거나(없으면 통과), `name`이나 `version`이 문자열이 아니거나, `engines`가 없거나, `engines.vscode`가 문자열이 아니면 `Error`로 일찍 돌아온다. `isValidExtensionVersion`과 `isEngineValid`로 엔진 범위도 검사한다.
 - 호출 지점: `WebExtensionsScannerService.toScannedExtension`(브라우저 환경 스캐너) 및 `src/vs/platform/extensionManagement/common/extensionsScannerService.ts`(데스크톱 환경 스캐너).
 - `toScannedExtension`에서 `Severity.Error`가 하나라도 있으면 메시지를 로그하고 `isValid`를 거짓으로 둔다. 확장은 나열되지만 실행되지 않는다. 내장 확장은 이를 거치지 않는다(`BuiltinExtensionsScannerService`에서 `validations: []`, `isValid: true`).
 - 주의할 동작 간극: `install` 시점에는 `name`과 `version` 필드만 검증하지만, 이후 확장을 로드하는 스캔 시점에는 `engines.vscode` 유효성을 추가로 강제한다. 따라서 `engines` 필드가 누락된 확장은 설치는 성공하지만 이후 유효하지 않은 확장으로 분류되어 실행되지 못한다.

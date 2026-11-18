@@ -35,7 +35,7 @@
 | 1 | `initServices` | 서비스 컬렉션 구성. `IWorkbenchLayoutService`로 자기 자신 등록. |
 | 2 | `initLayout` (`Layout`) | 파트와 서비스 참조 확보, `initLayoutState`로 `LayoutStateModel` 생성. 이 시점에 기본값과 저장값이 병합된다. |
 | 3 | 레지스트리 시작 | `IWorkbenchContributionsRegistry`, `IEditorFactoryRegistry`의 `start`, `WorkbenchContextKeysHandler` 생성. |
-| 4 | `renderWorkbench` | `monaco-workbench` 클래스와 플랫폼 클래스를 추가하고, 파트 목록을 순회하며 `createPart`로 컨테이너를 생성한 뒤 `getPart(id).create(container, options)`를 호출한다. 알림 핸들러를 생성하여 `parent`에 추가한다. |
+| 4 | `renderWorkbench` | `monaco-workbench` 클래스와 플랫폼 클래스를 추가하고, 파트 목록을 순회하며 `createPart`로 컨테이너를 생성한 뒤 `getPart(id).create(container, options)`를 호출한다. 알림 핸들러를 생성한 뒤 `mainContainer`를 `parent`에 추가한다. |
 | 5 | `createWorkbenchLayout` (`Layout`) | `createGridDescriptor`가 생성한 직렬화 그리드를 `SerializableGrid.deserialize`로 실체화하여 `mainContainer`의 맨 앞에 삽입(prepend)한다. |
 | 6 | `layout` (`Layout`) | 컨테이너 크기를 측정하여 `workbenchGrid.layout(width, height)` 호출. |
 | 7 | `restore` | `restoreParts`로 각 파트를 복원하고 라이프사이클을 `Restored` 단계로 전환한다(지연되는 에디터는 최대 2초 동안만 대기한다). |
@@ -44,7 +44,7 @@
 
 - `renderWorkbench`의 파트 목록 순서: 제목 표시줄, 배너, 액티비티 바, 사이드바, (채팅, 등록된 경우만), 에디터, 패널, 보조 사이드바, 상태 표시줄 순이다. 에디터에는 `options: { restorePreviousState: this.willRestoreEditors() }`가 전달된다.
 - `createPart(id, role, classes)`가 생성하는 DOM: `div`(상태 표시줄만 `footer`), `part` 클래스 및 파트별 클래스, `id = partId`, `role` 속성으로 구성된다. 역할(role)은 `renderWorkbench`가 결정한다: 제목 표시줄/액티비티 바/사이드바/패널은 `none`, 에디터는 `main`, 상태 표시줄은 `status`다.
-- 활성/사이드바 파트에는 `left`/`right` 클래스가 `getSideBarPosition()`으로, 패널에는 `positionToString(getPanelPosition())` 클래스가 붙는다.
+- 액티비티 바와 사이드바 파트에는 `left`/`right` 클래스가 `getSideBarPosition()`으로, 패널에는 `positionToString(getPanelPosition())` 클래스가 붙는다.
 - `createWorkbenchLayout`은 각 파트의 `onDidVisibilityChange`를 구독한다. 사이드바, 패널, 에디터가 자체적으로 표시되거나 숨겨지면 `setSideBarHidden`, `setPanelHidden`, `setEditorHidden`으로 상태 모델을 동기화한다. 이어서 `_onDidChangePartVisibility` 이벤트를 발생시킨다.
 - `createWorkbenchLayout`은 `storageService.onWillSaveState` 시점에 사이드바와 패널 크기를 `LayoutStateKeys.SIDEBAR_SIZE`, `PANEL_SIZE`에 덮어써 저장한다(숨겨진 상태라면 `getViewCachedVisibleSize` 값을 사용한다).
 
@@ -64,7 +64,7 @@ root (vertical branch)
 ```
 
 - 각 leaf의 `visible`은 `LayoutStateKeys.*_HIDDEN`의 부정(NOT) 값이다. 서술자 크기는 `getInitializationValue(SIDEBAR_SIZE / PANEL_SIZE)`에서 가져온다.
-- 에디터 leaf의 `size`는 처음에 0으로 설정되며, `arrangeMiddleSectionNodes`가 "전체 너비 - 액티비티 바 - 사이드바 - 패널 - 보조 사이드바"를 계산해 채운다.
+- 에디터 leaf의 `size`는 처음에 0으로 설정된다. 패널이 세로 위치(`LEFT`/`RIGHT`)면 `arrangeMiddleSectionNodes`가 "전체 너비 - 액티비티 바 - 사이드바 - 패널 - 보조 사이드바"로 채우고, 가로 위치(기본 `BOTTOM`)면 `arrangeEditorNodes`가 채운다: 옆에 붙는 노드가 없으면 패널을 뺀 높이, 있으면 에디터 구역 너비에서 옆에 붙은 사이드바와 보조 사이드바를 뺀 값이다.
 
 `arrangeMiddleSectionNodes`는 중간 섹션 내부의 배치를 결정한다(기준: `PANEL_POSITION`, `SIDEBAR_POSITON`, `PANEL_ALIGNMENT`).
 
@@ -124,7 +124,7 @@ root (vertical branch)
 | 패널 | `PanelPart` (`src/vs/workbench/browser/parts/panel/panelPart.ts`) | `AbstractPaneCompositePart` 상속. |
 | 상태 표시줄 | `MainStatusbarPart` (`src/vs/workbench/browser/parts/statusbar/statusbarPart.ts`) | 기본 클래스 `StatusbarPart`(비공개)가 `addEntry(entry, id, alignment, priority)`를 제공. |
 
-- 사이드바와 패널은 동일한 `AbstractPaneCompositePart` + `CompositePart`(`src/vs/workbench/browser/parts/compositePart.ts`) 구조다. 다른 점은 위치와 크기 제약뿐이며, 어느 뷰 컨테이너가 어디에 배치되는지는 뷰 컨테이너 위치(6절)가 결정한다.
+- 사이드바와 패널은 동일한 `AbstractPaneCompositePart` + `CompositePart`(`src/vs/workbench/browser/parts/compositePart.ts`) 구조다. 다른 점은 위치와 크기 제약뿐이며, 어느 뷰 컨테이너가 어디에 배치되는지는 뷰 컨테이너 위치(7절)가 결정한다.
 - 이 커밋의 파트 상속 구조는 `Part` -> `CompositePart` -> `AbstractPaneCompositePart` -> `SidebarPart`/`PanelPart`이며 액티비티 바, 상태 표시줄, 제목 표시줄은 `Part`를 직접 상속한다.
 
 ## 6. 엔진: 그리드, 분할 뷰, 새시
@@ -181,7 +181,7 @@ root (vertical branch)
 | 항목 | 기본값 | 출처 |
 | --- | --- | --- |
 | 사이드바 너비 | `Math.min(300, 창 너비 / 4)` | `LayoutStateModel`의 동적 기본값(`LayoutStateKeys.SIDEBAR_SIZE.defaultValue`) |
-| 패널 크기 | 가로 위치면 `창 높이 / 3`, 세로 위치면 `창 너비 / 4` | `LayoutStateKeys.PANEL_SIZE.defaultValue` |
+| 패널 크기 | 저장된 위치가 없으면(기본 `BOTTOM`) `창 높이 / 3`. 저장된 위치가 있으면 그 `Position` 숫자의 참거짓으로 고르므로 `LEFT`(0)만 `창 너비 / 4`이고 `RIGHT`·`BOTTOM`·`TOP`은 `창 높이 / 3` | `LayoutStateKeys.PANEL_SIZE.defaultValue`(`LayoutStateModel.load`) |
 | 패널 위치 | `bottom`(설정 `WorkbenchLayoutSettings.PANEL_POSITION`) | `LayoutStateKeys.PANEL_POSITION` |
 | 사이드바 위치 | `Position.LEFT`(레거시 설정 `LegacyWorkbenchLayoutSettings.SIDEBAR_POSITION`) | `LayoutStateKeys.SIDEBAR_POSITON` |
 | 사이드바 숨김 | 빈 창(`WorkbenchState.EMPTY`)이면 `true`, 아니면 `false` | `LayoutStateKeys.SIDEBAR_HIDDEN.defaultValue` |

@@ -126,7 +126,7 @@
 | --- | --- |
 | `this._environmentService.isBuilt` | `workbench.html` 또는 `workbench-dev.html` 파일 선택(`FileAccess.asFileUri`) |
 | `workbenchWebConfiguration` 객체 | `remoteAuthority`, `serverBasePath`, `_wrapWebWorkerExtHostInIframe`, `developmentOptions`, `enableWorkspaceTrust`, `folderUri`, `workspaceUri`, `productConfiguration`, `callbackRoute` 등의 설정을 JSON으로 직렬화하여 `WORKBENCH_WEB_CONFIGURATION`에 삽입 |
-| `_wrapWebWorkerExtHostInIframe` | 기본값은 `undefined`(기본 iframe 격리 유지), 스모크 테스트 드라이버 활성화(`enable-smoke-test-driver`) 시에만 `false` 설정. 이 플래그가 클라이언트 측 `webWorkerExtensionHost.ts`로 전달된다([vscode-extensions.md](vscode-extensions.md)) |
+| `_wrapWebWorkerExtHostInIframe` | 기본값은 `undefined`, 스모크 테스트 드라이버 활성화(`enable-smoke-test-driver`) 시에만 `false` 설정. 이 커밋에서 이 값은 `workbenchWebConfiguration`에 실릴 뿐 클라이언트 코드(`src/vs`)는 어디에서도 읽지 않는다. `WebWorkerExtensionHost`는 항상 iframe 안에서 Worker를 띄운다([vscode-extensions.md](vscode-extensions.md) 4.3절) |
 | 로케일 | 쿠키 `vscode.nls.locale` 또는 `accept-language`. 영어가 아니고 `nlsCoreBaseUrl`이 있으면 `createNlsUrl`로 `WORKBENCH_NLS_URL`을 채우고, 아니면 빈 문자열(폴백만 사용) |
 | `renderWorkbenchTemplate(template, values)` | HTML 내 `{{KEY}}` 토큰 치환: `WORKBENCH_WEB_CONFIGURATION`, `WORKBENCH_AUTH_SESSION`, `WORKBENCH_WEB_BASE_URL`, `WORKBENCH_NLS_URL`, `WORKBENCH_NLS_FALLBACK_URL`, `WORKBENCH_SCRIPT_NONCE`, 개발 시 `WORKBENCH_DEV_CSS_MODULES`, 테스트 리졸버 사용 시 `WORKBENCH_BUILTIN_EXTENSIONS` |
 | `createWorkbenchContentSecurityPolicy` | 요청마다 고유 스크립트 nonce를 포함하는 응답 헤더 `Content-Security-Policy` 생성 |
@@ -238,7 +238,7 @@ writing-room은 프레임워크 없는 TypeScript와 Vite를 기반으로 빌드
 
 - `create(domElement, options)`와 같은 "단일 실행 팩토리 + 경량 부트 셸" 아키텍처는 Vite 환경에서도 동일하게 유효한 구조다.
 - 임포트 부수 효과를 통한 서비스 등록 패턴은 번들러의 트리 셰이킹(tree-shaking) 과정에서 제거될 위험이 있으므로, 등록 모듈은 `package.json`의 `sideEffects` 필드에 명시하거나 최상위 엔트리에서 직접 임포트하여 보존해야 한다.
-- 워크벤치 데이터 저장은 IndexedDB(`vscode-web-db`)를 기반으로 한다. 본 사실은 2.4절에 기술되어 있으며 세부 아키텍처는 [vscode-state-settings.md](vscode-state-settings.md)를 참조한다. v0.1.0의 스토리지 구현 결정 시 본 문서의 `registerIndexedDBFileSystemProviders` 구조를 근거로 삼는다.
+- VS Code 웹은 IndexedDB 두 곳에 데이터를 둔다: UI 상태는 `IStorageService`의 `vscode-web-state-db-*`(`BrowserStorageService`), `settings.json` 같은 사용자 데이터 파일은 2.4절의 `registerIndexedDBFileSystemProviders`가 만드는 `vscode-web-db`다. 세부는 [vscode-state-settings.md](vscode-state-settings.md)를 참조한다. v0.1.0은 wr-cla6의 결정대로 워크벤치 상태를 `IStorageService` 뒤의 `localStorage`에 두므로, 이 차이는 [architecture.md](architecture.md)의 `### Storage and settings`에 기록한다.
 
 ## 7. 확인하지 못해 서술하지 않은 것
 

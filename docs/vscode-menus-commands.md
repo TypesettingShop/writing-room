@@ -46,7 +46,7 @@
 | 커맨드가 등록되어 있고 `activationEvent`(`onCommand:<id>`)가 이미 완료 | `_tryExecuteCommand`를 즉시 호출 |
 | 커맨드가 등록되어 있으나 확장 호스트가 아직 준비되지 않은 경우(`_extensionHostIsReady` false) | `activateByEvent` 완료를 기다리지 않고 비동기로 요청을 보낸 뒤 즉시 실행한다. |
 | 커맨드가 등록되어 있고 확장 호스트가 준비된 경우 | `activateByEvent(onCommand:<id>)` 완료를 대기한 뒤 실행한다(확장이 커맨드를 가로채거나 재정의할 기회를 제공). |
-| 커맨드가 등록되어 있지 않은 경우 | `onCommand:<id>` 활성화 + `*` 활성화(`_activateStar`, 최대 30초 대기)와 `onDidRegisterCommand` 이벤트 중 먼저 발생하는 쪽과 경합한 뒤, 등록이 확인되면 실행한다. |
+| 커맨드가 등록되어 있지 않은 경우 | `onCommand:<id>` 활성화와, `*` 활성화(`_activateStar`, 최대 30초 대기)와 `onDidRegisterCommand` 이벤트 중 먼저 끝나는 쪽을 `Promise.all`로 함께 기다린 뒤 `_tryExecuteCommand`를 호출한다. 그때도 등록되지 않았으면 `not found` 에러로 거부된다. |
 | `_tryExecuteCommand` | 커맨드가 없으면 `command '<id>' not found` 에러로 거부(reject)한다. 존재하면 `onWillExecuteCommand` 발생 -> `instantiationService.invokeFunction(command.handler, ...args)` 실행 -> `onDidExecuteCommand` 발생 순으로 처리한다. 동기 예외는 reject 처리된다. |
 
 - 이 서비스는 생성자에서 `IExtensionService`를 주입받아 `whenInstalledExtensionsRegistered`, `activationEventIsDone`, `activateByEvent`를 호출한다(확장 호스트 세부 내용은 [vscode-extensions.md](vscode-extensions.md) 참조).

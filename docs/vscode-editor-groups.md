@@ -15,7 +15,7 @@
 | 탭 | `EditorTitleControl`, `MultiEditorTabsControl` | `editorTitleControl.ts`, `multiEditorTabsControl.ts` (동일 `browser/parts/editor/`) | 탭 줄 렌더링, 탭 드래그 처리 |
 | 입력 | `EditorInput` | `src/vs/workbench/common/editor/editorInput.ts` | 열 대상의 명세(리소스, 이름, 더티 상태, 기능 비트) |
 | 페인 | `EditorPane`, `EditorPanes` | `editorPane.ts`, `editorPanes.ts` | 입력을 렌더링하는 위젯 및 전환 처리 |
-| 드롭 | `EditorDropTarget`, `DropOverlay` | `editorDropTarget.ts` | 그룹 상단 드래그 영역 표시 및 드롭 처리 |
+| 드롭 | `EditorDropTarget`, `DropOverlay` | `editorDropTarget.ts` | 그룹 위로 드래그할 때의 드롭 영역 표시와 드롭 처리 |
 
 ## 1. 그룹 컨테이너: `EditorPart`
 
@@ -32,7 +32,7 @@
 | `removeGroup(group, preserveFocus?)` | 그룹이 하나뿐이면 아무 작업도 하지 않는다(마지막 루트 그룹은 삭제 불가). 비어 있으면 `doRemoveEmptyGroup`: 활성 그룹이었다면 `getGroups(GroupsOrder.MOST_RECENTLY_ACTIVE)[1]`을 활성화하고 `gridWidget.removeView` 후 dispose한다. 에디터가 남아 있으면 `doRemoveGroupWithEditors`: 최근 활성 그룹으로 `mergeGroup`한 뒤 비워진 그룹을 제거한다. |
 | `moveGroup(group, location, direction)` | 동일 파트 내 이동이면 `gridWidget.moveView`, 다른 파트 간 이동이면 대상 파트에 `addGroup(..., sourceView)`로 복사한 뒤 원본을 닫고 제거한다. 자기 자신 안으로 이동하려 하면 `Error`가 발생한다. 다른 파트로 이동할 때 `vetoGroupTransfer`가 거부하면 변경이 취소된다. |
 | `copyGroup` | `addGroup(locationView, direction, groupView)`. 모델이 `clone()`되어 동일한 입력을 공유한다. |
-| `mergeGroup(group, target, options?)` | 원본 에디터들을 `IMergeGroupOptions`(`mode`, `index`, `preserveExistingIndex`, `preserveFocus`)에 따라 대상 그룹으로 `moveEditors`/`copyEditors`한다. 대상 그룹에 이미 고정(sticky)된 에디터가 있으면 `index`를 비워 상태를 유지한다. 원본이 비워지면 `removeGroup`을 호출한다. `mergeAllGroups`는 모든 그룹을 병합한다. |
+| `mergeGroup(group, target, options?)` | 원본 에디터들을 `IMergeGroupOptions`(`mode`, `index`, `preserveExistingIndex`, `preserveFocus`)에 따라 대상 그룹으로 `moveEditors`/`copyEditors`한다. 옮기는 에디터가 대상 그룹에 이미 있고 거기서 고정(sticky) 상태이면(또는 `preserveExistingIndex`가 참이면) 그 에디터에만 `index`를 주지 않아 고정 상태를 잃지 않게 한다. 원본이 비워지면 `removeGroup`을 호출한다. `mergeAllGroups`는 모든 그룹을 병합한다. |
 | `activateGroup(group, preserveWindowOrder?, reason?)` | `doSetGroupActive`가 활성 그룹과 최근 활성 목록(`mostRecentActiveGroups`)을 갱신하고, 창을 앞으로(`hostService.moveTop`) 올린다(`preserveWindowOrder`가 아니면) |
 | `arrangeGroups`, `setGroupOrientation`, `applyLayout`/`getLayout`, `centerLayout` | 최대화/확장/균등 분배, 루트 방향 전환, `EditorGroupLayout` 적용/조회, 가운데 정렬 레이아웃(`CenteredViewLayout`) 적용. |
 | `findGroup(scope, source, wrap)`, `getGroups(order)` | `IFindGroupScope`의 방향/위치로 인접 그룹 탐색, `GroupsOrder`(생성 순/최근 활성/그리드 순)에 따른 그룹 목록 반환. |
@@ -139,8 +139,17 @@
 ```text
 가장자리 임계: 에디터 드래그는 폭/높이의 10%. 그룹 드래그는 선호 방향 쪽을 30%로 넓힘.
 가장자리 안쪽(중앙): 분할 없음 = MERGE (splitsOnly면 가장 가까운 변으로 분할)
+가장자리 띠 안에서는 아래 그림대로 방향을 정한다.
 
-splitting 선호 = 가로(기본, openSideBySideDirection != 'right')
+splitting 선호 = 세로(기본값, openSideBySideDirection === 'right')
+ +--------+-----------+--------+
+ |        | SPLIT UP  |        |  x가 가운데 1/3: y < 높이/2 -> UP
+ | SPLIT  +-----------+ SPLIT  |
+ | LEFT   |   MERGE   | RIGHT  |  x < 폭/3 -> LEFT, x > 폭*2/3 -> RIGHT
+ |        | SPLIT DOWN|        |
+ +--------+-----------+--------+
+
+splitting 선호 = 가로(openSideBySideDirection === 'down')
  +-----------------------------+
  |           SPLIT UP          |  y < 높이/3
  +------------+-------+--------+
@@ -149,17 +158,11 @@ splitting 선호 = 가로(기본, openSideBySideDirection != 'right')
  +------------+-------+--------+
  |          SPLIT DOWN         |  y > 높이*2/3
  +-----------------------------+
-
-splitting 선호 = 세로(`openSideBySideDirection === 'right'`)
- +--------+-----------+--------+
- |        | SPLIT UP  |        |  x가 가운데 1/3: y < 높이/2 -> UP
- | SPLIT  +-----------+ SPLIT  |
- | LEFT   |   MERGE   | RIGHT  |  x < 폭/3 -> LEFT, x > 폭*2/3 -> RIGHT
- |        | SPLIT DOWN|        |
- +--------+-----------+--------+
 ```
 
 (위 그림은 `getSplitDirection` 내부 주석의 도식을 본 문서 표기에 맞춰 요약한 것이다. 원본 구현은 해당 함수 코드를 참조한다.)
+
+- 선호 방향은 `DropOverlay.positionOverlay`가 `partOptions.openSideBySideDirection === 'right'`로 정해 `preferSplitVertically`로 넘긴다. 설정 `workbench.editor.openSideBySideDirection`의 기본값은 `right`(`src/vs/workbench/browser/parts/editor/editor.ts`의 `DEFAULT_EDITOR_PART_OPTIONS`)이므로 기본 동작은 위쪽 그림이다.
 
 - 오버레이는 탭 줄 하단 영역만 덮는다: `getDropAreaOffsetHeight`는 에디터가 존재하고 `showTabs === 'multiple'`일 때 `titleHeight.offset` 높이를 제외한다.
 - 드롭 실행 `DropOverlay.handleDrop`: 분할 동작일 경우 `ensureTargetGroup`이 `editorGroupService.addGroup(groupView, splitDirection)`를 호출한다(그룹 드래그 시 복사면 `copyGroup`, 이동이면 `moveGroup`, 병합은 `mergeGroup`). 소스 그룹의 마지막 에디터를 이동하며 `closeEmptyGroups` 설정이 켜져 있고 분할인 경우, 에디터 개별 이동 대신 `moveGroup`으로 그룹 전체를 통째로 이전하는 최적화를 수행한다. 그 외의 경우에는 `sourceGroup.moveEditors/copyEditors(prepareMoveCopyEditors(...), targetGroup)`를 호출한다. 마지막으로 대상 그룹에 포커스를 맞춘다.

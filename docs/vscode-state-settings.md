@@ -108,11 +108,11 @@ VS Code가 UI 상태(어떤 파트가 표시되는지, 어떤 에디터가 열�
 | 상태 종류 | 키 또는 심볼 | 스코프 / 타깃 | 저장 방식 | 관련 소스 파일 |
 | --- | --- | --- | --- | --- |
 | 레이아웃: 파트 표시 여부, 위치, 크기, 중앙 정렬 | `workbench.<name>` 키 집합(3절 참조) | 키별 상이 | `LayoutStateModel.save`가 `onWillSaveState`에서 일괄 저장 | `src/vs/workbench/browser/layout.ts` |
-| 에디터 파트: 그리드 레이아웃, 활성 그룹, 그룹 최근 사용 순서 | memento `editorpart.state`(`IEditorPartUIState`: `serializedGrid`, `activeGroup`, `mostRecentActiveGroups`) | `WORKSPACE` / `USER` | `EditorPart.saveState`가 `createState()`를 생성해 memento에 기록 | `src/vs/workbench/browser/parts/editor/editorPart.ts` |
-| 에디터 중앙 정렬 모드 | memento `editorpart.centeredview` | `PROFILE` / `MACHINE` | `EditorPart.saveState`에서 저장. 기본값이면 키 삭제 | 같은 파일 |
+| 에디터 파트: 그리드 레이아웃, 활성 그룹, 그룹 최근 사용 순서 | 스토리지 키 `memento/workbench.parts.editor`(`Component` id가 `Parts.EDITOR_PART`)의 속성 `editorpart.state`(`IEditorPartUIState`: `serializedGrid`, `activeGroup`, `mostRecentActiveGroups`) | `WORKSPACE` / `USER` | `EditorPart.saveState`가 `createState()`를 생성해 memento에 기록 | `src/vs/workbench/browser/parts/editor/editorPart.ts` |
+| 에디터 중앙 정렬 모드 | 같은 키 `memento/workbench.parts.editor`의 `PROFILE` 쪽 속성 `editorpart.centeredview` | `PROFILE` / `MACHINE` | `EditorPart.saveState`에서 저장. 기본값이면 속성 삭제 | 같은 파일 |
 | 각 에디터 그룹 내 열린 에디터 목록 및 탭 순서 | `ISerializedEditorGroupModel`(`id`, `locked`, `editors`, `mru`, `preview`, `sticky`)이 `serializedGrid`의 리프 노드에 직렬화 포함 | `editorpart.state`에 포함 | `EditorGroupView.toJSON`이 `EditorGroupModel.serialize()` 호출 | `src/vs/workbench/browser/parts/editor/editorGroupView.ts`, `src/vs/workbench/common/editor/editorGroupModel.ts` |
 | 에디터 최근 열림 순서(전역 MRU) | 키 `editors.mru` | `WORKSPACE` / `MACHINE` | `EditorsObserver.saveState`가 `onWillSaveState`에서 직접 저장 | `src/vs/workbench/browser/parts/editor/editorsObserver.ts` |
-| 개별 에디터 뷰 상태(커서 위치, 스크롤 위치) | `EditorMemento`가 페인 memento 내부에 최대 10개(`limit`)까지 LRU 캐싱 | `WORKSPACE` / `MACHINE` | `EditorPane.saveState`, `AbstractEditorWithViewState.saveState` | `src/vs/workbench/browser/parts/editor/editorPane.ts`, `editorWithViewState.ts` |
+| 개별 에디터 뷰 상태(커서 위치, 스크롤 위치) | `EditorMemento`가 페인 memento 내부에 LRU 캐싱. `getEditorMemento`의 `limit` 기본값은 10이지만, 커서와 스크롤을 저장하는 `AbstractEditorWithViewState`는 100으로 만든다 | `WORKSPACE` / `MACHINE` | `EditorPane.saveState`, `AbstractEditorWithViewState.saveState` | `src/vs/workbench/browser/parts/editor/editorPane.ts`, `editorWithViewState.ts` |
 | 뷰 컨테이너 및 뷰 사용자 재배치 위치 | 키 `views.customizations`(`IViewsCustomizations`: `viewContainerLocations`, `viewLocations`, `viewContainerBadgeEnablementStates`) | `PROFILE` / `USER` | UI 드래그 변경 즉시 `setStoredViewCustomizationsValue` 호출 | `src/vs/workbench/services/views/browser/viewDescriptorService.ts` |
 | 사이드바 및 패널의 마지막 활성 뷰 컨테이너 id | 키 `workbench.sidebar.activeviewletid`(`SidebarPart.activeViewletSettingsKey`), `workbench.panelpart.activepanelid`(`PanelPart.activePanelSettingsKey`) | `WORKSPACE` / `MACHINE` | 컴포지트 전환 시 `CompositePart.showComposite`가 즉시 저장. 기본 컴포지트면 키 삭제 | `src/vs/workbench/browser/parts/compositePart.ts`, `sidebar/sidebarPart.ts`, `panel/panelPart.ts` |
 | 액티비티 바 고정/숨김 상태 | `PaneCompositeBar`의 `pinnedViewContainersKey`, `placeholderViewContainersKey`, `viewContainersWorkspaceStateKey` 설정 키 | `PROFILE`(고정은 `USER`, 플레이스홀더는 `MACHINE`), 워크스페이스 상태는 `WORKSPACE` | 사용자 핀 변경 즉시 | `src/vs/workbench/browser/parts/paneCompositeBar.ts` |
@@ -120,7 +120,7 @@ VS Code가 UI 상태(어떤 파트가 표시되는지, 어떤 에디터가 열�
 
 - 에디터 직렬화 요건: 에디터 입력이 새로고침 후 복원되려면 각 `EditorInput` 클래스마다 `IEditorSerializer`(`canSerialize`, `serialize`, `deserialize`)를 `Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer`로 등록해야 한다. 인터페이스 정의는 `src/vs/workbench/common/editor.ts`에 있으며, 대표 등록 예시는 `src/vs/workbench/browser/parts/editor/editor.contribution.ts`(`UntitledTextEditorInputSerializer`, `SideBySideEditorInputSerializer`, `DiffEditorInputSerializer`)에 있다.
 - `EditorGroupModel.serialize`는 직렬화기가 등록되어 있지 않거나, `canSerialize`가 거짓을 반환하거나, `serialize` 결과가 유효한 문자열이 아닌 에디터를 직렬화에서 제외하고, 이에 맞춰 `mru`, `preview`, `sticky` 인덱스를 재계산한다. 즉 복원할 수 없는 비영속 에디터는 재시작 시 MRU 순서에서도 자연스럽게 누락된다.
-- 에디터 파트에 열린 에디터가 하나도 없으면(`isEmpty`) `editorpart.state` memento를 삭제한다. 복원 로직(`doCreateGridControlWithPreviousState`)은 `loadState()`로부터 유효한 `serializedGrid`가 읽힐 때만 그리드를 복원하며, 파싱 에러 발생 시 로그를 남기고 빈 그룹 상태로 초기화한다.
+- 에디터 파트에 열린 에디터가 하나도 없으면(`isEmpty`) memento에서 `editorpart.state` 속성을 삭제한다. 복원 로직(`doCreateGridControlWithPreviousState`)은 `loadState()`로부터 유효한 `serializedGrid`가 읽힐 때만 그리드를 복원하며, 파싱 에러 발생 시 로그를 남기고 빈 그룹 상태로 초기화한다.
 - 에디터 파트는 `onDidChangeMementoValue(StorageScope.WORKSPACE)` 이벤트를 구독한다. 외부 탭(`e.external`)에서 워크스페이스 상태 변경 이벤트가 수신되면 `reloadMemento` 후 `applyState`를 실행해 타 창의 레이아웃을 반영한다. 단, 1.3절에서 확인했듯 브라우저 환경에서는 `WORKSPACE` 데이터베이스의 브로드캐스트가 비활성화되어 있으므로 실제 웹 환경에서는 이 분기가 실행되지 않는다(데스크톱 다중 창 환경을 위한 코드).
 
 ### 2.3 레이아웃 상태: `LayoutStateModel`과 `LayoutStateKeys`
@@ -130,7 +130,7 @@ VS Code가 UI 상태(어떤 파트가 표시되는지, 어떤 에디터가 열�
 **키 분류**
 
 - `RuntimeStateKey`: 런타임에 수시로 변경되며 `getRuntimeValue`/`setRuntimeValue`로 접근한다.
-- `InitializationStateKey`: 시작할 때만 값이 쓰이고(`getInitializationValue`), 저장 직전에 `onWillSaveState`에서 현재 그리드 크기를 읽어 `setInitializationValue`로 갱신한다. 파트 크기 세 개(`SIDEBAR_SIZE`, `PANEL_SIZE`, `AUXILIARYBAR_SIZE`)가 이 종류다.
+- `InitializationStateKey`: 시작할 때만 값이 쓰이고(`getInitializationValue`), 저장 직전에 `onWillSaveState`에서 현재 그리드 크기를 읽어 `setInitializationValue`로 갱신한다. 파트 크기 세 개(`SIDEBAR_SIZE`, `PANEL_SIZE`, `AUXILIARYBAR_SIZE`)와 `AUXILIARYBAR_EMPTY`가 이 종류다.
 
 **여섯 파트와 직접 연관된 레이아웃 키 목록**
 
@@ -147,7 +147,7 @@ VS Code가 UI 상태(어떤 파트가 표시되는지, 어떤 에디터가 열�
 | `PANEL_POSITION` | `panel.position` | `WORKSPACE` / `MACHINE` | 설정 `workbench.panel.defaultLocation` 우선, 미설정 시 `Position.BOTTOM` |
 | `PANEL_ALIGNMENT` | `panel.alignment` | `PROFILE` / `USER` | `'center'` |
 | `SIDEBAR_SIZE` | `sideBar.size` | `PROFILE` / `MACHINE` | `Math.min(300, 창 너비 / 4)`(창 로드 시 동적 계산) |
-| `PANEL_SIZE` | `panel.size` | `PROFILE` / `MACHINE` | 패널이 가로 모드면 `창 높이 / 3`, 세로 모드면 `창 너비 / 4` |
+| `PANEL_SIZE` | `panel.size` | `PROFILE` / `MACHINE` | 저장된 위치가 없으면(기본 `BOTTOM`) `창 높이 / 3`. 저장된 `Position` 숫자의 참거짓으로 고르므로 `LEFT`(0)만 `창 너비 / 4`, 나머지는 `창 높이 / 3` |
 | `PANEL_LAST_NON_MAXIMIZED_HEIGHT`, `PANEL_LAST_NON_MAXIMIZED_WIDTH`, `PANEL_WAS_LAST_MAXIMIZED` | `panel.lastNonMaximizedHeight` 등 | 앞 둘 `PROFILE`, 마지막 `WORKSPACE` / `MACHINE` | 300, 300, `false` |
 | `MAIN_EDITOR_CENTERED` | `editor.centered` | `WORKSPACE` / `MACHINE` | `false` |
 | `ZEN_MODE_ACTIVE`, `ZEN_MODE_EXIT_INFO` | `zenMode.active`, `zenMode.exitInfo` | `WORKSPACE` / `MACHINE` | `false`, 젠 모드 이전 레이아웃 복원 정보 객체 |
