@@ -1,16 +1,9 @@
-import { expect, test } from './fixtures.js';
+import { box, drag, expect, renderedText, test } from './fixtures.js';
 import type { Locator, Page } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
 });
-
-/** The text Monaco renders in a pane, with its non-breaking spaces made plain. */
-async function renderedText(pane: Locator): Promise<string> {
-  const lines = pane.locator('.monaco-editor .view-lines');
-  const text = await lines.count() ? await lines.first().innerText() : '';
-  return text.replaceAll(' ', ' ');
-}
 
 const groups = (page: Page) => page.locator('[data-group-id]');
 const group = (page: Page, index = 0) => groups(page).nth(index);
@@ -24,16 +17,11 @@ async function newTextFile(page: Page): Promise<void> {
 /** Opens a new untitled editor in the active group and types into it. */
 async function openAndType(page: Page, text?: string): Promise<void> {
   await newTextFile(page);
-  await expect(textbox(page.locator('[data-group-id]').first())).toBeFocused();
+  // The first editor waits for Monaco to load, which a cold dev server under a full run can take a while over.
+  await expect(textbox(page.locator('[data-group-id]').first())).toBeFocused({ timeout: 20_000 });
   if (text !== undefined) {
     await page.keyboard.type(text);
   }
-}
-
-async function box(locator: Locator) {
-  const bounds = await locator.boundingBox();
-  expect(bounds).not.toBeNull();
-  return bounds!;
 }
 
 test('New Text File adds a focused, dirty-on-typing tab', async ({ appPage: page }) => {
@@ -44,7 +32,7 @@ test('New Text File adds a focused, dirty-on-typing tab', async ({ appPage: page
   await newTextFile(page);
   const tab = g.getByRole('tab', { name: 'Untitled-1' });
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await expect(textbox(g)).toBeFocused();
+  await expect(textbox(g)).toBeFocused({ timeout: 20_000 });
   await expect(tab).not.toHaveAccessibleDescription('Modified');
   await page.keyboard.type('hello');
   await expect(tab).toHaveAccessibleDescription('Modified');
@@ -149,12 +137,6 @@ test('dragging the sash respects the minimum width and the editor follows its gr
   const [left, right] = [group(page, 0), group(page, 1)];
   await expect.poll(() => renderedText(right)).toBe('wide');
 
-  const drag = async (fromX: number, toX: number, y: number) => {
-    await page.mouse.move(fromX, y);
-    await page.mouse.down();
-    await page.mouse.move(toX, y, { steps: 8 });
-    await page.mouse.up();
-  };
   const sync = async (pane: Locator) => {
     await expect(async () => {
       const [g, m] = [await box(pane), await box(pane.locator('.monaco-editor').first())];
@@ -164,7 +146,7 @@ test('dragging the sash respects the minimum width and the editor follows its gr
 
   const start = await box(left);
   const y = start.y + start.height / 2;
-  await drag(start.x + start.width, 0, y);
+  await drag(page, start.x + start.width, y, 0, y);
   const l1 = await box(left);
   const r1 = await box(right);
   expect(l1.width).toBeGreaterThanOrEqual(220);
@@ -173,7 +155,7 @@ test('dragging the sash respects the minimum width and the editor follows its gr
   await sync(left);
   await sync(right);
 
-  await drag(l1.x + l1.width, 1279, y);
+  await drag(page, l1.x + l1.width, y, 1279, y);
   const r2 = await box(right);
   expect(r2.width).toBeGreaterThanOrEqual(220);
   expect(r2.width).toBeLessThan(r1.width);

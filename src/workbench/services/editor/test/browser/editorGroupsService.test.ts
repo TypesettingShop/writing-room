@@ -15,7 +15,7 @@ import { ServiceCollection } from '../../../../../platform/instantiation/common/
 import { Registry } from '../../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../../browser/editor.js';
-import { setEditorPartOptionsProvider } from '../../../../browser/parts/editor/editor.js';
+import { DEFAULT_EDITOR_PART_OPTIONS, getEditorPartOptions, setEditorPartOptionsProvider } from '../../../../browser/parts/editor/editor.js';
 import { EditorPane } from '../../../../browser/parts/editor/editorPane.js';
 import { EditorPart } from '../../../../browser/parts/editor/editorPart.js';
 import type { IEditorCommandsContext } from '../../../../common/editor.js';
@@ -203,6 +203,27 @@ describe('the grid of groups', () => {
     expect(() => part.moveGroup(first, first, GroupDirection.LEFT)).toThrow();
   });
 
+  test('a group found by direction is the most recently active of the groups along that edge', () => {
+    const left = part.activeGroup;
+    const top = part.addGroup(left, GroupDirection.RIGHT);
+    const bottom = part.addGroup(top, GroupDirection.DOWN);
+    part.activateGroup(bottom);
+    part.activateGroup(left);
+    expect(part.findGroup({ direction: GroupDirection.RIGHT }, left)).toBe(bottom);
+    part.activateGroup(top);
+    part.activateGroup(left);
+    expect(part.findGroup({ direction: GroupDirection.RIGHT }, left)).toBe(top);
+  });
+
+  test('options providers can be disposed in any order, and a disposed one never comes back', () => {
+    const first = setEditorPartOptionsProvider(() => ({ closeEmptyGroups: false }));
+    const second = setEditorPartOptionsProvider(() => ({ splitSizing: 'split' }));
+    first.dispose();
+    expect(getEditorPartOptions()).toMatchObject({ closeEmptyGroups: true, splitSizing: 'split' });
+    second.dispose();
+    expect(getEditorPartOptions()).toEqual(DEFAULT_EDITOR_PART_OPTIONS);
+  });
+
   test('groups come in creation, recent-use and grid order', () => {
     const first = part.activeGroup;
     const third = part.addGroup(first, GroupDirection.RIGHT);
@@ -342,6 +363,40 @@ describe('editors in groups', () => {
     expect(a.isDisposed()).toBe(false);
   });
 
+  test('moving the focused active editor out leaves focus with it, not with the editor behind it', async () => {
+    const first = part.activeGroup;
+    const [a, b] = await open(first, 'a', 'b');
+    const second = part.addGroup(first, GroupDirection.RIGHT);
+    part.activateGroup(first);
+    const sourcePane = first.activeEditorPane as BaseTestPane;
+    sourcePane.element.tabIndex = -1;
+    sourcePane.element.focus();
+    const sourceFocused = sourcePane.focused;
+
+    first.moveEditor(b, second);
+    expect(first.activeEditor).toBe(a);
+    expect(part.activeGroup).toBe(second);
+    // Focus left the source at once: a source pane still loading `a` would otherwise take it back.
+    expect(second.element.contains(document.activeElement)).toBe(true);
+    expect(sourcePane.focused).toBe(sourceFocused);
+    expect((second.activeEditorPane as BaseTestPane).focused).toBe(1);
+  });
+
+  test('when an editor\'s group becomes active, listeners already see the pane that shows it', async () => {
+    const first = part.activeGroup;
+    await open(first, 'a');
+    const second = part.addGroup(first, GroupDirection.RIGHT);
+    await second.openEditor(new TestInput('x'), { preserveFocus: true });
+    part.activateGroup(first);
+    const seen: (EditorInput | undefined)[] = [];
+    part.onDidActiveEditorChange(() => seen.push(part.activeGroup.activeEditorPane?.input));
+
+    const other = new TestInput('other', OTHER_INPUT_ID);
+    await second.openEditor(other);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every(input => input === other)).toBe(true);
+  });
+
   test('moving the last editor out removes its group without disposing the editor', async () => {
     const first = part.activeGroup;
     const second = part.addGroup(first, GroupDirection.RIGHT);
@@ -429,18 +484,23 @@ describe('state, context keys and commands', () => {
     const first = part.activeGroup;
     expect(context.getContextKeyValue('editorIsOpen')).toBe(false);
     expect(context.getContextKeyValue('activeEditor')).toBeNull();
-    expect(first.scopedContextKeyService.getContextKeyValue('activeEditorGroupEmpty')).toBe(true);
+    expect(context.getContextKeyValue('activeEditorGroupEmpty')).toBe(true);
 
     await open(first, 'a', 'b');
     expect(context.getContextKeyValue('editorIsOpen')).toBe(true);
     expect(context.getContextKeyValue('activeEditor')).toBe(PANE_ID);
     expect(first.scopedContextKeyService.getContextKeyValue('groupEditorsCount')).toBe(2);
-    expect(first.scopedContextKeyService.getContextKeyValue('activeEditorGroupEmpty')).toBe(false);
+    expect(context.getContextKeyValue('activeEditorGroupEmpty')).toBe(false);
 
     const second = part.addGroup(first, GroupDirection.RIGHT);
     expect(context.getContextKeyValue('multipleEditorGroups')).toBe(true);
     part.activateGroup(second);
     expect(context.getContextKeyValue('activeEditor')).toBeNull();
+    // As in VS Code, the key tells about the active group wherever focus is, not about the group it is read in.
+    expect(context.getContextKeyValue('activeEditorGroupEmpty')).toBe(true);
+    expect(first.scopedContextKeyService.getContextKeyValue('activeEditorGroupEmpty')).toBe(true);
+    part.activateGroup(first);
+    expect(context.getContextKeyValue('activeEditorGroupEmpty')).toBe(false);
     part.removeGroup(second);
     expect(context.getContextKeyValue('multipleEditorGroups')).toBe(false);
     expect(context.getContextKeyValue('activeEditor')).toBe(PANE_ID);
@@ -483,6 +543,18 @@ describe('state, context keys and commands', () => {
     expect(group.activeEditor).toBe(b);
     expect([a.isDisposed(), c.isDisposed()]).toEqual([true, true]);
   });
+
+  test('a command run with the context of a group that is gone does nothing', async () => {
+    const commands = instantiation.invokeFunction(accessor => accessor.get(ICommandService));
+    const first = part.activeGroup;
+    const [a, b] = await open(first, 'a', 'b');
+    const second = part.addGroup(first, GroupDirection.RIGHT);
+    const stale: IEditorCommandsContext = { groupId: second.id, editorIndex: 0 };
+    part.removeGroup(second);
+    await commands.executeCommand('workbench.action.closeActiveEditor', stale);
+    await commands.executeCommand('workbench.action.closeEditorsInGroup', stale);
+    expect(first.editors).toEqual([a, b]);
+  });
 });
 
 
@@ -521,6 +593,26 @@ describe('tabs', () => {
     expect(group.editors).toEqual([a]);
     expect(group.activeEditor).toBe(a);
     expect([b.isDisposed(), c.isDisposed()]).toEqual([true, true]);
+  });
+
+  test('the arrows, Home and End reach the other tabs and keep focus in the strip', async () => {
+    const group = part.activeGroup;
+    const [a, b, c] = await open(group, 'a', 'b', 'c');
+    const press = (name: string, key: string) =>
+      tab(group, name).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    tab(group, 'c').focus();
+
+    press('c', 'ArrowLeft');
+    expect(group.activeEditor).toBe(b);
+    expect(document.activeElement).toBe(tab(group, 'b'));
+    expect(tab(group, 'b').tabIndex).toBe(0);
+    press('b', 'Home');
+    expect(group.activeEditor).toBe(a);
+    press('a', 'End');
+    expect(group.activeEditor).toBe(c);
+    press('c', 'ArrowRight');
+    expect(group.activeEditor).toBe(c);
+    expect(document.activeElement).toBe(tab(group, 'c'));
   });
 
   test('a dirty editor shows on its tab', async () => {

@@ -1,20 +1,7 @@
-import type { Locator, Page } from '@playwright/test';
-import { expect, test } from './fixtures.js';
+import type { Page } from '@playwright/test';
+import { box, drag, expect, test } from './fixtures.js';
 
 const part = (page: Page, name: string) => page.locator(`[id="workbench.parts.${name}"]`);
-
-async function box(locator: Locator) {
-  const bounds = await locator.boundingBox();
-  expect(bounds).not.toBeNull();
-  return bounds!;
-}
-
-async function drag(page: Page, x: number, y: number, toX: number, toY: number): Promise<void> {
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(toX, toY, { steps: 8 });
-  await page.mouse.up();
-}
 
 for (const viewport of [{ width: 1280, height: 800 }, { width: 800, height: 600 }]) {
   test.describe(`${viewport.width} × ${viewport.height}`, () => {

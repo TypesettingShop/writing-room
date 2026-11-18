@@ -2,7 +2,7 @@ import { Dimension } from '../../../../base/browser/dom.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { ISerializableView } from '../../../../base/browser/ui/grid/grid.js';
-import type { ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
+import type { IEditorGroupModelOptions, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 
 /** The smallest an editor group, and so an editor pane, may be. */
@@ -11,11 +11,8 @@ export const DEFAULT_EDITOR_MIN_DIMENSIONS = new Dimension(220, 70);
 /** The largest an editor group may be. */
 export const DEFAULT_EDITOR_MAX_DIMENSIONS = new Dimension(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
 
-export interface IEditorPartOptions {
-  /** Where a new editor opens in its group, relative to the active editor. */
-  readonly openPositioning: 'left' | 'right' | 'first' | 'last';
-  /** Closing the active editor activates the most recently used one rather than its neighbour. */
-  readonly focusRecentEditorAfterClose: boolean;
+/** The model's options (`openPositioning`, `focusRecentEditorAfterClose`) and the part's own. */
+export interface IEditorPartOptions extends IEditorGroupModelOptions {
   /** A group whose last editor closes is removed while other groups are left. */
   readonly closeEmptyGroups: boolean;
   /** How a new group takes its space from the group it splits. */
@@ -29,7 +26,8 @@ export const DEFAULT_EDITOR_PART_OPTIONS: IEditorPartOptions = {
   splitSizing: 'auto',
 };
 
-let optionsProvider: (() => Partial<IEditorPartOptions>) | undefined;
+/** The providers set and not yet disposed, the latest last: it is the one in use. */
+const optionsProviders: { readonly provide: () => Partial<IEditorPartOptions> }[] = [];
 
 /**
  * The editor part's options, read afresh on every use. VS Code reads them from the configuration;
@@ -38,17 +36,22 @@ let optionsProvider: (() => Partial<IEditorPartOptions>) | undefined;
  */
 export function getEditorPartOptions(): IEditorPartOptions {
   // A value the provider leaves `undefined` keeps its default.
-  const provided = Object.entries(optionsProvider?.() ?? {}).filter(([, value]) => value !== undefined);
+  const provided = Object.entries(optionsProviders.at(-1)?.provide() ?? {}).filter(([, value]) => value !== undefined);
   return { ...DEFAULT_EDITOR_PART_OPTIONS, ...Object.fromEntries(provided) };
 }
 
-/** Puts `provider` in front of the defaults until the returned disposable is disposed. */
+/**
+ * Puts `provider` in front of the defaults until the returned disposable is disposed. Disposing it
+ * takes this provider out wherever it is, so the providers can be disposed in any order and a
+ * disposed one never comes back.
+ */
 export function setEditorPartOptionsProvider(provider: () => Partial<IEditorPartOptions>): IDisposable {
-  const previous = optionsProvider;
-  optionsProvider = provider;
+  const entry = { provide: provider };
+  optionsProviders.push(entry);
   return toDisposable(() => {
-    if (optionsProvider === provider) {
-      optionsProvider = previous;
+    const index = optionsProviders.indexOf(entry);
+    if (index !== -1) {
+      optionsProviders.splice(index, 1);
     }
   });
 }

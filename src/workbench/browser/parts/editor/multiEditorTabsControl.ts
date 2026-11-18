@@ -59,7 +59,9 @@ export class MultiEditorTabsControl extends Disposable {
     // The strip scrolls sideways under the wheel too, as VS Code's does.
     this._register(addDisposableListener(this.tabsContainer, 'wheel', (event: WheelEvent) => {
       if (event.deltaY !== 0 && event.deltaX === 0) {
-        this.tabsContainer.scrollLeft += event.deltaY;
+        // Firefox reports a mouse wheel in lines (`deltaMode` 1), not pixels; a page is the strip's width.
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.tabsContainer.clientWidth : 1;
+        this.tabsContainer.scrollLeft += event.deltaY * unit;
         event.preventDefault();
       }
     }, { passive: false }));
@@ -101,8 +103,9 @@ export class MultiEditorTabsControl extends Disposable {
   /** Puts one tab per editor in tab order, keeping the elements of the editors that stay. */
   private redraw(): void {
     const editors = this.group.getEditors(EditorsOrder.SEQUENTIAL);
+    const present = new Set(editors);
     for (const [editor, tab] of this.tabs) {
-      if (!editors.includes(editor)) {
+      if (!present.has(editor)) {
         tab.disposables.dispose();
         tab.element.remove();
         this.tabs.delete(editor);
@@ -113,12 +116,13 @@ export class MultiEditorTabsControl extends Disposable {
       if (!tab) {
         tab = this.createTab(editor);
         this.tabs.set(editor, tab);
+        // A tab that stays is kept current by its editor's label and dirty events.
+        this.updateTab(editor);
       }
       // Only move what is out of place, so a tab that keeps its place keeps its focus.
       if (this.tabsContainer.children[index] !== tab.element) {
         this.tabsContainer.insertBefore(tab.element, this.tabsContainer.children[index] ?? null);
       }
-      this.updateTab(editor);
     });
     this.updateActive();
   }
@@ -158,6 +162,21 @@ export class MultiEditorTabsControl extends Disposable {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         void this.group.openEditor(editor);
+        return;
+      }
+      // Only the active tab is in the tab order, so the arrows, Home and End reach the others,
+      // activating each without moving focus out of the strip, as in VS Code.
+      const index = editorIndex();
+      const targetIndex = event.key === 'Home' ? 0
+        : event.key === 'End' ? this.group.count - 1
+          : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? index - 1
+            : event.key === 'ArrowRight' || event.key === 'ArrowDown' ? index + 1
+              : undefined;
+      const target = targetIndex === undefined ? undefined : this.group.getEditorByIndex(targetIndex);
+      if (target) {
+        event.preventDefault();
+        void this.group.openEditor(target, { preserveFocus: true });
+        this.tabs.get(target)?.label.focus();
       }
     }));
     disposables.add(addDisposableListener(element, 'contextmenu', (event: MouseEvent) => {

@@ -6,7 +6,7 @@ import type { Event } from '../../../../base/common/event.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { ActiveEditorContext, EditorIsOpenContext, MultipleEditorGroupsContext } from '../../../common/contextkeys.js';
+import { ActiveEditorContext, ActiveEditorGroupEmptyContext, EditorsVisibleContext, MultipleEditorGroupsContext } from '../../../common/contextkeys.js';
 import { EditorsOrder } from '../../../common/editor.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
@@ -64,6 +64,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
   private readonly activeEditorKey: IContextKey<string | null>;
   private readonly editorIsOpenKey: IContextKey<boolean>;
   private readonly multipleGroupsKey: IContextKey<boolean>;
+  private readonly activeGroupEmptyKey: IContextKey<boolean>;
 
   constructor(
     @IInstantiationService private readonly instantiationService: IInstantiationService,
@@ -73,8 +74,9 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
     // As in VS Code's main editor part, the part's scope is the workbench's own, so the keys hold
     // wherever focus is: the command palette opened from the sidebar sees them too.
     this.activeEditorKey = ActiveEditorContext.bindTo(contextKeyService);
-    this.editorIsOpenKey = EditorIsOpenContext.bindTo(contextKeyService);
+    this.editorIsOpenKey = EditorsVisibleContext.bindTo(contextKeyService);
     this.multipleGroupsKey = MultipleEditorGroupsContext.bindTo(contextKeyService);
+    this.activeGroupEmptyKey = ActiveEditorGroupEmptyContext.bindTo(contextKeyService);
   }
 
   get partOptions(): IEditorPartOptions {
@@ -123,7 +125,10 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
   findGroup(scope: IFindGroupScope, source: IEditorGroup | GroupIdentifier = this._activeGroup, wrap?: boolean): EditorGroupView | undefined {
     const sourceView = this.assertGroupView(source);
     if (scope.direction !== undefined) {
-      return this.gridWidget.getNeighborViews(sourceView, this.toGridViewDirection(scope.direction), wrap)[0];
+      // Of the groups along that edge, the most recently active one, as in VS Code.
+      const neighbours = this.gridWidget.getNeighborViews(sourceView, this.toGridViewDirection(scope.direction), wrap);
+      const recency = (group: EditorGroupView) => this.mostRecentActiveGroups.indexOf(group.id);
+      return neighbours.sort((a, b) => recency(a) - recency(b))[0];
     }
     const groups = this.getGroups(GroupsOrder.GRID_APPEARANCE);
     const index = groups.indexOf(sourceView);
@@ -315,6 +320,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
     this.activeEditorKey.set(active?.id ?? null);
     this.editorIsOpenKey.set(groups.some(group => !group.isEmpty));
     this.multipleGroupsKey.set(groups.length > 1);
+    this.activeGroupEmptyKey.set(this._activeGroup?.isEmpty ?? true);
   }
 
   private getSplitSizing(): Sizing {

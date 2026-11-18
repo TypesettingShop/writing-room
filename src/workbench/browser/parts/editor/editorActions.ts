@@ -23,7 +23,11 @@ export const MOVE_EDITOR_TO_NEXT_GROUP_COMMAND_ID = 'workbench.action.moveEditor
  */
 function splitEditor(accessor: ServicesAccessor, direction: GroupDirection, context: unknown): void {
   const groups = accessor.get(IEditorGroupsService);
-  const { group, editor } = resolveCommandsContext(accessor, context);
+  const resolved = resolveCommandsContext(accessor, context);
+  if (!resolved) {
+    return;
+  }
+  const { group, editor } = resolved;
   const newGroup = groups.addGroup(group, direction);
   if (editor) {
     group.copyEditor(editor, newGroup);
@@ -99,10 +103,11 @@ registerAction2(class MoveEditorToNextGroupAction extends Action2 {
 
   override run(accessor: ServicesAccessor, context?: unknown): void {
     const groups = accessor.get(IEditorGroupsService);
-    const { group, editor } = resolveCommandsContext(accessor, context);
-    if (!editor) {
+    const resolved = resolveCommandsContext(accessor, context);
+    if (!resolved?.editor) {
       return;
     }
+    const { group, editor } = resolved;
     // The last group moves its editor into a new group to its right, as in VS Code.
     const target = groups.findGroup({ location: GroupLocation.NEXT }, group) ?? groups.addGroup(group, GroupDirection.RIGHT);
     group.moveEditor(editor, target);

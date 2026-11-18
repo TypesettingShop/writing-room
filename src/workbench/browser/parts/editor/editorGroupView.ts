@@ -8,7 +8,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
-import { ActiveEditorGroupEmptyContext, GroupEditorsCountContext } from '../../../common/contextkeys.js';
+import { EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
 import { EditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { IGroupModelChangeEvent, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
@@ -57,7 +57,6 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private activePaneEntry: IPaneEntry | undefined;
   private dimension: Dimension | undefined;
   private readonly editorsCount: IContextKey<number>;
-  private readonly groupEmpty: IContextKey<boolean>;
   private _disposed = false;
   /** Set while `openEditor` changes the model: it shows the editor itself, with its options. */
   private opening = false;
@@ -73,8 +72,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     this.element = $('.editor-group-container', { 'data-group-id': this.model.id, tabindex: -1 });
     this._register(toDisposable(() => this.element.remove()));
     this.scopedContextKeyService = this._register(contextKeyService.createScoped(this.element));
-    this.editorsCount = GroupEditorsCountContext.bindTo(this.scopedContextKeyService);
-    this.groupEmpty = ActiveEditorGroupEmptyContext.bindTo(this.scopedContextKeyService);
+    this.editorsCount = EditorGroupEditorsCountContext.bindTo(this.scopedContextKeyService);
     this.updateContextKeys();
 
     this.titleContainer = append(this.element, $('.title'));
@@ -161,12 +159,13 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     if (!this.model.isActive(opened)) {
       return Promise.resolve(undefined);
     }
-    // As in VS Code, an editor that opens with `preserveFocus` does not make its group active.
+    const shown = this.doShowEditor(opened, options);
+    // As in VS Code, the group activates after its pane took the editor on (synchronously), so the
+    // part's listeners see the pane that shows the active editor. An editor that opens with
+    // `preserveFocus` does not make its group active.
     if (!options.preserveFocus) {
       this.groupsView.activateGroup(this);
     }
-    const shown = this.doShowEditor(opened, options);
-    // The pane took the editor on synchronously, so listeners already see it as the active pane.
     if (previous !== opened) {
       this._onDidActiveEditorChange.fire();
     }
@@ -190,6 +189,13 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     }
     // The target opens it first, so no group lets go of an editor that is still open somewhere.
     void target.openEditor(existing, { ...options, viewState: this.getViewState(existing) });
+    // Focus follows the moved editor unless the move preserves it. A pane that loads takes focus
+    // only once it has, so hand it to the target group now: left in this group, the editor that
+    // becomes active here would take it back when it loads, and this group with it.
+    const document = this.element.ownerDocument;
+    if (!options.preserveFocus && this.element.contains(document.activeElement) && !target.element.contains(document.activeElement)) {
+      target.element.focus({ preventScroll: true });
+    }
     this.doCloseEditor(existing);
     return true;
   }
@@ -352,7 +358,6 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
 
   private updateContextKeys(): void {
     this.editorsCount.set(this.model.count);
-    this.groupEmpty.set(this.model.count === 0);
   }
 
   // --- grid view

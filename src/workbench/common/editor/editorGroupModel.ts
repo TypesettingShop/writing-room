@@ -31,7 +31,9 @@ export interface ISerializedEditorGroupModel {
 
 /** The parts of the editor part's options the model reads. */
 export interface IEditorGroupModelOptions {
+  /** Where a new editor opens in its group, relative to the active editor. */
   readonly openPositioning: 'left' | 'right' | 'first' | 'last';
+  /** Closing the active editor activates the most recently used one rather than its neighbour. */
   readonly focusRecentEditorAfterClose: boolean;
 }
 
@@ -152,7 +154,8 @@ export class EditorGroupModel extends Disposable {
   /**
    * Closes `candidate` (or the editor that `matches` it). Closing the active editor activates the
    * most recently used one that is left (with `focusRecentEditorAfterClose` off, the neighbour), or
-   * nothing once the group is empty. The new active editor is reported before the close.
+   * nothing once the group is empty. The new active editor is reported before the close, with the
+   * index it has once the closed editor is out of the tab order.
    */
   closeEditor(candidate: EditorInput): IEditorCloseResult | undefined {
     const found = this.findEditor(candidate);
@@ -160,16 +163,18 @@ export class EditorGroupModel extends Disposable {
       return undefined;
     }
     const [editor, index] = found;
-    if (this.active === editor) {
+    const wasActive = this.active === editor;
+    // The next editor is chosen from the tabs as they were; its event reads the tabs without the closed one.
+    const next = wasActive ? this.nextActiveAfterClose(editor, index) : undefined;
+    this.editors.splice(index, 1);
+    if (wasActive) {
       this.active = null;
-      const next = this.nextActiveAfterClose(editor, index);
       if (next) {
         this.setActive(next);
       } else {
         this._onDidModelChange.fire({ kind: GroupModelChangeKind.EDITOR_ACTIVE });
       }
     }
-    this.editors.splice(index, 1);
     this.mru.splice(this.mru.indexOf(editor), 1);
     this.editorListeners.get(editor)?.dispose();
     this.editorListeners.delete(editor);

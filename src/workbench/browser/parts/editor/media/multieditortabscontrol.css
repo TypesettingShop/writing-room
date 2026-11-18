@@ -63,13 +63,14 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  visibility: hidden;
+  /* Transparent rather than hidden, as in VS Code: a hidden button would leave the accessibility tree. */
+  opacity: 0;
 }
 
 .tabs-container > .tab.active > .tab-close,
 .tabs-container > .tab.dirty > .tab-close,
 .tabs-container > .tab:hover > .tab-close {
-  visibility: visible;
+  opacity: 1;
 }
 
 .tabs-container > .tab > .tab-close:hover {

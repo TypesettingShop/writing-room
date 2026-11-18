@@ -109,6 +109,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 그룹 최소 크기는 페인과 무관하게 `DEFAULT_EDITOR_MIN_DIMENSIONS`(220 x 70)이다. VS Code는 활성 페인의 최소 크기를 쓴다 — 두 페인 모두 기본값을 쓴다 (wr-cla6.vge)
 - 탭의 `role="tab"`은 탭 안의 레이블에 있고, 닫기 버튼(`Close <이름>`)은 그 옆 형제다. VS Code는 닫기 액션을 탭 요소 안에 둔다 — `tab`의 자식은 표현용(presentational)이라 탭 안의 버튼은 버튼으로 노출되지 않는다. dirty 탭은 `aria-description="Modified"`와 닫기 아이콘 자리의 점으로 표시한다. 탭 스트립은 브라우저 기본 가로 스크롤을 쓰고 VS Code의 커스텀 스크롤바는 없다 (wr-cla6.vge)
 - 그룹 타이틀 툴바(`MenuId.EditorTitle`)의 액션은 인자 없이 실행되어 활성 그룹에 작용한다. 그룹은 `mousedown`(캡처)과 `focusin`에서 활성 그룹이 되므로 툴바 버튼을 누르면 그 그룹이 먼저 활성화된다. VS Code는 툴바의 액션 러너가 그룹 컨텍스트를 넘긴다. 탭 컨텍스트 메뉴(`MenuId.EditorTitleContext`)는 VS Code처럼 `{ groupId, editorIndex }`를 넘긴다 (wr-cla6.vge)
+- 페인은 워크벤치의 인스턴스화 서비스로 만들어지므로 페인 요소의 범위 컨텍스트 키 서비스(`editorTextFocus` 등)의 부모는 그룹의 범위가 아니라 전역 서비스다. 그래서 텍스트 에디터에 포커스가 있을 때는 그룹 범위의 `groupEditorsCount`가 보이지 않는다. VS Code는 그룹의 범위 컨텍스트 키 서비스를 담은 자식 인스턴스화 서비스로 페인을 만든다 — 인스턴스화 서비스에 자식 서비스가 아직 없다 (wr-cla6.vge)
 - dirty한 제목 없는 에디터는 확인 없이 닫힌다 — v0.1.0에는 저장할 파일도 확인 대화 상자도 없다 (wr-cla6.vge)
 - Close Editor는 VS Code처럼 Ctrl+W(Windows는 Ctrl+F4와 Ctrl+W, macOS는 Cmd+W)로 선언하지만 일반 브라우저 탭에서 Ctrl+W는 브라우저가 가져가 페이지에 닿지 않는다 (wr-cla6.vge)
 - `workbench.action.files.newUntitledFile`은 `parts/editor/editorActions.ts`에 둔다. VS Code는 `contrib/files/browser/fileActions.contribution.ts`에 둔다 — 파일 기여가 아직 없다. 키는 VS Code 웹의 것(Ctrl+Alt+N, Windows는 Ctrl+K N)이다. Ctrl+N은 브라우저가 가져간다 (wr-cla6.vge)

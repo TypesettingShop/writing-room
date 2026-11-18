@@ -128,6 +128,22 @@ describe('closing', () => {
     expect(model.activeEditor).toBe(a);
   });
 
+  test('the editor that becomes active on a close reports its index without the closed editor', () => {
+    const { model, events } = createModel({ focusRecentEditorAfterClose: false });
+    const [a, b, c] = ['a', 'b', 'c'].map(name => new TestInput(name));
+    for (const editor of [a, b, c]) {
+      model.openEditor(editor, { index: model.count });
+    }
+    model.setActive(b);
+    events.length = 0;
+    model.closeEditor(b);
+    // c moves from index 2 to 1 as b leaves.
+    expect(events).toEqual([
+      { kind: GroupModelChangeKind.EDITOR_ACTIVE, editor: c, editorIndex: 1 },
+      { kind: GroupModelChangeKind.EDITOR_CLOSE, editor: b, editorIndex: 1 },
+    ]);
+  });
+
   test('closing a background editor keeps the active one', () => {
     const { model, events } = createModel();
     const [a, b] = ['a', 'b'].map(name => new TestInput(name));

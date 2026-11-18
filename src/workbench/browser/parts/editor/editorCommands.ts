@@ -25,12 +25,16 @@ export interface IResolvedEditorCommandsContext {
 /**
  * The group and editor a command works on. A command run from a tab or a group's title gets an
  * `IEditorCommandsContext` naming them; one run from a key, a menu bar or the palette gets nothing
- * and works on the active group and its active editor.
+ * and works on the active group and its active editor. A context whose group is gone resolves to
+ * nothing: its editor index means nothing in any other group.
  */
-export function resolveCommandsContext(accessor: ServicesAccessor, arg: unknown): IResolvedEditorCommandsContext {
+export function resolveCommandsContext(accessor: ServicesAccessor, arg: unknown): IResolvedEditorCommandsContext | undefined {
   const groups = accessor.get(IEditorGroupsService);
   if (isEditorCommandsContext(arg)) {
-    const group = groups.getGroup(arg.groupId) ?? groups.activeGroup;
+    const group = groups.getGroup(arg.groupId);
+    if (!group) {
+      return undefined;
+    }
     const editor = arg.editorIndex === undefined ? group.activeEditor : group.getEditorByIndex(arg.editorIndex);
     return { group, editor: editor ?? undefined };
   }
@@ -55,10 +59,10 @@ registerAction2(class CloseEditorAction extends Action2 {
   }
 
   override run(accessor: ServicesAccessor, context?: unknown): void {
-    const { group, editor } = resolveCommandsContext(accessor, context);
-    if (editor) {
+    const resolved = resolveCommandsContext(accessor, context);
+    if (resolved?.editor) {
       // A background tab closes without being activated first.
-      group.closeEditor(editor);
+      resolved.group.closeEditor(resolved.editor);
     }
   }
 });
@@ -75,10 +79,10 @@ registerAction2(class CloseOtherEditorsInGroupAction extends Action2 {
   }
 
   override run(accessor: ServicesAccessor, context?: unknown): void {
-    const { group, editor } = resolveCommandsContext(accessor, context);
-    if (editor) {
+    const resolved = resolveCommandsContext(accessor, context);
+    if (resolved?.editor) {
       // The kept editor is the only one left, so the group shows it once the others are gone.
-      group.closeEditors({ except: editor });
+      resolved.group.closeEditors({ except: resolved.editor });
     }
   }
 });
@@ -95,7 +99,7 @@ registerAction2(class CloseEditorsInGroupAction extends Action2 {
   }
 
   override run(accessor: ServicesAccessor, context?: unknown): void {
-    resolveCommandsContext(accessor, context).group.closeAllEditors();
+    resolveCommandsContext(accessor, context)?.group.closeAllEditors();
   }
 });
 
