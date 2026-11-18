@@ -16,6 +16,11 @@ import { IStatusbarService, StatusbarAlignment } from '../../services/statusbar/
 import { IViewsService } from '../../services/views/browser/viewsService.js';
 import '../../workbench.web.main.js';
 
+// These shell tests set up their own view containers and exercise the empty-part transitions.
+vi.mock('../../services/extensionManagement/browser/builtinExtensionsScannerService.js', () => ({
+  scanBuiltinExtensions: () => ({ extensions: [], messages: [] }),
+}));
+
 describe('Workbench', () => {
   let disposables: DisposableStore;
   let viewport: { width: number; height: number };
