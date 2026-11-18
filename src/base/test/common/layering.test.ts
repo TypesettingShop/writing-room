@@ -47,6 +47,10 @@ function importedPath(node: ts.Node): ts.StringLiteralLike | undefined {
   return path && ts.isStringLiteralLike(path) ? path : undefined;
 }
 
+const storageBackend = join(srcRoot, 'workbench/services/storage/browser/storageService.ts');
+const browserStorageNames = ['local' + 'Storage', 'session' + 'Storage', 'indexed' + 'DB'];
+const browserStoragePattern = new RegExp('\\b(?:' + browserStorageNames.join('|') + ')\\b');
+
 function findViolations(file: string, contents: string, host: ts.ModuleResolutionHost = ts.sys): string[] {
   const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
   const from = sourceSegments(file);
@@ -76,6 +80,14 @@ function findViolations(file: string, contents: string, host: ts.ModuleResolutio
   }
 
   visit(source);
+  if (file !== storageBackend) {
+    for (const [line, text] of contents.split('\n').entries()) {
+      const identifier = browserStoragePattern.exec(text)?.[0];
+      if (identifier) {
+        violations.push(`${relative(projectRoot, file)}:${line + 1} ${identifier}: use IStorageService`);
+      }
+    }
+  }
   return violations;
 }
 
@@ -137,4 +149,13 @@ test('allows same-layer and downward imports outside the common-to-browser bound
     "import '../../platform/browser/service.js';",
     "import '../../base/common/event.js';",
   ].join('\n'))).toEqual([]);
+});
+
+test('detects browser storage names outside the storage backend', () => {
+  const planted = join('src', 'workbench', 'browser', 'planted.ts');
+  const mentions = browserStorageNames.map(name => `window['${name}'];`).join('\n');
+  expect(findViolations(join(projectRoot, planted), mentions)).toEqual(
+    browserStorageNames.map((name, index) => `${planted}:${index + 1} ${name}: use IStorageService`),
+  );
+  expect(findViolations(storageBackend, mentions)).toEqual([]);
 });
