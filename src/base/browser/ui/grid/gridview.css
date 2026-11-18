@@ -1,0 +1,8 @@
+.monaco-grid-view {
+  position: relative;
+  overflow: hidden;
+}
+
+.monaco-grid-branch-node {
+  position: relative;
+}

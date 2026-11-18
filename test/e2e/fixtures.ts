@@ -1,24 +1,35 @@
 import { expect, test as base } from '@playwright/test';
 import type { ConsoleMessage, Page } from '@playwright/test';
 
-export const test = base.extend<{ appPage: Page; pageErrors: readonly string[] }>({
-  pageErrors: [async ({ page }, use) => {
-    const errors: string[] = [];
-    const onError = (error: Error) => errors.push(error.stack ?? error.message);
-    const onConsole = (message: ConsoleMessage) => {
-      if (message.type() === 'error') {
-        errors.push(message.text());
-      }
-    };
+/** Collects a page's uncaught errors and console errors until `stop` is called. */
+export function collectPageErrors(page: Page): { readonly errors: readonly string[]; stop(): void } {
+  const errors: string[] = [];
+  const onError = (error: Error) => errors.push(error.stack ?? error.message);
+  const onConsole = (message: ConsoleMessage) => {
+    if (message.type() === 'error') {
+      errors.push(message.text());
+    }
+  };
 
-    page.on('pageerror', onError);
-    page.on('console', onConsole);
-    try {
-      await use(errors);
-      expect(errors, 'Browser page errors and console errors').toEqual([]);
-    } finally {
+  page.on('pageerror', onError);
+  page.on('console', onConsole);
+  return {
+    errors,
+    stop: () => {
       page.off('pageerror', onError);
       page.off('console', onConsole);
+    },
+  };
+}
+
+export const test = base.extend<{ appPage: Page; pageErrors: readonly string[] }>({
+  pageErrors: [async ({ page }, use) => {
+    const collector = collectPageErrors(page);
+    try {
+      await use(collector.errors);
+      expect(collector.errors, 'Browser page errors and console errors').toEqual([]);
+    } finally {
+      collector.stop();
     }
   }, { auto: true }],
 
