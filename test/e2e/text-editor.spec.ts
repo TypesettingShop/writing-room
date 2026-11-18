@@ -2,19 +2,11 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base } from '@playwright/test';
-import { collectPageErrors, expect, test } from './fixtures.js';
+import { collectPageErrors, expect, renderedText, test } from './fixtures.js';
 import type { Locator, Page } from '@playwright/test';
 
 const preview = process.env.E2E_TARGET === 'preview';
 const monacoRequest = /monaco-editor|editor\.api|\.worker[-.]/;
-
-/** The text Monaco renders, one string per visible line, with its non-breaking spaces made plain. */
-async function renderedText(pane: Locator): Promise<string> {
-  // An editor without a model renders no lines at all.
-  const lines = pane.locator('.monaco-editor .view-lines');
-  const text = await lines.count() ? await lines.innerText() : '';
-  return text.replaceAll(' ', ' ');
-}
 
 function editor(page: Page, pane: string): Locator {
   return page.getByRole('region', { name: pane }).getByRole('textbox', { name: 'Editor content' });

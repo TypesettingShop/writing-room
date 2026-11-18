@@ -2,6 +2,7 @@ import { toDisposable } from '../../base/common/lifecycle.js';
 import type { IDisposable } from '../../base/common/lifecycle.js';
 import type { BrandedService, IInstantiationService } from '../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../platform/registry/common/platform.js';
+import { EditorExtensions } from '../common/editor.js';
 import type { EditorInput } from '../common/editor/editorInput.js';
 import type { EditorPane } from './parts/editor/editorPane.js';
 
@@ -42,9 +43,7 @@ export interface IEditorPaneRegistry {
   getEditorPaneByType(typeId: string): EditorPaneDescriptor | undefined;
 }
 
-export const EditorExtensions = {
-  EditorPane: 'workbench.contributions.editors',
-} as const;
+export { EditorExtensions };
 
 class EditorPaneRegistry implements IEditorPaneRegistry {
   private readonly panes = new Map<string, EditorPaneDescriptor>();

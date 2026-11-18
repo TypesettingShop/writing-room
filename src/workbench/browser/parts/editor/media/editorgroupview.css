@@ -1,0 +1,35 @@
+.part.editor > .content {
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-group-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  outline: none;
+}
+
+.editor-group-container > .title {
+  flex: none;
+  overflow: hidden;
+  background: var(--vscode-editorGroupHeader-tabsBackground, #1c212c);
+}
+
+.editor-group-container > .editor-container {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+}
+
+.editor-group-container .editor-instance {
+  position: absolute;
+  inset: 0;
+}
+
+.editor-group-container .editor-instance[hidden] {
+  display: none;
+}

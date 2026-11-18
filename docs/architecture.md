@@ -107,6 +107,31 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `editorTextFocus`, `editorFocus`, `textInputFocus`는 페인 요소에 만든 범위 컨텍스트 키 서비스에서 Monaco의 포커스 이벤트를 따른다. VS Code는 `CodeEditorWidget`이 자기 범위 서비스에서 설정한다 (wr-cla6.36n)
 - Monaco의 CSS도 `@vscode/codicons`와 같은 `codicon` 글꼴 패밀리를 선언하므로, Monaco가 로드된 뒤에는 나중에 온 Monaco의 글꼴이 워크벤치 아이콘에도 쓰인다. monaco-editor 0.57.0의 글꼴은 `@vscode/codicons` 0.0.46-24의 아이콘 746개를 모두 같은 코드 포인트로 담고 있어 지금은 보이는 차이가 없다. 두 패키지 중 하나를 올리면 다시 확인한다 (wr-cla6.36n)
 
+#### Editor groups and tabs
+
+- `EditorPart`가 `IEditorGroupsService`를 직접 구현한다. VS Code는 메인과 보조 창의 파트를 묶는 `EditorParts`가 서비스다 — v0.1.0에는 보조 창이 없다 (wr-cla6.vge)
+- `EditorGroupModel`에는 미리보기, 고정(pinned), 스티키, 잠금, 다중 선택, 일시(transient) 에디터가 없다. 모든 에디터는 일반 탭이고 `serialize()`는 `id`, `editors`, `mru`만 쓴다. 활성 에디터는 `mru`의 첫 항목이다 — 릴리스 범위 밖이다 (wr-cla6.vge)
+- 파트 옵션(`openPositioning`, `focusRecentEditorAfterClose`, `closeEmptyGroups`, `splitSizing`)은 `parts/editor/editor.ts`의 `getEditorPartOptions()`로 읽고, 설정 멤버는 `setEditorPartOptionsProvider`로 값을 공급한다. 모델은 이 함수를 생성자 인자로 받는다. VS Code는 모델과 파트가 `IConfigurationService`를 직접 읽는다 — 설정 서비스가 아직 없고, `common`의 모델은 `browser`의 함수를 임포트할 수 없다 (wr-cla6.vge)
+- `IEditorFactoryRegistry.registerEditorSerializer(typeId, ctor)`의 직렬 변환기 생성자는 서비스를 받지 않는다. 인스턴스는 처음 찾을 때 만들고, 서비스는 `deserialize(instantiationService, …)`로 받는다. VS Code는 `start(accessor)`에서 서비스와 함께 만든다 — 레지스트리가 워크벤치 시작 시점에 묶이지 않게 한다. 이 멤버는 레지스트리만 만들고 직렬 변환기는 등록하지 않는다 (wr-cla6.vge)
+- 그룹이 페인을 직접 보여 준다(타입별 페인 하나, 숨긴 컨테이너 전환). VS Code는 그 일을 `EditorPanes`(`editorPanes.ts`)에 둔다 — 페인 종류가 둘뿐이다 (wr-cla6.vge)
+- 다른 그룹으로 옮기거나 복사·분할하는 에디터의 뷰 상태는 원본 그룹의 페인에서 `EditorPane.getViewState(input)`으로 읽어 대상의 `setInput` 옵션 `viewState`로 넘긴다. 배경 탭의 상태도 읽을 수 있게 `getViewState`에 선택적 `input` 인자를 더했다. VS Code는 그룹 간 이동 때 `EditorMemento`와 `viewState` 옵션을 쓴다 (wr-cla6.vge)
+- 그룹 최소 크기는 페인과 무관하게 `DEFAULT_EDITOR_MIN_DIMENSIONS`(220 x 70)이다. VS Code는 활성 페인의 최소 크기를 쓴다 — 두 페인 모두 기본값을 쓴다 (wr-cla6.vge)
+- 탭의 `role="tab"`은 탭 안의 레이블에 있고, 닫기 버튼(`Close <이름>`)은 그 옆 형제다. VS Code는 닫기 액션을 탭 요소 안에 둔다 — `tab`의 자식은 표현용(presentational)이라 탭 안의 버튼은 버튼으로 노출되지 않는다. dirty 탭은 `aria-description="Modified"`와 닫기 아이콘 자리의 점으로 표시한다. 탭 스트립은 브라우저 기본 가로 스크롤을 쓰고 VS Code의 커스텀 스크롤바는 없다 (wr-cla6.vge)
+- 그룹 타이틀 툴바(`MenuId.EditorTitle`)의 액션은 인자 없이 실행되어 활성 그룹에 작용한다. 그룹은 `mousedown`(캡처)과 `focusin`에서 활성 그룹이 되므로 툴바 버튼을 누르면 그 그룹이 먼저 활성화된다. VS Code는 툴바의 액션 러너가 그룹 컨텍스트를 넘긴다. 탭 컨텍스트 메뉴(`MenuId.EditorTitleContext`)는 VS Code처럼 `{ groupId, editorIndex }`를 넘긴다 (wr-cla6.vge)
+- 페인은 워크벤치의 인스턴스화 서비스로 만들어지므로 페인 요소의 범위 컨텍스트 키 서비스(`editorTextFocus` 등)의 부모는 그룹의 범위가 아니라 전역 서비스다. 그래서 텍스트 에디터에 포커스가 있을 때는 그룹 범위의 `groupEditorsCount`가 보이지 않는다. VS Code는 그룹의 범위 컨텍스트 키 서비스를 담은 자식 인스턴스화 서비스로 페인을 만든다 — 인스턴스화 서비스에 자식 서비스가 아직 없다 (wr-cla6.vge)
+- dirty한 제목 없는 에디터는 확인 없이 닫힌다 — v0.1.0에는 저장할 파일도 확인 대화 상자도 없다 (wr-cla6.vge)
+- Close Editor는 VS Code처럼 Ctrl+W(Windows는 Ctrl+F4와 Ctrl+W, macOS는 Cmd+W)로 선언하지만 일반 브라우저 탭에서 Ctrl+W는 브라우저가 가져가 페이지에 닿지 않는다 (wr-cla6.vge)
+- `workbench.action.files.newUntitledFile`은 `parts/editor/editorActions.ts`에 둔다. VS Code는 `contrib/files/browser/fileActions.contribution.ts`에 둔다 — 파일 기여가 아직 없다. 키는 VS Code 웹의 것(Ctrl+Alt+N, Windows는 Ctrl+K N)이다. Ctrl+N은 브라우저가 가져간다 (wr-cla6.vge)
+- Welcome 페이지는 `parts/editor/welcomeEditor.ts`의 작은 페인과 입력(`workbench.editors.gettingStartedInput`)이며, 시작할 때 그룹이 비어 있으면 포커스를 옮기지 않고 연다. VS Code의 Getting Started는 `contrib/welcomeGettingStarted`에 있고 설정과 복원 상태에 따라 연다 — 레이아웃과 에디터 저장 전에는 매번이 첫 실행이다 (wr-cla6.vge)
+- **View → Editor Layout**에 Split Up/Down/Left/Right와 **Join All Editor Groups**를 둔다. VS Code의 Editor Layout 메뉴에는 레이아웃 프리셋도 있다 — 프리셋은 범위 밖이다 (wr-cla6.vge)
+
+#### 에디터 그룹 조작
+
+- **File → New Text File**(Ctrl+Alt+N, Windows는 Ctrl+K N, macOS는 Cmd+Option+N)이 활성 그룹에 `Untitled-N` 텍스트 에디터를 연다. 처음 열 때 Monaco를 받아 온다. 타이핑하면 탭에 점이 붙는다. 첫 화면의 그룹에는 Welcome 페이지가 열린다.
+- 탭을 누르면 그 에디터로 바꾸고, 탭의 닫기 버튼이나 가운데 버튼으로 닫는다. 배경 탭을 닫아도 활성 탭은 그대로다. 탭에 포커스가 있으면 좌우 화살표, Home, End로 탭 사이를 옮긴다. 탭을 오른쪽 클릭하면 Close, Close Others, Close All과 네 방향 분할이 나온다.
+- 각 그룹 타이틀의 **Split Editor Right** 버튼(Ctrl+\\, macOS는 Cmd+\\)이나 **View → Editor Layout**의 Split Up/Down/Left/Right가 같은 에디터를 옆 그룹에 연다. 두 그룹은 같은 텍스트를 편집한다. **Join All Editor Groups**는 모든 그룹을 활성 그룹으로 합친다. 마지막 탭을 닫은 그룹은 다른 그룹이 있으면 사라진다.
+- 그룹 사이 경계를 끌어 크기를 바꾼다. 그룹은 220 x 70 px보다 작아지지 않는다. 팔레트(F1)의 `View:` 커맨드로 다음 그룹 포커스, 다음 그룹으로 에디터 이동, 모든 에디터 닫기도 할 수 있다.
+
 ### Storage and settings
 
 #### Storage
