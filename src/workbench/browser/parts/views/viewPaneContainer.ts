@@ -22,13 +22,20 @@ export class ViewPaneContainer extends Disposable {
     super();
     this.element = parent.ownerDocument.createElement('div');
     this.element.className = 'view-pane-container';
+    this.element.hidden = true;
+    this.attachTo(parent, isPanel);
+    this._register(toDisposable(() => this.element.remove()));
+  }
+
+  attachTo(parent: HTMLElement, isPanel: boolean): void {
     if (isPanel) {
       this.element.setAttribute('role', 'tabpanel');
-      this.element.setAttribute('aria-label', descriptor.title);
+      this.element.setAttribute('aria-label', this.descriptor.title);
+    } else {
+      this.element.removeAttribute('role');
+      this.element.removeAttribute('aria-label');
     }
-    this.element.hidden = true;
     parent.append(this.element);
-    this._register(toDisposable(() => this.element.remove()));
   }
 
   setViews(views: readonly IViewDescriptor[]): void {
