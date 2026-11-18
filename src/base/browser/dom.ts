@@ -1,4 +1,4 @@
-import { toDisposable } from '../common/lifecycle.js';
+import { DisposableStore, toDisposable } from '../common/lifecycle.js';
 import type { IDisposable } from '../common/lifecycle.js';
 
 export function $<Tag extends keyof HTMLElementTagNameMap>(
@@ -78,4 +78,50 @@ export class Dimension {
   static readonly None = new Dimension(0, 0);
 
   constructor(readonly width: number, readonly height: number) {}
+}
+
+export interface IDragAndDropObserverCallbacks {
+  onDragEnter?(event: DragEvent): void;
+  onDragLeave?(event: DragEvent): void;
+  onDragOver?(event: DragEvent): void;
+  onDrop?(event: DragEvent): void;
+  onDragEnd?(event: DragEvent): void;
+}
+
+/** Treats transitions between descendants as one visit to the observed element. */
+export class DragAndDropObserver implements IDisposable {
+  private readonly listeners: DisposableStore;
+  private depth = 0;
+
+  constructor(element: HTMLElement, callbacks: IDragAndDropObserverCallbacks) {
+    this.listeners = new DisposableStore();
+    this.listeners.add(addDisposableListener(element, 'dragenter', event => {
+      if (++this.depth === 1) {
+        callbacks.onDragEnter?.(event);
+      }
+    }));
+    this.listeners.add(addDisposableListener(element, 'dragleave', event => {
+      if (this.depth > 0 && --this.depth === 0) {
+        callbacks.onDragLeave?.(event);
+      }
+    }));
+    this.listeners.add(addDisposableListener(element, 'dragover', event => callbacks.onDragOver?.(event)));
+    this.listeners.add(addDisposableListener(element, 'drop', event => {
+      this.reset();
+      callbacks.onDrop?.(event);
+    }));
+    this.listeners.add(addDisposableListener(element, 'dragend', event => {
+      this.reset();
+      callbacks.onDragEnd?.(event);
+    }));
+  }
+
+  reset(): void {
+    this.depth = 0;
+  }
+
+  dispose(): void {
+    this.listeners.dispose();
+    this.reset();
+  }
 }

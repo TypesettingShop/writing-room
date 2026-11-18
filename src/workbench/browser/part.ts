@@ -33,6 +33,10 @@ export abstract class Part extends Disposable implements ISerializableView {
     this.didLayout.fire({ width, height });
   }
 
+  canShow(): boolean {
+    return true;
+  }
+
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.element.hidden = !visible;

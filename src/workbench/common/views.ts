@@ -1,6 +1,10 @@
+import type { Event } from '../../base/common/event.js';
 import { Emitter } from '../../base/common/event.js';
 import type { IDisposable } from '../../base/common/lifecycle.js';
+import { RawContextKey } from '../../platform/contextkey/common/contextkey.js';
 import type { ContextKeyExpression } from '../../platform/contextkey/common/contextkey.js';
+import { createDecorator } from '../../platform/instantiation/common/instantiation.js';
+import type { BrandedService } from '../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../platform/registry/common/platform.js';
 
 export const Extensions = {
@@ -12,6 +16,10 @@ export enum ViewContainerLocation {
   Sidebar,
   Panel,
 }
+
+export const ViewContainerLocationContext = new RawContextKey<ViewContainerLocation | undefined>(
+  'viewContainerLocation', undefined,
+);
 
 export interface ViewContainer {
   readonly id: string;
@@ -149,7 +157,29 @@ viewContainersRegistry.onDidDeregister(({ viewContainer }) => {
 Registry.add(Extensions.ViewContainersRegistry, viewContainersRegistry);
 Registry.add(Extensions.ViewsRegistry, viewsRegistry);
 
-/** The shell's location lookup. Custom locations can be applied here without changing callers. */
-export function getViewContainerLocation(container: ViewContainer): ViewContainerLocation | undefined {
-  return viewContainersRegistry.getViewContainerLocation(container);
+export const IViewDescriptorService = createDecorator<IViewDescriptorService>('viewDescriptorService');
+
+export interface IViewContainerLocationChange {
+  readonly viewContainer: ViewContainer;
+  readonly from: ViewContainerLocation;
+  readonly to: ViewContainerLocation;
+  readonly fromIndex: number;
+}
+
+export interface IViewContainerLocationChangeEvent {
+  readonly changes: readonly IViewContainerLocationChange[];
+  readonly reset: boolean;
+}
+
+export interface IViewDescriptorService extends BrandedService {
+  readonly onDidRegister: IViewContainersRegistry['onDidRegister'];
+  readonly onDidDeregister: IViewContainersRegistry['onDidDeregister'];
+  readonly onDidChangeContainerLocation: Event<IViewContainerLocationChangeEvent>;
+  getViewContainerById(id: string): ViewContainer | undefined;
+  getViewContainerLocation(container: ViewContainer): ViewContainerLocation | undefined;
+  getDefaultViewContainerLocation(container: ViewContainer): ViewContainerLocation | undefined;
+  getViewContainersByLocation(location: ViewContainerLocation): readonly ViewContainer[];
+  /** Index in the destination after removing the source item. Defaults to append. */
+  moveViewContainerToLocation(container: ViewContainer, location: ViewContainerLocation, index?: number): void;
+  resetViewLocations(): void;
 }

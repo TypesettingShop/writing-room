@@ -2,8 +2,9 @@ import { LayoutPriority } from '../../../../base/browser/ui/grid/grid.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ActiveViewletContext } from '../../../common/contextkeys.js';
-import { ViewContainerLocation, viewContainersRegistry } from '../../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
+import { CompositeDragAndDropObserver, DraggedCompositeIdentifier } from '../../dnd.js';
 import type { LayoutStateModel } from '../../layout.js';
 import { PaneCompositePart } from '../paneCompositePart.js';
 
@@ -16,17 +17,22 @@ export class SidebarPart extends PaneCompositePart {
     @IContextKeyService contextKeyService: IContextKeyService,
     @IInstantiationService instantiationService: IInstantiationService,
     @IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
+    @IViewDescriptorService viewDescriptors: IViewDescriptorService,
   ) {
     super(Parts.SIDEBAR_PART, ViewContainerLocation.Sidebar, state, 'activeViewlet',
-      ActiveViewletContext, contextKeyService, instantiationService, layoutService);
+      ActiveViewletContext, contextKeyService, instantiationService, layoutService, viewDescriptors);
   }
 
   protected override createHeader(parent: HTMLElement): void {
     const title = parent.ownerDocument.createElement('h2');
     parent.append(title);
+    this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(title, () => {
+      const id = this.activeCompositeId;
+      return id ? new DraggedCompositeIdentifier(id) : undefined;
+    }));
     this._register(this.onDidChangeComposites(() => {
       const id = this.activeCompositeId;
-      title.textContent = id ? viewContainersRegistry.get(id)?.title ?? '' : '';
+      title.textContent = id ? this.viewDescriptors.getViewContainerById(id)?.title ?? '' : '';
     }));
   }
 }
