@@ -6,5 +6,6 @@ import './browser/workbench.contribution.js';
 
 // Commands, menus and keybindings
 import './browser/parts/titlebar/menubar.contribution.js';
+import './contrib/quickaccess/browser/quickAccess.contribution.js';
 
 // Extensions

@@ -2,7 +2,8 @@ import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IStorageDatabase, IStorageUpdate } from '../../../../base/parts/storage/common/storage.js';
-import { AbstractStorageService, parseStorageKey, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
+import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { AbstractStorageService, IStorageService, parseStorageKey, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
 
 export const STORAGE_PREFIX = 'writing-room:storage:';
 export const STORAGE_VERSION_KEY = STORAGE_PREFIX + 'version';
@@ -254,3 +255,5 @@ export class BrowserStorageService extends AbstractStorageService {
     });
   }
 }
+
+registerSingleton(IStorageService, BrowserStorageService);
