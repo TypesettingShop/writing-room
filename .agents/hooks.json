@@ -1,0 +1,31 @@
+{
+  "moai": {
+    "PreInvocation": [
+      {
+        "command": "moai hook user-prompt-submit --dialect antigravity || exit 0",
+        "timeout": 15,
+        "type": "command"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "moai hook pre-tool-use --dialect antigravity || exit 0",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "run_command|write_to_file|replace_file_content|multi_replace_file_content"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "moai hook stop --dialect antigravity || exit 0",
+        "timeout": 15,
+        "type": "command"
+      }
+    ],
+    "enabled": true
+  }
+}

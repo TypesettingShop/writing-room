@@ -1,0 +1,24 @@
+{"ts":"2026-11-18T18:25:30Z","id":"wr-zjt4","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"v0.1.0"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"VS Code-style web workbench shell"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.1kn","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Scaffold Vite, TypeScript and base primitives"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.me6","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"VS Code research pages under docs"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.aym","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Grid layout engine: sash, splitview, grid"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.jvs","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Commands, context keys and menus"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.68r","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Storage service and state schema"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.tlp","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Workbench shell: layout and parts"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.36n","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Monaco text editor pane and text models"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.em5","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Keybinding service"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.nzs","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Quick input and command palette"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.vge","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Editor groups and tabs"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.v89","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Extension manifests and contribution points"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.3d4","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Move view containers between Side Bar and Panel"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.bxt","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Drag-and-drop docking for editor groups"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.rmv","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Extension host in a Worker"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.n6y","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Extension API: tree views, status bar and messages"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.ayw","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Install extensions from a URL"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.kn7","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Persist layout and editors"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.dnq","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Settings service and settings.json"}
+{"ts":"2026-11-18T18:25:34Z","id":"wr-cla6.nyy","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"End-to-end acceptance smoke and run guide"}
+{"ts":"2026-11-18T18:25:54Z","id":"wr-cla6","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: anthropic/claude-fable-5-2 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-18T18:51:22Z","id":"wr-9uv6","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"저장소 첫 커밋 (worktree 기반 만들기)"}
+{"ts":"2026-11-18T18:51:23Z","id":"wr-9uv6","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"todo","to":"in_progress"}
