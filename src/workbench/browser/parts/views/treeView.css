@@ -1,0 +1,35 @@
+.extension-tree-content {
+  height: 100%;
+  overflow: auto;
+}
+
+.extension-tree-row {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  gap: 5px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.extension-tree-row:hover {
+  background: #ffffff12;
+}
+
+.extension-tree-row:focus-visible {
+  outline: 1px solid #80a8ff;
+  outline-offset: -1px;
+}
+
+.extension-tree-twistie {
+  flex: 0 0 18px;
+  text-align: center;
+}
+
+.extension-tree-twistie.codicon {
+  cursor: pointer;
+}
+
+.extension-tree-description {
+  opacity: 0.65;
+}

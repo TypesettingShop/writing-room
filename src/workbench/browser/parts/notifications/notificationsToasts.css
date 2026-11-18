@@ -1,0 +1,40 @@
+.extension-toasts {
+  position: absolute;
+  z-index: 25;
+  inset: auto 12px 30px auto;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100% - 24px));
+  max-height: calc(100% - 60px);
+  overflow: auto;
+}
+
+.extension-toast {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 10px;
+  color: #f0f0f0;
+  background: #292d36;
+  border: 1px solid #535b6b;
+  border-radius: 4px;
+  box-shadow: 0 3px 12px #0005;
+  overflow-wrap: anywhere;
+}
+
+.extension-toast-actions {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.extension-toast button {
+  color: inherit;
+  background: #3a4252;
+  border: 1px solid #69738a;
+  border-radius: 3px;
+  padding: 3px 7px;
+  cursor: pointer;
+}

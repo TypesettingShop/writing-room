@@ -1,6 +1,7 @@
 import { addDisposableListener } from '../../dom.js';
 import { renderIcon } from '../iconLabel/iconLabels.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../common/lifecycle.js';
+import { DeferredIcon } from '../../../common/themables.js';
 import type { ThemeIcon } from '../../../common/themables.js';
 import './menu.css';
 
@@ -28,6 +29,18 @@ export interface MenuOptions {
 }
 
 export function renderMenuIcon(document: Document, icon: NonNullable<MenuAction['icon']>): HTMLElement | undefined {
+  if (icon instanceof DeferredIcon) {
+    const fallback = renderIcon({ id: 'extensions' });
+    const element = document.createElement('span');
+    element.className = 'wr-menu-icon wr-deferred-icon';
+    element.style.backgroundImage = `var(${icon.styleProperty}, none)`;
+    element.setAttribute('aria-hidden', 'true');
+    if (fallback) {
+      fallback.style.display = `var(${icon.styleProperty}-fallback, inline-block)`;
+      element.append(fallback);
+    }
+    return element;
+  }
   if (typeof icon === 'string' || !('id' in icon)) {
     const image = document.createElement('img');
     image.className = 'wr-menu-icon';

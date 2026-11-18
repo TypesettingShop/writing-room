@@ -10,3 +10,6 @@ import './browser/parts/titlebar/menubar.contribution.js';
 import './contrib/quickaccess/browser/quickAccess.contribution.js';
 
 // Extensions
+import './services/extensions/browser/extensions.contribution.js';
+import './api/browser/extensionHost.contribution.js';
+import './contrib/extensions/browser/extensions.contribution.js';
