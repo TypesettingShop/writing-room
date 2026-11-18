@@ -8,6 +8,7 @@ import {
 } from '../common/contextkeys.js';
 import { workbenchContributions } from '../common/contributions.js';
 import type { WorkbenchContribution } from '../common/contributions.js';
+import { IExtensionService } from '../services/extensions/common/extensions.js';
 import { IWorkbenchLayoutService, Parts } from '../services/layout/browser/layoutService.js';
 import { IStatusbarService } from '../services/statusbar/browser/statusbar.js';
 import { Layout } from './layout.js';
@@ -40,6 +41,11 @@ export class Workbench extends Layout {
       this._register(keybindings as IKeybindingService & IDisposable);
     }
     this.bindVisibilityContextKeys(context);
+    const extensions = instantiation.invokeFunction(accessor => accessor.get(IExtensionService));
+    if (extensions.dispose) {
+      this._register({ dispose: () => extensions.dispose?.() });
+    }
+    extensions.initialize?.();
 
     const titlebar = instantiation.createInstance(TitlebarPart);
     const sidebar = instantiation.createInstance(SidebarPart, this.layoutState);
@@ -69,6 +75,7 @@ export class Workbench extends Layout {
     for (const [id, contribution] of workbenchContributions.getContributions()) {
       this.startContribution(id, contribution);
     }
+    void extensions.activateByEvent('onStartupFinished').catch(console.error);
   }
 
   private startContribution(id: string, contribution: WorkbenchContribution): void {

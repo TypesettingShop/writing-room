@@ -71,6 +71,9 @@ function findViolations(file: string, contents: string, host: ts.ModuleResolutio
       if (from.slice(0, -1).includes('common') && to.slice(0, -1).includes('browser')) {
         reasons.push('common must not import browser');
       }
+      if (from[0] === 'workbench' && from[1] === 'api' && from[2] === 'worker' && to.slice(0, -1).includes('browser')) {
+        reasons.push('extension worker must not import browser');
+      }
       if (reasons.length) {
         const { line } = source.getLineAndCharacterOfPosition(path.getStart(source));
         violations.push(`${relative(projectRoot, file)}:${line + 1} ${path.text}: ${reasons.join('; ')}`);

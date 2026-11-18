@@ -15,6 +15,7 @@
   "files": [],
   "references": [
     { "path": "./tsconfig.browser.json" },
-    { "path": "./tsconfig.node.json" }
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.extension-worker.json" }
   ]
 }

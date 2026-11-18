@@ -23,6 +23,12 @@ async function dragOver(page: Page, target: Locator, horizontal = 0.5, vertical 
   await page.mouse.move(x, y);
 }
 
+async function moveSampleToPanel(page: Page): Promise<void> {
+  await part(page, 'activitybar').getByRole('button', { name: 'Hello World' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Move to Panel' }).click();
+  await expect(part(page, 'panel').getByRole('tab', { name: 'Hello World' })).toBeVisible();
+}
+
 test('drags Explorer into the panel, restores its placement and order, and drags it back', async ({ appPage: page }) => {
   const activitybar = part(page, 'activitybar');
   const sidebar = part(page, 'sidebar');
@@ -31,6 +37,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   const explorerTab = panel.getByRole('tab', { name: 'Explorer' });
   const problems = panel.getByRole('tab', { name: 'Problems' });
   const output = panel.getByRole('tab', { name: 'Output' });
+  await moveSampleToPanel(page);
   const original = await sidebar.getByText('No folder opened').elementHandle();
 
   await startDrag(page, explorerIcon);
@@ -38,7 +45,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await expect(problems).toHaveAttribute('data-view-drop-position', 'before');
   await page.mouse.up();
   await expect(marker(page)).toHaveCount(0);
-  await expect(panel.getByRole('tab')).toHaveText(['Output', 'Explorer', 'Problems']);
+  await expect(panel.getByRole('tab')).toHaveText(['Output', 'Explorer', 'Problems', 'Hello World']);
   await expect(explorerTab).toHaveAttribute('aria-selected', 'true');
   await expect(panel.getByText('No folder opened')).toBeVisible();
   expect(await original?.evaluate(element => element.closest('.part')?.id)).toBe('workbench.parts.panel');
@@ -49,10 +56,10 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await dragOver(page, output, 0.25);
   await expect(output).toHaveAttribute('data-view-drop-position', 'before');
   await page.mouse.up();
-  await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer']);
+  await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer', 'Hello World']);
 
   await page.reload();
-  await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer']);
+  await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer', 'Hello World']);
   await expect(sidebar).toBeHidden();
   await expect(explorerIcon).toHaveCount(0);
 
@@ -85,7 +92,7 @@ test('places a drop over the gap between tabs or the bar padding beside the near
   await page.mouse.up();
   await expect(panel.getByRole('tab')).toHaveText(['Output', 'Explorer', 'Problems']);
 
-  // The emptied sidebar has closed, so the panel and its tabs have moved.
+  // Re-measure the panel after the container move.
   const first = (await output.boundingBox())!;
   await startDrag(page, problems);
   await page.mouse.move(first.x - 5, first.y + first.height / 2);
@@ -134,7 +141,8 @@ test('drops on a part body and moves a container by its sidebar title', async ({
   await expect(sidebar).toHaveAttribute('data-view-drop-position', 'body');
   await page.mouse.up();
   await expect(activitybar.getByRole('button').nth(0)).toHaveAccessibleName('Explorer');
-  await expect(activitybar.getByRole('button').nth(1)).toHaveAccessibleName('Output');
+  await expect(activitybar.getByRole('button').nth(1)).toHaveAccessibleName('Hello World');
+  await expect(activitybar.getByRole('button').nth(2)).toHaveAccessibleName('Output');
   await expect(sidebar.getByText('No output yet')).toBeVisible();
   await expect(panel.getByRole('tab')).toHaveText(['Problems']);
 
@@ -159,6 +167,7 @@ test('moves from the keyboard context menu and resets with the command palette',
   const panel = part(page, 'panel');
   const explorer = activitybar.getByRole('button', { name: 'Explorer' });
 
+  await moveSampleToPanel(page);
   await page.keyboard.press('ControlOrMeta+j');
   await expect(panel).toBeHidden();
   await explorer.press('Shift+F10');

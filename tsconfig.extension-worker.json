@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "WebWorker", "WebWorker.Iterable"],
+    "types": []
+  },
+  "include": ["src/workbench/api/worker/**/*.ts", "src/vscode-dts/vscode.d.ts"]
+}

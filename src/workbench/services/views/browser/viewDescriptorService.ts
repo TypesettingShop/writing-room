@@ -107,12 +107,25 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
       } else {
         this.customLocations.set(container.id, to);
       }
-      this.save(customizationsKey, this.customLocations.size
-        ? { viewContainerLocations: Object.fromEntries(this.customLocations) } : undefined);
+      this.saveCustomLocations();
       this.updateOrder(from, this.order[from].filter(id => id !== container.id));
     }
     this.updateOrder(to, order);
     this.moved.fire({ changes: [{ viewContainer: container, from, to, fromIndex }], reset: false });
+  }
+
+  forgetViewContainerPlacements(ids: readonly string[]): void {
+    const removed = new Set(ids);
+    let locationsChanged = false;
+    for (const id of removed) {
+      locationsChanged = this.customLocations.delete(id) || locationsChanged;
+    }
+    if (locationsChanged) {
+      this.saveCustomLocations();
+    }
+    for (const location of locations) {
+      this.updateOrder(location, this.order[location].filter(id => !removed.has(id)));
+    }
   }
 
   resetViewLocations(): void {
@@ -146,6 +159,11 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
       this.order[location] = order;
       this.save(orderKeys[location], order.length ? order : undefined);
     }
+  }
+
+  private saveCustomLocations(): void {
+    this.save(customizationsKey, this.customLocations.size
+      ? { viewContainerLocations: Object.fromEntries(this.customLocations) } : undefined);
   }
 
   private save(key: string, value: object | undefined): void {

@@ -182,5 +182,7 @@ export interface IViewDescriptorService extends BrandedService {
   getViewContainersByLocation(location: ViewContainerLocation): readonly ViewContainer[];
   /** Index in the destination after removing the source item. Defaults to append. */
   moveViewContainerToLocation(container: ViewContainer, location: ViewContainerLocation, index?: number): void;
+  /** Forgets saved placements for permanently removed containers. */
+  forgetViewContainerPlacements(ids: readonly string[]): void;
   resetViewLocations(): void;
 }

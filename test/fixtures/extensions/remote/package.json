@@ -1,0 +1,12 @@
+{
+  "name": "remote",
+  "publisher": "writing-room-tests",
+  "displayName": "Remote Fixture",
+  "version": "1.0.0",
+  "browser": "./extension.js",
+  "contributes": {
+    "commands": [{"command":"fixture.remote.hello","title":"Run Remote Fixture"}],
+    "viewsContainers": {"activitybar": [{"id":"remote-fixture","title":"Remote Fixture","icon":"./icon.png"}]},
+    "views": {"remote-fixture": [{"id":"fixture.remote.view","name":"Remote Fixture View"}]}
+  }
+}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <title>Extension Host Tests</title>
+    <script type="module" src="./extension-host.ts"></script>
+  </head>
+  <body>
+    <button id="run">Run Extension Command</button>
+    <button id="fail">Run Failing Extension</button>
+    <button id="hang">Run Hanging Extension</button>
+    <button id="async-error">Run Extension with Asynchronous Errors</button>
+    <button id="crash">Terminate Test Worker</button>
+    <button id="restart">Restart Test Host</button>
+    <button id="ping">Check Page</button>
+    <output id="result"></output>
+    <output id="page-result"></output>
+  </body>
+</html>
