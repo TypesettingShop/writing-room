@@ -1,0 +1,89 @@
+.wr-menu,
+.wr-menubar,
+.wr-menu-toolbar {
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
+.wr-menu {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  min-width: min(12rem, 100%);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid #c4ccd5;
+  border-radius: 6px;
+  background: #fbfcfe;
+  color: #1f2936;
+  box-shadow: 0 5px 18px #15263a33;
+}
+
+.wr-menu button,
+.wr-menubar button,
+.wr-menu-toolbar button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.wr-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.wr-menu button[aria-disabled='true'] {
+  color: #626d79;
+  cursor: default;
+}
+
+.wr-menu button:focus,
+.wr-menubar button:hover,
+.wr-menubar button[aria-expanded='true'],
+.wr-menu-toolbar button:hover {
+  background: #e0eaf4;
+}
+
+.wr-menu button:focus-visible,
+.wr-menubar button:focus-visible,
+.wr-menu-toolbar button:focus-visible {
+  outline: 2px solid #477ba3;
+  outline-offset: -2px;
+}
+
+.wr-menu [role='separator'] {
+  border-top: 1px solid #d9dfe7;
+  margin: 3px 4px;
+}
+
+.wr-menu-shortcut {
+  margin-inline-start: auto;
+  padding-inline-start: 12px;
+  color: #536373;
+}
+
+.wr-menubar,
+.wr-menu-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wr-menu-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  vertical-align: middle;
+  object-fit: contain;
+}
+
+.wr-menu-toolbar [hidden] {
+  display: none;
+}
