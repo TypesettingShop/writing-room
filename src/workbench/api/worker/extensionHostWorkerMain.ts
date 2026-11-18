@@ -7,6 +7,7 @@ import { loadCommonJSModule } from './extHostExtensionService.js';
 const scope = globalThis as unknown as DedicatedWorkerGlobalScope;
 const close = scope.close.bind(scope);
 const listen = scope.addEventListener.bind(scope);
+const logError = console.error.bind(console);
 
 for (const key of ['postMessage', 'close', 'importScripts', 'addEventListener', 'onmessage', 'onmessageerror']) {
   // Clear the worker-specific prototype slots as well as the instance's property lookup.
@@ -32,7 +33,18 @@ listen('message', ({ data, ports }) => {
     const data = readPortMessageData(event) as HostControlMessage;
     if (data.kind === ExtensionHostMessage.Initialize && !service) {
       service = new ExtHostExtensionService(rpc, loadCommonJSModule);
-      void service.$deltaExtensions(data.extensions, []).then(() => send({ kind: ExtensionHostMessage.Initialized }));
+      void service.$deltaExtensions(data.extensions, []).then(() => {
+        // Initialization errors can still reach the workbench. Extension callbacks start after this handshake.
+        listen('error', event => {
+          event.preventDefault();
+          logError('Uncaught error in the extension worker:', event.error ?? event.message);
+        });
+        listen('unhandledrejection', event => {
+          event.preventDefault();
+          logError('Unhandled promise rejection in the extension worker:', event.reason);
+        });
+        send({ kind: ExtensionHostMessage.Initialized });
+      });
     } else if (data.kind === ExtensionHostMessage.Ping) {
       send({ kind: ExtensionHostMessage.Pong, sequence: data.sequence });
     } else if (data.kind === ExtensionHostMessage.Terminate) {

@@ -41,12 +41,40 @@ test('hides worker globals and leaves the workbench responsive through failure, 
   await expect(result).toContainText('stopped responding', { timeout: 15_000 });
   await page.locator('#run').click();
   await expect(result).toContainText('The extension host is not running');
-  // Removing the hanging fixture would normally be an uninstall. Reload isolates it from the replay check.
-  await page.reload();
+  await page.locator('#restart').click();
+  await expect.poll(() => page.workers().length).toBe(1);
   await page.locator('#run').click();
   await expect(result).toContainText('"worker":true');
+});
+
+test('logs uncaught extension callback errors without interrupting another extension', async ({ page }) => {
+  test.skip(process.env.E2E_TARGET === 'preview', 'The failure harness is available in development');
+  const errors: string[] = [];
+  page.on('console', message => { if (message.type() === 'error') { errors.push(message.text()); } });
+  await page.goto('/test/harness/extension-host.html');
+  const result = page.locator('#result');
+  await page.locator('#run').click();
+  await expect(result).toContainText('"worker":true');
+  const worker = page.workers()[0];
+  await page.locator('#async-error').click();
+  await expect.poll(() => errors.join(' ')).toMatch(/Uncaught error in the extension worker:.*Fixture asynchronous error/);
+  await expect.poll(() => errors.join(' ')).toMatch(/Unhandled promise rejection in the extension worker:.*Fixture rejected promise/);
+  expect(page.workers()).toEqual([worker]);
+  await page.locator('#run').click();
+  await expect(result).toContainText('"worker":true');
+});
+
+test('recovers from explicit worker termination', async ({ page }) => {
+  test.skip(process.env.E2E_TARGET === 'preview', 'The failure harness is available in development');
+  await page.goto('/test/harness/extension-host.html');
+  const result = page.locator('#result');
+  await page.locator('#run').click();
+  await expect(result).toContainText('"worker":true');
+  const closed = page.workers()[0].waitForEvent('close');
   await page.locator('#crash').click();
-  await expect.poll(() => page.workers().length).toBe(0);
+  await closed;
+  await page.locator('#run').click();
+  await expect(result).toContainText('The extension host is not running', { timeout: 15_000 });
   await page.locator('#restart').click();
   await expect.poll(() => page.workers().length).toBe(1);
   await page.locator('#run').click();

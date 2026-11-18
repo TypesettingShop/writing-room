@@ -5,11 +5,22 @@ import { Workbench } from '../../src/workbench/browser/workbench.js';
 import type { ExtensionService } from '../../src/workbench/services/extensions/browser/extensionService.js';
 import { IExtensionService } from '../../src/workbench/services/extensions/common/extensions.js';
 
+const NativeWorker = globalThis.Worker;
+let extensionWorker: Worker | undefined;
+globalThis.Worker = class extends NativeWorker {
+  constructor(url: string | URL, options?: WorkerOptions) {
+    super(url, options);
+    if (options?.name === 'writing-room-extension-host') {
+      extensionWorker = this;
+    }
+  }
+};
+
 const workbench = new Workbench(document.body.appendChild(document.createElement('main')));
 workbench.startup();
 const [extensions, commands] = workbench.instantiationService.invokeFunction(accessor =>
   [accessor.get(IExtensionService) as ExtensionService, accessor.get(ICommandService)] as const);
-for (const name of ['run', 'fail', 'hang', 'crash']) {
+for (const name of ['run', 'fail', 'hang', 'async-error']) {
   const id = 'host-fixture.' + name;
   const manifest = {
     publisher: 'writing-room-tests', name, version: '1.0.0', browser: name + '.js',
@@ -21,8 +32,8 @@ for (const name of ['run', 'fail', 'hang', 'crash']) {
   });
   document.querySelector('#' + name)!.addEventListener('click', () => execute(id));
 }
+document.querySelector('#crash')!.addEventListener('click', () => extensionWorker?.terminate());
 document.querySelector('#restart')!.addEventListener('click', () => {
-  extensions.removeExtension('writing-room-tests.crash');
   extensions.removeExtension('writing-room-tests.hang');
   void execute('workbench.action.restartExtensionHost');
 });
