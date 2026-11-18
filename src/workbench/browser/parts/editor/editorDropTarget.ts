@@ -4,6 +4,7 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { DraggedEditorGroupIdentifier, EditorDragAndDropObserver } from '../../dnd.js';
 import type { DraggedEditorItem } from '../../dnd.js';
 import { GroupDirection } from '../../../services/editor/common/editorGroupsService.js';
+import { mergeDroppedGroup } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView } from './editor.js';
 import './media/editordroptarget.css';
 
@@ -85,30 +86,40 @@ export class DropOverlay extends Disposable {
     this._register(toDisposable(() => this.element.remove()));
 
     this._register(new DragAndDropObserver(this.element, {
-      onDragOver: event => {
-        const item = EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, this.element);
-        if (item && isDropIntoGroupOffered(this.groupsView, this.groupView, item)) {
-          this.update(event, item);
-        } else {
-          this.onDidLeave();
-        }
-      },
+      // The overlay appears under a pointer that is already dragging, so its `dragenter` comes
+      // first. The browser takes that event's answer as the drop operation until the next
+      // `dragover`; left unanswered, a release in between would drop nothing.
+      onDragEnter: event => this.onDragOver(event),
+      onDragOver: event => this.onDragOver(event),
       onDragLeave: () => this.onDidLeave(),
-      onDrop: event => {
-        const item = EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, this.element);
-        const offered = !!item && isDropIntoGroupOffered(this.groupsView, this.groupView, item);
-        if (offered) {
-          this.update(event, item);
-        }
-        event.preventDefault();
-        // Whatever the drop does, the drag is over: no payload or overlay outlives it.
-        EditorDragAndDropObserver.INSTANCE.endDrag();
-        this.onDidLeave();
-        if (offered) {
-          handleDrop(this.groupsView, this.groupView, item!, this.splitDirection);
-        }
-      },
+      onDrop: event => this.drop(event),
     }));
+  }
+
+  private onDragOver(event: DragEvent): void {
+    const item = EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, this.element);
+    if (item && isDropIntoGroupOffered(this.groupsView, this.groupView, item)) {
+      this.update(event, item);
+    } else {
+      this.onDidLeave();
+    }
+  }
+
+  /** Ends the drag and carries out the drop of `event` on this group's body, where it is offered. */
+  drop(event: DragEvent): void {
+    const item = EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, this.element);
+    const offered = !!item && isDropIntoGroupOffered(this.groupsView, this.groupView, item);
+    if (offered) {
+      this.update(event, item);
+    }
+    const splitDirection = this.splitDirection;
+    event.preventDefault();
+    // Whatever the drop does, the drag is over: no payload or overlay outlives it.
+    EditorDragAndDropObserver.INSTANCE.endDrag();
+    this.onDidLeave();
+    if (offered) {
+      handleDrop(this.groupsView, this.groupView, item!, splitDirection);
+    }
   }
 
   /** Places the indicator for the pointer of `event` and accepts the drag there. */
@@ -134,18 +145,19 @@ export class DropOverlay extends Disposable {
   }
 }
 
+/** Whether `node` lies in the body of `group`, below its tab strip (the overlay included). */
+function isOverBody(group: IEditorGroupView, node: Node): boolean {
+  return group.element.contains(node) && !group.titleContainer.contains(node);
+}
+
 /** Carries out a drop onto the body of `target`, then hands it focus with the moved editor active. */
 function handleDrop(groupsView: IEditorGroupsView, target: IEditorGroupView, item: DraggedEditorItem, splitDirection: GroupDirection | undefined): void {
   let result: IEditorGroupView;
   if (item instanceof DraggedEditorGroupIdentifier) {
     const source = groupsView.getGroup(item.identifier)!;
-    const active = source.activeEditor;
     if (splitDirection === undefined) {
-      groupsView.mergeGroup(source, target);
+      mergeDroppedGroup(groupsView, source, target);
       result = target;
-      if (active && target.contains(active)) {
-        void target.openEditor(active);
-      }
     } else {
       result = groupsView.moveGroup(source, target, splitDirection);
     }
@@ -202,6 +214,11 @@ export class EditorDropTarget extends Disposable {
     const item = EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, this.container);
     const group = this.groupsView.groups.find(candidate => candidate.element.contains(target));
     if (!group || group.titleContainer.contains(target)) {
+      // The pointer is off every body. An overlay it left before ever reaching it (the overlay
+      // appears under the pointer) gets no `dragleave` of its own, so it goes here.
+      if (event.type === 'dragenter' || event.type === 'dragover') {
+        this.disposeOverlay();
+      }
       // A tab strip offers its own drop for our drags; anything else is refused anywhere in the part.
       if (!item) {
         this.refuse(event);
@@ -210,14 +227,24 @@ export class EditorDropTarget extends Disposable {
     }
     event.stopPropagation();
     if (event.type === 'dragleave') {
+      // Out of the part straight from the body, before the overlay took the pointer.
+      const next = event.relatedTarget;
+      if (this.overlay?.groupView === group && next instanceof Node && !isOverBody(group, next)) {
+        this.disposeOverlay();
+      }
       return;
     }
-    if (event.type !== 'drop' && item && isDropIntoGroupOffered(this.groupsView, group, item)) {
-      // The first event over the body puts the overlay in place; the ones after reach the overlay.
+    if (item && isDropIntoGroupOffered(this.groupsView, group, item)) {
+      // The first event over the body puts the overlay in place; the ones after reach the overlay,
+      // but a drop can still come here if the browser has not moved its target onto the overlay yet.
       if (this.overlay?.groupView !== group) {
         this.createOverlay(group);
       }
-      this.overlay!.update(event, item);
+      if (event.type === 'drop') {
+        this.overlay!.drop(event);
+      } else {
+        this.overlay!.update(event, item);
+      }
       return;
     }
     if (this.overlay?.groupView === group) {

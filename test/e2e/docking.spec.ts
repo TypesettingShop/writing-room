@@ -181,6 +181,23 @@ test('moves a tab into the centre of another group, where it becomes active and 
   await expect(left.getByRole('tab')).toHaveText(['Untitled-1']);
 });
 
+test('a tab released right after it first enters another group\'s body still moves there', async ({ appPage: page }) => {
+  await newTextFile(page, 'travel');
+  await group(page).getByRole('toolbar').getByRole('button', { name: 'Split Editor Right' }).click();
+  await expect(groups(page)).toHaveCount(2);
+  const [left, right] = [group(page, 0), group(page, 1)];
+  await expect.poll(() => renderedText(right)).toBe('travel');
+
+  // One move: the overlay appears under the pointer, and the release comes before any `dragover` on it.
+  await startDrag(page, await center(left.getByRole('tab', { name: 'Welcome' })));
+  const to = await bodyPoint(right, 0.5, 0.5);
+  await page.mouse.move(to.x, to.y);
+  await page.mouse.up();
+
+  await expect(right.getByRole('tab')).toHaveText(['Untitled-1', 'Welcome']);
+  await expect(overlay(page)).toHaveCount(0);
+});
+
 test('moves the group of a dragged only tab to another group\'s bottom edge, keeping text and cursor', async ({ appPage: page }) => {
   await newTextFile(page, 'top');
   await group(page).getByRole('toolbar').getByRole('button', { name: 'Split Editor Right' }).click();

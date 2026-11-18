@@ -74,6 +74,18 @@ export interface IEditorGroupsView {
   mergeGroup(group: IEditorGroupView, target: IEditorGroupView, options?: IMergeGroupOptions): boolean;
 }
 
+/**
+ * Merges a dragged group into `target` (at `index`, or after its editors) and keeps the editor that
+ * was active in the dragged group active in `target`, as a drop of a whole group does.
+ */
+export function mergeDroppedGroup(groupsView: IEditorGroupsView, source: IEditorGroupView, target: IEditorGroupView, index?: number): void {
+  const active = source.activeEditor;
+  groupsView.mergeGroup(source, target, { index });
+  if (active && target.contains(active)) {
+    void target.openEditor(active);
+  }
+}
+
 /** An editor group as the part and the other groups see it: a group that is also a grid view. */
 export interface IEditorGroupView extends IEditorGroup, ISerializableView {
   readonly disposed: boolean;

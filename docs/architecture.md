@@ -144,7 +144,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 오버레이는 비어 있는 그룹에서도 탭 줄 아래 본문만 덮는다. VS Code는 빈 그룹이나 탭을 숨긴 그룹에서 그룹 전체를 덮는다 — 여기서는 탭 줄이 늘 보이고 빈 그룹의 탭 줄도 드롭 대상(끝에 삽입)이다 (wr-cla6.bxt)
 - 오버레이 표시 영역에는 위치 전환 애니메이션이 없다. VS Code는 `transition`으로 움직인다 — 드롭될 자리를 그 순간 그대로 보여 주고, 브라우저 테스트가 중간 위치를 재지 않게 한다. VS Code의 300 ms `cleanupOverlayScheduler`도 없다. 오버레이는 이벤트를 직접 받으므로 떠날 때와 세션이 끝날 때 지운다 (wr-cla6.bxt)
 - 삽입 표시와 오버레이는 클래스 대신 속성으로 나타낸다: 탭(또는 빈 곳 위라면 탭 줄)의 `data-tab-drop-position`(`before`, `after`, `end`)과 오버레이 표시 영역의 `data-editor-drop-position`(`left`, `right`, `up`, `down`, `center`). VS Code는 `drop-target-left`/`drop-target-right` 같은 클래스를 쓴다 — 클래스 이름은 DOM 계약이 아니다 (wr-cla6.bxt)
-- 탭 줄은 `DragAndDropObserver` 하나로 줄 전체를 보고 이벤트 대상에서 가리킨 탭을 찾는다. VS Code는 탭마다 관찰자를 하나씩 두고 줄에 또 하나를 둔다 — 탭은 모델 이벤트로 다시 그려지므로 탭별 등록과 해제가 필요 없다 (wr-cla6.bxt)
+- 탭 줄은 `DragAndDropObserver` 하나로 줄 전체를 보고 이벤트 대상에서 가리킨 탭을 찾는다. 관찰자는 줄에 들어올 때만 `dragenter`를 넘기므로, 탭마다의 `dragenter`는 줄의 리스너 하나가 `dragover`처럼 받아 드롭을 허락한다(브라우저는 다음 `dragover`까지 `dragenter`의 답을 드롭 연산으로 쓴다). VS Code는 탭마다 관찰자를 하나씩 두고 줄에 또 하나를 둔다 — 탭은 모델 이벤트로 다시 그려지므로 탭별 등록과 해제가 필요 없다 (wr-cla6.bxt)
 - `IEditorGroupsView`에 `getGroup`, `addGroup`, `moveGroup`, `mergeGroup`을, `IEditorGroupView`에 `titleContainer`와 `titleHeight`(숫자)를 더했다. VS Code의 `IEditorGroupsView`에는 이미 있고 `titleHeight`는 `{ total, offset }`이다 — 탭 줄의 높이가 하나뿐이다 (wr-cla6.bxt)
 
 ### Storage and settings

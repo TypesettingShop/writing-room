@@ -329,6 +329,32 @@ describe('dropping on a group body', () => {
     expect([left.editors, right.editors]).toEqual([[a, b], [c]]);
   });
 
+  test('the overlay accepts its own dragenter, and a drop that still reaches the body below it is carried out', () => {
+    placeGroup(right);
+    const data = transfer();
+    dispatch(tabOf(left, 'a'), 'dragstart', data);
+    dispatch(bodyOf(right), 'dragenter', data, { clientX: 990, clientY: 300 });
+    const overlayElement = overlay()!.parentElement!;
+    expect(dispatch(overlayElement, 'dragenter', data, { clientX: 990, clientY: 300 }).defaultPrevented).toBe(true);
+    // The browser drops on its last target, which may still be the body under the new overlay.
+    const drop = dispatch(bodyOf(right), 'drop', data, { clientX: 990, clientY: 300 });
+    expect(drop.defaultPrevented).toBe(true);
+    expect(overlay()).toBeNull();
+    expect(part.count).toBe(3);
+    expect(part.activeGroup.editors).toEqual([a]);
+    expect([left.editors, right.editors]).toEqual([[b], [c]]);
+  });
+
+  test('an overlay the pointer left for a tab strip before reaching it goes', () => {
+    placeGroup(right);
+    const data = transfer();
+    dispatch(tabOf(left, 'b'), 'dragstart', data);
+    dispatch(bodyOf(right), 'dragenter', data, { clientX: 500, clientY: 300 });
+    expect(overlay()).not.toBeNull();
+    dispatch(tabOf(right, 'c'), 'dragenter', data);
+    expect(overlay()).toBeNull();
+  });
+
   test('the overlay goes when the group it covers goes', () => {
     placeGroup(right);
     const data = transfer();
@@ -354,6 +380,37 @@ describe('the strip', () => {
     expect(left.activeEditor).toBe(c);
     expect(part.count).toBe(1);
     expect(part.activeGroup).toBe(left);
+  });
+
+  test('a tab dropped on a strip that already holds its editor lands where the marker showed', () => {
+    // `a` split into `right` too: right holds a, c.
+    left.copyEditor(a, right, { index: 0 });
+    expect(right.editors).toEqual([a, c]);
+    const data = transfer();
+    dispatch(tabOf(left, 'a'), 'dragstart', data);
+    const target = tabOf(right, 'c');
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect);
+    // The left half of `c`, the slot between `a` and `c`: nothing in `right` moves.
+    expect(dispatch(target, 'dragenter', data, { clientX: 20 }).defaultPrevented).toBe(true);
+    dispatch(target, 'drop', data, { clientX: 20 });
+    expect([left.editors, right.editors]).toEqual([[b], [a, c]]);
+  });
+
+  test('a group dropped on a strip that already holds one of its editors keeps the marker\'s order', async () => {
+    // right holds c, a, d; left holds a, b. Dropped before d: c, a, b, d.
+    const d = new TestInput('d');
+    await right.openEditor(d);
+    left.copyEditor(a, right, { index: 1 });
+    expect(right.editors).toEqual([c, a, d]);
+    const strip = left.element.querySelector<HTMLElement>('[role="tablist"]')!;
+    const data = transfer();
+    dispatch(strip, 'dragstart', data);
+    const target = tabOf(right, 'd');
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect);
+    dispatch(target, 'dragover', data, { clientX: 20 });
+    dispatch(target, 'drop', data, { clientX: 20 });
+    expect(part.count).toBe(1);
+    expect(right.editors).toEqual([c, a, b, d]);
   });
 
   test('a group dropped on another strip merges at the marker; on its own strip it is refused', () => {

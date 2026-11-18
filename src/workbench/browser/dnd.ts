@@ -7,6 +7,19 @@ import type { GroupIdentifier, IEditorIdentifier } from '../common/editor.js';
 
 const compositeMime = 'application/x-writing-room-view-container';
 
+/** Calls `end` however a drag from `source` ends: its `dragend`, Escape, or the window losing focus or the page. */
+function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
+  const window = source.ownerDocument.defaultView!;
+  session.add(addDisposableListener(source, 'dragend', end));
+  session.add(addDisposableListener(window, 'pagehide', end));
+  session.add(addDisposableListener(window, 'blur', end));
+  session.add(addDisposableListener(window, 'keydown', event => {
+    if (event.key === 'Escape') {
+      end();
+    }
+  }, true));
+}
+
 export class DraggedCompositeIdentifier {
   constructor(readonly id: string) {}
 }
@@ -45,15 +58,7 @@ export class CompositeDragAndDropObserver {
       this.transfer.setData([item], DraggedCompositeIdentifier.prototype);
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData(compositeMime, '');
-      const window = element.ownerDocument.defaultView!;
-      this.session.add(addDisposableListener(element, 'dragend', () => this.finish()));
-      this.session.add(addDisposableListener(window, 'pagehide', () => this.finish()));
-      this.session.add(addDisposableListener(window, 'blur', () => this.finish()));
-      this.session.add(addDisposableListener(window, 'keydown', event => {
-        if (event.key === 'Escape') {
-          this.finish();
-        }
-      }, true));
+      trackDragSession(this.session, element, () => this.finish());
     }));
     registrations.add(toDisposable(() => {
       element.draggable = wasDraggable;
@@ -155,17 +160,9 @@ export class EditorDragAndDropObserver {
       event.dataTransfer.setData('text/plain', label);
       event.dataTransfer.setData(editorMime, '');
     }
-    const window = source.ownerDocument.defaultView!;
     // The source may leave the document on drop (its tab moved away), so the drop target ends
     // the session too; these catch every other way out.
-    this.session.add(addDisposableListener(source, 'dragend', () => this.endDrag()));
-    this.session.add(addDisposableListener(window, 'pagehide', () => this.endDrag()));
-    this.session.add(addDisposableListener(window, 'blur', () => this.endDrag()));
-    this.session.add(addDisposableListener(window, 'keydown', keyEvent => {
-      if (keyEvent.key === 'Escape') {
-        this.endDrag();
-      }
-    }, true));
+    trackDragSession(this.session, source, () => this.endDrag());
   }
 
   /** The editor or group this drag carries, if it is ours and still going. */

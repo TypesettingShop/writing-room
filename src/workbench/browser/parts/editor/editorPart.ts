@@ -219,6 +219,12 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
     // Read before the loop: each move hands the source's active editor on to the next one.
     const sourceActive = sourceView.activeEditor;
     for (const editor of sourceView.getEditors(EditorsOrder.SEQUENTIAL)) {
+      // An editor the target already holds (split into it) moves there instead, leaving its old
+      // place first: before `index`, it would land one past where the rest go.
+      const held = targetView.editors.findIndex(candidate => candidate === editor || candidate.matches(editor));
+      if (held !== -1 && held < index) {
+        index--;
+      }
       // Only the source's active editor, from the active group, becomes active in the target.
       const inactive = editor !== sourceActive || !sourceWasActive;
       const moveOptions = { index: index++, inactive, preserveFocus: inactive };

@@ -13,6 +13,7 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type { IGroupModelChangeEvent } from '../../../common/editor/editorGroupModel.js';
 import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDropObserver } from '../../dnd.js';
 import type { DraggedEditorItem } from '../../dnd.js';
+import { mergeDroppedGroup } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView } from './editor.js';
 import './media/multieditortabscontrol.css';
 
@@ -38,8 +39,9 @@ function pick({ id, label, enabled, checked, icon, keybinding }: MenuAction): Me
 /**
  * The index a dragged tab gets in the target group's model (`moveEditor`'s `index`, counted after
  * the move) when dropped on the left (`after` false) or right half of the tab at `hoveredIndex`.
- * Within one group the tab leaves its old place first, so a tab moving right lands one lower to end
- * up where the marker showed; a tab from another group leaves nothing behind in this one.
+ * An editor the target group already holds at `sourceIndex` (`sameGroup`: its own tab, or the same
+ * editor split into it) leaves its old place first, so moving right it lands one lower to end up
+ * where the marker showed; an editor new to the group leaves nothing behind in it.
  */
 export function getTabDropIndex(sourceIndex: number, hoveredIndex: number, after: boolean, sameGroup: boolean): number {
   const slot = hoveredIndex + (after ? 1 : 0);
@@ -112,18 +114,22 @@ export class MultiEditorTabsControl extends Disposable {
       }
     }));
 
+    const onDragOver = (event: DragEvent) => {
+      const item = observer.getDraggedItem(event, this.tabsContainer);
+      const drop = item && this.isDropOffered(item) ? this.getDropTarget(event) : undefined;
+      if (!drop) {
+        this.updateDropFeedback(undefined);
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'move';
+      this.updateDropFeedback(drop);
+    };
+    // The browser takes a `dragenter`'s answer as the drop operation until the next `dragover`, so
+    // entering each tab is answered too, not only entering the strip.
+    this._register(addDisposableListener(this.tabsContainer, 'dragenter', onDragOver));
     const dnd = this._register(new DragAndDropObserver(this.tabsContainer, {
-      onDragOver: event => {
-        const item = observer.getDraggedItem(event, this.tabsContainer);
-        const drop = item && this.isDropOffered(item) ? this.getDropTarget(event) : undefined;
-        if (!drop) {
-          this.updateDropFeedback(undefined);
-          return;
-        }
-        event.preventDefault();
-        event.dataTransfer!.dropEffect = 'move';
-        this.updateDropFeedback(drop);
-      },
+      onDragOver,
       onDragLeave: () => this.updateDropFeedback(undefined),
       onDrop: event => {
         const item = observer.getDraggedItem(event, this.tabsContainer);
@@ -178,16 +184,14 @@ export class MultiEditorTabsControl extends Disposable {
     if (item instanceof DraggedEditorIdentifier) {
       const { groupId, editor } = item.identifier;
       const source = this.groupsView.getGroup(groupId)!;
-      const index = getTabDropIndex(source.getIndexOfEditor(editor), hoveredIndex, after, source === this.group);
+      // This group may hold the editor already: its own tab, or the same editor split here. The
+      // move then shifts that tab, as `openEditor` finds it by `matches`.
+      const held = this.group.editors.findIndex(candidate => candidate === editor || candidate.matches(editor));
+      const index = getTabDropIndex(held, hoveredIndex, after, held !== -1);
       source.moveEditor(editor, this.group, { index });
     } else {
-      const source = this.groupsView.getGroup(item.identifier)!;
-      const active = source.activeEditor;
       // A whole group lands at the marker, its tabs in their order.
-      this.groupsView.mergeGroup(source, this.group, { index: hoveredIndex + (after ? 1 : 0) });
-      if (active && this.group.contains(active)) {
-        void this.group.openEditor(active);
-      }
+      mergeDroppedGroup(this.groupsView, this.groupsView.getGroup(item.identifier)!, this.group, hoveredIndex + (after ? 1 : 0));
     }
     this.groupsView.activateGroup(this.group);
     this.group.focus();
