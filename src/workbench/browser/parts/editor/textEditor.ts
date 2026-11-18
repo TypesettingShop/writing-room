@@ -1,0 +1,274 @@
+import { $, append } from '../../../../base/browser/dom.js';
+import type { Dimension } from '../../../../base/browser/dom.js';
+import { MutableDisposable } from '../../../../base/common/lifecycle.js';
+import type { IDisposable } from '../../../../base/common/lifecycle.js';
+import { loadMonaco } from '../../../../editor/browser/monaco.js';
+import type {
+  ICodeEditorViewState, IMonacoTextModel, IStandaloneCodeEditor, IStandaloneEditorConstructionOptions, MonacoNamespace,
+} from '../../../../editor/browser/monaco.js';
+import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
+import { isTextEditorModel } from '../../../../editor/common/services/resolverService.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
+import type { EditorInput } from '../../../common/editor/editorInput.js';
+import { EditorPane } from './editorPane.js';
+import './media/textEditor.css';
+
+/**
+ * Every option the text editor is created with. One function, so configuration can feed it later.
+ * The pane lays the editor out itself (`automaticLayout: false`), as all layout here is explicit.
+ */
+export function getTextEditorOptions(): IStandaloneEditorConstructionOptions {
+  return {
+    theme: 'vs-dark',
+    automaticLayout: false,
+    ariaLabel: 'Editor content',
+  };
+}
+
+interface IShownModel {
+  readonly input: EditorInput;
+  readonly model: IMonacoTextModel;
+  /** View state to restore once the model is attached. */
+  viewState: object | undefined;
+}
+
+/**
+ * The text editor pane, `workbench.editors.textResourceEditor`: one Monaco editor that shows every
+ * text input the pane receives. The text belongs to the input's model, which the pane only attaches;
+ * the cursor and scroll belong to the input's view state, which the pane saves when it lets go.
+ */
+export class TextEditorPane extends EditorPane {
+  static readonly ID = 'workbench.editors.textResourceEditor';
+
+  private editorContainer!: HTMLElement;
+  private messageElement!: HTMLElement;
+  private monaco: MonacoNamespace | undefined;
+  private editor: IStandaloneCodeEditor | undefined;
+  private dimension: Dimension | undefined;
+  private shown: IShownModel | undefined;
+  private pendingFocus = false;
+  /** Increases with every `setInput` and `clearInput`; a load that finishes under an older one is dropped. */
+  private request = 0;
+  private readonly inputListener = this._register(new MutableDisposable());
+  private readonly viewStates = new Map<EditorInput, { state: object; listener: IDisposable }>();
+  private editorTextFocus!: IContextKey<boolean>;
+  private editorFocus!: IContextKey<boolean>;
+  private textInputFocus!: IContextKey<boolean>;
+
+  constructor(@IContextKeyService private readonly contextKeyService: IContextKeyService) {
+    super(TextEditorPane.ID);
+  }
+
+  protected createEditor(parent: HTMLElement): void {
+    parent.classList.add('text-editor');
+    this.editorContainer = append(parent, $('.text-editor-container'));
+    this.messageElement = append(parent, $('.text-editor-message', { role: 'alert', hidden: '' }));
+    // The keys live in the pane's own scope, so they hold for what has focus inside it.
+    const scoped = this._register(this.contextKeyService.createScoped(parent));
+    this.editorTextFocus = EditorContextKeys.editorTextFocus.bindTo(scoped);
+    this.editorFocus = EditorContextKeys.focus.bindTo(scoped);
+    this.textInputFocus = EditorContextKeys.textInputFocus.bindTo(scoped);
+  }
+
+  override async setInput(input: EditorInput, options: ITextEditorOptions | undefined): Promise<void> {
+    const previous = this.input;
+    if (previous === input && this.shown?.input === input && this.isAttached()) {
+      await super.setInput(input, options);
+      if (options?.viewState) {
+        this.editor!.restoreViewState(options.viewState as ICodeEditorViewState);
+      }
+      return;
+    }
+
+    if (previous && previous !== input) {
+      this.saveViewState(previous);
+    }
+    const request = ++this.request;
+    // Detaching takes the focus out of the editor; the next model gets it back.
+    if (this.editor?.hasWidgetFocus()) {
+      this.pendingFocus = true;
+    }
+    this.detach();
+    await super.setInput(input, options);
+    this.inputListener.value = input.onWillDispose(() => {
+      if (this.input === input) {
+        this.clearInput();
+      }
+    });
+
+    let monaco: MonacoNamespace;
+    let resolved: unknown;
+    try {
+      [monaco, resolved] = await Promise.all([loadMonaco(), input.resolve()]);
+    } catch {
+      if (request === this.request) {
+        this.showMessage('The editor could not be opened because the text editor failed to load.');
+      }
+      return;
+    }
+    if (request !== this.request) {
+      return;
+    }
+
+    const textModel = isTextEditorModel(resolved) ? resolved.textEditorModel : null;
+    const model = textModel && !textModel.isDisposed()
+      ? monaco.editor.getModel(monaco.Uri.parse(textModel.uri.toString()))
+      : null;
+    if (!model) {
+      this.showMessage('The editor could not be opened because its text is not available.');
+      return;
+    }
+    this.monaco = monaco;
+    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state };
+    this.ensureEditor();
+    this.attach();
+  }
+
+  override clearInput(): void {
+    if (this.input) {
+      this.saveViewState(this.input);
+    }
+    this.request++;
+    this.inputListener.clear();
+    this.pendingFocus = false;
+    this.detach();
+    super.clearInput();
+  }
+
+  override layout(dimension: Dimension): void {
+    this.dimension = dimension;
+    this.editorContainer.style.width = `${dimension.width}px`;
+    this.editorContainer.style.height = `${dimension.height}px`;
+    if (this.editor) {
+      this.editor.layout({ width: dimension.width, height: dimension.height });
+    } else {
+      this.ensureEditor();
+      this.attach();
+    }
+  }
+
+  override focus(): void {
+    if (this.isAttached()) {
+      this.editor!.focus();
+    } else {
+      this.pendingFocus = true;
+    }
+  }
+
+  override getViewState(): object | undefined {
+    if (this.isAttached()) {
+      return this.editor!.saveViewState() ?? undefined;
+    }
+    return this.shown?.viewState ?? (this.input && this.viewStates.get(this.input)?.state);
+  }
+
+  /** The Monaco editor, once the pane has had a real size and the package has loaded. */
+  getControl(): IStandaloneCodeEditor | undefined {
+    return this.editor;
+  }
+
+  private isAttached(): boolean {
+    return !!this.editor && !!this.shown && this.editor.getModel() === this.shown.model;
+  }
+
+  /**
+   * Monaco draws nothing useful into a container that has no size or is not in the document, so the
+   * editor waits for the first real layout.
+   */
+  private ensureEditor(): void {
+    if (this.editor || !this.monaco || !this.dimension || this.dimension.width <= 0 || this.dimension.height <= 0
+      || !this.editorContainer.isConnected) {
+      return;
+    }
+    const { width, height } = this.dimension;
+    // Without `model: null` Monaco creates an empty model of its own that nothing would dispose.
+    this.editor = this.monaco.editor.create(this.editorContainer, {
+      ...getTextEditorOptions(),
+      model: null,
+      dimension: { width, height },
+    });
+    this._register(this.editor);
+    this._register(this.editor.onDidFocusEditorText(() => {
+      this.editorTextFocus.set(true);
+      this.textInputFocus.set(true);
+    }));
+    this._register(this.editor.onDidBlurEditorText(() => {
+      this.editorTextFocus.set(false);
+      this.textInputFocus.set(false);
+    }));
+    this._register(this.editor.onDidFocusEditorWidget(() => this.editorFocus.set(true)));
+    this._register(this.editor.onDidBlurEditorWidget(() => this.editorFocus.set(false)));
+  }
+
+  private attach(): void {
+    const shown = this.shown;
+    if (!this.editor || !shown || shown.model.isDisposed()) {
+      return;
+    }
+    this.hideMessage();
+    if (this.editor.getModel() !== shown.model) {
+      this.editor.setModel(shown.model);
+    }
+    if (shown.viewState) {
+      this.editor.restoreViewState(shown.viewState as ICodeEditorViewState);
+      shown.viewState = undefined;
+    }
+    if (this.pendingFocus) {
+      this.pendingFocus = false;
+      this.editor.focus();
+    }
+  }
+
+  private detach(): void {
+    this.shown = undefined;
+    this.hideMessage();
+    this.editor?.setModel(null);
+  }
+
+  private saveViewState(input: EditorInput): void {
+    let state: object | undefined;
+    if (this.isAttached() && this.shown!.input === input) {
+      state = this.editor!.saveViewState() ?? undefined;
+    } else if (this.shown?.input === input) {
+      state = this.shown.viewState;
+    } else if (this.input === input) {
+      // Still loading: keep what the caller handed over.
+      state = (this.options as ITextEditorOptions | undefined)?.viewState;
+    }
+    if (!state) {
+      return;
+    }
+    const entry = this.viewStates.get(input);
+    if (entry) {
+      entry.state = state;
+    } else {
+      const listener = input.onWillDispose(() => {
+        listener.dispose();
+        this.viewStates.delete(input);
+      });
+      this.viewStates.set(input, { state, listener });
+    }
+  }
+
+  private showMessage(message: string): void {
+    this.messageElement.textContent = message;
+    this.messageElement.hidden = false;
+  }
+
+  private hideMessage(): void {
+    this.messageElement.hidden = true;
+    this.messageElement.textContent = '';
+  }
+
+  override dispose(): void {
+    this.request++;
+    for (const { listener } of this.viewStates.values()) {
+      listener.dispose();
+    }
+    this.viewStates.clear();
+    this.shown = undefined;
+    super.dispose();
+  }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <title>Text editor test harness</title>
+    <style>
+      html, body { margin: 0; background: #1e1e1e; color: #ccc; font: 13px sans-serif; }
+      header { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; }
+      main { display: flex; gap: 8px; padding: 0 8px; align-items: flex-start; }
+      section { border: 1px solid #444; }
+      section > h2 { margin: 0; padding: 2px 6px; font-size: 12px; font-weight: normal; }
+      output { display: block; padding: 2px 8px; min-height: 1.2em; }
+    </style>
+    <script type="module" src="./text-editor.ts"></script>
+  </head>
+  <body>
+    <header role="toolbar" aria-label="Actions">
+      <button>New Untitled</button>
+      <select aria-label="Input"></select>
+      <button>Show Left</button>
+      <button>Show Right</button>
+      <button>Clear Left</button>
+      <button>Clear Right</button>
+      <button>Close Input</button>
+      <button>Dispose Left Pane</button>
+      <button>Resize Left</button>
+      <button>Move Left</button>
+      <button>Move Left Back</button>
+      <button>Start Workers</button>
+    </header>
+    <main>
+      <section aria-label="Left Pane"><h2>Left</h2></section>
+      <section aria-label="Right Pane"><h2>Right</h2></section>
+      <section aria-label="Elsewhere"><h2>Elsewhere</h2></section>
+    </main>
+    <output aria-label="Inputs"></output>
+    <output aria-label="Models"></output>
+    <output aria-label="Focus Keys"></output>
+    <output aria-label="Workers"></output>
+  </body>
+</html>

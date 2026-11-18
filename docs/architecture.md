@@ -65,6 +65,19 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Editor groups, editor and docking
 
+#### Monaco editor
+
+- 에디터는 VS Code처럼 `src/vs/editor`를 내장하지 않고 같은 코드를 독립 실행형으로 묶은 `monaco-editor` 패키지를 쓴다. 패키지를 임포트하는 파일은 `src/editor/browser/monaco.ts` 하나이며 `loadMonaco()`가 처음 열리는 텍스트 에디터에서 지연 로드한다 — 워크벤치의 첫 페인트가 수 MB의 패키지와 워커를 기다리지 않게 한다 (wr-cla6.36n)
+- `IModelService.createModel`은 비동기다. VS Code는 동기다 — 패키지를 처음 쓸 때 로드하므로 모델을 만들기 전에 기다려야 한다 (wr-cla6.36n)
+- 에디터 페인 레지스트리는 입력의 `typeId`로 페인을 찾는다(`registerEditorPane(descriptor, editorTypeIds)`). VS Code는 입력 생성자의 `SyncDescriptor`로 찾는다 — 입력 타입 id가 이미 계약이라 `instanceof`가 필요 없다 (wr-cla6.36n)
+- 제목 없는 에디터의 이름은 언제나 `Untitled-N`이다. VS Code는 텍스트의 첫 줄에서 이름을 만든다 (wr-cla6.36n)
+- `URI`는 퍼센트 인코딩 없이 구성 요소를 그대로 이어 쓴다 — v0.1.0의 리소스는 워크벤치가 만드는 `untitled:Untitled-N`뿐이다 (wr-cla6.36n)
+- `TextEditorPane`은 입력별 뷰 상태를 페인 안의 메모리 맵에 두고 입력이 dispose되면 지운다. VS Code의 `AbstractEditorWithViewState`는 그룹과 리소스 키로 memento에 저장한다 — 새로고침 뒤 복원은 레이아웃과 에디터 저장 멤버의 몫이다. 다른 페인으로 옮길 때는 `getViewState()`와 `setInput`의 `viewState` 옵션으로 넘긴다 (wr-cla6.36n)
+- 페인은 새 입력을 로드하는 동안 이전 모델을 떼어(`setModel(null)`) 둔다. VS Code는 새 모델로 바로 바꾼다 — 패키지나 모델 로드가 늦을 때 이전 탭의 텍스트가 새 탭 아래 보이지 않게 한다. 떼기 전에 에디터에 포커스가 있었으면 새 모델이 붙을 때 되돌린다 (wr-cla6.36n)
+- Monaco 자체의 F1 바인딩(`editor.action.quickCommand`)을 지운다 — F1은 워크벤치의 커맨드 팔레트로 간다. Monaco의 컨텍스트 메뉴, 찾기 위젯, 다른 키바인딩은 그대로 둔다 (wr-cla6.36n)
+- `editorTextFocus`, `editorFocus`, `textInputFocus`는 페인 요소에 만든 범위 컨텍스트 키 서비스에서 Monaco의 포커스 이벤트를 따른다. VS Code는 `CodeEditorWidget`이 자기 범위 서비스에서 설정한다 (wr-cla6.36n)
+- Monaco의 CSS도 `@vscode/codicons`와 같은 `codicon` 글꼴 패밀리를 선언하므로, Monaco가 로드된 뒤에는 나중에 온 Monaco의 글꼴이 워크벤치 아이콘에도 쓰인다. monaco-editor 0.57.0의 글꼴은 `@vscode/codicons` 0.0.46-24의 아이콘 746개를 모두 같은 코드 포인트로 담고 있어 지금은 보이는 차이가 없다. 두 패키지 중 하나를 올리면 다시 확인한다 (wr-cla6.36n)
+
 ### Storage and settings
 
 #### Storage

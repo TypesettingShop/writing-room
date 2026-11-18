@@ -1,0 +1,22 @@
+.text-editor {
+  position: relative;
+  overflow: hidden;
+}
+
+.text-editor-container {
+  position: absolute;
+  inset: 0 auto auto 0;
+  overflow: hidden;
+}
+
+.text-editor-message {
+  position: absolute;
+  inset: 0;
+  padding: 8px 12px;
+  color: #cccccc;
+  background: #1e1e1e;
+}
+
+.text-editor-message[hidden] {
+  display: none;
+}
