@@ -410,13 +410,20 @@ class BranchNode extends AbstractNode implements ISplitViewView<ILayoutContext>,
     });
   }
 
-  /** Re-reads the limits after a change that ran while the grid was batching. */
+  /**
+   * Re-reads visibility and limits after a change that ran while the grid was batching. A
+   * branch whose views all ended hidden is hidden in its parent, and one with a view shown is shown.
+   */
   checkLimits(): void {
-    for (const child of this.children) {
+    this.children.forEach((child, index) => {
       if (child instanceof BranchNode) {
         child.checkLimits();
+        if (this.splitview.isViewVisible(index) === child.isHidden) {
+          this.splitview.setViewVisible(index, !child.isHidden);
+        }
       }
-    }
+    });
+    this.allChildrenHidden = this.computeAllChildrenHidden();
     this.lastLimits = this.limitsKey();
   }
 
@@ -435,13 +442,15 @@ class BranchNode extends AbstractNode implements ISplitViewView<ILayoutContext>,
   }
 
   private onChildrenChanged(): void {
+    if (this.context.batching > 0) {
+      // Nodes are taken out and put back meanwhile: a branch emptied for a moment must not hide or
+      // show itself in its parent. checkLimits settles visibility and limits once the batch ends.
+      return;
+    }
     const hidden = this.computeAllChildrenHidden();
     if (hidden !== this.allChildrenHidden) {
       this.allChildrenHidden = hidden;
       this._onDidVisibilityChange.fire(!hidden);
-    }
-    if (this.context.batching > 0) {
-      return;
     }
     const limits = this.limitsKey();
     if (limits !== this.lastLimits) {
@@ -482,7 +491,8 @@ class BranchNode extends AbstractNode implements ISplitViewView<ILayoutContext>,
   }
 }
 
-function tail<T>(array: readonly T[]): [T[], T] {
+/** Splits an index path into the path to its parent and its index there. */
+export function tail<T>(array: readonly T[]): [T[], T] {
   if (array.length === 0) {
     throw new Error('Invalid grid location: it is empty.');
   }
@@ -491,33 +501,37 @@ function tail<T>(array: readonly T[]): [T[], T] {
 
 /**
  * Rebuilds `node` for a root of the other orientation. The tree keeps its shape and each
- * branch keeps its children's shares, now measured along the other axis.
+ * branch keeps its children's shares, now measured along the other axis. The old branch is
+ * disposed; its children are flipped, not disposed.
  */
 function flipNode(node: Node, size: number, orthogonalSize: number, context: IGridContext): Node {
   if (node instanceof LeafNode) {
     return new LeafNode(node.view, orthogonal(node.orientation), size, orthogonalSize);
   }
-  const total = node.children.reduce((sum, _, index) => sum + node.getChildVisibleSize(index), 0);
-  let given = 0;
-  const descriptors = node.children.map((child, index): IChildDescriptor => {
-    const share = node.getChildVisibleSize(index);
-    let childSize = total === 0 ? 0 : Math.round(size * share / total);
-    given += childSize;
-    if (index === node.children.length - 1) {
-      // The last child takes the rounding.
-      childSize += size - given;
-    }
-    return {
-      node: flipNode(child, orthogonalSize, childSize, context),
-      size: childSize,
-      visible: node.isChildVisible(index),
-    };
-  });
-  // The old branch must let go of its children without disposing them.
+  // Every share and visibility is read before any child changes.
+  const children = node.children.map((child, index) => ({
+    child,
+    share: node.getChildVisibleSize(index),
+    visible: node.isChildVisible(index),
+  }));
+  const { orientation, splitviewProportionalLayout } = node;
   while (node.children.length > 0) {
     node.removeChild(node.children.length - 1, undefined, true);
   }
-  return new BranchNode(orthogonal(node.orientation), node.splitviewProportionalLayout, context, size, orthogonalSize, descriptors);
+  node.dispose();
+
+  const total = children.reduce((sum, { share }) => sum + share, 0);
+  let given = 0;
+  const descriptors = children.map(({ child, share, visible }, index): IChildDescriptor => {
+    let childSize = total === 0 ? 0 : Math.round(size * share / total);
+    given += childSize;
+    if (index === children.length - 1) {
+      // The last child takes the rounding.
+      childSize += size - given;
+    }
+    return { node: flipNode(child, orthogonalSize, childSize, context), size: childSize, visible };
+  });
+  return new BranchNode(orthogonal(orientation), splitviewProportionalLayout, context, size, orthogonalSize, descriptors);
 }
 
 /**
@@ -610,7 +624,6 @@ export class GridView extends Disposable {
     this.batch(() => {
       const old = this._root;
       this.root = flipNode(old, old.orthogonalSize, old.size, this.context) as BranchNode;
-      old.dispose();
     });
   }
 
@@ -694,7 +707,7 @@ export class GridView extends Disposable {
 
       let newSize: number;
       if (typeof size === 'number') {
-        newSize = Math.min(Math.max(size, 0), extent);
+        newSize = Math.min(Number.isFinite(size) && size > 0 ? size : 0, extent);
       } else if (size.type === 'invisible') {
         newSize = size.cachedVisibleSize;
       } else {
@@ -734,6 +747,8 @@ export class GridView extends Disposable {
       return node.view;
     }
 
+    // The branch the remaining views end in: only its children are evened out by `Distribute`.
+    let changed: BranchNode | undefined;
     this.batch(() => {
       parent.removeChild(index, undefined, true);
       node.dispose();
@@ -741,13 +756,13 @@ export class GridView extends Disposable {
       if (isRoot) {
         // The root would hold a single branch: that branch becomes the root and the grid turns.
         parent.removeChild(0, undefined, true);
-        this.root = sibling as BranchNode;
+        this.root = changed = sibling as BranchNode;
         parent.dispose();
         return;
       }
 
       // The parent would hold one child: that child takes the parent's place in the grandparent.
-      const grandParent = pathToParent[pathToParent.length - 1];
+      const grandParent = changed = pathToParent[pathToParent.length - 1];
       const parentIndex = rest[rest.length - 1];
       const parentVisible = grandParent.isChildVisible(parentIndex);
       const parentSize = grandParent.getChildVisibleSize(parentIndex);
@@ -779,7 +794,7 @@ export class GridView extends Disposable {
     });
 
     if (sizing?.type === 'distribute') {
-      this.distributeViewSizes();
+      changed?.distributeViewSizes();
     }
     return node.view;
   }
@@ -1001,6 +1016,11 @@ export function validateSerializedGridView(json: unknown): ISerializedGridView {
     } else if (node.type === 'branch') {
       if (!Array.isArray(node.data) || node.data.length === 0) {
         fail(`${path}.data`, 'must be a non-empty array of nodes');
+      }
+      // Removing views collapses every branch below the root that is left with one child, so a
+      // stored one never holds fewer than two; one that does would leave an empty branch behind.
+      if (depth > 0 && (node.data as unknown[]).length < 2) {
+        fail(`${path}.data`, 'must hold at least two nodes below the root');
       }
       (node.data as unknown[]).forEach((child, index) => checkNode(child, `${path}.data[${index}]`, depth + 1));
     } else {

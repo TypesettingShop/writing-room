@@ -197,6 +197,18 @@ describe('layout modes', () => {
     expect(sizes(views)).toEqual([150, 100, 50]);
   });
 
+  test('shares survive a layout at size 0 and a change made meanwhile', () => {
+    const views = [new TestView(), new TestView(), new TestView()];
+    create(views, 600);
+    splitview.resizeView(0, 300);
+    const before = sizes(views);
+
+    splitview.layout(0);
+    views[1].setLimits(0, Number.POSITIVE_INFINITY);
+    splitview.layout(600);
+    expect(sizes(views)).toEqual(before);
+  });
+
   test('without proportions the high-priority view takes the change before the others', () => {
     const views = [new TestView(0, Number.POSITIVE_INFINITY, LayoutPriority.Low), new TestView(0, Number.POSITIVE_INFINITY, LayoutPriority.High), new TestView()];
     create(views, 600, { proportionalLayout: false });
@@ -308,6 +320,22 @@ describe('sash dragging', () => {
     create(views, 400, { orientation: Orientation.HORIZONTAL });
     drag(splitview.sashes[0], 200, [150, 100], Orientation.HORIZONTAL);
     expect(sizes(views)).toEqual([100, 300]);
+  });
+
+  test('adding a view during a drag ends the drag instead of resizing from stale sizes', () => {
+    const views = [new TestView(), new TestView()];
+    create(views, 600);
+    const sash = splitview.sashes[0];
+    sash.el.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, clientY: 300, bubbles: true }));
+    const added = new TestView();
+    splitview.addView(added, 100, 0);
+    const after = sizes([added, ...views]);
+    sash.el.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientY: 350, bubbles: true }));
+    sash.el.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientY: 350, bubbles: true }));
+
+    expect(sizes([added, ...views])).toEqual(after);
+    expect(sizes([added, ...views]).every(size => Number.isFinite(size))).toBe(true);
+    expect(sum(sizes([added, ...views]))).toBe(600);
   });
 
   test('moves after the pointer is released do nothing', () => {

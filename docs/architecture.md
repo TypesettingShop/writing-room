@@ -49,12 +49,13 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 ### Base and grid
 
 - `SplitView.removeView`는 제거된 뷰의 공간을 바로 앞 뷰(첫 뷰였다면 뒤 뷰)에 먼저 준다. VS Code는 `relayout()`으로 뒤쪽 뷰부터 채운다 — 닫힌 뷰 옆의 뷰가 넓어지는 편이 예측하기 쉽다 (wr-cla6.aym)
-- `SplitView`에 첫 `layout` 전에 추가한 뷰는 요청한 크기를 비율로 지키고, `distributeViewSizes`는 배치된 뒤에는 컨테이너에서 고정 뷰를 뺀 공간을 나눈다. VS Code는 첫 `layout` 전에도 `relayout()`으로 크기를 맞춘다 — 레이아웃 전에 뷰를 쌓는 하네스와 셸이 요청한 크기를 잃지 않게 한다 (wr-cla6.aym)
+- `SplitView`에 첫 `layout` 전에 추가한 뷰는 요청한 크기를 비율로 지키고, `distributeViewSizes`는 배치된 뒤에는 컨테이너에서 고정 뷰를 뺀 공간을 나눈다. VS Code는 첫 `layout` 전에도 `relayout()`으로 크기를 맞춘다 — 분할 뷰 하나에 미리 쌓은 크기를 잃지 않게 한다. `Grid` 수준에서는 이 보장이 없다: 첫 `layout` 전에는 모든 노드의 크기가 0이라 `addView`의 `Split`이나 숫자 크기가 0을 기준으로 계산된다. 그래서 `Grid`에는 먼저 `layout`을 부른 뒤 뷰를 더하고, 저장된 크기로 시작할 때는 `SerializableGrid.deserialize`를 쓴다 (wr-cla6.aym)
 - 숨겨진 뷰 바로 앞의 sash는 비활성화한다. 같은 경계에 sash 두 개가 겹치지 않게 한다. 스냅, alt 드래그, 더블 클릭 초기화, 모서리 sash는 v0.1.0 범위 밖이라 없다 (wr-cla6.aym)
 - `GridBranchNode`도 `cachedVisibleSize`를 가지며, 뷰가 전부 숨겨진 브랜치는 그 크기로 직렬화된다. VS Code는 리프에만 둔다 — 숨긴 파트 묶음이 새로고침 뒤에도 크기를 되찾는다 (wr-cla6.aym)
-- `GridView.deserialize`는 아무것도 만들기 전에 노드 타입, 유한한 0 이상 크기, 비어 있지 않은 브랜치, 리프 하나 이상, `fromJSON` 결과, 같은 뷰의 중복을 검사하고 `Invalid serialized grid: <경로> …` 오류 하나를 던진다. 실패하면 이미 만든 뷰를 dispose한다 — 저장된 데이터는 입력이므로 호출자가 기본 레이아웃으로 돌아갈 수 있어야 한다 (wr-cla6.aym)
+- `GridView.deserialize`는 아무것도 만들기 전에 노드 타입, 유한한 0 이상 크기, 비어 있지 않은 브랜치, 루트 아래 브랜치의 자식 둘 이상, 리프 하나 이상, `fromJSON` 결과, 같은 뷰의 중복을 검사하고 `Invalid serialized grid: <경로> …` 오류 하나를 던진다. 실패하면 이미 만든 뷰를 dispose한다 — 저장된 데이터는 입력이므로 호출자가 기본 레이아웃으로 돌아갈 수 있어야 한다 (wr-cla6.aym)
 - `Grid.moveView`와 `moveViewTo`는 이동 전에 뷰 안에 있던 포커스를 이동 뒤에 되돌린다. VS Code의 `Grid.moveView`는 포커스를 따로 다루지 않는다 — 이동한 에디터가 입력을 계속 받아야 한다 (wr-cla6.aym)
-- `GridView`는 노드를 떼었다 붙이는 변경(분할, 축소, 방향 전환)을 batch로 묶어 그동안 한계 변경 이벤트를 막고 끝에서 한 번 다시 배치한다. VS Code의 `LayoutController`와 목적은 같고 형태가 다르다 (wr-cla6.aym)
+- `GridView`는 노드를 떼었다 붙이는 변경(분할, 축소, 방향 전환)을 batch로 묶어 그동안 한계와 가시성 변경 이벤트를 막고, 끝에서 브랜치 가시성을 맞춘 뒤 한 번 다시 배치한다. VS Code의 `LayoutController`와 목적은 같고 형태가 다르다 — 잠깐 비거나 전부 숨겨진 브랜치가 부모에서 숨었다 나타나며 형제 크기를 바꾸지 않게 한다 (wr-cla6.aym)
+- `Grid.moveViewTo`의 위치는 같은 부모 안에서도 뷰가 빠진 뒤의 인덱스로 읽는다. VS Code는 같은 부모면 `moveView`의 "이 자식 앞" 인덱스로 읽는다 — 다른 부모로 옮길 때와 같은 뜻을 갖게 한다. 대상 위치는 뷰가 빠진 뒤의 모양에 대어 먼저 검사해, 잘못되면 아무것도 옮기기 전에 오류를 던진다 (wr-cla6.aym)
 - `Grid.getNeighborViews`는 DOM이 아니라 그리드 노드의 box로 이웃을 찾고 숨겨진 뷰를 뺀다 — 레이아웃이 명시적이라 box가 곧 화면 위치다 (wr-cla6.aym)
 - `GridView.layout`은 음수나 `NaN` 크기를 0으로 받는다 (wr-cla6.aym)
 

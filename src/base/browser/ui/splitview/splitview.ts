@@ -1,7 +1,7 @@
 import { $ } from '../../dom.js';
 import { Emitter } from '../../../common/event.js';
 import type { Event } from '../../../common/event.js';
-import { Disposable, toDisposable } from '../../../common/lifecycle.js';
+import { Disposable, dispose, toDisposable } from '../../../common/lifecycle.js';
 import type { IDisposable } from '../../../common/lifecycle.js';
 import { Orientation, Sash, SashState } from '../sash/sash.js';
 import type { ISashEvent } from '../sash/sash.js';
@@ -263,6 +263,7 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
     if (!Number.isInteger(index) || index < 0 || index > this.viewItems.length) {
       throw new RangeError(`Cannot add a view at index ${index} of ${this.viewItems.length}.`);
     }
+    this.endSashDrag();
 
     const container = $('.split-view-view');
     this.viewContainer.insertBefore(container, this.viewItems[index]?.container ?? null);
@@ -327,6 +328,7 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
   removeView(index: number, sizing?: Sizing, skipLayout = false): TView {
     this.assertIdle();
     this.assertIndex(index);
+    this.endSashDrag();
 
     const [item] = this.viewItems.splice(index, 1);
     item.dispose();
@@ -353,6 +355,7 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
     if (from === to) {
       return;
     }
+    this.endSashDrag();
     const [item] = this.viewItems.splice(from, 1);
     this.viewItems.splice(to, 0, item);
     this.viewContainer.insertBefore(item.container, this.viewItems[to + 1]?.container ?? null);
@@ -373,6 +376,7 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
     if (item.visible === visible) {
       return;
     }
+    this.endSashDrag();
     item.setVisible(visible);
     this.distributeEmptySpace(index);
     this.layoutViews();
@@ -503,6 +507,13 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
     }
   }
 
+  /** A drag's start sizes describe the views as they were; once views change, the drag stops resizing. */
+  private endSashDrag(): void {
+    if (this.sashDragState) {
+      this.onSashEnd();
+    }
+  }
+
   private onViewChange(item: ViewItem<TLayoutContext, TView>, size: number | undefined): void {
     const index = this.viewItems.indexOf(item);
     if (index < 0 || !item.visible) {
@@ -531,14 +542,15 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
   }
 
   private saveProportions(): void {
-    const contentSize = this.sum(item => item.size);
     if (!this.proportionalLayout) {
       return;
     }
-    // Without content there are no shares to keep; the next layout then sizes by priority.
-    this.proportions = contentSize > 0
-      ? this.viewItems.map(item => item.proportionalLayout && item.visible ? item.size / contentSize : undefined)
-      : undefined;
+    // Without content there are no shares to read: the last ones stand, so a split view laid out
+    // at size 0 for a while gets its shares back. A layout ignores them once the views change count.
+    const contentSize = this.sum(item => item.size);
+    if (contentSize > 0) {
+      this.proportions = this.viewItems.map(item => item.proportionalLayout && item.visible ? item.size / contentSize : undefined);
+    }
   }
 
   /**
@@ -714,12 +726,7 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
     return {
       sash,
       disposable: toDisposable(() => {
-        for (const listener of listeners) {
-          listener.dispose();
-        }
-        if (this.sashDragState) {
-          this.onSashEnd();
-        }
+        dispose(listeners);
         sash.dispose();
       }),
     };
@@ -758,6 +765,8 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
   }
 
   override dispose(): void {
+    // A drag in progress just stops: nobody is told about a split view that is going away.
+    this.sashDragState = undefined;
     for (const item of this.viewItems) {
       item.dispose();
     }

@@ -171,6 +171,23 @@ describe('removing views', () => {
     expectGridInvariants(grid!);
   });
 
+  test('Distribute on a collapsing removal evens out only the branch it changes', () => {
+    const [a, b, c, d, e] = ['a', 'b', 'c', 'd', 'e'].map(id => new TestView(id));
+    createGrid(a, 1000, 600);
+    grid!.addView(b, 200, a, Direction.Right);
+    grid!.addView(c, 100, a, Direction.Down);
+    grid!.addView(d, 300, b, Direction.Down);
+    grid!.addView(e, 100, d, Direction.Right);
+    expect(shapeOf(grid!)).toEqual([['a', 'c'], ['b', ['d', 'e']]]);
+    const untouched = [a.width, b.width, a.height, c.height];
+
+    grid!.removeView(e, Sizing.Distribute);
+    expect(shapeOf(grid!)).toEqual([['a', 'c'], ['b', 'd']]);
+    expect([a.width, b.width, a.height, c.height]).toEqual(untouched);
+    expect([b.height, d.height]).toEqual([300, 300]);
+    expectGridInvariants(grid!);
+  });
+
   test('a root with one view left keeps it as a single leaf', () => {
     const [a, b] = [new TestView('a'), new TestView('b')];
     createGrid(a);
@@ -232,6 +249,36 @@ describe('moving views', () => {
 
     grid!.moveViewTo(a, [0]);
     expect(shapeOf(grid!)).toEqual(['a', 'b', 'c']);
+    expectGridInvariants(grid!);
+  });
+
+  test('moveViewTo reads the index after the view left, and a bad target moves nothing', () => {
+    const [a, b, c] = ['a', 'b', 'c'].map(id => new TestView(id));
+    createGrid(a, 900, 600);
+    grid!.addView(b, 300, a, Direction.Right);
+    grid!.addView(c, 300, b, Direction.Right);
+
+    grid!.moveViewTo(a, [2]);
+    expect(shapeOf(grid!)).toEqual(['b', 'c', 'a']);
+
+    expect(() => grid!.moveViewTo(a, [5, 0])).toThrow(/Invalid grid/);
+    expect(shapeOf(grid!)).toEqual(['b', 'c', 'a']);
+    expect(grid!.getViewLocation(a)).toEqual([2]);
+    expect(a.element.isConnected).toBe(true);
+    expectGridInvariants(grid!);
+  });
+
+  test('a bad moveViewTo target leaves the grid untouched when the move would collapse the root', () => {
+    const [a, b, c] = ['a', 'b', 'c'].map(id => new TestView(id));
+    createGrid(a);
+    grid!.addView(b, Sizing.Split, a, Direction.Right);
+    grid!.addView(c, Sizing.Split, b, Direction.Down);
+    const orientation = grid!.orientation;
+
+    expect(() => grid!.moveViewTo(a, [5, 0])).toThrow(/Invalid grid/);
+    expect(shapeOf(grid!)).toEqual(['a', ['b', 'c']]);
+    expect(grid!.orientation).toBe(orientation);
+    expect(grid!.getViewSize(a)).toEqual({ width: 400, height: 600 });
     expectGridInvariants(grid!);
   });
 
@@ -386,6 +433,41 @@ describe('visibility', () => {
     expectGridInvariants(grid!);
   });
 
+  test('splitting a view beside a hidden sibling leaves the other views their sizes', () => {
+    const x = new TestView('x');
+    const l = new TestView('l');
+    const h = new TestView('h');
+    const y = new TestView('y', { maximumWidth: 250 });
+    const n = new TestView('n');
+    createGrid(x, 800, 600);
+    grid!.addView(l, 500, x, Direction.Right);
+    grid!.addView(y, 200, l, Direction.Right);
+    grid!.addView(h, 300, l, Direction.Down);
+    grid!.setViewVisible(h, false);
+    expect([x.width, l.width, y.width]).toEqual([300, 300, 200]);
+
+    grid!.addView(n, Sizing.Split, l, Direction.Right);
+    expect(shapeOf(grid!)).toEqual(['x', [['l', 'n'], 'h'], 'y']);
+    expect([x.width, l.width + n.width, y.width]).toEqual([300, 300, 200]);
+    expectGridInvariants(grid!);
+  });
+
+  test('turning the grid keeps a branch whose views are all hidden hidden', () => {
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map(id => new TestView(id));
+    createGrid(a, 800, 600);
+    grid!.addView(b, Sizing.Split, a, Direction.Right);
+    grid!.addView(c, Sizing.Split, b, Direction.Down);
+    grid!.addView(d, Sizing.Split, a, Direction.Down);
+    grid!.setViewVisible(b, false);
+    grid!.setViewVisible(c, false);
+
+    grid!.orientation = Orientation.VERTICAL;
+    expect(shapeOf(grid!)).toEqual([['a', 'd'], ['b', 'c']]);
+    expect(grid!.getViews().children[1].cachedVisibleSize).not.toBeUndefined();
+    expect([a.height, d.height]).toEqual([600, 600]);
+    expectGridInvariants(grid!);
+  });
+
   test('neighbours are the visible views across an edge, wrapping when asked', () => {
     const [a, b, c] = ['a', 'b', 'c'].map(id => new TestView(id));
     createGrid(a);
@@ -501,6 +583,10 @@ describe('serialization', () => {
       { ...good, root: { type: 'branch', size: 800, data: [{ type: 'leaf', data: { id: 'a' }, size: 300, visible: 'no' }] } },
       { ...good, root: { type: 'branch', size: 800, data: [{ type: 'pane', data: { id: 'a' }, size: 300 }] } },
       { ...good, root: { type: 'branch', size: 800, data: [{ type: 'branch', size: 300, data: [] }] } },
+      { ...good, root: { type: 'branch', size: 800, data: [
+        { type: 'leaf', data: { id: 'a' }, size: 300 },
+        { type: 'branch', size: 300, data: [{ type: 'leaf', data: { id: 'b' }, size: 800 }] },
+      ] } },
       { ...good, root: { type: 'branch', size: 800, data: [{ type: 'leaf', data: { id: 'missing' }, size: 300 }] } },
       { ...good, root: { type: 'branch', size: 800, data: [{ type: 'leaf', data: { id: 'a' }, size: 300 }, { type: 'leaf', data: { id: 'a' }, size: 300 }] } },
     ];

@@ -1,6 +1,6 @@
 import { Disposable } from '../../../common/lifecycle.js';
 import type { Event } from '../../../common/event.js';
-import { GridView, isGridBranchNode, orthogonal, Orientation, Sizing as GridViewSizing } from './gridview.js';
+import { GridView, isGridBranchNode, orthogonal, Orientation, Sizing as GridViewSizing, tail } from './gridview.js';
 import type {
   Box, GridBranchNode, GridNode, IGridViewOptions, ISerializableView, ISerializedGridView, IView, IViewDeserializer, IViewSize,
 } from './gridview.js';
@@ -192,10 +192,10 @@ export class Grid<T extends IView = IView> extends Disposable {
       return;
     }
     const sourceLocation = this.getViewLocation(view);
-    const [sourceParentLocation, from] = splitLocation(sourceLocation);
+    const [sourceParentLocation, from] = tail(sourceLocation);
     const referenceLocation = this.getViewLocation(referenceView);
     const targetLocation = getRelativeLocation(this.gridview.orientation, referenceLocation, direction);
-    const [targetParentLocation, to] = splitLocation(targetLocation);
+    const [targetParentLocation, to] = tail(targetLocation);
 
     this.keepingFocus(view, () => {
       if (sameLocation(sourceParentLocation, targetParentLocation)) {
@@ -210,12 +210,13 @@ export class Grid<T extends IView = IView> extends Disposable {
   /** Moves `view` to an index path, read after the view has left its current place. */
   moveViewTo(view: T, location: readonly number[]): void {
     const sourceLocation = this.getViewLocation(view);
-    const [sourceParentLocation, from] = splitLocation(sourceLocation);
-    const [targetParentLocation, to] = splitLocation(location);
+    const [sourceParentLocation, from] = tail(sourceLocation);
+    const [targetParentLocation, to] = tail(location);
 
     this.keepingFocus(view, () => {
       if (sameLocation(sourceParentLocation, targetParentLocation)) {
-        this.gridview.moveView(sourceParentLocation, from, to);
+        // `to` counts the siblings without the view; GridView.moveView takes the gap before a sibling.
+        this.gridview.moveView(sourceParentLocation, from, to >= from ? to + 1 : to);
         return;
       }
       const size = this.gridview.getViewSize(sourceLocation);
@@ -224,6 +225,9 @@ export class Grid<T extends IView = IView> extends Disposable {
       const sizing = cachedVisibleSize === undefined
         ? (orientation === Orientation.HORIZONTAL ? size.width : size.height)
         : GridViewSizing.Invisible(cachedVisibleSize);
+      // The target is read after the view has left, so it is checked against that shape first:
+      // adding the view back after a removal that collapsed the root would turn the grid.
+      assertInsertLocation(shapeWithout(this.getViews(), sourceLocation), location);
       this.gridview.removeView(sourceLocation);
       this.gridview.addView(view, sizing, location);
     });
@@ -272,7 +276,8 @@ export class Grid<T extends IView = IView> extends Disposable {
    * grid's edge looks at the views on the opposite edge instead.
    */
   getNeighborViews(view: T, direction: Direction, wrap = false): T[] {
-    const all = leafNodes(this.getViews()).filter(leaf => leaf.cachedVisibleSize === undefined && leaf.box.width > 0 && leaf.box.height > 0);
+    const root = this.getViews();
+    const all = leafNodes(root).filter(leaf => leaf.cachedVisibleSize === undefined && leaf.box.width > 0 && leaf.box.height > 0);
     const self = all.find(leaf => leaf.view === view);
     if (!self) {
       return [];
@@ -281,7 +286,7 @@ export class Grid<T extends IView = IView> extends Disposable {
     const touching = (edge: number) => all.filter(leaf => leaf.view !== view && touches(box, leaf.box, direction, edge));
     let result = touching(edgeOf(box, direction));
     if (result.length === 0 && wrap) {
-      const grid: Box = { top: this.getViews().box.top, left: this.getViews().box.left, width: this.width, height: this.height };
+      const grid: Box = { top: root.box.top, left: root.box.left, width: this.width, height: this.height };
       result = touching(edgeOf(grid, oppositeDirection(direction)));
     }
     return result.map(leaf => leaf.view);
@@ -303,9 +308,12 @@ export class Grid<T extends IView = IView> extends Disposable {
   private keepingFocus(view: T, move: () => void): void {
     const active = view.element.ownerDocument.activeElement;
     const hadFocus = active instanceof HTMLElement && view.element.contains(active);
-    move();
-    if (hadFocus && active.isConnected && view.element.ownerDocument.activeElement !== active) {
-      active.focus({ preventScroll: true });
+    try {
+      move();
+    } finally {
+      if (hadFocus && active.isConnected && view.element.ownerDocument.activeElement !== active) {
+        active.focus({ preventScroll: true });
+      }
     }
   }
 }
@@ -350,11 +358,49 @@ export class SerializableGrid<T extends ISerializableView> extends Grid<T> {
   }
 }
 
-function splitLocation(location: readonly number[]): [number[], number] {
-  if (location.length === 0) {
-    throw new Error('Invalid grid location: it is empty.');
+/** A grid's tree with only its shape: a leaf, or a branch's children. */
+type Shape = 'leaf' | Shape[];
+
+/** The shape `GridView.removeView(location)` leaves behind, collapsing branches as it does. */
+function shapeWithout(root: GridBranchNode<IView>, location: readonly number[]): Shape[] {
+  const toShape = (node: GridNode<IView>): Shape => isGridBranchNode(node) ? node.children.map(toShape) : 'leaf';
+  const rootShape = root.children.map(toShape);
+  const [rest, index] = tail(location);
+  const branches: Shape[][] = [rootShape];
+  for (const step of rest) {
+    branches.push(branches[branches.length - 1][step] as Shape[]);
   }
-  return [location.slice(0, -1), location[location.length - 1]];
+  const parent = branches[branches.length - 1];
+  parent.splice(index, 1);
+  if (parent.length !== 1) {
+    return rootShape;
+  }
+  const [sibling] = parent;
+  if (rest.length === 0) {
+    // The root keeps one view, or the single branch left becomes the root.
+    return sibling === 'leaf' ? rootShape : sibling;
+  }
+  const grandParent = branches[branches.length - 2];
+  grandParent.splice(rest[rest.length - 1], 1, ...(sibling === 'leaf' ? [sibling] : sibling));
+  return rootShape;
+}
+
+/** Throws as `GridView.addView` would for `location` in a grid of this shape, before anything moves. */
+function assertInsertLocation(root: Shape[], location: readonly number[]): void {
+  const [rest, index] = tail(location);
+  let node: Shape = root;
+  for (const step of rest) {
+    if (node === 'leaf' || !Number.isInteger(step) || step < 0 || step >= node.length) {
+      throw new Error(`Invalid grid location ${JSON.stringify(location)}.`);
+    }
+    node = node[step];
+  }
+  const valid = node === 'leaf'
+    ? index === 0 || index === 1
+    : Number.isInteger(index) && index >= 0 && index <= node.length;
+  if (!valid) {
+    throw new Error(`Invalid grid location ${JSON.stringify(location)}.`);
+  }
 }
 
 function sameLocation(a: readonly number[], b: readonly number[]): boolean {
