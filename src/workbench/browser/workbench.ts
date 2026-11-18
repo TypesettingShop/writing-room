@@ -3,6 +3,7 @@ import { IContextKeyService } from '../../platform/contextkey/common/contextkey.
 import { InstantiationService } from '../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../platform/instantiation/common/serviceCollection.js';
 import { IKeybindingService } from '../../platform/keybinding/common/keybinding.js';
+import { IStorageService } from '../../platform/storage/common/storage.js';
 import {
   ActivityBarVisibleContext, PanelVisibleContext, SideBarVisibleContext, StatusBarVisibleContext,
 } from '../common/contextkeys.js';
@@ -15,6 +16,7 @@ import { Layout } from './layout.js';
 import type { Part } from './part.js';
 import { ActivitybarPart } from './parts/activitybar/activitybarPart.js';
 import { EditorPart } from './parts/editor/editorPart.js';
+import { WelcomeEditorInput } from './parts/editor/welcomeEditor.js';
 import { IEditorGroupsService } from '../services/editor/common/editorGroupsService.js';
 import { PanelPart } from './parts/panel/panelPart.js';
 import { IPaneCompositePartService, PaneCompositePartService } from './parts/paneCompositePartService.js';
@@ -35,6 +37,10 @@ export class Workbench extends Layout {
     this.started = true;
 
     const instantiation = this.instantiationService;
+    const storage = instantiation.invokeFunction(accessor => accessor.get(IStorageService));
+    this.layoutState.load(storage, this.initialState);
+    this._register(storage.onWillSaveState(() => this.layoutState.save(storage)));
+
     const context = this._register(instantiation.invokeFunction(accessor => accessor.get(IContextKeyService)));
     const keybindings = instantiation.invokeFunction(accessor => accessor.get(IKeybindingService));
     if ('dispose' in keybindings && typeof keybindings.dispose === 'function') {
@@ -67,8 +73,12 @@ export class Workbench extends Layout {
 
     this.parent.append(this.mainContainer);
     this.createWorkbenchLayout();
+    editor.restoreActiveEditors();
     sidebar.initializeViewContainers();
     panel.initializeViewContainers();
+    if (!editor.hasStoredState) {
+      void editor.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus: true }).catch(console.error);
+    }
 
     // Listen before the loop: a contribution that registers another while it starts is not in the list below.
     this._register(workbenchContributions.onDidRegister(([id, contribution]) => this.startContribution(id, contribution)));

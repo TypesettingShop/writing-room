@@ -60,6 +60,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
 
   await page.reload();
   await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer', 'Hello World']);
+  await expect(explorerTab).toHaveAttribute('aria-selected', 'true');
   await expect(sidebar).toBeHidden();
   await expect(explorerIcon).toHaveCount(0);
 
@@ -70,7 +71,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await expect(explorerTab).toHaveCount(0);
   await expect(explorerIcon).toHaveAttribute('aria-pressed', 'true');
   await expect(sidebar.getByText('No folder opened')).toBeVisible();
-  await expect(problems).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.getByRole('tab', { name: 'Hello World' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('places a drop over the gap between tabs or the bar padding beside the nearest tab', async ({ appPage: page }) => {

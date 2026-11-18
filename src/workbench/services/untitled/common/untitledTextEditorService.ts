@@ -15,6 +15,8 @@ export interface INewUntitledTextEditorOptions {
 export interface IUntitledTextEditorService extends BrandedService {
   /** Creates the model of a new untitled editor, `Untitled-N` with the lowest `N` not in use. */
   create(options?: INewUntitledTextEditorOptions): UntitledTextEditorModel;
+  /** Restores a named input's model with its initial text, without reusing its number later. */
+  restore(resource: URI, initialValue: string): UntitledTextEditorModel;
   get(resource: URI): UntitledTextEditorModel | undefined;
 }
 
@@ -23,6 +25,7 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
   private readonly models = new Map<string, UntitledTextEditorModel>();
   /** Resources of disposed models whose text model is still being created, and so still taken. */
   private readonly releasing = new Set<string>();
+  private readonly restored = new Set<string>();
 
   constructor(@IInstantiationService private readonly instantiationService: IInstantiationService) {}
 
@@ -31,10 +34,18 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     let counter = 1;
     do {
       resource = URI.from({ scheme: Schemas.untitled, path: `Untitled-${counter++}` });
-    } while (this.models.has(resource.toString()) || this.releasing.has(resource.toString()));
+    } while (this.models.has(resource.toString()) || this.releasing.has(resource.toString()) || this.restored.has(resource.toString()));
+    return this.createModel(resource, options.initialValue ?? '');
+  }
 
+  restore(resource: URI, initialValue: string): UntitledTextEditorModel {
+    this.restored.add(resource.toString());
+    return this.get(resource) ?? this.createModel(resource, initialValue);
+  }
+
+  private createModel(resource: URI, initialValue: string): UntitledTextEditorModel {
     const key = resource.toString();
-    const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, options.initialValue ?? '');
+    const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, initialValue);
     this.models.set(key, model);
     // Disposing the model gives its number back — once a text model still on its way for the
     // resource is gone too, or the next model with that number could not get one.

@@ -3,6 +3,8 @@ import { Orientation, SerializableGrid } from '../../base/browser/ui/grid/grid.j
 import type { ISerializedGrid, ISerializedLeafNode, IViewSize } from '../../base/browser/ui/grid/grid.js';
 import { Emitter } from '../../base/common/event.js';
 import { Disposable, toDisposable } from '../../base/common/lifecycle.js';
+import { StorageScope, StorageTarget } from '../../platform/storage/common/storage.js';
+import type { IStorageService } from '../../platform/storage/common/storage.js';
 import { Parts } from '../services/layout/browser/layoutService.js';
 import type { IPartVisibilityChangeEvent, IWorkbenchLayoutService } from '../services/layout/browser/layoutService.js';
 import type { Part } from './part.js';
@@ -14,6 +16,17 @@ const hiddenKey = {
   [Parts.STATUSBAR_PART]: 'statusBarHidden',
 } as const;
 type OptionalPart = keyof typeof hiddenKey;
+
+const sizeKeys = {
+  sideBarSize: 'workbench.sideBar.size',
+  panelSize: 'workbench.panel.size',
+} as const;
+const visibilityKeys = {
+  sideBarHidden: 'workbench.sideBar.hidden',
+  panelHidden: 'workbench.panel.hidden',
+  activityBarHidden: 'workbench.activityBar.hidden',
+  statusBarHidden: 'workbench.statusBar.hidden',
+} as const;
 
 function isOptionalPart(part: Parts): part is OptionalPart {
   return Object.hasOwn(hiddenKey, part);
@@ -34,6 +47,40 @@ export class LayoutStateModel {
     // An explicit `undefined` keeps the default instead of replacing a boolean with it.
     Object.assign(this, Object.fromEntries(Object.entries(initial).filter(([, value]) => value !== undefined)));
   }
+
+  load(storage: IStorageService, overrides?: Partial<LayoutStateModel>): void {
+    for (const field of Object.keys(sizeKeys) as (keyof typeof sizeKeys)[]) {
+      const key = sizeKeys[field];
+      const raw = storage.get(key, StorageScope.PROFILE);
+      if (raw !== undefined) {
+        const size = Number(raw);
+        if (raw.trim() !== '' && Number.isFinite(size)) {
+          // Part limits and the measured container are available when the grid is created.
+          this[field] = overrides?.[field] ?? size;
+        } else {
+          console.warn('Invalid workbench layout size.', { key });
+        }
+      }
+    }
+    for (const field of Object.keys(visibilityKeys) as (keyof typeof visibilityKeys)[]) {
+      const key = visibilityKeys[field];
+      const raw = storage.get(key, StorageScope.WORKSPACE);
+      if (raw === 'true' || raw === 'false') {
+        this[field] = overrides?.[field] ?? (raw === 'true');
+      } else if (raw !== undefined) {
+        console.warn('Invalid workbench layout visibility.', { key });
+      }
+    }
+  }
+
+  save(storage: IStorageService): void {
+    for (const field of Object.keys(sizeKeys) as (keyof typeof sizeKeys)[]) {
+      storage.store(sizeKeys[field], this[field], StorageScope.PROFILE, StorageTarget.MACHINE);
+    }
+    for (const field of Object.keys(visibilityKeys) as (keyof typeof visibilityKeys)[]) {
+      storage.store(visibilityKeys[field], this[field], StorageScope.WORKSPACE, StorageTarget.MACHINE);
+    }
+  }
 }
 
 export class Layout extends Disposable implements IWorkbenchLayoutService {
@@ -46,7 +93,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
   private readonly didChangePartVisibility = this._register(new Emitter<IPartVisibilityChangeEvent>());
   readonly onDidChangePartVisibility = this.didChangePartVisibility.event;
 
-  constructor(protected readonly parent: HTMLElement, initialState?: Partial<LayoutStateModel>) {
+  constructor(protected readonly parent: HTMLElement, protected readonly initialState?: Partial<LayoutStateModel>) {
     super();
     this.layoutState = new LayoutStateModel(initialState);
     this.mainContainer = parent.ownerDocument.createElement('div');

@@ -3,6 +3,8 @@ import { dispose, toDisposable } from '../../../base/common/lifecycle.js';
 import { IContextKeyService } from '../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey, RawContextKey } from '../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
+import { StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
+import type { IStorageService } from '../../../platform/storage/common/storage.js';
 import { FocusedViewContext } from '../../common/contextkeys.js';
 import { ViewContainerLocation, viewsRegistry } from '../../common/views.js';
 import type { IViewContainerLocationChange, IViewContainerLocationChangeEvent, IViewDescriptor, IViewDescriptorService, ViewContainer } from '../../common/views.js';
@@ -44,11 +46,16 @@ export abstract class PaneCompositePart extends Part {
     protected readonly instantiationService: IInstantiationService,
     private readonly layoutService: IWorkbenchLayoutService,
     protected readonly viewDescriptors: IViewDescriptorService,
+    private readonly storage: IStorageService,
+    private readonly storageKey: string,
   ) {
     super(id);
     this._register(toDisposable(() => dispose(this.containers.values())));
     this.activeContext = activeContext.bindTo(contextKeyService);
     this.focusedView = FocusedViewContext.bindTo(contextKeyService);
+    this._register(storage.onWillSaveState(() => storage.store(
+      this.storageKey, this.state[this.activeKey], StorageScope.WORKSPACE, StorageTarget.MACHINE,
+    )));
   }
 
   protected override createContentArea(parent: HTMLElement): void {
@@ -110,6 +117,15 @@ export abstract class PaneCompositePart extends Part {
   }
 
   initializeViewContainers(): void {
+    const stored = this.storage.get(this.storageKey, StorageScope.WORKSPACE);
+    if (stored !== undefined) {
+      const descriptor = this.viewDescriptors.getViewContainerById(stored);
+      if (descriptor && this.viewDescriptors.getViewContainerLocation(descriptor) === this.location) {
+        this.state[this.activeKey] ??= stored;
+      } else {
+        console.warn('Unavailable saved view container.', { key: this.storageKey, id: stored });
+      }
+    }
     this.initialized = true;
     this.refresh();
   }

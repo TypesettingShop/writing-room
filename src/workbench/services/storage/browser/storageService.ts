@@ -1,5 +1,5 @@
 import { addDisposableListener } from '../../../../base/browser/dom.js';
-import { toDisposable } from '../../../../base/common/lifecycle.js';
+import { MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IStorageDatabase, IStorageUpdate } from '../../../../base/parts/storage/common/storage.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -246,12 +246,33 @@ export class BrowserStorageService extends AbstractStorageService {
     }));
 
     this.startIdleSave(save => {
-      if (typeof browserWindow.requestIdleCallback === 'function') {
-        const task = browserWindow.requestIdleCallback(save);
-        return toDisposable(() => browserWindow.cancelIdleCallback(task));
-      }
-      const timer = browserWindow.setTimeout(save, 0);
-      return toDisposable(() => browserWindow.clearTimeout(timer));
+      const task = new MutableDisposable<IDisposable>();
+      const run = () => {
+        if (document.visibilityState === 'hidden') {
+          schedule();
+        } else {
+          task.clear();
+          save();
+        }
+      };
+      const schedule = () => {
+        if (document.visibilityState === 'hidden') {
+          // Hiding already saved this tab. Wait until it is visible before starting another snapshot.
+          task.value = addDisposableListener(document, 'visibilitychange', () => {
+            if (document.visibilityState !== 'hidden') {
+              schedule();
+            }
+          });
+        } else if (typeof browserWindow.requestIdleCallback === 'function') {
+          const handle = browserWindow.requestIdleCallback(run);
+          task.value = toDisposable(() => browserWindow.cancelIdleCallback(handle));
+        } else {
+          const handle = browserWindow.setTimeout(run, 0);
+          task.value = toDisposable(() => browserWindow.clearTimeout(handle));
+        }
+      };
+      schedule();
+      return task;
     });
   }
 }
