@@ -1,0 +1,14 @@
+.editor-group-container > .editor-group-overlay {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+}
+
+.editor-group-overlay > .editor-group-overlay-indicator {
+  position: absolute;
+  box-sizing: border-box;
+  background: var(--vscode-editorGroup-dropBackground, rgb(83 89 93 / 50%));
+  pointer-events: none;
+}

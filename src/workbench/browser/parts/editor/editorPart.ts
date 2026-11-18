@@ -18,6 +18,7 @@ import { Parts } from '../../../services/layout/browser/layoutService.js';
 import { Part } from '../../part.js';
 import { getEditorPartOptions } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView, IEditorPartOptions } from './editor.js';
+import { createEditorDropTarget } from './editorDropTarget.js';
 import { EditorGroupView } from './editorGroupView.js';
 
 /** What `EditorPart.createState()` gives: everything the part needs to come back as it was. */
@@ -263,6 +264,11 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
     this.doSetGroupActive(initialGroup);
     this.updateLimits();
     this.updateContextKeys();
+    this.setupDragAndDropSupport();
+  }
+
+  private setupDragAndDropSupport(): void {
+    this._register(createEditorDropTarget(this.container, this));
   }
 
   override layout(width: number, height: number, top: number, left: number): void {

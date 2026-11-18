@@ -131,6 +131,21 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 탭을 누르면 그 에디터로 바꾸고, 탭의 닫기 버튼이나 가운데 버튼으로 닫는다. 배경 탭을 닫아도 활성 탭은 그대로다. 탭에 포커스가 있으면 좌우 화살표, Home, End로 탭 사이를 옮긴다. 탭을 오른쪽 클릭하면 Close, Close Others, Close All과 네 방향 분할이 나온다.
 - 각 그룹 타이틀의 **Split Editor Right** 버튼(Ctrl+\\, macOS는 Cmd+\\)이나 **View → Editor Layout**의 Split Up/Down/Left/Right가 같은 에디터를 옆 그룹에 연다. 두 그룹은 같은 텍스트를 편집한다. **Join All Editor Groups**는 모든 그룹을 활성 그룹으로 합친다. 마지막 탭을 닫은 그룹은 다른 그룹이 있으면 사라진다.
 - 그룹 사이 경계를 끌어 크기를 바꾼다. 그룹은 220 x 70 px보다 작아지지 않는다. 팔레트(F1)의 `View:` 커맨드로 다음 그룹 포커스, 다음 그룹으로 에디터 이동, 모든 에디터 닫기도 할 수 있다.
+- 탭을 끌어 같은 그룹 안에서 순서를 바꾸거나 다른 그룹의 탭 줄로 옮긴다. 그룹 본문의 가운데에 놓으면 그 그룹으로 옮기고, 가장자리에 놓으면 그쪽으로 그룹을 나눈다. 끄는 동안 반투명 영역이 놓일 자리를, 탭 줄의 세로선이 들어갈 자리를 보여 준다. 탭 줄의 빈 곳을 끌면 그룹 전체를 다른 그룹 옆으로 옮기거나 다른 그룹에 합친다. Esc를 누르면 아무것도 바뀌지 않는다.
+
+#### Editor docking
+
+- 드래그 페이로드와 세션은 `browser/dnd.ts`의 `EditorDragAndDropObserver`가 맡는다. 시작할 때 `LocalSelectionTransfer`에 `DraggedEditorIdentifier`나 `DraggedEditorGroupIdentifier`를 넣고, 드롭·소스의 `dragend`·Escape·창 `blur`·`pagehide` 중 먼저 오는 것에서 페이로드와 오버레이, 삽입 표시를 함께 지운다. VS Code는 탭 컨트롤이 `LocalSelectionTransfer`를 직접 쓰고 `dragend`에서 지운다 — 옮겨진 탭은 드롭 중에 문서에서 빠져 자기 `dragend`를 받지 못하므로, 뷰 컨테이너 드래그(wr-cla6.3d4)와 같은 규율로 어떤 출구에서도 낡은 페이로드가 남지 않게 한다 (wr-cla6.bxt)
+- 드래그에는 텍스트 값(에디터 이름)과 전용 MIME 표시(`application/x-writing-room-editor`)만 싣고, 대상은 이 표시와 진행 중인 세션이 둘 다 있을 때만 페이로드를 읽는다. VS Code는 리소스 전송 데이터와 드래그 이미지도 싣고 표시 형식 없이 전송 싱글턴의 프로토타입만 본다 — 파일이 없는 릴리스이고, 표시가 있어야 뷰 컨테이너 드래그와 에디터 드래그가 서로의 대상에서 착각되지 않는다 (wr-cla6.bxt)
+- 모든 드래그는 이동이며 `effectAllowed`는 `move`다. VS Code는 `copyMove`이고 Ctrl(macOS는 Alt)로 복사한다. 다중 선택 탭 드래그, 탭 위에 1500 ms 머물면 열기, 드래그 중 탭 줄 자동 스크롤, Alt/Shift로 분할·병합 뒤집기, 새 창으로 끌어내기도 없다 — 릴리스 범위 밖이다 (wr-cla6.bxt)
+- 에디터 영역은 에디터와 그룹 드래그에만 드롭을 내준다. 파일, 텍스트, 뷰 컨테이너 드래그는 파트 어디서나 `dropEffect = 'none'`으로 거절해 브라우저가 파일로 이동하지도 않는다. VS Code는 외부 파일을 `ResourcesDropHandler`로 열고 Monaco가 텍스트 드롭을 받는다 — 열 파일이 없고, 페이지 밖에서 온 것을 놓아도 아무 일도 일어나지 않아야 한다 (wr-cla6.bxt)
+- `EditorDropTarget`은 파트 콘텐츠의 캡처 단계에서 그룹 본문으로 가는 드래그 이벤트를 모두 멈춰(`stopPropagation`) Monaco가 어떤 드래그도 보지 못하게 하고, 드롭을 내줄 때는 첫 `dragenter`에서 바로 오버레이를 만든다. VS Code는 버블 단계의 `onDragEnter`에서 만들고 `isContentDropTargetEvent`로 에디터에 양보할 위치를 가린다 — 드롭을 내주지 않는 경우(그룹의 유일한 탭, 자기 자신 위의 그룹)에도 Monaco가 드롭 커서를 그리거나 숨은 입력 요소가 텍스트를 받지 않게 한다 (wr-cla6.bxt)
+- `getSplitDirection`은 모듈의 순수 함수로 export하고 `preferSplitVertically`는 언제나 `true`다. VS Code에서는 `DropOverlay`의 메서드이며 `workbench.editor.openSideBySideDirection`에서 읽고 `splitsOnly` 인자도 받는다 — 설정이 없고, 표를 jsdom에서 경계값으로 검증한다 (wr-cla6.bxt)
+- 오버레이는 비어 있는 그룹에서도 탭 줄 아래 본문만 덮는다. VS Code는 빈 그룹이나 탭을 숨긴 그룹에서 그룹 전체를 덮는다 — 여기서는 탭 줄이 늘 보이고 빈 그룹의 탭 줄도 드롭 대상(끝에 삽입)이다 (wr-cla6.bxt)
+- 오버레이 표시 영역에는 위치 전환 애니메이션이 없다. VS Code는 `transition`으로 움직인다 — 드롭될 자리를 그 순간 그대로 보여 주고, 브라우저 테스트가 중간 위치를 재지 않게 한다. VS Code의 300 ms `cleanupOverlayScheduler`도 없다. 오버레이는 이벤트를 직접 받으므로 떠날 때와 세션이 끝날 때 지운다 (wr-cla6.bxt)
+- 삽입 표시와 오버레이는 클래스 대신 속성으로 나타낸다: 탭(또는 빈 곳 위라면 탭 줄)의 `data-tab-drop-position`(`before`, `after`, `end`)과 오버레이 표시 영역의 `data-editor-drop-position`(`left`, `right`, `up`, `down`, `center`). VS Code는 `drop-target-left`/`drop-target-right` 같은 클래스를 쓴다 — 클래스 이름은 DOM 계약이 아니다 (wr-cla6.bxt)
+- 탭 줄은 `DragAndDropObserver` 하나로 줄 전체를 보고 이벤트 대상에서 가리킨 탭을 찾는다. VS Code는 탭마다 관찰자를 하나씩 두고 줄에 또 하나를 둔다 — 탭은 모델 이벤트로 다시 그려지므로 탭별 등록과 해제가 필요 없다 (wr-cla6.bxt)
+- `IEditorGroupsView`에 `getGroup`, `addGroup`, `moveGroup`, `mergeGroup`을, `IEditorGroupView`에 `titleContainer`와 `titleHeight`(숫자)를 더했다. VS Code의 `IEditorGroupsView`에는 이미 있고 `titleHeight`는 `{ total, offset }`이다 — 탭 줄의 높이가 하나뿐이다 (wr-cla6.bxt)
 
 ### Storage and settings
 
