@@ -236,8 +236,8 @@ body {
   padding-block: 2px;
 }
 
+.composite-bar,
 .composite-bar button,
-.activitybar .composite-bar,
 .pane-composite-content {
   position: relative;
 }
@@ -270,12 +270,14 @@ body {
   bottom: 0;
 }
 
-.panel .composite-bar button::after {
+.panel .composite-bar button::after,
+.panel .composite-bar[data-view-drop-position='empty']::after {
   inset-block: 4px;
   width: 2px;
 }
 
-.panel [data-view-drop-position='before']::after {
+.panel [data-view-drop-position='before']::after,
+.panel [data-view-drop-position='empty']::after {
   inset-inline-start: 0;
 }
 

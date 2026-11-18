@@ -172,8 +172,9 @@ export interface IViewContainerLocationChangeEvent {
 }
 
 export interface IViewDescriptorService extends BrandedService {
-  readonly onDidRegister: IViewContainersRegistry['onDidRegister'];
-  readonly onDidDeregister: IViewContainersRegistry['onDidDeregister'];
+  /** The registry's events without its registered location: ask `getViewContainerLocation` for where a container is. */
+  readonly onDidRegister: Event<{ readonly viewContainer: ViewContainer }>;
+  readonly onDidDeregister: Event<{ readonly viewContainer: ViewContainer }>;
   readonly onDidChangeContainerLocation: Event<IViewContainerLocationChangeEvent>;
   getViewContainerById(id: string): ViewContainer | undefined;
   getViewContainerLocation(container: ViewContainer): ViewContainerLocation | undefined;

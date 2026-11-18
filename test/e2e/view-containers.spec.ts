@@ -66,6 +66,35 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await expect(problems).toHaveAttribute('aria-selected', 'true');
 });
 
+test('places a drop over the gap between tabs or the bar padding beside the nearest tab', async ({ appPage: page }) => {
+  const activitybar = part(page, 'activitybar');
+  const panel = part(page, 'panel');
+  const output = panel.getByRole('tab', { name: 'Output' });
+  const problems = panel.getByRole('tab', { name: 'Problems' });
+  const outputBox = (await output.boundingBox())!;
+  const problemsBox = (await problems.boundingBox())!;
+  const gap = outputBox.x + outputBox.width;
+  expect(problemsBox.x).toBeGreaterThan(gap);
+
+  // Neither point is inside a tab: the gap between two tabs, then the header padding before the first tab.
+  await startDrag(page, activitybar.getByRole('button', { name: 'Explorer' }));
+  const y = outputBox.y + outputBox.height / 2;
+  await page.mouse.move((gap + problemsBox.x) / 2 - 1, y);
+  await page.mouse.move((gap + problemsBox.x) / 2, y);
+  await expect(marker(page)).toHaveCount(1);
+  await page.mouse.up();
+  await expect(panel.getByRole('tab')).toHaveText(['Output', 'Explorer', 'Problems']);
+
+  // The emptied sidebar has closed, so the panel and its tabs have moved.
+  const first = (await output.boundingBox())!;
+  await startDrag(page, problems);
+  await page.mouse.move(first.x - 5, first.y + first.height / 2);
+  await page.mouse.move(first.x - 4, first.y + first.height / 2);
+  await expect(output).toHaveAttribute('data-view-drop-position', 'before');
+  await page.mouse.up();
+  await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer']);
+});
+
 test('rejects the editor area and clears the marker after Escape', async ({ appPage: page }) => {
   const activitybar = part(page, 'activitybar');
   const panel = part(page, 'panel');

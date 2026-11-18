@@ -13,16 +13,9 @@ const orderKeys = {
 };
 const locations = [ViewContainerLocation.Sidebar, ViewContainerLocation.Panel] as const;
 
+// The storage service reads malformed JSON and non-object values as absent.
 function readJSON(storage: IStorageService, key: string): unknown {
-  const value = storage.get(key, scope);
-  if (value !== undefined) {
-    try {
-      return JSON.parse(value);
-    } catch {
-      // Treat malformed state as absent.
-    }
-  }
-  return undefined;
+  return storage.getObject<object>(key, scope);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -135,15 +135,20 @@ export class CompositeBar extends Disposable {
   }
 
   private getInsertion(event: DragEvent): CompositeInsertion {
+    // Over a gap between items or the bar's padding, the nearest item along the axis decides the side.
+    let nearest: { container: ViewContainer; element: HTMLElement; distance: number; before: boolean } | undefined;
     for (const [container, { element }] of this.buttons) {
-      if (element.contains(event.target as Node)) {
-        const rect = element.getBoundingClientRect();
-        const before = this.icons ? event.clientY < rect.top + rect.height / 2 : event.clientX < rect.left + rect.width / 2;
-        return { relativeTo: container, marker: element, position: before ? 'before' : 'after' };
+      const rect = element.getBoundingClientRect();
+      const [pointer, start, size] = this.icons
+        ? [event.clientY, rect.top, rect.height] : [event.clientX, rect.left, rect.width];
+      const distance = element.contains(event.target as Node) ? -1 : Math.max(start - pointer, pointer - start - size, 0);
+      if (!nearest || distance < nearest.distance) {
+        nearest = { container, element, distance, before: pointer < start + size / 2 };
       }
     }
-    const last = this.element.lastElementChild as HTMLElement | null;
-    return last ? { marker: last, position: 'after' } : { marker: this.element, position: 'empty' };
+    return nearest
+      ? { relativeTo: nearest.container, marker: nearest.element, position: nearest.before ? 'before' : 'after' }
+      : { marker: this.element, position: 'empty' };
   }
 
   private createButton(container: ViewContainer) {

@@ -33,8 +33,17 @@ export class PaneCompositePartService implements IPaneCompositePartService {
           }
         }
       } finally {
+        // Every part must leave the transfer, even when another part fails to refresh.
+        const errors: unknown[] = [];
         for (const part of affected) {
-          part.updateContainerLocations(changes, reset);
+          try {
+            part.updateContainerLocations(changes, reset);
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        if (errors.length) {
+          throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'Parts failed to update container locations');
         }
       }
     });

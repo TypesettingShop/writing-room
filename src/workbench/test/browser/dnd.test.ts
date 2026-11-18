@@ -80,5 +80,14 @@ describe('CompositeDragAndDropObserver', () => {
     expect(onDragLeave).toHaveBeenCalledTimes(2);
     expect(selection.hasData(DraggedCompositeIdentifier.prototype)).toBe(false);
     expect(dispatch(target, 'dragover', canceled).defaultPrevented).toBe(false);
+
+    // The canceled drag never left the target. The next drag still leaves it on its first dragleave.
+    const next = transfer();
+    dispatch(source, 'dragstart', next);
+    onDragLeave.mockClear();
+    dispatch(target, 'dragenter', next);
+    dispatch(target, 'dragleave', next);
+    expect(onDragLeave).toHaveBeenCalledOnce();
+    dispatch(source, 'dragend', next);
   });
 });

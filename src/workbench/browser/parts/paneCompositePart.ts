@@ -201,8 +201,12 @@ export abstract class PaneCompositePart extends Part {
     this.relevantContextKeys = new Set();
     const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location);
     if (!descriptors.length) {
-      this.hiddenWhenEmpty = true;
-      this.layoutService.setPartHidden(true, this.id);
+      // A part the person had already hidden stays hidden when containers come back through a reset or a
+      // registration. A container moved into it still opens it (updateContainerLocations).
+      if (this.layoutService.isVisible(this.id)) {
+        this.hiddenWhenEmpty = true;
+        this.layoutService.setPartHidden(true, this.id);
+      }
     } else if (this.hiddenWhenEmpty) {
       this.hiddenWhenEmpty = false;
       this.layoutService.setPartHidden(false, this.id);
@@ -246,7 +250,8 @@ export abstract class PaneCompositePart extends Part {
       this.active.layout(this.width, this.height);
       this.active.setVisible(true);
     }
-    // Only an explicit open, or the first selection, changes the remembered selection. A fallback shown while the
+    // Only an explicit open, a container moving in or out (updateContainerLocations), or the first selection
+    // changes the remembered selection. A fallback shown while the
     // remembered container has no visible views (a late registration, an extension loading) does not replace it.
     if (selected && this.state[this.activeKey] === undefined) {
       this.state[this.activeKey] = selected.id;
