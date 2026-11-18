@@ -1,6 +1,7 @@
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import type { IEditorPane } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { DEFAULT_EDITOR_MAX_DIMENSIONS, DEFAULT_EDITOR_MIN_DIMENSIONS } from './editor.js';
 
@@ -9,7 +10,7 @@ import { DEFAULT_EDITOR_MAX_DIMENSIONS, DEFAULT_EDITOR_MIN_DIMENSIONS } from './
  * type, so a pane holds no state of an editor beyond the input it shows right now: the content lives
  * in the input's model and the view state travels through `setInput` and `getViewState`.
  */
-export abstract class EditorPane extends Disposable {
+export abstract class EditorPane extends Disposable implements IEditorPane {
   private _input: EditorInput | undefined;
   private _options: IEditorOptions | undefined;
   private container: HTMLElement | undefined;
@@ -67,8 +68,11 @@ export abstract class EditorPane extends Disposable {
 
   focus(): void {}
 
-  /** The view state of the current input, for `setInput` of another pane to continue from. */
-  getViewState(): object | undefined {
+  /**
+   * The view state of the current input, or of `input`, which the pane showed before, for `setInput`
+   * of another pane to continue from. A group reads it for an editor that moves to another group.
+   */
+  getViewState(_input?: EditorInput): object | undefined {
     return undefined;
   }
 }

@@ -1,21 +1,7 @@
-import { expect, test } from './fixtures.js';
-import type { Locator, Page } from '@playwright/test';
+import { box, drag, expect, test } from './fixtures.js';
 
 // The harness page is served by the development server only.
 test.skip(process.env.E2E_TARGET === 'preview', 'The grid harness is not part of the production build.');
-
-async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-  const result = await locator.boundingBox();
-  expect(result).not.toBeNull();
-  return result!;
-}
-
-async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 8 });
-  await page.mouse.up();
-}
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 640 });
@@ -41,7 +27,7 @@ test('dragging the sash 100 px moves the boundary exactly 100 px', async ({ page
   const before = await box(viewA);
   const boundary = before.x + before.width;
 
-  await drag(page, { x: boundary, y: before.y + 200 }, { x: boundary + 100, y: before.y + 200 });
+  await drag(page, boundary, before.y + 200, boundary + 100, before.y + 200);
 
   const a = await box(viewA);
   const b = await box(viewB);
@@ -55,7 +41,7 @@ test('a lying sash moves the boundary between stacked views', async ({ page }) =
   const before = await box(viewB);
   const boundary = before.y + before.height;
 
-  await drag(page, { x: before.x + 100, y: boundary }, { x: before.x + 100, y: boundary - 100 });
+  await drag(page, before.x + 100, boundary, before.x + 100, boundary - 100);
 
   expect((await box(viewB)).height).toBe(before.height - 100);
   expect((await box(viewC)).y).toBe(boundary - 100);
@@ -67,11 +53,11 @@ test('a drag cannot push a view below its minimum size', async ({ page }) => {
   const before = await box(viewA);
   const boundary = before.x + before.width;
 
-  await drag(page, { x: boundary, y: before.y + 200 }, { x: 5, y: before.y + 200 });
+  await drag(page, boundary, before.y + 200, 5, before.y + 200);
   expect((await box(viewA)).width).toBe(100);
 
   const after = await box(viewA);
-  await drag(page, { x: after.x + after.width, y: before.y + 200 }, { x: 995, y: before.y + 200 });
+  await drag(page, after.x + after.width, before.y + 200, 995, before.y + 200);
   expect((await box(viewB)).width).toBe(120);
 });
 
@@ -80,7 +66,7 @@ test('the drag ends when the pointer is released', async ({ page }) => {
   const before = await box(viewA);
   const boundary = before.x + before.width;
 
-  await drag(page, { x: boundary, y: before.y + 200 }, { x: boundary + 50, y: before.y + 200 });
+  await drag(page, boundary, before.y + 200, boundary + 50, before.y + 200);
   const released = await box(viewA);
   await page.mouse.move(boundary + 250, before.y + 220, { steps: 5 });
   expect(await box(viewA)).toEqual(released);

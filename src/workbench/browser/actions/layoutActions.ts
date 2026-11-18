@@ -5,6 +5,8 @@ import type { ServicesAccessor } from '../../../platform/instantiation/common/in
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import type { KeybindingSpec } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ActivityBarVisibleContext, SideBarVisibleContext, StatusBarVisibleContext } from '../../common/contextkeys.js';
+import { IViewDescriptorService, ViewContainerLocation, ViewContainerLocationContext } from '../../common/views.js';
+import { IViewsService } from '../../services/views/browser/viewsService.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 
 export function registerTogglePartAction(
@@ -42,3 +44,36 @@ registerTogglePartAction(
   'workbench.action.toggleStatusbarVisibility', Parts.STATUSBAR_PART,
   'Toggle Status Bar Visibility', 'Status Bar', StatusBarVisibleContext, 4,
 );
+
+registerAction2(class extends Action2 {
+  constructor() {
+    super({ id: 'workbench.action.resetViewLocations', title: 'Reset View Locations', category: 'View', f1: true });
+  }
+
+  override run(accessor: ServicesAccessor): void {
+    accessor.get(IViewDescriptorService).resetViewLocations();
+  }
+});
+
+for (const move of [
+  { from: ViewContainerLocation.Sidebar, to: ViewContainerLocation.Panel, id: 'workbench.action.moveViewContainerToPanel', title: 'Move to Panel' },
+  { from: ViewContainerLocation.Panel, to: ViewContainerLocation.Sidebar, id: 'workbench.action.moveViewContainerToSidebar', title: 'Move to Side Bar' },
+]) {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({ id: move.id, title: move.title, menu: {
+        id: MenuId.ViewContainerTitleContext, when: ViewContainerLocationContext.isEqualTo(move.from),
+      } });
+    }
+
+    override async run(accessor: ServicesAccessor, id: string): Promise<void> {
+      const descriptors = accessor.get(IViewDescriptorService);
+      const container = descriptors.getViewContainerById(id);
+      if (container && descriptors.getViewContainerLocation(container) === move.from) {
+        const views = accessor.get(IViewsService);
+        descriptors.moveViewContainerToLocation(container, move.to);
+        await views.openViewContainer(id, true);
+      }
+    }
+  });
+}

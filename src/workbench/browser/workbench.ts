@@ -15,6 +15,7 @@ import { Layout } from './layout.js';
 import type { Part } from './part.js';
 import { ActivitybarPart } from './parts/activitybar/activitybarPart.js';
 import { EditorPart } from './parts/editor/editorPart.js';
+import { IEditorGroupsService } from '../services/editor/common/editorGroupsService.js';
 import { PanelPart } from './parts/panel/panelPart.js';
 import { IPaneCompositePartService, PaneCompositePartService } from './parts/paneCompositePartService.js';
 import { SidebarPart } from './parts/sidebar/sidebarPart.js';
@@ -50,6 +51,7 @@ export class Workbench extends Layout {
     const sidebar = instantiation.createInstance(SidebarPart, this.layoutState);
     const activitybar = instantiation.createInstance(ActivitybarPart, sidebar);
     const editor = instantiation.createInstance(EditorPart);
+    this.services.set(IEditorGroupsService, editor);
     const panel = instantiation.createInstance(PanelPart, this.layoutState);
     const statusbar = instantiation.createInstance(StatusbarPart);
     this.services.set(IStatusbarService, statusbar);

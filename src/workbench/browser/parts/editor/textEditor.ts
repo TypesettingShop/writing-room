@@ -161,8 +161,8 @@ export class TextEditorPane extends EditorPane {
     }
   }
 
-  override getViewState(): object | undefined {
-    return this.input && (this.currentViewState(this.input) ?? this.viewStates.get(this.input)?.state);
+  override getViewState(input: EditorInput | undefined = this.input): object | undefined {
+    return input && (this.currentViewState(input) ?? this.viewStates.get(input)?.state);
   }
 
   /** The Monaco editor, once the pane has had a real size and the package has loaded. */

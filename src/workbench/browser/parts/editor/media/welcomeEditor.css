@@ -1,0 +1,39 @@
+.welcome-page {
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 32px 48px;
+  color: var(--vscode-editor-foreground);
+  font: 13px/1.5 system-ui, sans-serif;
+  outline: none;
+}
+
+.welcome-page h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 400;
+}
+
+.welcome-page h2 {
+  margin: 24px 0 8px;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.welcome-page ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-page button {
+  padding: 2px 0;
+  color: var(--vscode-textLink-foreground, #7fb2ff);
+  font: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.welcome-page button:hover {
+  text-decoration: underline;
+}

@@ -77,6 +77,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
       return;
     }
     const view = this.getPart(part);
+    if (!hidden && !view.canShow()) {
+      return;
+    }
     const document = view.element.ownerDocument;
     const moveFocus = hidden && view.element.contains(document.activeElement);
     // The state changes first so the layout the grid runs records no size for a part being hidden.
