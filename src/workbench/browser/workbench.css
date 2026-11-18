@@ -1,0 +1,241 @@
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.workbench {
+  --vscode-editor-background: #171b24;
+  --vscode-editor-foreground: #d7dfec;
+  --vscode-titleBar-activeBackground: #232b39;
+  --vscode-titleBar-activeForeground: #eaf0f9;
+  --vscode-activityBar-background: #1a202c;
+  --vscode-activityBar-foreground: #a5b3c8;
+  --vscode-activityBar-activeBorder: #90baff;
+  --vscode-sideBar-background: #202735;
+  --vscode-sideBar-foreground: #d1daea;
+  --vscode-sideBarSectionHeader-background: #262f40;
+  --vscode-panel-background: #181d27;
+  --vscode-panel-border: #313c50;
+  --vscode-panelTitle-activeBorder: #90baff;
+  --vscode-statusBar-background: #20334e;
+  --vscode-statusBar-foreground: #d8e8ff;
+  --vscode-menu-background: #232c3d;
+  --vscode-menu-foreground: #e0e8f6;
+  --vscode-menu-selectionBackground: #364663;
+  --vscode-menu-border: #465672;
+  --vscode-focusBorder: #9dc3ff;
+  --vscode-sash-hoverBorder: #78aaff;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+  font: 13px/1.4 system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+.workbench .part {
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.workbench .part[hidden],
+.workbench .view-pane-container[hidden] {
+  display: none;
+}
+
+.workbench button:focus-visible,
+.workbench .view-pane:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.workbench .titlebar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-inline: 12px;
+  background: var(--vscode-titleBar-activeBackground);
+  color: var(--vscode-titleBar-activeForeground);
+}
+
+.workbench-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.workbench-title .codicon {
+  color: #a9caff;
+}
+
+.workbench .activitybar {
+  background: var(--vscode-activityBar-background);
+  color: var(--vscode-activityBar-foreground);
+}
+
+.workbench .sidebar {
+  background: var(--vscode-sideBar-background);
+  color: var(--vscode-sideBar-foreground);
+  box-shadow: inset -1px 0 var(--vscode-panel-border);
+}
+
+.workbench .panel {
+  background: var(--vscode-panel-background);
+  box-shadow: inset 0 1px var(--vscode-panel-border);
+}
+
+.pane-composite-header {
+  display: flex;
+  align-items: center;
+  padding-inline: 12px;
+}
+
+.pane-composite-header h2,
+.view-pane-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pane-composite-content {
+  height: calc(100% - 34px);
+}
+
+.view-pane-container {
+  height: 100%;
+  overflow: auto;
+}
+
+.view-pane-header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 12px;
+  background: var(--vscode-sideBarSectionHeader-background);
+}
+
+.view-pane-body {
+  overflow: auto;
+}
+
+.view-placeholder {
+  margin: 12px;
+  color: #a7b6cb;
+}
+
+.composite-bar {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  gap: 2px;
+}
+
+.activitybar .composite-bar {
+  flex-direction: column;
+  height: auto;
+}
+
+.composite-bar button,
+.statusbar-item button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composite-bar button:hover,
+.statusbar-item button:hover {
+  background: var(--vscode-menu-selectionBackground);
+  color: var(--vscode-titleBar-activeForeground);
+}
+
+.activitybar .composite-bar button {
+  height: 48px;
+}
+
+.activitybar .composite-bar .codicon {
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+}
+
+.activitybar .composite-bar img {
+  width: 24px;
+  height: 24px;
+}
+
+.activitybar button[aria-pressed='true'] {
+  color: var(--vscode-titleBar-activeForeground);
+  box-shadow: inset 2px 0 var(--vscode-activityBar-activeBorder);
+}
+
+.panel button[aria-selected='true'] {
+  box-shadow: inset 0 -2px var(--vscode-panelTitle-activeBorder);
+}
+
+.workbench .statusbar {
+  display: flex;
+  justify-content: space-between;
+  background: var(--vscode-statusBar-background);
+  color: var(--vscode-statusBar-foreground);
+  padding-inline: 4px;
+  font-size: 12px;
+}
+
+.statusbar-items {
+  display: flex;
+  min-width: 0;
+}
+
+.statusbar-item {
+  display: flex;
+  min-width: 0;
+}
+
+.statusbar-item > :is(span, button) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  padding-inline: 6px;
+}
+
+.workbench .wr-menu {
+  background: var(--vscode-menu-background);
+  border-color: var(--vscode-menu-border);
+  color: var(--vscode-menu-foreground);
+}
+
+.workbench .wr-menu button:focus,
+.workbench .wr-menubar button:hover,
+.workbench .wr-menubar button[aria-expanded='true'],
+.workbench .wr-menu-toolbar button:hover {
+  background: var(--vscode-menu-selectionBackground);
+}
+
+.workbench .wr-menu button[aria-disabled='true'],
+.workbench .wr-menu-shortcut {
+  color: #a7b6cb;
+}
+
+.workbench .wr-menu [role='separator'] {
+  border-color: var(--vscode-menu-border);
+}
+
+.workbench .wr-menubar button {
+  padding-block: 2px;
+}

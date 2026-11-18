@@ -63,6 +63,11 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Layout and parts
 
+- 하단 패널은 첫 실행에 표시된다. VS Code는 패널 숨김을 초기값으로 사용한다. 이 프로젝트는 왼쪽 사이드바와 에디터 아래 패널을 배치하고 타이틀 바와 에디터의 가시성을 고정한다 (wr-cla6.tlp). [기본 배치와 가시성](vscode-workbench-layout.md#4-표시숨김-setparthidden과-sethidden-계열)
+- `LayoutStateModel`은 사이드바 너비, 패널 높이, 가시성과 활성 컨테이너를 메모리에 둔다. `Workbench` 생성자가 초기 상태를 받아 현재 창과 파트 한계에 맞춘다. 창이 파트 최소 크기의 합보다 작을 때는 그리드의 최소 크기를 유지하고 워크벤치 가장자리에서 넘치는 부분을 자른다 (wr-cla6.tlp). [크기와 제약](vscode-workbench-layout.md#8-크기와-제약)
+- 기여는 첫 레이아웃 후 등록 순서대로 시작한다. 뷰 컨테이너는 두 레지스트리의 변경을 반영하고, 조건을 만족하는 뷰가 있는 컨테이너를 바에 표시한다. 뷰 헤더는 항상 보이고 본문은 활성 컨테이너를 열 때 생성된다. 컨테이너 안의 여러 뷰는 헤더를 뺀 세로 공간을 나눠 쓴다 (wr-cla6.tlp). [워크벤치 조립과 레지스트리](vscode-workbench-layout.md)
+- 타이틀 바는 기존 커스텀 메뉴 바와 앱 이름을 호스팅한다. 한 가지 어두운 팔레트를 `--vscode-*` CSS 변수로 노출하고, 상태 항목의 `LEFT`·`RIGHT` 그룹에서 큰 우선순위가 먼저 배치된다 (wr-cla6.tlp). [파트별 구성](vscode-workbench-layout.md#5-파트란-무엇인가-part와-다섯-구체-파트)
+
 ### Editor groups, editor and docking
 
 ### Storage and settings
