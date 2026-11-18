@@ -4,9 +4,6 @@ import type { IExtensionDescription, IExtensionMessage } from '../../../../platf
 import { resolveExtensionPath } from '../../extensions/common/extensionResources.js';
 
 const manifests = import.meta.glob<unknown>('/extensions/*/package.json', { eager: true, import: 'default' });
-const assets = import.meta.glob<string>(['/extensions/*/**/*', '!/extensions/*/package.json'], {
-  eager: true, import: 'default', query: '?url&no-inline',
-});
 
 export function scanBuiltinExtensions(): {
   extensions: IExtensionDescription[];
@@ -23,16 +20,7 @@ export function scanBuiltinExtensions(): {
     if (!manifest) {
       continue;
     }
-    const resources: Record<string, string> = {};
-    for (const [file, asset] of Object.entries(assets)) {
-      if (file.startsWith(folder)) {
-        const url = resolveExtensionPath(location, file.slice(folder.length));
-        if (url) {
-          resources[url.href] = new URL(asset, application).href;
-        }
-      }
-    }
-    extensions.push({ identifier: ExtensionIdentifier.fromManifest(manifest), location, manifest, isBuiltin: true, resources });
+    extensions.push({ identifier: ExtensionIdentifier.fromManifest(manifest), location, manifest, isBuiltin: true });
   }
   return { extensions, messages };
 }

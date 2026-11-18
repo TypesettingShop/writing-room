@@ -46,6 +46,6 @@ exports.activate = function (context) {
       }
     }),
     vscode.commands.registerCommand('hello-world.where', () =>
-      vscode.window.showInformationMessage('Running in the extension Worker.', 'OK')),
+      vscode.window.showInformationMessage('Running in the extension Worker. Directory: ' + context.extensionUri.toString(), 'OK')),
   );
 };

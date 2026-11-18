@@ -9,7 +9,7 @@ import { MainThreadExtensionService } from '../../../api/browser/mainThreadExten
 import { ExtHostContext } from '../../../api/common/extHost.protocol.js';
 import type { ExtHostExtensionServiceShape } from '../../../api/common/extHost.protocol.js';
 import type { ExtensionHostStatus, HostExtensionDescription } from '../common/extensionHostProtocol.js';
-import { resolveExtensionResource } from '../common/extensionResources.js';
+import { resolveExtensionPath } from '../common/extensionResources.js';
 import { WebWorkerExtensionHost } from './webWorkerExtensionHost.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, DisposableStore } from '../../../../base/common/lifecycle.js';
@@ -246,7 +246,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const result = new Map<string, HostExtensionDescription>();
     for (const description of this.extensions) {
       const { identifier, location, manifest } = description;
-      const entry = manifest.browser && resolveExtensionResource(description, manifest.browser);
+      const entry = manifest.browser && resolveExtensionPath(location, manifest.browser);
       if (!entry) {
         continue;
       }

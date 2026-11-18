@@ -1,4 +1,6 @@
 import { DeferredIcon } from '../../../../base/common/themables.js';
+import { fetchBoundedResource } from '../../../../base/parts/request/common/boundedFetch.js';
+import { extensionResourceLimits } from '../common/extensionResources.js';
 
 interface ResourceIcon {
   readonly icon: DeferredIcon;
@@ -36,16 +38,12 @@ export class RemoteExtensionIcons {
 
   private async load(extension: string, entry: ResourceIcon): Promise<void> {
     const { icon, controller } = entry;
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
     try {
-      const response = await fetch(icon.href, { mode: 'cors', credentials: 'omit', redirect: 'error', signal });
-      if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) {
-        void response.body?.cancel().catch(() => {});
-        throw new Error(`HTTP ${response.status} or unsupported image response`);
-      }
-      const blob = await response.blob();
-      signal.throwIfAborted();
-      entry.objectUrl = URL.createObjectURL(blob);
+      const { bytes, contentType } = await fetchBoundedResource(icon.href, {
+        limit: extensionResourceLimits.icon, signal: controller.signal, contentTypePrefix: 'image/',
+      });
+      controller.signal.throwIfAborted();
+      entry.objectUrl = URL.createObjectURL(new Blob([bytes], { type: contentType }));
       this.workbench.style.setProperty(icon.styleProperty, `url("${entry.objectUrl}")`);
       this.workbench.style.setProperty(icon.styleProperty + '-fallback', 'none');
     } catch (error) {

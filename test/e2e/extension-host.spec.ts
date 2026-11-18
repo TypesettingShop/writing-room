@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('starts the sample worker only when an extension command is requested', async ({ page }) => {
+test('starts the sample worker on demand and exposes a served extension directory', async ({ page }) => {
   const workers: string[] = [];
   const errors: string[] = [];
   page.on('worker', worker => workers.push(worker.url()));
@@ -14,7 +14,16 @@ test('starts the sample worker only when an extension command is requested', asy
   await action.click();
   const worker = await connected;
   expect(new URL(worker.url()).origin).toBe(new URL(page.url()).origin);
-  await expect(page.getByText('Running in the extension Worker.')).toBeVisible();
+  const message = page.getByText('Running in the extension Worker.');
+  await expect(message).toBeVisible();
+  const location = (await message.textContent())!.split('Directory: ')[1];
+  expect(new URL(location).href).toBe(new URL('/extensions/hello-world/', page.url()).href);
+  const manifest = await page.request.get(new URL('package.json', location).href);
+  expect(manifest.ok()).toBe(true);
+  expect(await manifest.json()).toMatchObject({ name: 'hello-world', browser: './extension.js' });
+  const entry = await page.request.get(new URL('extension.js', location).href);
+  expect(entry.ok()).toBe(true);
+  expect(await entry.text()).toContain('exports.activate');
   await expect.poll(() => worker.evaluate(() => typeof globalThis.postMessage)).toBe('undefined');
   expect(errors).toEqual([]);
 });

@@ -1,23 +1,19 @@
 import type * as vscode from 'vscode';
-import { readResponseText } from '../../../base/parts/request/common/responseText.js';
+import { fetchBoundedResource } from '../../../base/parts/request/common/boundedFetch.js';
+import { extensionResourceLimits } from '../../services/extensions/common/extensionResources.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { IExtensionModule } from '../common/extHostExtensionActivator.js';
 
-const entryLimit = 5 * 1024 * 1024;
 const fetchEntry = globalThis.fetch.bind(globalThis);
 const evaluate = Function;
 
 export async function loadCommonJSModule(
   extension: HostExtensionDescription, api: typeof vscode, signal: AbortSignal,
 ): Promise<IExtensionModule> {
-  const response = await fetchEntry(extension.entry, {
-    mode: 'cors', credentials: 'omit', redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+  const { bytes } = await fetchBoundedResource(extension.entry, {
+    limit: extensionResourceLimits.entry, signal, request: fetchEntry,
   });
-  if (!response.ok) {
-    void response.body?.cancel().catch(() => {});
-    throw new Error(`HTTP ${response.status}`);
-  }
-  const source = await readResponseText(response, entryLimit);
+  const source = new TextDecoder().decode(bytes);
   signal.throwIfAborted();
   const module = { exports: {} as IExtensionModule };
   function require(name: string): typeof vscode {

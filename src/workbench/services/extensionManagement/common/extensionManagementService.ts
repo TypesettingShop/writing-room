@@ -1,14 +1,12 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
-import { readResponseText } from '../../../../base/parts/request/common/responseText.js';
+import { fetchBoundedResource, ResourceRequestError } from '../../../../base/parts/request/common/boundedFetch.js';
 import { isRecord, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription, IExtensionManifest } from '../../../../platform/extensions/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
-import { resolveExtensionPath } from '../../extensions/common/extensionResources.js';
+import { extensionResourceLimits, resolveExtensionPath } from '../../extensions/common/extensionResources.js';
 import { IExtensionService } from '../../extensions/common/extensions.js';
-
-const manifestLimit = 256 * 1024;
 
 export interface StoredWebExtension {
   readonly identifier: string;
@@ -150,22 +148,16 @@ export class ExtensionManagementService {
 
   private async loadManifest(location: URL): Promise<unknown> {
     const manifestUrl = new URL('package.json', location);
-    let response: Response;
-    try {
-      response = await this.fetchManifest(manifestUrl, {
-        mode: 'cors', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(30_000),
-      });
-    } catch {
-      throw new Error(`Cannot fetch the manifest from ${location.origin}. The server may be unavailable, may require a redirect, or may not allow cross-origin requests (CORS).`);
-    }
-    if (!response.ok || response.redirected) {
-      void response.body?.cancel().catch(() => {});
-      throw new Error(`Could not read package.json from ${location.origin} (HTTP ${response.status}).`);
-    }
     let text: string;
     try {
-      text = await readResponseText(response, manifestLimit);
+      const { bytes } = await fetchBoundedResource(manifestUrl, {
+        limit: extensionResourceLimits.manifest, request: this.fetchManifest,
+      });
+      text = new TextDecoder().decode(bytes);
     } catch (error) {
+      if (error instanceof ResourceRequestError) {
+        throw new Error(`Cannot fetch the manifest from ${location.origin}. The server may be unavailable, may require a redirect, or may not allow cross-origin requests (CORS).`);
+      }
       throw new Error(`Could not read package.json from ${location.origin}: ${error instanceof Error ? error.message : error}`);
     }
     try {

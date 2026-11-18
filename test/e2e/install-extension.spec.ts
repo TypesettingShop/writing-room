@@ -109,3 +109,16 @@ test('keeps saved contributions when code is unavailable or larger than 5 MiB', 
   await expect(page.getByText('Remote fixture active')).toHaveCount(0);
   expect(await installed(page)).toContain('writing-room-tests.oversize-entry');
 });
+
+test('keeps the fallback icon when a remote icon crosses 256 KiB', async ({ page }) => {
+  const warnings: string[] = [];
+  page.on('console', message => { if (message.type() === 'warning') { warnings.push(message.text()); } });
+  await page.goto('/');
+  await install(page, 'oversize-icon');
+  await runCommand(page, 'Run Remote Fixture', /Run Remote Fixture/);
+  await expect(page.getByText('Cross-origin extension ran.')).toBeVisible();
+  await expect.poll(() => warnings.join(' ')).toContain('Response exceeds 262144 bytes');
+  const container = page.locator('[id="workbench.parts.activitybar"]').getByRole('button', { name: 'Remote Fixture' });
+  await expect(container.locator('.codicon-extensions')).toBeVisible();
+  await expect(container.locator('.wr-deferred-icon')).toHaveCSS('background-image', 'none');
+});

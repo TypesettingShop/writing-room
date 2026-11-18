@@ -26,10 +26,14 @@ createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/javascript' });
     response.write(' '.repeat(5 * 1024 * 1024));
     response.end(code);
-  } else if (pathname === '/remote/package.json' || pathname === '/no-cors/package.json') {
+  } else if (['/remote/package.json', '/no-cors/package.json', '/oversize-icon/package.json'].includes(pathname)) {
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(manifest);
-  } else if (pathname === '/remote/extension.js') {
+  } else if (pathname === '/remote/extension.js' || pathname === '/oversize-icon/extension.js') {
     response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
+  } else if (pathname === '/oversize-icon/icon.png') {
+    response.writeHead(200, { 'Content-Type': 'image/png' });
+    response.write(Buffer.alloc(256 * 1024));
+    response.end(icon);
   } else if (pathname === '/remote/icon.png' || pathname === '/oversize-entry/icon.png') {
     response.writeHead(200, { 'Content-Type': 'image/png' }).end(icon);
   } else {

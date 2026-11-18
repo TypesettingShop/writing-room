@@ -2,7 +2,7 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { isRecord, nonemptyString } from '../../../../platform/extensions/common/extensionValidator.js';
 import { Parser } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
-import { resolveExtensionResource } from './extensionResources.js';
+import { resolveExtensionPath } from './extensionResources.js';
 import type { IExtensionPointUser } from './extensionsRegistry.js';
 
 export function contributionEntries(value: unknown, path: string, user: IExtensionPointUser<unknown>): unknown[] {
@@ -62,7 +62,7 @@ export function contributionIcon(
   if (ThemeIcon.fromString(icon)) {
     return icon;
   }
-  const resource = resolveExtensionResource(user.description, icon);
+  const resource = resolveExtensionPath(user.description.location, icon);
   if (!resource) {
     user.collector.error(path, 'Expected a codicon or a path inside the extension directory.', true);
   }

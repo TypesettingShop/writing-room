@@ -1,4 +1,8 @@
-import type { IExtensionDescription } from '../../../../platform/extensions/common/extensions.js';
+export const extensionResourceLimits = {
+  manifest: 256 * 1024,
+  entry: 5 * 1024 * 1024,
+  icon: 256 * 1024,
+} as const;
 
 export function resolveExtensionPath(location: string, path: string): URL | undefined {
   if (!path || path !== path.trim() || /[\\?#\u0000-\u001f\u007f]/.test(path)
@@ -33,10 +37,4 @@ export function resolveExtensionPath(location: string, path: string): URL | unde
   } catch {
     return undefined;
   }
-}
-
-export function resolveExtensionResource(extension: IExtensionDescription, path: string): URL | undefined {
-  const url = resolveExtensionPath(extension.location, path);
-  const bundled = url && extension.resources?.[url.href];
-  return bundled ? new URL(bundled) : url;
 }

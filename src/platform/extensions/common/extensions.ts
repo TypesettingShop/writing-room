@@ -70,7 +70,6 @@ export interface IExtensionDescription {
   readonly location: string;
   readonly manifest: IExtensionManifest;
   readonly isBuiltin: boolean;
-  readonly resources?: Readonly<Record<string, string>>;
 }
 
 export interface IExtensionMessage {
