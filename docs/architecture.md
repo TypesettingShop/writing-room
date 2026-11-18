@@ -95,4 +95,9 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Extensions
 
+#### Manifest contributions
+
+- Vite가 빌드 시 내장 확장 매니페스트를 읽고 참조할 수 있는 파일을 URL 에셋으로 발행한다. 매니페스트 위치와 리소스 URL의 매핑은 개발과 배포에서 같은 확장 설명을 쓰게 한다. [VS Code 내장 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/builtinExtensionsScannerService.ts)
+- 파싱에 실패하는 `when`과 `enablement`는 해당 기여를 건너뛴다. 기여 집합이 바뀌어도 같은 확장의 뷰와 컨테이너를 유지해 열린 위치를 보존한다. [VS Code 메뉴 기여 핸들러](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/actions/common/menusExtensionPoint.ts)
+
 Decided in: wr-e8v6, wr-pip6, wr-hze8

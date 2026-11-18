@@ -1,3 +1,9 @@
+import { parseKeybinding } from '../../../../base/common/keybindingParser.js';
+import type { DisposableStore } from '../../../../base/common/lifecycle.js';
+import type { IKeybindingContribution } from '../../../../platform/extensions/common/extensions.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { contributionEntries, contributionRecord, contributionWhen } from '../../extensions/common/contributionValidation.js';
+import type { IExtensionPointUser } from '../../extensions/common/extensionsRegistry.js';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { getKeybindingPlatform } from '../../../../base/common/keybindings.js';
@@ -79,3 +85,37 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 }
 
 registerSingleton(IKeybindingService, WorkbenchKeybindingService);
+
+export function registerExtensionKeybindings(
+  users: readonly IExtensionPointUser<unknown>[], registrations: DisposableStore,
+): void {
+  for (const user of users) {
+    const base = 'contributes.keybindings';
+    for (const [index, value] of contributionEntries(user.value, base, user).entries()) {
+      const path = base + '.' + index;
+      const entry = contributionRecord<IKeybindingContribution>(value, path, user, ['command', 'key'], ['mac', 'win', 'linux', 'when']);
+      if (!entry) {
+        continue;
+      }
+      const invalid = (['key', 'mac', 'win', 'linux'] as const).find(key => {
+        const binding = entry[key];
+        return binding !== undefined && !parseKeybinding(binding);
+      });
+      if (invalid) {
+        user.collector.error(path + '.' + invalid, 'Invalid keybinding.');
+        continue;
+      }
+      const when = contributionWhen(entry.when, path + '.when', user);
+      if (when === false) {
+        continue;
+      }
+      const weight = (user.description.isBuiltin ? KeybindingWeight.BuiltinExtension : KeybindingWeight.ExternalExtension) + index;
+      registrations.add(KeybindingsRegistry.registerKeybindingRule({
+        id: entry.command, key: entry.key, weight, when, args: entry.args,
+        mac: entry.mac ? { key: entry.mac } : undefined,
+        win: entry.win ? { key: entry.win } : undefined,
+        linux: entry.linux ? { key: entry.linux } : undefined,
+      }));
+    }
+  }
+}

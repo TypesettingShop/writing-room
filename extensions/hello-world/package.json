@@ -1,0 +1,23 @@
+{
+  "name": "hello-world",
+  "publisher": "writing-room",
+  "version": "0.1.0",
+  "displayName": "Hello World",
+  "contributes": {
+    "commands": [
+      { "command": "hello-world.hello", "title": "Say Hello", "category": "Hello World", "icon": "$(megaphone)" },
+      { "command": "hello-world.where", "title": "Show Extension Host", "category": "Hello World", "icon": "$(info)" }
+    ],
+    "menus": {
+      "view/title": [{ "command": "hello-world.hello", "when": "view == hello-world.tree", "group": "navigation@2" }],
+      "editor/title": [{ "command": "hello-world.where", "group": "navigation" }]
+    },
+    "keybindings": [{ "command": "hello-world.hello", "key": "F8" }],
+    "viewsContainers": {
+      "activitybar": [{ "id": "hello-world", "title": "Hello World", "icon": "$(beaker)" }]
+    },
+    "views": {
+      "hello-world": [{ "id": "hello-world.tree", "name": "Greetings" }]
+    }
+  }
+}
