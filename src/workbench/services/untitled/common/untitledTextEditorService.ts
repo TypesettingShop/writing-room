@@ -1,3 +1,4 @@
+import { Event } from '../../../../base/common/event.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -20,6 +21,8 @@ export interface IUntitledTextEditorService extends BrandedService {
 export class UntitledTextEditorService implements IUntitledTextEditorService {
   declare readonly _serviceBrand: undefined;
   private readonly models = new Map<string, UntitledTextEditorModel>();
+  /** Resources of disposed models whose text model is still being created, and so still taken. */
+  private readonly releasing = new Set<string>();
 
   constructor(@IInstantiationService private readonly instantiationService: IInstantiationService) {}
 
@@ -28,15 +31,21 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     let counter = 1;
     do {
       resource = URI.from({ scheme: Schemas.untitled, path: `Untitled-${counter++}` });
-    } while (this.models.has(resource.toString()));
+    } while (this.models.has(resource.toString()) || this.releasing.has(resource.toString()));
 
     const key = resource.toString();
     const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, options.initialValue ?? '');
     this.models.set(key, model);
-    // Disposing the model gives its number back.
-    const listener = model.onWillDispose(() => {
-      listener.dispose();
+    // Disposing the model gives its number back — once a text model still on its way for the
+    // resource is gone too, or the next model with that number could not get one.
+    Event.once(model.onWillDispose)(() => {
       this.models.delete(key);
+      const pending = model.whenCreationSettles();
+      if (pending) {
+        this.releasing.add(key);
+        const release = () => this.releasing.delete(key);
+        pending.then(release, release);
+      }
     });
     return model;
   }

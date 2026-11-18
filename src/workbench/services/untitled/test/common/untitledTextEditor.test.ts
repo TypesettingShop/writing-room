@@ -113,3 +113,18 @@ test('tries again after a model could not be created', async () => {
   await expect(input.resolve()).resolves.toBe(input.model);
   expect(create).toHaveBeenCalledTimes(2);
 });
+
+test('keeps the number of a model disposed while its text model is on its way until that one is gone', async () => {
+  let open!: () => void;
+  models.gate = new Promise(resolve => open = resolve);
+  const closed = new UntitledTextEditorInput(service.create());
+  const closing = closed.resolve();
+  closed.dispose();
+  const next = new UntitledTextEditorInput(service.create());
+  expect(next.resource.toString()).toBe('untitled:Untitled-2');
+  const opening = next.resolve();
+  open();
+  await closing;
+  await expect(opening).resolves.toBe(next.model);
+  expect(service.create().resource.toString()).toBe('untitled:Untitled-1');
+});

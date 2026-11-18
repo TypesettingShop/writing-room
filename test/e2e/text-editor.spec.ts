@@ -70,6 +70,8 @@ test.describe('in the harness', () => {
     await expect(page.getByRole('status', { name: 'Inputs' })).toHaveText('Untitled-1*');
     await expect(page.getByRole('status', { name: 'Focus Keys' })).toHaveText('editorTextFocus editorFocus textInputFocus');
     await expect(left.locator('.monaco-editor')).toHaveCount(1);
+    // `loadMonaco()` sets the theme; the editor's options leave it alone.
+    await expect(left.locator('.monaco-editor')).toHaveClass(/\bvs-dark\b/);
   });
 
   test('switching a pane between inputs keeps each one\'s text, cursor and scroll', async ({ page }) => {

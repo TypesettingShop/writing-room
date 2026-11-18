@@ -27,13 +27,13 @@ export class URI implements Required<UriComponents> {
     if (!/^[a-z][\w+.-]*$/i.test(components.scheme)) {
       throw new Error(`Invalid URI scheme: ${components.scheme}`);
     }
-    return new URI(
-      components.scheme,
-      components.authority ?? '',
-      components.path ?? '',
-      components.query ?? '',
-      components.fragment ?? '',
-    );
+    const { scheme, authority = '', path = '', query = '', fragment = '' } = components;
+    // Without percent-encoding these would print as a different URI than the one they describe.
+    if (/[/?#]/.test(authority) || /[?#]/.test(path) || query.includes('#')
+      || (authority && path && !path.startsWith('/')) || (!authority && path.startsWith('//'))) {
+      throw new Error(`Invalid URI components: ${JSON.stringify(components)}`);
+    }
+    return new URI(scheme, authority, path, query, fragment);
   }
 
   static parse(value: string): URI {

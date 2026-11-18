@@ -28,7 +28,7 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
 
   constructor(
     readonly resource: URI,
-    private readonly initialValue: string,
+    private initialValue: string,
     @IModelService private readonly modelService: IModelService,
   ) {
     super();
@@ -53,6 +53,15 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
     return this.model !== null;
   }
 
+  /**
+   * While a text model is being created for the resource, a promise that settles once it exists —
+   * or, when this model was disposed meanwhile, once it has been disposed again; `undefined` when
+   * none is on its way. Monaco refuses a second model for a resource that still has one.
+   */
+  whenCreationSettles(): Promise<unknown> | undefined {
+    return this.model === null ? this.resolving : undefined;
+  }
+
   resolve(): Promise<void> {
     if (this.disposed) {
       return Promise.reject(new Error(`${this.resource} is disposed.`));
@@ -72,6 +81,8 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
       return;
     }
     this.model = model;
+    // The text model holds the text from now on.
+    this.initialValue = '';
     this.modelListener.value = model.onDidChangeContent(() => this.setDirty(model.getValueLength() > 0));
     this.setDirty(model.getValueLength() > 0);
   }

@@ -32,4 +32,8 @@ test('parses and prints the resources editors use', () => {
   expect([uri.scheme, uri.path, uri.toString()]).toEqual(['untitled', 'Untitled-3', 'untitled:Untitled-3']);
   expect(URI.parse('https://example.com/a/b?c=1#d').toString()).toBe('https://example.com/a/b?c=1#d');
   expect(() => URI.parse('no-scheme')).toThrow('Invalid URI');
+  // Components that would print as a different URI are refused rather than misprinted.
+  expect(() => URI.from({ scheme: 'untitled', path: 'a#b' })).toThrow('Invalid URI');
+  expect(() => URI.from({ scheme: 'file', authority: 'host', path: 'relative' })).toThrow('Invalid URI');
+  expect(() => URI.from({ scheme: 'file', path: '//host/path' })).toThrow('Invalid URI');
 });

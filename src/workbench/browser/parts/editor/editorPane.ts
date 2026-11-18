@@ -47,8 +47,9 @@ export abstract class EditorPane extends Disposable {
   protected abstract createEditor(parent: HTMLElement): void;
 
   /**
-   * Shows `input`. The promise settles when the input is showing, or once a later `setInput` or
-   * `clearInput` replaced it. It does not reject: a pane shows its own errors.
+   * Shows `input`. The promise settles when the input is showing; when a later `setInput`,
+   * `clearInput` or `dispose` replaced it first, it settles once its own load ends, showing nothing.
+   * It does not reject: a pane shows its own errors.
    */
   async setInput(input: EditorInput, options: IEditorOptions | undefined): Promise<void> {
     this._input = input;

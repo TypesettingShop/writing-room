@@ -1,3 +1,4 @@
+import { isEqual } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import type { UntitledTextEditorModel } from './untitledTextEditorModel.js';
@@ -35,8 +36,7 @@ export class UntitledTextEditorInput extends EditorInput {
   }
 
   override matches(other: EditorInput): boolean {
-    return other === this
-      || (other instanceof UntitledTextEditorInput && other.resource.toString() === this.resource.toString());
+    return other === this || (other instanceof UntitledTextEditorInput && isEqual(other.resource, this.resource));
   }
 
   override dispose(): void {

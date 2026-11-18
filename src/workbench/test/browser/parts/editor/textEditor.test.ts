@@ -184,7 +184,7 @@ test('creates the Monaco editor once, on the first real layout, without a model 
   pane.layout(new Dimension(400, 300));
   const [editor] = fake.state.editors;
   expect(fake.state.editors).toHaveLength(1);
-  expect(editor.options).toMatchObject({ model: null, automaticLayout: false, theme: 'vs-dark', dimension: { width: 400, height: 300 } });
+  expect(editor.options).toMatchObject({ model: null, automaticLayout: false, dimension: { width: 400, height: 300 } });
   expect(editor.getModel()).toBe(input.textModel);
 
   pane.layout(new Dimension(500, 250));
@@ -315,4 +315,51 @@ test('an editor with focus keeps it across an input switch, one without does not
   expect(editor.focused).toBe(1);
   await pane.setInput(new TestTextInput('focused'), undefined);
   expect(editor.focused).toBe(2);
+});
+
+test('hands on the view state it was given while the input is still loading', async () => {
+  const { pane } = createPane();
+  const input = new TestTextInput('loading');
+  const gate = deferred();
+  input.gate = gate.promise;
+  const carried = { of: 'elsewhere' };
+  const shown = pane.setInput(input, { viewState: carried });
+  expect(pane.getViewState()).toBe(carried);
+
+  // Showing the same input again before it loaded keeps what it was given.
+  const again = pane.setInput(input, undefined);
+  gate.resolve();
+  await Promise.all([shown, again]);
+  expect(editorOf(pane).restored).toEqual([carried]);
+});
+
+test('forgets the view state of an input it shows when that input is disposed', async () => {
+  const { pane } = createPane();
+  const input = new TestTextInput('closed');
+  await pane.setInput(input, undefined);
+  input.dispose();
+  // Nothing outside the pane can see the map; the entry would keep the closed input alive.
+  expect((pane as unknown as { viewStates: Map<unknown, unknown> }).viewStates.size).toBe(0);
+});
+
+test('a pane disposed right after setInput takes nothing over', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const { pane } = createPane();
+    const input = new TestTextInput('abandoned');
+    const shown = pane.setInput(input, undefined);
+    pane.dispose();
+    await shown;
+    expect(warn).not.toHaveBeenCalled();
+    expect(fake.state.editors).toHaveLength(0);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test('dispose takes back what the pane put into its parent', () => {
+  const { pane, parent } = createPane();
+  pane.dispose();
+  expect(parent.classList.contains('text-editor')).toBe(false);
+  expect(parent.children).toHaveLength(0);
 });

@@ -1,5 +1,6 @@
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
+import { Event } from '../../../../base/common/event.js';
 import { MutableDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { loadMonaco } from '../../../../editor/browser/monaco.js';
@@ -18,10 +19,10 @@ import './media/textEditor.css';
 /**
  * Every option the text editor is created with. One function, so configuration can feed it later.
  * The pane lays the editor out itself (`automaticLayout: false`), as all layout here is explicit.
+ * The theme is not among them: Monaco's theme is global, and `loadMonaco()` sets it once.
  */
 export function getTextEditorOptions(): IStandaloneEditorConstructionOptions {
   return {
-    theme: 'vs-dark',
     automaticLayout: false,
     ariaLabel: 'Editor content',
   };
@@ -74,15 +75,18 @@ export class TextEditorPane extends EditorPane {
 
   override async setInput(input: EditorInput, options: ITextEditorOptions | undefined): Promise<void> {
     const previous = this.input;
+    // The base only records the input. It is not awaited: that would leave a gap in which a newer
+    // `setInput`, a `clearInput` or `dispose` runs before this call has taken the input over.
     if (previous === input && this.shown?.input === input && this.isAttached()) {
-      await super.setInput(input, options);
+      void super.setInput(input, options);
       if (options?.viewState) {
         this.editor!.restoreViewState(options.viewState as ICodeEditorViewState);
       }
       return;
     }
 
-    if (previous && previous !== input) {
+    // Also when `previous` is `input` itself, still loading: its view state carries over to this load.
+    if (previous) {
       this.saveViewState(previous);
     }
     const request = ++this.request;
@@ -91,7 +95,7 @@ export class TextEditorPane extends EditorPane {
       this.pendingFocus = true;
     }
     this.detach();
-    await super.setInput(input, options);
+    void super.setInput(input, options);
     this.inputListener.value = input.onWillDispose(() => {
       if (this.input === input) {
         this.clearInput();
@@ -158,10 +162,7 @@ export class TextEditorPane extends EditorPane {
   }
 
   override getViewState(): object | undefined {
-    if (this.isAttached()) {
-      return this.editor!.saveViewState() ?? undefined;
-    }
-    return this.shown?.viewState ?? (this.input && this.viewStates.get(this.input)?.state);
+    return this.input && (this.currentViewState(this.input) ?? this.viewStates.get(this.input)?.state);
   }
 
   /** The Monaco editor, once the pane has had a real size and the package has loaded. */
@@ -227,16 +228,26 @@ export class TextEditorPane extends EditorPane {
     this.editor?.setModel(null);
   }
 
-  private saveViewState(input: EditorInput): void {
-    let state: object | undefined;
-    if (this.isAttached() && this.shown!.input === input) {
-      state = this.editor!.saveViewState() ?? undefined;
-    } else if (this.shown?.input === input) {
-      state = this.shown.viewState;
-    } else if (this.input === input) {
-      // Still loading: keep what the caller handed over.
-      state = (this.options as ITextEditorOptions | undefined)?.viewState;
+  /** The view state `input` has in this pane right now: shown, waiting for the editor, or loading. */
+  private currentViewState(input: EditorInput): object | undefined {
+    if (this.shown?.input === input) {
+      return this.isAttached() ? this.editor!.saveViewState() ?? undefined : this.shown.viewState;
     }
+    if (this.input === input) {
+      // Still loading: what the caller handed over wins, as it will when the load finishes.
+      return (this.options as ITextEditorOptions | undefined)?.viewState ?? this.viewStates.get(input)?.state;
+    }
+    return undefined;
+  }
+
+  private saveViewState(input: EditorInput): void {
+    // An input that is going away (its `onWillDispose` clears the pane) has nothing to come back to.
+    if (input.isDisposed()) {
+      this.viewStates.get(input)?.listener.dispose();
+      this.viewStates.delete(input);
+      return;
+    }
+    const state = this.currentViewState(input);
     if (!state) {
       return;
     }
@@ -244,10 +255,7 @@ export class TextEditorPane extends EditorPane {
     if (entry) {
       entry.state = state;
     } else {
-      const listener = input.onWillDispose(() => {
-        listener.dispose();
-        this.viewStates.delete(input);
-      });
+      const listener = Event.once(input.onWillDispose)(() => this.viewStates.delete(input));
       this.viewStates.set(input, { state, listener });
     }
   }
@@ -270,5 +278,9 @@ export class TextEditorPane extends EditorPane {
     this.viewStates.clear();
     this.shown = undefined;
     super.dispose();
+    // The parent belongs to whoever created the pane: take back what `createEditor` put into it.
+    this.editorContainer?.remove();
+    this.messageElement?.remove();
+    this.getContainer()?.classList.remove('text-editor');
   }
 }
