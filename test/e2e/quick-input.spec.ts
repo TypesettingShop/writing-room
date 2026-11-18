@@ -18,6 +18,9 @@ test('F1 uses the editor scope, filters commands, and executes after restoring t
   await expect(picker).toBeFocused();
   await expect(picker).toHaveValue('');
   await expect(list.getByRole('option', { name: 'Editor: Select Paragraph' })).toBeVisible();
+  await page.keyboard.press('F1');
+  await expect(picker).toBeFocused();
+  await expect(list.getByRole('option', { name: 'Editor: Select Paragraph' })).toBeVisible();
   await expect(list.getByRole('option', { name: 'Document: Export Draft' })).toHaveAccessibleDescription('Control+E');
   await expect(list.getByRole('option', { name: /Hidden|Disabled/ })).toHaveCount(0);
   await picker.pressSequentially('draft ex');
@@ -37,7 +40,7 @@ test('F1 uses the editor scope, filters commands, and executes after restoring t
   })).toEqual([4, 9]);
 });
 
-test('Escape cancels, and the View menu and secondary shortcut open the same palette', async ({ page }) => {
+test('Escape cancels, and the View menu and Ctrl+Shift+P open the same palette', async ({ page }) => {
   const open = page.getByRole('button', { name: 'Open Palette' });
   await open.click();
   const picker = page.getByRole('combobox');
@@ -49,7 +52,7 @@ test('Escape cancels, and the View menu and secondary shortcut open the same pal
   await expect(page.getByRole('status', { name: 'Commands Run' })).toBeEmpty();
 
   await page.getByRole('menubar').getByRole('menuitem', { name: 'View' }).click();
-  await page.getByRole('menuitem', { name: 'Command Palette' }).click();
+  await page.getByRole('menuitem', { name: 'Command Palette...', exact: true }).click();
   await expect(picker).toBeFocused();
   await picker.press('Escape');
 
@@ -79,6 +82,15 @@ test('arrow navigation wraps and row clicks accept while outside clicks cancel',
   await expect(result).toHaveText('Cancelled');
   await expect(picker).toHaveCount(0);
   await expect(open).toBeFocused();
+
+  await open.click();
+  await page.getByText('Choose a colour').click();
+  await picker.press('Tab');
+  await expect(picker).toBeFocused();
+  const editor = page.getByRole('textbox', { name: 'Editor' });
+  await editor.click();
+  await expect(picker).toHaveCount(0);
+  await expect(editor).toBeFocused();
 });
 
 test('replacement cancels the pick and validation prevents accepting an invalid input', async ({ page }) => {
@@ -98,6 +110,12 @@ test('replacement cancels the pick and validation prevents accepting an invalid 
 
   await text.fill('A longer draft');
   await expect(page.getByText('The name is too short.')).toHaveCount(0);
+  const bounds = (await text.boundingBox())!;
+  await page.mouse.move(bounds.x + bounds.width - 4, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 4, bounds.y + 300, { steps: 4 });
+  await page.mouse.up();
+  await expect(text).toBeFocused();
   await text.press('Enter');
   await expect(text).toHaveCount(0);
   await expect(page.getByRole('status', { name: 'Input Result' })).toHaveText('A longer draft');

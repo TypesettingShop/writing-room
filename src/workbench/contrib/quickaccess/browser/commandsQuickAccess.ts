@@ -1,4 +1,4 @@
-import { commandTitle, IMenuService, isIMenuItem, MenuId, MenuItemAction, MenuRegistry } from '../../../../platform/actions/common/actions.js';
+import { commandTitle, IMenuService, MenuId, MenuItemAction } from '../../../../platform/actions/common/actions.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { getQuickInputFocus } from '../../../../platform/quickinput/browser/quickInputController.js';
@@ -82,11 +82,10 @@ export class CommandsQuickAccessProvider {
       return [];
     }
 
-    // Visibility is decided separately, so temporarily unavailable contexts keep their history.
-    const known = new Set(MenuRegistry.getMenuItems(MenuId.CommandPalette).filter(isIMenuItem).map(item => item.command.id));
+    // Contributions can register after the palette first reads its history.
     const history = new Set<string>();
     for (const id of value) {
-      if (typeof id === 'string' && known.has(id)) {
+      if (typeof id === 'string' && id.length > 0) {
         history.add(id);
         if (history.size === historyLimit) {
           break;

@@ -69,9 +69,6 @@ export class QuickInputList<T extends IQuickPickItem> {
       group.rows.push({ item, element, label, description });
       group.element.append(element);
     }
-
-    // Keep focus in the combobox until the option's click is delivered.
-    this.element.addEventListener('mousedown', event => event.preventDefault());
   }
 
   filter(query: string): void {

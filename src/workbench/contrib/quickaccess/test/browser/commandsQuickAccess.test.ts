@@ -81,12 +81,12 @@ test('lists sorted, categorized, enabled commands in the focus scope', async () 
   expect(commandRun).toHaveBeenCalledExactlyOnceWith('editor');
 });
 
-test('moves selections to the front, keeps fifty unique known ids, and separates other commands', async () => {
+test('moves selections to the front, keeps fifty unique ids, and separates other commands', async () => {
   const ids = Array.from({ length: 51 }, (_, index) => 'command-' + index);
   for (const id of ids) {
     disposables.add(MenuRegistry.addCommand({ id, title: id }));
   }
-  storage.store(historyKey, [false, 'missing', ids[0], ids[0], ...ids.slice(1, 50)], StorageScope.PROFILE, StorageTarget.USER);
+  storage.store(historyKey, [false, '', ids[0], ids[0], ...ids.slice(1, 50)], StorageScope.PROFILE, StorageTarget.USER);
   pickId = ids[50];
   await provider.show();
   expect(picks.map(item => item.label)).toEqual(['Recently Used', ...ids.slice(0, 50), 'Other Commands', ids[50]]);
@@ -95,6 +95,21 @@ test('moves selections to the front, keeps fifty unique known ids, and separates
   await provider.show();
   expect(picks.map(item => item.label)).toEqual(['Recently Used', ids[50], ...ids.slice(0, 49), 'Other Commands', ids[49]]);
   expect(storage.getObject(historyKey, StorageScope.PROFILE)).toEqual([ids[50], ...ids.slice(0, 49)]);
+});
+
+test('restores a recent command when its contribution registers later', async () => {
+  disposables.add(MenuRegistry.addCommand({ id: 'available', title: 'Available' }));
+  storage.store(historyKey, ['extension.delayed'], StorageScope.PROFILE, StorageTarget.USER);
+
+  pickId = 'available';
+  await provider.show();
+  expect(picks.map(item => item.label)).toEqual(['Available']);
+  expect(storage.getObject(historyKey, StorageScope.PROFILE)).toEqual(['available', 'extension.delayed']);
+
+  disposables.add(MenuRegistry.addCommand({ id: 'extension.delayed', title: 'Delayed Command' }));
+  pickId = undefined;
+  await provider.show();
+  expect(picks.map(item => item.label)).toEqual(['Recently Used', 'Available', 'Delayed Command']);
 });
 
 test('ignores damaged history and logs command failures', async () => {

@@ -12,11 +12,17 @@ interface QuickInputSession {
 }
 
 let nextId = 0;
+const widgetReturnFocus = new WeakMap<Element, HTMLElement | undefined>();
 
+/** The focused element; while focus is in an open quick input, the element that quick input gives focus back to. */
 export function getQuickInputFocus(document: Document): HTMLElement | undefined {
   let element = document.activeElement;
   while (element?.shadowRoot?.activeElement) {
     element = element.shadowRoot.activeElement;
+  }
+  const widget = element?.closest('.wr-quick-input');
+  if (widget && widgetReturnFocus.has(widget)) {
+    return widgetReturnFocus.get(widget);
   }
   return element instanceof HTMLElement ? element : undefined;
 }
@@ -123,6 +129,7 @@ export class QuickInputController {
     const listId = id + '-list';
     const box = new QuickInputBox(id, options, hasList ? listId : undefined);
     const widget = $('div.wr-quick-input', null, box.element);
+    widgetReturnFocus.set(widget, returnFocus);
     const listeners = new DisposableStore();
 
     return new Promise<T | undefined>(resolve => {
@@ -146,14 +153,34 @@ export class QuickInputController {
       }
 
       listeners.add(addDisposableListener(box.input, 'keydown', event => handleKey(event, key => {
-        if (key !== 'Escape') {
-          return false;
+        if (key === 'Escape') {
+          finish(undefined);
+          return true;
         }
-        finish(undefined);
-        return true;
+        // As in VS Code, Tab keeps focus in the quick input, where Escape still reaches it.
+        return key === 'Tab';
       })));
+      // Pressing the title, prompt, rows or padding keeps focus in the input, and clicks on rows still arrive.
+      listeners.add(addDisposableListener(widget, 'mousedown', event => {
+        if (event.target !== box.input) {
+          event.preventDefault();
+        }
+      }));
+      // Focus moved to another element, by a click or a command, cancels and stays where it went.
+      listeners.add(addDisposableListener(widget, 'focusout', event => {
+        if (event.relatedTarget instanceof Node && !widget.contains(event.relatedTarget)) {
+          finish(undefined, false);
+        }
+      }));
+      // A press that starts in the widget, such as selecting the input's text, may be released outside.
+      let pressedInside = false;
+      listeners.add(addDisposableListener(document, 'mousedown', event => {
+        pressedInside = event.composedPath().includes(widget);
+      }, true));
       listeners.add(addDisposableListener(document, 'click', event => {
-        if (!event.composedPath().includes(widget)) {
+        const inside = pressedInside || event.composedPath().includes(widget);
+        pressedInside = false;
+        if (!inside) {
           finish(undefined);
         }
       }, true));
