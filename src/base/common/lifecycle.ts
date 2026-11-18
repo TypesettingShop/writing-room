@@ -109,7 +109,11 @@ export class MutableDisposable<T extends IDisposable> implements IDisposable {
   }
 
   set value(next: T | undefined) {
-    if (this.disposed || next === this.current) {
+    if (next === this.current) {
+      return;
+    }
+    if (this.disposed) {
+      console.warn('MutableDisposable is already disposed. The new value is still owned by its caller.');
       return;
     }
     const previous = this.current;

@@ -46,6 +46,38 @@ test('injects services after static arguments in the original parameter order', 
   expect(di.createInstance(Consumer, 'A', 2)).toMatchObject({ title: 'A', count: 2, greeter, di });
   expect(di.createInstance(new SyncDescriptor(Consumer, ['B']), 3))
     .toMatchObject({ title: 'B', count: 3, greeter, di });
+  expect(() => di.createInstance(new SyncDescriptor(Consumer, ['C', 4]), 5))
+    .toThrow('Consumer takes 2 static arguments but received 3.');
+});
+
+test('keeps service positions for omitted static arguments and rejects a service before a static one', () => {
+  class Optional {
+    constructor(readonly label: string | undefined, @IGreeter readonly greeter: IGreeter) {}
+  }
+  class Misplaced {
+    constructor(
+      @IGreeter readonly greeter: IGreeter,
+      readonly title: string,
+      @IInstantiationService readonly di: IInstantiationService,
+    ) {}
+  }
+
+  const greeter: IGreeter = { _serviceBrand: undefined, greeting: 'Hello' };
+  const di = new InstantiationService(new ServiceCollection([IGreeter, greeter]));
+  expect(di.createInstance(new SyncDescriptor(Optional))).toMatchObject({ label: undefined, greeter });
+  expect(() => di.createInstance(new SyncDescriptor(Misplaced)))
+    .toThrow('Misplaced must take all static arguments before its injected services.');
+});
+
+test('a subclass without decorators of its own receives its base class services', () => {
+  class Base {
+    constructor(readonly name: string, @IGreeter readonly greeter: IGreeter) {}
+  }
+  class Derived extends Base {}
+
+  const greeter: IGreeter = { _serviceBrand: undefined, greeting: 'Hello' };
+  const di = new InstantiationService(new ServiceCollection([IGreeter, greeter]));
+  expect(di.createInstance(Derived, 'derived')).toMatchObject({ name: 'derived', greeter });
 });
 
 test('only allows access during an invocation, even when it throws', () => {

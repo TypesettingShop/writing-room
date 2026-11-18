@@ -21,15 +21,14 @@ function sourceSegments(file: string): string[] {
   return isAbsolute(path) || path.startsWith('..' + sep) ? [] : path.split(sep);
 }
 
-function resolveImport(file: string, specifier: string): string | undefined {
+function resolveImport(file: string, specifier: string, host: ts.ModuleResolutionHost): string | undefined {
   const path = specifier.split('?')[0];
-  if (path.startsWith('.')) {
-    return resolve(dirname(file), path);
-  }
-  if (path.startsWith('/src/')) {
-    return join(projectRoot, path);
-  }
-  return ts.resolveModuleName(path, file, compilerOptions, ts.sys).resolvedModule?.resolvedFileName;
+  const local = path.startsWith('.') ? resolve(dirname(file), path)
+    : path.startsWith('/src/') ? join(projectRoot, path)
+    : undefined;
+  // The compiler resolves a folder import to its index file, whose parent is then the imported folder.
+  // A path it cannot find, such as a planted one, is checked as written.
+  return ts.resolveModuleName(local ?? path, file, compilerOptions, host).resolvedModule?.resolvedFileName ?? local;
 }
 
 function importedPath(node: ts.Node): ts.StringLiteralLike | undefined {
@@ -48,7 +47,7 @@ function importedPath(node: ts.Node): ts.StringLiteralLike | undefined {
   return path && ts.isStringLiteralLike(path) ? path : undefined;
 }
 
-function findViolations(file: string, contents: string): string[] {
+function findViolations(file: string, contents: string, host: ts.ModuleResolutionHost = ts.sys): string[] {
   const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
   const from = sourceSegments(file);
   const violations: string[] = [];
@@ -56,7 +55,7 @@ function findViolations(file: string, contents: string): string[] {
   function visit(node: ts.Node): void {
     const path = importedPath(node);
     if (path) {
-      const target = resolveImport(file, path.text);
+      const target = resolveImport(file, path.text, host);
       const to = target ? sourceSegments(target) : [];
       const fromLayer = layers.indexOf(from[0]);
       const toLayer = layers.indexOf(to[0]);
@@ -92,7 +91,8 @@ test('src imports obey the layer and common/browser boundaries', () => {
 });
 
 test('detects planted upward and common-to-browser imports in multiline and indirect forms', () => {
-  const violations = findViolations(join(srcRoot, 'base/common/planted.ts'), [
+  const planted = join('src', 'base', 'common', 'planted.ts');
+  const violations = findViolations(join(projectRoot, planted), [
     'import type {',
     '  Service,',
     "} from '../../platform/common/service.js';",
@@ -105,12 +105,29 @@ test('detects planted upward and common-to-browser imports in multiline and indi
   ].join('\n'));
 
   expect(violations).toEqual([
-    expect.stringContaining('base must not import platform'),
-    expect.stringContaining('common must not import browser'),
-    expect.stringContaining('common must not import browser'),
-    expect.stringContaining('common must not import browser'),
-    expect.stringContaining('base must not import platform'),
+    `${planted}:3 ../../platform/common/service.js: base must not import platform`,
+    `${planted}:4 ../browser/widget.js: common must not import browser`,
+    `${planted}:5 ../browser/widget.js: common must not import browser`,
+    `${planted}:6 /src/base/browser/widget.js: common must not import browser`,
+    `${planted}:7 ../../platform/common/service.js: base must not import platform`,
   ]);
+});
+
+test('detects common-to-browser imports in nested folders and through a folder index', () => {
+  const nested = join('src', 'platform', 'instantiation', 'common', 'planted.ts');
+  expect(findViolations(join(projectRoot, nested), "import '../browser/widget.js';"))
+    .toEqual([`${nested}:1 ../browser/widget.js: common must not import browser`]);
+
+  // A folder import reaches the folder's index file, so its folder name must survive resolution.
+  const index = join(srcRoot, 'base', 'browser', 'index.ts');
+  const host: ts.ModuleResolutionHost = {
+    fileExists: path => path === index,
+    readFile: () => undefined,
+    directoryExists: path => index.startsWith(path + sep),
+  };
+  const planted = join('src', 'base', 'common', 'planted.ts');
+  expect(findViolations(join(projectRoot, planted), "import '../browser';", host))
+    .toEqual([`${planted}:1 ../browser: common must not import browser`]);
 });
 
 test('allows same-layer and downward imports outside the common-to-browser boundary', () => {

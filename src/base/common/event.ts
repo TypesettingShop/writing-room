@@ -1,4 +1,4 @@
-import { combinedDisposable, Disposable, toDisposable } from './lifecycle.js';
+import { combinedDisposable, Disposable, dispose, toDisposable } from './lifecycle.js';
 import type { DisposableStore, IDisposable } from './lifecycle.js';
 
 type DisposableSink = DisposableStore | IDisposable[];
@@ -57,7 +57,15 @@ export namespace Event {
 
   export function any<T>(...sources: Event<T>[]): Event<T> {
     return (listener, thisArgs, disposables) => {
-      const subscriptions = sources.map(source => source(listener, thisArgs));
+      const subscriptions: IDisposable[] = [];
+      try {
+        for (const source of sources) {
+          subscriptions.push(source(listener, thisArgs));
+        }
+      } catch (error) {
+        dispose(subscriptions);
+        throw error;
+      }
       return track(combinedDisposable(...subscriptions), disposables);
     };
   }
@@ -67,8 +75,15 @@ export namespace Event {
   }
 }
 
+interface Delivery<T> {
+  readonly value: T;
+  readonly listeners: readonly ((value: T) => void)[];
+  next: number;
+}
+
 export class Emitter<T> implements IDisposable {
   private readonly listeners = new Set<(value: T) => void>();
+  private delivery: Delivery<T> | undefined;
   private disposed = false;
 
   readonly event: Event<T> = (listener, thisArgs, disposables) => {
@@ -81,11 +96,29 @@ export class Emitter<T> implements IDisposable {
   };
 
   fire(value: T): void {
-    // Snapshot additions while checking that each listener is still subscribed.
-    for (const listener of [...this.listeners]) {
+    // A reentrant fire first finishes the value in flight so every listener sees values in order.
+    if (this.delivery) {
+      this.deliver(this.delivery);
+    }
+    if (this.listeners.size === 0) {
+      return;
+    }
+    // Listeners added during delivery wait for the next fire; deliver() skips ones removed meanwhile.
+    const delivery: Delivery<T> = { value, listeners: [...this.listeners], next: 0 };
+    this.delivery = delivery;
+    try {
+      this.deliver(delivery);
+    } finally {
+      this.delivery = undefined;
+    }
+  }
+
+  private deliver(delivery: Delivery<T>): void {
+    while (delivery.next < delivery.listeners.length) {
+      const listener = delivery.listeners[delivery.next++];
       if (this.listeners.has(listener)) {
         try {
-          listener(value);
+          listener(delivery.value);
         } catch (error) {
           console.error(error);
         }

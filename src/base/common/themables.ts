@@ -8,7 +8,7 @@ export namespace ThemeIcon {
 
   export function fromString(value: string): ThemeIcon | undefined {
     const match = encodedIcon.exec(value);
-    return match?.[0] === value ? { id: match[1] } : undefined;
+    return match ? { id: match[1] } : undefined;
   }
 
   export function asClassName(icon: ThemeIcon): string {

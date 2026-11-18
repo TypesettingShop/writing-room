@@ -22,6 +22,18 @@ test('a disposed store warns and leaves later items for the caller to dispose', 
   }
 });
 
+test('deleting an item from a store disposes it once and keeps the others', () => {
+  const store = new DisposableStore();
+  const removed = store.add({ dispose: vi.fn() });
+  const kept = store.add({ dispose: vi.fn() });
+
+  store.delete(removed);
+  expect(removed.dispose).toHaveBeenCalledTimes(1);
+  store.dispose();
+  expect(removed.dispose).toHaveBeenCalledTimes(1);
+  expect(kept.dispose).toHaveBeenCalledTimes(1);
+});
+
 test('disposing an iterable attempts all disposals and reports the failures', () => {
   const first = new Error('first');
   const second = new Error('second');
@@ -55,6 +67,17 @@ test('a mutable disposable releases its previous value and clears its final valu
   mutable.clear();
   expect(mutable.value).toBeUndefined();
   expect(second.dispose).toHaveBeenCalledTimes(1);
+
+  const late = { dispose: vi.fn() };
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    mutable.value = late;
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(mutable.value).toBeUndefined();
+    expect(late.dispose).not.toHaveBeenCalled();
+  } finally {
+    warning.mockRestore();
+  }
 });
 
 test('a disposable releases all registered resources', () => {

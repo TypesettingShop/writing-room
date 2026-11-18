@@ -48,16 +48,18 @@ export class InstantiationService implements IInstantiationService {
       : this.construct(target, args);
   }
 
-  private construct<T>(ctor: new (...args: any[]) => T, args: unknown[]): T {
-    const dependencies = [...getServiceDependencies(ctor)].sort((a, b) => a.index - b.index);
+  private construct<T>(ctor: new (...args: any[]) => T, args: readonly unknown[]): T {
+    const dependencies = getServiceDependencies(ctor);
     if (dependencies.length === 0) {
       return new ctor(...args);
     }
 
     const firstService = dependencies[0].index;
-    if (args.length > firstService ||
-        dependencies.some(({ index }, position) => index !== firstService + position)) {
+    if (dependencies.some(({ index }, position) => index !== firstService + position)) {
       throw new Error(`${ctor.name} must take all static arguments before its injected services.`);
+    }
+    if (args.length > firstService) {
+      throw new Error(`${ctor.name} takes ${firstService} static arguments but received ${args.length}.`);
     }
 
     // Missing optional static arguments must retain their positions.
@@ -85,7 +87,7 @@ export class InstantiationService implements IInstantiationService {
     }
     this.creating.push(id);
     try {
-      const instance = this.construct(value.ctor, value.staticArguments.slice());
+      const instance = this.construct(value.ctor, value.staticArguments);
       this.services.set(id, instance);
       return instance;
     } finally {

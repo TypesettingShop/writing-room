@@ -32,6 +32,8 @@ export function createDecorator<T>(name: string): ServiceIdentifier<T> {
         dependencies.set(target, parameters);
       }
       parameters.push({ id, index });
+      // Decorators run last parameter first; keep the list in parameter order for construction.
+      parameters.sort((a, b) => a.index - b.index);
     },
     { toString: () => name },
   ) as ServiceIdentifier<T>;

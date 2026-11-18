@@ -45,6 +45,34 @@ test('reports an exception and still invokes subsequent listeners', () => {
   }
 });
 
+test('a reentrant fire reaches every listener after the value in flight', () => {
+  const emitter = new Emitter<number>();
+  const seen: string[] = [];
+  emitter.event(value => {
+    seen.push('first:' + value);
+    if (value === 1) {
+      emitter.fire(2);
+    }
+  });
+  emitter.event(value => seen.push('second:' + value));
+
+  emitter.fire(1);
+  emitter.fire(3);
+
+  expect(seen).toEqual(['first:1', 'second:1', 'first:2', 'second:2', 'first:3', 'second:3']);
+});
+
+test('any releases earlier subscriptions when a later source throws', () => {
+  const emitter = new Emitter<number>();
+  const listener = vi.fn();
+  const failure = new Error('subscribe failed');
+  const broken: Event<number> = () => { throw failure; };
+
+  expect(() => Event.any(emitter.event, broken)(listener)).toThrow(failure);
+  emitter.fire(1);
+  expect(listener).not.toHaveBeenCalled();
+});
+
 test('maps, filters and combines events and tracks their combined subscription', () => {
   const left = new Emitter<number>();
   const right = new Emitter<number>();
@@ -64,13 +92,27 @@ test('maps, filters and combines events and tracks their combined subscription',
 
 test('once unsubscribes before reentrant delivery and toPromise resolves the first value', async () => {
   const emitter = new Emitter<number>();
-  const listener = vi.fn(() => emitter.fire(2));
+  const unsubscribe = vi.fn();
+  const tracked: Event<number> = listener => {
+    const subscription = emitter.event(listener);
+    return toDisposable(() => {
+      unsubscribe();
+      subscription.dispose();
+    });
+  };
+  // The emitter catches listener exceptions, so record the state instead of asserting inside.
+  let unsubscribedBeforeDelivery = false;
+  const listener = vi.fn(() => {
+    unsubscribedBeforeDelivery = unsubscribe.mock.calls.length === 1;
+    emitter.fire(2);
+  });
   const pending = Event.toPromise(emitter.event);
-  Event.once(emitter.event)(listener);
+  Event.once(tracked)(listener);
 
   emitter.fire(1);
 
   expect(listener).toHaveBeenCalledExactlyOnceWith(1);
+  expect(unsubscribedBeforeDelivery).toBe(true);
   await expect(pending).resolves.toBe(1);
 });
 
