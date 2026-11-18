@@ -1,3 +1,4 @@
+import { IViewDescriptorService } from '../../../common/views.js';
 import { IWorkbenchLayoutService } from '../../layout/browser/layoutService.js';
 import { RemoteExtensionIcons } from './remoteExtensionIcons.js';
 import { IWebExtensionsScannerService, toExtensionDescription } from '../../extensionManagement/common/extensionManagementService.js';
@@ -136,6 +137,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     if (!description) {
       return false;
     }
+    const containers = this.viewHandler.containerIds(identifier);
     this.descriptions.delete(identifier);
     this.processed.delete(identifier);
     this.activationStatus.delete(identifier);
@@ -143,6 +145,12 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.remoteIcons?.remove(identifier);
     if (this.initialized) {
       this.applyContributions();
+      if (containers.length) {
+        this.instantiation?.invokeFunction(accessor => {
+          const views = accessor.get(IViewDescriptorService);
+          views.forgetViewContainerPlacements(containers.filter(id => !views.getViewContainerById(id)));
+        });
+      }
     }
     return true;
   }

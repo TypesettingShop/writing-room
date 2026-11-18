@@ -122,3 +122,29 @@ test('keeps the fallback icon when a remote icon crosses 256 KiB', async ({ page
   await expect(container.locator('.codicon-extensions')).toBeVisible();
   await expect(container.locator('.wr-deferred-icon')).toHaveCSS('background-image', 'none');
 });
+
+test('uninstall clears the moved extension view placement and preserves other placements', async ({ page }) => {
+  await page.goto('/');
+  await install(page, 'remote');
+  const activity = page.locator('[id="workbench.parts.activitybar"]');
+  const panel = page.locator('[id="workbench.parts.panel"]');
+  for (const name of ['Hello World', 'Remote Fixture']) {
+    await activity.getByRole('button', { name }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to Panel' }).click();
+    await expect(panel.getByRole('tab', { name })).toBeVisible();
+  }
+
+  const savedPlacement = () => page.evaluate(() =>
+    ['views.customizations', 'workbench.activity.pinnedViewlets2', 'workbench.panel.pinnedPanels']
+      .map(key => localStorage.getItem('writing-room:storage:0:' + key)).join(' '));
+  await expect.poll(savedPlacement).toContain('workbench.view.extension.remote-fixture');
+
+  await runCommand(page, 'Uninstall Extension', /^Uninstall Extension/);
+  await page.getByRole('option', { name: /Remote Fixture/ }).click();
+  await expect(panel.getByRole('tab', { name: 'Remote Fixture' })).toHaveCount(0);
+  await expect.poll(savedPlacement).not.toContain('workbench.view.extension.remote-fixture');
+  expect(await savedPlacement()).toContain('workbench.view.extension.hello-world');
+
+  await install(page, 'remote');
+  await expect(activity.getByRole('button', { name: 'Remote Fixture' })).toBeVisible();
+});

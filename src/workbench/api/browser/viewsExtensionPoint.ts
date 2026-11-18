@@ -75,6 +75,10 @@ export class ViewsExtensionHandler extends Disposable {
     }
   }
 
+  containerIds(owner: string): string[] {
+    return [...this.containers].filter(([, entry]) => entry.owner === owner).map(([id]) => id);
+  }
+
   viewIds(owner: string): string[] {
     return [...this.views].filter(([, entry]) => entry.owner === owner).map(([id]) => id);
   }
