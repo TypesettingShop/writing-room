@@ -187,7 +187,9 @@ test('ignores a non-container drag from the editor', async ({ appPage: page }) =
     tab.setAttribute('role', 'tab');
     tab.textContent = 'Editor tab drag fixture';
     tab.addEventListener('dragstart', event => event.dataTransfer?.setData('application/x-editor-tab', 'test'));
-    element.append(tab);
+    // Inside a group's tab strip: the part's grid fills the part, so a child after it would sit
+    // over the panel below.
+    element.querySelector('[role="tablist"]')!.append(tab);
   });
 
   await startDrag(page, editor.getByRole('tab', { name: 'Editor tab drag fixture' }));
