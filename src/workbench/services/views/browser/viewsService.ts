@@ -5,7 +5,7 @@ import { registerSingleton } from '../../../../platform/instantiation/common/ext
 import { IPaneCompositePartService } from '../../../browser/parts/paneCompositePartService.js';
 import type { ViewPane } from '../../../browser/parts/views/viewPane.js';
 import type { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { getViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../../common/views.js';
+import { IViewDescriptorService, viewsRegistry } from '../../../common/views.js';
 
 export const IViewsService = createDecorator<IViewsService>('viewsService');
 
@@ -20,6 +20,7 @@ export class ViewsService implements IViewsService {
   constructor(
     @IPaneCompositePartService private readonly parts: IPaneCompositePartService,
     @IContextKeyService private readonly contextKeyService: IContextKeyService,
+    @IViewDescriptorService private readonly viewDescriptors: IViewDescriptorService,
   ) {}
 
   async openView(id: string, focus?: boolean): Promise<ViewPane | null> {
@@ -44,8 +45,8 @@ export class ViewsService implements IViewsService {
   }
 
   private openContainer(id: string): ViewPaneContainer | undefined {
-    const descriptor = viewContainersRegistry.get(id);
-    const location = descriptor && getViewContainerLocation(descriptor);
+    const descriptor = this.viewDescriptors.getViewContainerById(id);
+    const location = descriptor && this.viewDescriptors.getViewContainerLocation(descriptor);
     return location === undefined ? undefined : this.parts.openPaneComposite(id, location);
   }
 }

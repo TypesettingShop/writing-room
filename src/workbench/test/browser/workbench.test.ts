@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatKeybinding } from '../../../base/common/keybindingLabels.js';
-import { DisposableStore } from '../../../base/common/lifecycle.js';
+import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { MenuId, MenuRegistry } from '../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../platform/commands/common/commands.js';
 import { ContextKeyExpr, IContextKeyService } from '../../../platform/contextkey/common/contextkey.js';
@@ -10,7 +10,7 @@ import { ILayoutService } from '../../../platform/layout/browser/layoutService.j
 import { Workbench } from '../../browser/workbench.js';
 import type { LayoutStateModel } from '../../browser/layout.js';
 import { registerWorkbenchContribution2 } from '../../common/contributions.js';
-import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../common/views.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IStatusbarService, StatusbarAlignment } from '../../services/statusbar/browser/statusbar.js';
 import { IViewsService } from '../../services/views/browser/viewsService.js';
@@ -30,7 +30,13 @@ describe('Workbench', () => {
   });
 
   function start(state?: Partial<LayoutStateModel>): Workbench {
-    const workbench = disposables.add(new Workbench(document.body, state));
+    const workbench = new Workbench(document.body, state);
+    // Startup reads saved view locations through the browser storage service, which keeps them in this window's
+    // storage. A test that fails before its own reset must not leave containers moved for the tests after it,
+    // so the reset runs before the workbench is disposed.
+    disposables.add(toDisposable(() => workbench.instantiationService.invokeFunction(accessor =>
+      accessor.get(IViewDescriptorService).resetViewLocations())));
+    disposables.add(workbench);
     Object.defineProperties(workbench.mainContainer, {
       clientWidth: { get: () => viewport.width },
       clientHeight: { get: () => viewport.height },
@@ -172,6 +178,80 @@ describe('Workbench', () => {
     } finally {
       viewContainersRegistry.deregisterViewContainer(container);
     }
+  });
+
+  it('moves live view panes, opens a hidden destination, and keeps empty parts hidden', async () => {
+    const workbench = start({ panelHidden: true });
+    const [views, descriptors, context] = workbench.instantiationService.invokeFunction(accessor => [
+      accessor.get(IViewsService), accessor.get(IViewDescriptorService), accessor.get(IContextKeyService),
+    ] as const);
+    const explorer = descriptors.getViewContainerById('workbench.view.explorer')!;
+    const open = await views.openViewContainer(explorer.id);
+    const body = open!.element.querySelector('.view-pane-body');
+    const panel = workbench.getContainer(Parts.PANEL_PART);
+    const sidebar = workbench.getContainer(Parts.SIDEBAR_PART);
+    expect(sidebar.contains(body)).toBe(true);
+
+    descriptors.moveViewContainerToLocation(explorer, ViewContainerLocation.Panel);
+    expect(panel.contains(body)).toBe(true);
+    expect(sidebar.contains(body)).toBe(false);
+    // The move alone opens the hidden panel on the moved container; no explicit open follows yet.
+    expect(panel.hidden).toBe(false);
+    expect(open!.element).toHaveProperty('hidden', false);
+    expect(open!.element.getAttribute('role')).toBe('tabpanel');
+    expect(context.getContextKeyValue('activePanel')).toBe(explorer.id);
+    expect(context.getContextKeyValue('panelVisible')).toBe(true);
+    expect(context.getContextKeyValue('activeViewlet')).toBe('');
+    expect(context.getContextKeyValue('sideBarVisible')).toBe(false);
+    expect(await views.openViewContainer(explorer.id)).toBe(open);
+    const visibility = vi.fn();
+    const visibilityListener = workbench.onDidChangePartVisibility(visibility);
+    workbench.setPartHidden(false, Parts.SIDEBAR_PART);
+    expect(sidebar.hidden).toBe(true);
+    // An empty part refuses to show, rather than showing and hiding again.
+    expect(visibility).not.toHaveBeenCalled();
+
+    descriptors.resetViewLocations();
+    expect(sidebar.contains(body)).toBe(true);
+    expect(open!.element.hasAttribute('role')).toBe(false);
+    expect(context.getContextKeyValue('activeViewlet')).toBe(explorer.id);
+    expect(context.getContextKeyValue('activePanel')).toBe('workbench.panel.markers');
+
+    const output = descriptors.getViewContainerById('workbench.panel.output')!;
+    const problems = descriptors.getViewContainerById('workbench.panel.markers')!;
+    descriptors.moveViewContainerToLocation(output, ViewContainerLocation.Sidebar);
+    descriptors.moveViewContainerToLocation(problems, ViewContainerLocation.Sidebar);
+    expect(panel.hidden).toBe(true);
+    expect(context.getContextKeyValue('activePanel')).toBe('');
+    expect(context.getContextKeyValue('panelVisible')).toBe(false);
+    visibility.mockClear();
+    workbench.setPartHidden(false, Parts.PANEL_PART);
+    expect(panel.hidden).toBe(true);
+    expect(visibility).not.toHaveBeenCalled();
+    visibilityListener.dispose();
+
+    descriptors.resetViewLocations();
+    expect(panel.hidden).toBe(false);
+    expect(context.getContextKeyValue('activePanel')).toBe(output.id);
+  });
+
+  it('keeps a part the person hid hidden when its containers come back by reset', () => {
+    const workbench = start({ sideBarHidden: true });
+    const [descriptors, context] = workbench.instantiationService.invokeFunction(accessor => [
+      accessor.get(IViewDescriptorService), accessor.get(IContextKeyService),
+    ] as const);
+    const sidebar = workbench.getContainer(Parts.SIDEBAR_PART);
+    for (const container of descriptors.getViewContainersByLocation(ViewContainerLocation.Sidebar)) {
+      descriptors.moveViewContainerToLocation(container, ViewContainerLocation.Panel);
+    }
+    expect(descriptors.getViewContainersByLocation(ViewContainerLocation.Sidebar)).toEqual([]);
+    expect(sidebar.hidden).toBe(true);
+
+    descriptors.resetViewLocations();
+    expect(descriptors.getViewContainersByLocation(ViewContainerLocation.Sidebar)).not.toEqual([]);
+    expect(sidebar.hidden).toBe(true);
+    expect(context.getContextKeyValue('sideBarVisible')).toBe(false);
+    expect(context.getContextKeyValue('activeViewlet')).toBe('');
   });
 
   it('keeps the remembered container while sidebar visibility filters out its views', async () => {

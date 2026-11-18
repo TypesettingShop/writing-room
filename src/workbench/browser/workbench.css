@@ -235,3 +235,61 @@ body {
 .workbench .wr-menubar button {
   padding-block: 2px;
 }
+
+.composite-bar,
+.composite-bar button,
+.pane-composite-content {
+  position: relative;
+}
+
+.activitybar .composite-bar:empty {
+  min-height: 4px;
+}
+
+.composite-bar [data-view-drop-position]::after,
+.composite-bar[data-view-drop-position='empty']::after {
+  position: absolute;
+  z-index: 1;
+  background: var(--vscode-focusBorder);
+  content: '';
+  pointer-events: none;
+}
+
+.activitybar .composite-bar button::after,
+.activitybar .composite-bar[data-view-drop-position='empty']::after {
+  inset-inline: 3px;
+  height: 2px;
+}
+
+.activitybar [data-view-drop-position='before']::after,
+.activitybar [data-view-drop-position='empty']::after {
+  top: 0;
+}
+
+.activitybar [data-view-drop-position='after']::after {
+  bottom: 0;
+}
+
+.panel .composite-bar button::after,
+.panel .composite-bar[data-view-drop-position='empty']::after {
+  inset-block: 4px;
+  width: 2px;
+}
+
+.panel [data-view-drop-position='before']::after,
+.panel [data-view-drop-position='empty']::after {
+  inset-inline-start: 0;
+}
+
+.panel [data-view-drop-position='after']::after {
+  inset-inline-end: 0;
+}
+
+[data-view-drop-position='body'] {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.sidebar .pane-composite-header h2[draggable='true'] {
+  cursor: grab;
+}
