@@ -1,10 +1,8 @@
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IViewContainerContribution, IViewContribution } from '../../../platform/extensions/common/extensions.js';
-import { TreeViewPane } from '../../browser/parts/views/treeView.js';
 import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../common/views.js';
 import type { IViewDescriptor, ViewContainer } from '../../common/views.js';
 import { contributionEntries, contributionIcon, contributionRecord, contributionWhen } from '../../services/extensions/common/contributionValidation.js';
-import type { IExtensionService } from '../../services/extensions/common/extensions.js';
 import type { IExtensionPointUser } from '../../services/extensions/common/extensionsRegistry.js';
 
 const containerPrefix = 'workbench.view.extension.';
@@ -18,7 +16,7 @@ export class ViewsExtensionHandler extends Disposable {
   private readonly containers = new Map<string, { owner: string; container: ViewContainer }>();
   private readonly views = new Map<string, { owner: string; view: IViewDescriptor; container: ViewContainer }>();
 
-  constructor(private readonly extensions: IExtensionService) {
+  constructor(private readonly renderTree: (parent: HTMLElement, viewId: string) => ReturnType<IViewDescriptor['renderBody']>) {
     super();
     this._register(toDisposable(() => {
       for (const { view, container } of this.views.values()) {
@@ -77,6 +75,10 @@ export class ViewsExtensionHandler extends Disposable {
     }
   }
 
+  viewIds(owner: string): string[] {
+    return [...this.views].filter(([, entry]) => entry.owner === owner).map(([id]) => id);
+  }
+
   acceptViews(users: readonly ViewPointUser[], events: Map<string, Set<string>>): void {
     const keep = new Set<string>();
     for (const user of users) {
@@ -114,7 +116,7 @@ export class ViewsExtensionHandler extends Disposable {
             }
             const view = {
               id: entry.id, name: entry.name, when,
-              renderBody: (parent: HTMLElement) => new TreeViewPane(parent, entry.id, this.extensions),
+              renderBody: (parent: HTMLElement) => this.renderTree(parent, entry.id),
             };
             viewsRegistry.registerViews([view], destination);
             this.views.set(entry.id, { owner, view, container: destination });

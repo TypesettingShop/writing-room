@@ -11,6 +11,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
   constructor(
     private readonly proxy: MainThreadCommandsShape,
     private readonly isLive: (extension: string) => boolean,
+    private readonly resolveArgument: (extension: string, argument: unknown) => unknown,
   ) {}
 
   registerCommand(extension: string, id: string, callback: Command['callback'], thisArg?: unknown): vscode.Disposable {
@@ -79,7 +80,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
       throw new Error(`command '${id}' not found`);
     }
     try {
-      return await command.callback.apply(command.thisArg, args);
+      return await command.callback.apply(command.thisArg, args.map(argument => this.resolveArgument(extension, argument)));
     } catch (error) {
       console.error(`[${extension}] Command '${id}' failed:`, error);
       throw error;

@@ -14,6 +14,7 @@ test('starts the sample worker only when an extension command is requested', asy
   await action.click();
   const worker = await connected;
   expect(new URL(worker.url()).origin).toBe(new URL(page.url()).origin);
+  await expect(page.getByText('Running in the extension Worker.')).toBeVisible();
   await expect.poll(() => worker.evaluate(() => typeof globalThis.postMessage)).toBe('undefined');
   expect(errors).toEqual([]);
 });

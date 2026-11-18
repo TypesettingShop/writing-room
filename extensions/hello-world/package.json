@@ -7,11 +7,14 @@
   "contributes": {
     "commands": [
       { "command": "hello-world.hello", "title": "Say Hello", "category": "Hello World", "icon": "$(megaphone)" },
+      { "command": "hello-world.select", "title": "Describe Greeting", "category": "Hello World" },
       { "command": "hello-world.where", "title": "Show Extension Host", "category": "Hello World", "icon": "$(info)" }
     ],
     "menus": {
       "view/title": [{ "command": "hello-world.hello", "when": "view == hello-world.tree", "group": "navigation@2" }],
-      "editor/title": [{ "command": "hello-world.where", "group": "navigation" }]
+      "view/item/context": [{ "command": "hello-world.select", "when": "view == hello-world.tree && viewItem == greeting", "group": "navigation" }],
+      "editor/title": [{ "command": "hello-world.select", "title": "Describe Greeting", "category": "Hello World" },
+      { "command": "hello-world.where", "group": "navigation" }]
     },
     "keybindings": [{ "command": "hello-world.hello", "key": "F8" }],
     "viewsContainers": {

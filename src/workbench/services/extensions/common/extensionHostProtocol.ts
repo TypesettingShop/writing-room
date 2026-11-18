@@ -16,6 +16,7 @@ export interface HostExtensionDescription {
   readonly entry: string;
   readonly manifest: IExtensionManifest;
   readonly activationEvents: readonly string[];
+  readonly views?: readonly string[];
 }
 
 export type ExtensionHostStatus =

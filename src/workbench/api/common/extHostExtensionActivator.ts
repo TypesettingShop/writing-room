@@ -46,6 +46,10 @@ export class ExtensionsActivator {
     return extension?.state === 'activating' || extension?.state === 'active';
   }
 
+  getViews(key: string): readonly string[] {
+    return this.extensions.get(key)?.description.views ?? [];
+  }
+
   deltaExtensions(added: readonly HostExtensionDescription[], removed: readonly string[]): void {
     for (const key of removed) {
       const extension = this.extensions.get(key);

@@ -1,3 +1,5 @@
+import { TreeViewPane } from '../../../browser/parts/views/treeView.js';
+import { ExtensionTreeViews } from '../../../api/browser/mainThreadTreeViews.js';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { MainThreadExtensionService } from '../../../api/browser/mainThreadExtensionService.js';
@@ -41,7 +43,9 @@ export class ExtensionService extends Disposable implements IExtensionService {
   protected readonly extensionEvents = new Map<string, Set<string>>();
   private readonly processed = new Map<string, Set<string>>();
   private readonly contributions = this._register(new MutableDisposable<DisposableStore>());
-  private readonly viewHandler = this._register(new ViewsExtensionHandler(this));
+  private readonly treeViews = this._register(new ExtensionTreeViews());
+  private readonly viewHandler = this._register(new ViewsExtensionHandler((parent, viewId) =>
+    this.instantiation?.createInstance(TreeViewPane, parent, viewId, this, this.treeViews)));
   private readonly registry = new ExtensionsRegistry();
   private readonly points = {
     commands: this.registry.registerExtensionPoint<unknown>('commands'),
@@ -51,6 +55,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     views: this.registry.registerExtensionPoint<ContributionRecord>('views'),
   };
   private initialized = false;
+  private applying = false;
   private readonly activationStatus = new Map<string, ExtensionHostStatus>();
   private readonly extensionKeys = new Map<IExtensionDescription, string>();
   private nextExtensionKey = 0;
@@ -108,7 +113,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
     }
     if (this.initialized) {
       this.applyContributions();
-      this.extensionsChanged();
     }
     return true;
   }
@@ -125,7 +129,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.extensionKeys.delete(description);
     if (this.initialized) {
       this.applyContributions();
-      this.extensionsChanged();
     }
     return true;
   }
@@ -160,7 +163,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
       // The default startup events can activate different extensions concurrently.
       void this.activateByEvent('*').catch(() => {});
     }
-    if (!this.instantiation || this.stopping || !this.matches(event)) {
+    if (!this.instantiation || this.applying || this.stopping || !this.matches(event)) {
       return;
     }
     if (this.hostFailure) {
@@ -231,7 +234,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
         this.extensionKeys.set(description, key);
       }
       result.set(key, { id: identifier.value, key, location, entry: entry.href, manifest,
-        activationEvents: [...this.extensionEvents.get(identifier.value) ?? []] });
+        activationEvents: [...this.extensionEvents.get(identifier.value) ?? []], views: this.viewHandler.viewIds(identifier.value) });
     }
     return result;
   }
@@ -245,6 +248,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
       main: this.instantiation!.createInstance(MainThreadExtensionService, worker.rpc, {
         extensionId: key => this.host === host ? host.registered.get(key)?.id : undefined,
         commandOwner: id => this.commandOwners.get(id),
+        ownsView: (key, viewId) => this.host === host && (host.registered.get(key)?.views?.includes(viewId) ?? false),
         activate: (event, origin) => this.activateByEvent(event, origin),
         setStatus: (key, status) => {
           const id = host.registered.get(key)?.id;
@@ -255,7 +259,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
             }
           }
         },
-      }),
+      }, this.treeViews),
     };
     this.host = host;
     worker.onDidExit(error => {
@@ -311,6 +315,17 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   private applyContributions(): void {
+    this.applying = true;
+    try {
+      this.registerContributions();
+    } finally {
+      this.applying = false;
+    }
+    this.extensionsChanged();
+    this.changed.fire();
+  }
+
+  private registerContributions(): void {
     this.contributions.clear();
     this.messages.clear();
     this.extensionEvents.clear();
@@ -352,7 +367,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
     for (const message of this.scanMessages) {
       this.report(message);
     }
-    this.changed.fire();
   }
 
   protected report(message: IExtensionMessage): void {
