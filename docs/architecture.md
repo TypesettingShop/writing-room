@@ -61,6 +61,15 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Commands, menus and keys
 
+- `when`은 불리언 키와 리터럴, 동등·부등 비교, 논리 부정·곱·합, 괄호를 지원한다. 정규식, 포함 관계, 수치 순서 비교는 구문 오류로 보고한다 — v0.1.0의 메뉴와 키바인딩에 공통으로 적용하는 구문을 이 부분집합으로 정했다 (wr-cla6.jvs). [VS Code의 `Parser`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/contextkey/common/contextkey.ts#L174)
+- `MenuRegistry`는 VS Code와 같이 같은 마이크로태스크에 들어온 변경을 메뉴 id 집합으로 묶는다. VS Code의 `MenuImpl` 기본 지연은 50ms이며 여기서는 관련 레지스트리 알림을 받거나 참조한 컨텍스트 키가 바뀌면 바로 알린다 — 한 번의 등록 묶음을 합치면서 이미 열린 메뉴에는 컨텍스트 변경을 즉시 반영한다 (wr-cla6.jvs). [VS Code의 `MenuRegistry`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/common/actions.ts#L525-L529), [VS Code의 `MenuService.createMenu`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/common/menuService.ts#L35-L37)
+- 최상위 메뉴 후보는 코어가 등록하는 File, Edit, View, Help 네 가지이며 표시할 항목이 있는 메뉴만 나타난다. VS Code는 Selection, Go, Terminal 등도 등록한다 — 여기서는 v0.1.0의 셸과 커맨드 범위에 맞춰 메뉴 후보를 줄였다 (wr-cla6.jvs). [VS Code의 메뉴 바 기여](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/browser/parts/titlebar/menubar.contribution.ts)
+- 키바인딩은 US 배열 기준 `KeyboardEvent.code`의 물리 위치를 해석하고 OS에 맞는 수정자 레이블을 표기한다. 다른 배열에서는 키가 입력하는 문자와 메뉴·팔레트 레이블이 다를 수 있다. VS Code는 배열을 감지하는 키보드 매퍼와 사용자 `keybindings.json`을 적용한다 — v0.1.0에서는 기본 및 기여 단축키에 공통 물리 키 규칙을 사용한다 (wr-cla6.em5). [VS Code의 `WorkbenchKeybindingService`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/keybinding/browser/keybindingService.ts)
+- F1 또는 **View → Command Palette...**로 팔레트를 연다. Firefox를 제외하면 Ctrl+Shift+P(macOS에서는 Cmd+Shift+P)도 쓸 수 있다. VS Code는 `>`를 넣어 커맨드 제공자를 선택한다 — v0.1.0에는 커맨드 모드만 있어 빈 입력으로 시작한다 (wr-cla6.nzs). [VS Code의 `ShowAllCommandsAction`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/quickaccess/browser/commandsQuickAccess.ts#L273-L294)
+- 팔레트를 열기 직전 포커스의 스코프에서 `MenuId.CommandPalette` 항목의 `when`과 활성 조건을 평가한다. 다시 열 때는 열려 있던 퀵 인풋의 복귀 포커스 스코프를 쓴다. 이름은 `Category: Title`로 표시하고, 일치한 글자와 단축키를 보여 준다. 검색은 대소문자를 구분하지 않는 연속 부분 문자열로 모든 입력 단어를 검사하며 일반 행은 이름순으로 정렬한다. VS Code의 제공자는 별도로 에디터 액션을 합치고 관련도 기반의 추가 검색을 지원한다 — v0.1.0은 등록된 메뉴 항목과 입력한 단어의 일치만으로 검색 결과를 예측할 수 있게 했다 (wr-cla6.nzs). [VS Code의 메뉴 항목 수집](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/quickaccess/browser/commandsQuickAccess.ts), [VS Code의 검색 제공자](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/quickinput/browser/commandsQuickAccess.ts)
+- 위·아래 화살표로 결과를 순환하고 Enter나 클릭으로 선택한다. Esc, 위젯 바깥 클릭, 외부 요소로의 포커스 이동으로 취소할 수 있다. 포커스를 받을 수 있는 바깥 요소를 선택하면 그 요소에 포커스가 남고, Tab은 위젯 안에 포커스를 둔다. 선택하면 팔레트가 닫히고 기존 포커스가 복원된 뒤 커맨드를 실행한다. 실행 오류는 로그에 남긴다. VS Code는 실행 오류를 대화 상자로 표시한다 — 여기서는 실행에 실패해도 사용자가 입력을 계속할 수 있게 알림을 로그로 남긴다 (wr-cla6.nzs). [VS Code의 `CommandsHistory`와 실행 처리](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/quickinput/browser/commandsQuickAccess.ts)
+- 최근에 선택한 최대 50개는 새로고침 뒤 **Recently Used**에서 최신순으로 표시된다. `commandPalette.mru.cache`에는 프로필 스토리지의 단일 id 배열을 쓰며, 미등록 커맨드는 표시 단계에서 걸러 낸다. id는 한도에서 밀려나기 전까지 저장되어 확장이 뒤늦게 등록하면 다시 나타난다. VS Code는 설정 가능한 LRU와 별도 순번을 저장한다 — 고정 한도와 최신순 배열이면 순번 키 없이 기록을 복원할 수 있다 (wr-cla6.nzs). [VS Code의 `CommandsHistory`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/quickinput/browser/commandsQuickAccess.ts)
+
 ### Layout and parts
 
 ### Editor groups, editor and docking
@@ -75,4 +84,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Extensions
 
-Decided in: wr-e8v6
+Decided in: wr-e8v6, wr-pip6
