@@ -1,0 +1,6 @@
+- `npm run dev` — Start the Vite development server.
+- `npm run build` — Type-check and bundle the app into `dist/`.
+- `npm run preview` — Serve the production bundle locally.
+- `npm run typecheck` — Check TypeScript types.
+- `npm test` — Run Vitest. jsdom has no layout and `getBoundingClientRect()` returns zero-sized rectangles.
+- `npm run test:e2e` — Run headless Chromium against dev by default. Use `E2E_TARGET=preview` to build and test the production bundle.
