@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatKeybinding } from '../../../base/common/keybindingLabels.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
 import { MenuId, MenuRegistry } from '../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../platform/commands/common/commands.js';
 import { ContextKeyExpr, IContextKeyService } from '../../../platform/contextkey/common/contextkey.js';
+import { KeybindingResolver } from '../../../platform/keybinding/common/keybindingResolver.js';
+import { KeybindingsRegistry } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ILayoutService } from '../../../platform/layout/browser/layoutService.js';
 import { Workbench } from '../../browser/workbench.js';
 import type { LayoutStateModel } from '../../browser/layout.js';
@@ -223,6 +226,96 @@ describe('Workbench', () => {
     item.dispose();
     item.update({ name: 'Disposed', text: 'Disposed' });
     expect(entries()).toEqual(['priority-left', 'left', 'right']);
+  });
+
+  it('restores a remembered container that a contribution registers after the first layout', () => {
+    disposables.add(registerWorkbenchContribution2('test.lateContainer', class {
+      constructor() {
+        const container = viewContainersRegistry.registerViewContainer({ id: 'test.late', title: 'Late' }, ViewContainerLocation.Sidebar);
+        viewsRegistry.registerViews([{ id: 'test.late.view', name: 'Late View', renderBody() {} }], container);
+      }
+    }));
+    try {
+      const workbench = start({ activeViewlet: 'test.late' });
+      expect(workbench.layoutState.activeViewlet).toBe('test.late');
+      const context = workbench.instantiationService.invokeFunction(accessor => accessor.get(IContextKeyService));
+      expect(context.getContextKeyValue('activeViewlet')).toBe('test.late');
+    } finally {
+      const container = viewContainersRegistry.get('test.late');
+      if (container) {
+        viewContainersRegistry.deregisterViewContainer(container);
+      }
+    }
+  });
+
+  it('starts despite a view whose body throws', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const container = viewContainersRegistry.registerViewContainer({ id: 'test.broken', title: 'Broken' }, ViewContainerLocation.Panel);
+    viewsRegistry.registerViews([{ id: 'test.broken.view', name: 'Broken', renderBody() { throw new Error('test failure'); } }], container);
+    const started = vi.fn();
+    disposables.add(registerWorkbenchContribution2('test.afterBroken', class { constructor() { started(); } }));
+    try {
+      start({ activePanel: 'test.broken' });
+      expect(started).toHaveBeenCalledOnce();
+      expect(error).toHaveBeenCalledWith('View test.broken.view failed to render.', expect.any(Error));
+    } finally {
+      viewContainersRegistry.deregisterViewContainer(container);
+    }
+  });
+
+  it('keeps part sizes while the container has no size and starts late contributions', () => {
+    const workbench = start({ sideBarSize: 240, panelSize: 210 });
+    viewport = { width: 0, height: 0 };
+    workbench.layout();
+    viewport = { width: 800, height: 600 };
+    workbench.layout();
+    expect(workbench.layoutState).toMatchObject({ sideBarSize: 240, panelSize: 210 });
+    expect(viewSize(workbench, Parts.SIDEBAR_PART)).toEqual([240, 548]);
+
+    const started = vi.fn();
+    disposables.add(registerWorkbenchContribution2('test.late', class { constructor() { started(); } }));
+    expect(started).toHaveBeenCalledOnce();
+  });
+
+  it('starts a contribution that another contribution registers while the workbench starts', () => {
+    const started = vi.fn();
+    disposables.add(registerWorkbenchContribution2('test.registersAnother', class {
+      constructor() {
+        disposables.add(registerWorkbenchContribution2('test.registeredDuringStartup', class { constructor() { started(); } }));
+      }
+    }));
+    start();
+    expect(started).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the default visibility for an explicitly undefined initial value', () => {
+    const workbench = start({ panelHidden: undefined });
+    const events = vi.fn();
+    disposables.add(workbench.onDidChangePartVisibility(events));
+    workbench.setPartHidden(false, Parts.PANEL_PART);
+    expect(workbench.isVisible(Parts.PANEL_PART)).toBe(true);
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('drops a container that was never opened from the Activity Bar when it is deregistered', () => {
+    const workbench = start();
+    const activity = workbench.getContainer(Parts.ACTIVITYBAR_PART);
+    const container = viewContainersRegistry.registerViewContainer({ id: 'test.unopened', title: 'Unopened' }, ViewContainerLocation.Sidebar);
+    try {
+      viewsRegistry.registerViews([{ id: 'test.unopened.view', name: 'Unopened View', renderBody() {} }], container);
+      expect(activity.querySelector('[aria-label="Unopened"]')).not.toBeNull();
+    } finally {
+      viewContainersRegistry.deregisterViewContainer(container);
+    }
+    expect(activity.querySelector('[aria-label="Unopened"]')).toBeNull();
+  });
+
+  it('binds the sidebar and panel toggles to Cmd on macOS and Ctrl elsewhere', () => {
+    const rules = KeybindingsRegistry.getDefaultKeybindings();
+    for (const [id, key] of [['workbench.action.toggleSidebarVisibility', 'B'], ['workbench.action.togglePanel', 'J']] as const) {
+      expect(formatKeybinding(new KeybindingResolver(rules, 'mac').lookupKeybinding(id)!, 'mac')).toBe(`⌘${key}`);
+      expect(formatKeybinding(new KeybindingResolver(rules, 'linux').lookupKeybinding(id)!, 'linux')).toBe(`Ctrl+${key}`);
+    }
   });
 
   it('lays out before contributions start and continues after a constructor throws', () => {

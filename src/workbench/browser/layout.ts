@@ -31,7 +31,8 @@ export class LayoutStateModel {
   activePanel?: string;
 
   constructor(initial: Partial<LayoutStateModel> = {}) {
-    Object.assign(this, initial);
+    // An explicit `undefined` keeps the default instead of replacing a boolean with it.
+    Object.assign(this, Object.fromEntries(Object.entries(initial).filter(([, value]) => value !== undefined)));
   }
 }
 
@@ -50,6 +51,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
     this.layoutState = new LayoutStateModel(initialState);
     this.mainContainer = parent.ownerDocument.createElement('div');
     this.mainContainer.className = 'workbench monaco-workbench';
+    this.mainContainer.tabIndex = -1;
     this._register(toDisposable(() => this.mainContainer.remove()));
   }
 
@@ -74,8 +76,24 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
     if (!isOptionalPart(part) || this.layoutState[hiddenKey[part]] === hidden) {
       return;
     }
+    const view = this.getPart(part);
+    const document = view.element.ownerDocument;
+    const moveFocus = hidden && view.element.contains(document.activeElement);
+    // The state changes first so the layout the grid runs records no size for a part being hidden.
     this.layoutState[hiddenKey[part]] = hidden;
-    this.grid.setViewVisible(this.getPart(part), !hidden);
+    try {
+      this.grid.setViewVisible(view, !hidden);
+    } catch (error) {
+      this.layoutState[hiddenKey[part]] = !hidden;
+      throw error;
+    }
+    if (moveFocus) {
+      const editor = this.parts.get(Parts.EDITOR_PART)?.element;
+      editor?.focus({ preventScroll: true });
+      if (!editor || document.activeElement !== editor) {
+        this.mainContainer.focus({ preventScroll: true });
+      }
+    }
     this.didChangePartVisibility.fire({ partId: part, visible: !hidden });
   }
 
@@ -118,8 +136,8 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
     }
 
     const window = this.parent.ownerDocument.defaultView!;
-    this._register(addDisposableListener(window, 'resize', () => this.layout()));
     if (window.ResizeObserver) {
+      // The observer also sees window resizes, since the main container fills the viewport.
       const observer = new window.ResizeObserver(([entry]) => {
         if (entry.target.clientWidth !== this.grid.width || entry.target.clientHeight !== this.grid.height) {
           this.layout();
@@ -127,11 +145,18 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
       });
       observer.observe(this.mainContainer);
       this._register(toDisposable(() => observer.disconnect()));
+    } else {
+      this._register(addDisposableListener(window, 'resize', () => this.layout()));
     }
   }
 
   layout(): void {
     const { width, height } = this.mainContainerDimension;
+    if (width === 0 || height === 0) {
+      // A hidden or detached container has no size: laying out would squeeze every part to its
+      // minimum and the sidebar and panel would remember those sizes.
+      return;
+    }
     this.grid.layout(width, height);
   }
 

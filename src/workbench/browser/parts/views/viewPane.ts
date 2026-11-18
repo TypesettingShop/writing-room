@@ -55,8 +55,8 @@ export class ViewPane extends Disposable {
 
   setVisible(visible: boolean): void {
     if (visible && !this.bodyCreated) {
-      const bodyContent = this.descriptor.renderBody(this.body);
       this.bodyCreated = true;
+      const bodyContent = this.renderBody();
       this.bodyContent = bodyContent;
       if (bodyContent?.dispose) {
         this._register(toDisposable(() => bodyContent.dispose?.()));
@@ -74,6 +74,16 @@ export class ViewPane extends Disposable {
 
   focus(): void {
     this.element.focus();
+  }
+
+  private renderBody(): IViewBody | void {
+    try {
+      return this.descriptor.renderBody(this.body);
+    } catch (error) {
+      // One failing view must not stop its container or the workbench from starting.
+      console.error(`View ${this.descriptor.id} failed to render.`, error);
+      return undefined;
+    }
   }
 
   private clearFocus(): void {

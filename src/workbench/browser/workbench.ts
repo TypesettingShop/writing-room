@@ -7,10 +7,10 @@ import {
   ActivityBarVisibleContext, PanelVisibleContext, SideBarVisibleContext, StatusBarVisibleContext,
 } from '../common/contextkeys.js';
 import { workbenchContributions } from '../common/contributions.js';
+import type { WorkbenchContribution } from '../common/contributions.js';
 import { IWorkbenchLayoutService, Parts } from '../services/layout/browser/layoutService.js';
 import { IStatusbarService } from '../services/statusbar/browser/statusbar.js';
 import { Layout } from './layout.js';
-import type { LayoutStateModel } from './layout.js';
 import type { Part } from './part.js';
 import { ActivitybarPart } from './parts/activitybar/activitybarPart.js';
 import { EditorPart } from './parts/editor/editorPart.js';
@@ -25,10 +25,6 @@ export class Workbench extends Layout {
   private readonly services = new ServiceCollection([IWorkbenchLayoutService, this]);
   readonly instantiationService = new InstantiationService(this.services);
   private started = false;
-
-  constructor(parent: HTMLElement, initialState?: Partial<LayoutStateModel>) {
-    super(parent, initialState);
-  }
 
   startup(): void {
     if (this.started) {
@@ -66,15 +62,21 @@ export class Workbench extends Layout {
     sidebar.initializeViewContainers();
     panel.initializeViewContainers();
 
+    // Listen before the loop: a contribution that registers another while it starts is not in the list below.
+    this._register(workbenchContributions.onDidRegister(([id, contribution]) => this.startContribution(id, contribution)));
     for (const [id, contribution] of workbenchContributions.getContributions()) {
-      try {
-        const instance = instantiation.createInstance(contribution) as Partial<IDisposable>;
-        if (typeof instance.dispose === 'function') {
-          this._register(instance as IDisposable);
-        }
-      } catch (error) {
-        console.error(`Workbench contribution ${id} failed to start.`, error);
+      this.startContribution(id, contribution);
+    }
+  }
+
+  private startContribution(id: string, contribution: WorkbenchContribution): void {
+    try {
+      const instance = this.instantiationService.createInstance(contribution) as Partial<IDisposable>;
+      if (typeof instance.dispose === 'function') {
+        this._register(instance as IDisposable);
       }
+    } catch (error) {
+      console.error(`Workbench contribution ${id} failed to start.`, error);
     }
   }
 
@@ -83,7 +85,11 @@ export class Workbench extends Layout {
     const container = this.parent.ownerDocument.createElement(status ? 'footer' : 'div');
     container.id = part.id;
     container.className = `part ${part.id.split('.').at(-1)}`;
-    container.setAttribute('role', status ? 'status' : part.id === Parts.EDITOR_PART ? 'main' : 'none');
+    const editor = part.id === Parts.EDITOR_PART;
+    container.setAttribute('role', status ? 'status' : editor ? 'main' : 'none');
+    if (editor) {
+      container.tabIndex = -1;
+    }
     part.create(container);
   }
 

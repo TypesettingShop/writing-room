@@ -52,6 +52,7 @@ export abstract class PaneCompositePart extends Part {
     header.style.height = `${PaneCompositePart.HEADER_HEIGHT}px`;
     this.content = parent.ownerDocument.createElement('div');
     this.content.className = 'pane-composite-content';
+    this.content.style.height = `calc(100% - ${PaneCompositePart.HEADER_HEIGHT}px)`;
     parent.append(header, this.content);
     this.createHeader(header);
 
@@ -61,7 +62,11 @@ export abstract class PaneCompositePart extends Part {
       }
     };
     this._register(viewContainersRegistry.onDidRegister(onViewsChanged));
-    this._register(viewContainersRegistry.onDidDeregister(() => this.refresh()));
+    this._register(viewContainersRegistry.onDidDeregister(({ viewContainer }) => {
+      if (this.available.has(viewContainer) || this.containers.has(viewContainer)) {
+        this.refresh();
+      }
+    }));
     this._register(viewsRegistry.onViewsRegistered(onViewsChanged));
     this._register(viewsRegistry.onViewsDeregistered(onViewsChanged));
     this._register(this.layoutService.onDidChangePartVisibility(({ partId }) => {
@@ -182,8 +187,9 @@ export abstract class PaneCompositePart extends Part {
       this.active.layout(this.width, this.height);
       this.active.setVisible(true);
     }
-    // Keep the last selection through a temporary lack of visible views, such as an extension loading.
-    if (selected && (this.visible || this.state[this.activeKey] === undefined)) {
+    // Only an explicit open, or the first selection, changes the remembered selection. A fallback shown while the
+    // remembered container has no visible views (a late registration, an extension loading) does not replace it.
+    if (selected && this.state[this.activeKey] === undefined) {
       this.state[this.activeKey] = selected.id;
     }
     this.activeContext.set(this.activeCompositeId ?? '');

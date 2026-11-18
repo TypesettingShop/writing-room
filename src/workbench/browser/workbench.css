@@ -105,10 +105,6 @@ body {
   font-weight: 600;
 }
 
-.pane-composite-content {
-  height: calc(100% - 34px);
-}
-
 .view-pane-container {
   height: 100%;
   overflow: auto;

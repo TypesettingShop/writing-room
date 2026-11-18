@@ -157,12 +157,26 @@ test('a late sidebar registration appears in the Activity Bar and can be opened'
 });
 
 test('workbench shortcuts toggle the sidebar and panel', async ({ appPage: page }) => {
-  for (const [key, name] of [['Control+b', 'sidebar'], ['Control+j', 'panel']]) {
+  for (const [key, name] of [['ControlOrMeta+b', 'sidebar'], ['ControlOrMeta+j', 'panel']]) {
     await page.keyboard.press(key);
     await expect(part(page, name)).toBeHidden();
     await page.keyboard.press(key);
     await expect(part(page, name)).toBeVisible();
   }
+});
+
+test('hiding the focused view moves focus to the editor', async ({ appPage: page }) => {
+  const files = part(page, 'sidebar').getByRole('region', { name: 'Files' });
+  await files.focus();
+  await expect(files).toBeFocused();
+
+  await page.keyboard.press('ControlOrMeta+j');
+  await expect(part(page, 'panel')).toBeHidden();
+  await expect(files).toBeFocused();
+
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(part(page, 'sidebar')).toBeHidden();
+  await expect(part(page, 'editor')).toBeFocused();
 });
 
 test('resizing keeps fixed bars at the viewport edges and the document does not scroll', async ({ appPage: page }) => {

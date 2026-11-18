@@ -1,19 +1,21 @@
+import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../platform/actions/common/actions.js';
 import type { RawContextKey } from '../../../platform/contextkey/common/contextkey.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
+import type { KeybindingSpec } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ActivityBarVisibleContext, SideBarVisibleContext, StatusBarVisibleContext } from '../../common/contextkeys.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 
 export function registerTogglePartAction(
-  id: string, part: Parts, title: string, menuTitle: string, context: RawContextKey<boolean>, order: number, key?: string,
+  id: string, part: Parts, title: string, menuTitle: string, context: RawContextKey<boolean>, order: number, key?: KeybindingSpec,
 ): void {
   const toggled = context.isEqualTo(true);
   registerAction2(class extends Action2 {
     constructor() {
       super({
         id, title, f1: true, category: 'View', toggled,
-        keybinding: key ? { primary: key, weight: KeybindingWeight.WorkbenchContrib } : undefined,
+        keybinding: key !== undefined ? { primary: key, weight: KeybindingWeight.WorkbenchContrib } : undefined,
       });
     }
 
@@ -30,7 +32,7 @@ export function registerTogglePartAction(
 
 registerTogglePartAction(
   'workbench.action.toggleSidebarVisibility', Parts.SIDEBAR_PART,
-  'Toggle Primary Side Bar Visibility', 'Primary Side Bar', SideBarVisibleContext, 1, 'ctrl+b',
+  'Toggle Primary Side Bar Visibility', 'Primary Side Bar', SideBarVisibleContext, 1, KeyMod.CtrlCmd | KeyCode.KeyB,
 );
 registerTogglePartAction(
   'workbench.action.toggleActivityBarVisibility', Parts.ACTIVITYBAR_PART,
