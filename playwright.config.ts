@@ -30,8 +30,20 @@ if (target !== 'dev' && target !== 'preview') {
 // Playwright workers reload this config and inherit the runner's environment.
 process.env.E2E_PORT ??= String(await findAvailablePort());
 const port = Number(process.env.E2E_PORT);
+if (process.env.E2E_EXTENSIONS_PORT === undefined) {
+  let available = await findAvailablePort();
+  while (available === port) {
+    available = await findAvailablePort();
+  }
+  process.env.E2E_EXTENSIONS_PORT = String(available);
+}
+const extensionPort = Number(process.env.E2E_EXTENSIONS_PORT);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error('E2E_PORT must be a TCP port between 1 and 65535.');
+}
+
+if (!Number.isInteger(extensionPort) || extensionPort < 1 || extensionPort > 65535 || extensionPort === port) {
+  throw new Error('E2E_EXTENSIONS_PORT must be a distinct TCP port between 1 and 65535.');
 }
 
 const baseURL = 'http://' + host + ':' + port;
@@ -44,10 +56,14 @@ export default defineConfig({
     browserName: 'chromium',
     headless: true,
   },
-  webServer: {
+  webServer: [{
     command: start + ' -- --host ' + host + ' --port ' + port + ' --strictPort',
     // Wait for this process to bind. A URL probe alone can succeed on a competing server.
     wait: { stdout: new RegExp('Local:\\s+' + baseURL.replaceAll('.', '\\.') + '/') },
     reuseExistingServer: false,
-  },
+  }, {
+    command: 'node test/fixtures/serve-extensions.mjs ' + extensionPort,
+    wait: { stdout: new RegExp('^Extension fixtures listening on ' + extensionPort + '$', 'm') },
+    reuseExistingServer: false,
+  }],
 });

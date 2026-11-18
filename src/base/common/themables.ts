@@ -17,3 +17,10 @@ export namespace ThemeIcon {
     return modifier === 'spin' ? classes + ' codicon-modifier-spin' : classes;
   }
 }
+
+/** A resource icon whose source is supplied by the owning workbench after activation. */
+export class DeferredIcon extends URL {
+  constructor(url: URL, readonly styleProperty: string) {
+    super(url);
+  }
+}

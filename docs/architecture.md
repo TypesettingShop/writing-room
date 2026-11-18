@@ -122,4 +122,8 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 트리 RPC는 핸들과 구조화 복제 가능한 행 데이터만 전달한다. 일반 갱신은 하위 목록을 요청하고, 요소 단위 갱신은 `$getTreeItem`으로 행을 다시 받는다. 상태 항목은 한 마이크로태스크에 갱신을 모으고 토스트는 원래 선택지의 인덱스로 응답한다. [VS Code 트리 프로토콜](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.protocol.ts)
 
+#### Extension installation
+
+- 설치 목록은 프로필 범위 `extensions.user` 키에 매니페스트와 위치를 저장한다. 시작 시 사본을 다시 검사해 내장 확장과 함께 첫 레이아웃에 등록한다. 코드와 이미지 파일은 활성화할 때 해당 위치에 요청하며 설치 목록에는 저장하지 않는다. [VS Code 웹 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/webExtensionsScannerService.ts)
+
 Decided in: wr-e8v6, wr-pip6, wr-hze8

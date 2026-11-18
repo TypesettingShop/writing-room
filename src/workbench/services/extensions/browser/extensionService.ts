@@ -1,3 +1,6 @@
+import { IWorkbenchLayoutService } from '../../layout/browser/layoutService.js';
+import { RemoteExtensionIcons } from './remoteExtensionIcons.js';
+import { IWebExtensionsScannerService, toExtensionDescription } from '../../extensionManagement/common/extensionManagementService.js';
 import { TreeViewPane } from '../../../browser/parts/views/treeView.js';
 import { ExtensionTreeViews } from '../../../api/browser/mainThreadTreeViews.js';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
@@ -54,6 +57,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     viewsContainers: this.registry.registerExtensionPoint<ContributionRecord>('viewsContainers'),
     views: this.registry.registerExtensionPoint<ContributionRecord>('views'),
   };
+  private readonly remoteIcons?: RemoteExtensionIcons;
   private initialized = false;
   private applying = false;
   private readonly activationStatus = new Map<string, ExtensionHostStatus>();
@@ -70,10 +74,13 @@ export class ExtensionService extends Disposable implements IExtensionService {
   constructor(
     private readonly scan: ExtensionScan,
     @IInstantiationService private readonly instantiation?: IInstantiationService,
+    @IWebExtensionsScannerService private readonly installedScanner?: IWebExtensionsScannerService,
   ) {
     super();
     this.registered = new Promise(resolve => { this.finishRegistration = resolve; });
     if (instantiation) {
+      const workbench = instantiation.invokeFunction(accessor => accessor.get(IWorkbenchLayoutService).mainContainer);
+      this.remoteIcons = this._register(new RemoteExtensionIcons(workbench));
       this._register(addDisposableListener(window, 'pagehide', event => {
         // A bfcache restore resumes the same workbench and worker.
         if (!event.persisted) {
@@ -96,7 +103,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.initialized = true;
     const { extensions, messages } = this.scan();
     this.scanMessages.push(...messages);
-    for (const extension of [...extensions].sort((a, b) => Number(b.isBuiltin) - Number(a.isBuiltin))) {
+    const installed = this.installedScanner?.scanUserExtensions().map(toExtensionDescription) ?? [];
+    for (const extension of [...extensions, ...installed].sort((a, b) => Number(b.isBuiltin) - Number(a.isBuiltin))) {
       this.addDescription(extension);
     }
     this.applyContributions();
@@ -112,7 +120,12 @@ export class ExtensionService extends Disposable implements IExtensionService {
       return false;
     }
     if (this.initialized) {
-      this.applyContributions();
+      try {
+        this.applyContributions();
+      } catch (error) {
+        this.removeExtension(extension.identifier.value);
+        throw error;
+      }
     }
     return true;
   }
@@ -127,6 +140,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.processed.delete(identifier);
     this.activationStatus.delete(identifier);
     this.extensionKeys.delete(description);
+    this.remoteIcons?.remove(identifier);
     if (this.initialized) {
       this.applyContributions();
     }
@@ -163,7 +177,15 @@ export class ExtensionService extends Disposable implements IExtensionService {
       // The default startup events can activate different extensions concurrently.
       void this.activateByEvent('*').catch(() => {});
     }
-    if (!this.instantiation || this.applying || this.stopping || !this.matches(event)) {
+    if (!this.instantiation || this.applying || this.stopping) {
+      return;
+    }
+    for (const [id, events] of this.extensionEvents) {
+      if (events.has(event)) {
+        this.remoteIcons?.activate(id);
+      }
+    }
+    if (!this.matches(event)) {
       return;
     }
     if (this.hostFailure) {
@@ -353,7 +375,10 @@ export class ExtensionService extends Disposable implements IExtensionService {
         if (!validate(value)) {
           collector.error('contributes.' + key, 'Expected a contribution object.');
         } else {
-          result.push({ value, description, collector });
+          const id = description.identifier.value;
+          const resolveIcon = description.isBuiltin ? undefined
+            : (url: URL) => this.remoteIcons?.resolve(id, url) ?? url;
+          result.push({ value, description, collector, resolveIcon });
         }
       }
       return result;

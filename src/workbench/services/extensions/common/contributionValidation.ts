@@ -43,13 +43,17 @@ export function contributionWhen(
   if (!when?.trim()) {
     return undefined;
   }
-  const parser = new Parser();
-  const expression = parser.parse(when);
-  if (!expression) {
+  try {
+    const parser = new Parser();
+    const expression = parser.parse(when);
+    if (expression) {
+      return expression;
+    }
     user.collector.error(path, parser.parsingErrors.join(' '));
-    return false;
+  } catch (error) {
+    user.collector.error(path, error instanceof Error ? error.message : String(error));
   }
-  return expression;
+  return false;
 }
 
 export function contributionIcon(
@@ -62,5 +66,5 @@ export function contributionIcon(
   if (!resource) {
     user.collector.error(path, 'Expected a codicon or a path inside the extension directory.', true);
   }
-  return resource;
+  return resource && (user.resolveIcon?.(resource) ?? resource);
 }

@@ -19,6 +19,7 @@ export interface IExtensionPointUser<T> {
   readonly description: IExtensionDescription;
   readonly value: T;
   readonly collector: ExtensionMessageCollector;
+  readonly resolveIcon?: (url: URL) => URL;
 }
 
 export class ExtensionPoint<T> {
