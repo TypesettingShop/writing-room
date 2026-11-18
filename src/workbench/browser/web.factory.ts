@@ -1,6 +1,5 @@
-import { $, append } from '../../base/browser/dom.js';
-import { renderLabelWithIcons } from '../../base/browser/ui/iconLabel/iconLabels.js';
+import { Workbench } from './workbench.js';
 
 export function create(container: HTMLElement): void {
-  append(container, $('main.workbench', null, ...renderLabelWithIcons('$(edit) Writing Room')));
+  new Workbench(container).startup();
 }
