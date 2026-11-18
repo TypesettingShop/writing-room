@@ -6,7 +6,8 @@ export interface Token {
   readonly offset: number;
 }
 
-const token = /\s+|'[^']*'|==|!=|&&|\|\||[!()]|[\p{L}\p{N}_.$:\/+#%\-]+/uy;
+// Unquoted words take the same characters as VS Code's scanner, except `<` and `>`, so comparisons stay errors.
+const token = /\s+|'[^']*'|==|!=|&&|\|\||[!()]|[\p{L}\p{N}_.$:\/+#%\-\\*?\[\]^,@;"]+/uy;
 
 export function scan(text: string): Token[] {
   const tokens: Token[] = [];

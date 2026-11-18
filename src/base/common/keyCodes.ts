@@ -59,6 +59,14 @@ for (const value of Object.values(KeyCode)) {
 aliases.set('esc', KeyCode.Escape);
 aliases.set('return', KeyCode.Enter);
 aliases.set('del', KeyCode.Delete);
+// VS Code's keybinding text names for these keys.
+for (const [alias, keyCode] of [
+  ['numpad_multiply', KeyCode.NumpadMultiply], ['numpad_add', KeyCode.NumpadAdd],
+  ['numpad_subtract', KeyCode.NumpadSubtract], ['numpad_decimal', KeyCode.NumpadDecimal],
+  ['numpad_divide', KeyCode.NumpadDivide], ['oem_102', KeyCode.IntlBackslash],
+] as const) {
+  aliases.set(alias, keyCode);
+}
 physicalCodes.set('NumpadEnter', KeyCode.Enter);
 
 export function keyCodeFromName(name: string): KeyCode | undefined { return aliases.get(name.toLowerCase()); }

@@ -1,3 +1,4 @@
+import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { getKeybindingPlatform } from '../../../../base/common/keybindings.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
@@ -59,8 +60,8 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
       const target = event.composedPath()[0] ?? activeTarget();
       const typing = isTextInput(target);
       inputFocus.set(typing);
-      if (typing && key.mightType) {
-        this.cancelChord();
+      // A pending chord owns the next key, so `ctrl+k z` completes (and swallows z) inside an editor too.
+      if (typing && key.mightType && !this.inChordMode) {
         return;
       }
       if (this.dispatch(key.chord, this.context.getContext(target))) {
@@ -69,17 +70,11 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
       }
     };
     inputFocus.set(isTextInput(activeTarget()));
-    window.addEventListener('keydown', onKeyDown, true);
-    window.addEventListener('focusin', onFocus, true);
-    window.addEventListener('focusout', onBlur, true);
-    window.addEventListener('blur', onWindowBlur);
-    this._register(toDisposable(() => {
-      window.removeEventListener('keydown', onKeyDown, true);
-      window.removeEventListener('focusin', onFocus, true);
-      window.removeEventListener('focusout', onBlur, true);
-      window.removeEventListener('blur', onWindowBlur);
-      inputFocus.reset();
-    }));
+    this._register(addDisposableListener(window, 'keydown', onKeyDown, true));
+    this._register(addDisposableListener(window, 'focusin', onFocus, true));
+    this._register(addDisposableListener(window, 'focusout', onBlur, true));
+    this._register(addDisposableListener(window, 'blur', onWindowBlur));
+    this._register(toDisposable(() => inputFocus.reset()));
   }
 }
 

@@ -227,6 +227,8 @@ export function registerAction2(ctor: new () => Action2): IDisposable {
 
   registrations.add(CommandsRegistry.registerCommand(id, (accessor, ...args) => action.run(accessor, ...args)));
   if (f1) {
+    // As in VS Code, the palette lists the command only while its precondition holds.
+    registrations.add(MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command, when: command.precondition }));
     registrations.add(MenuRegistry.addCommand(command));
   }
   for (const entry of menu ? [menu].flat() : []) {

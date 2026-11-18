@@ -82,6 +82,25 @@ test('Action2 disposes command, explicit and implicit menu entries, and sorted k
   expect(KeybindingsRegistry.getDefaultKeybindings()).toEqual([]);
 });
 
+test('lists an f1 Action2 in the palette only while its precondition holds', () => {
+  const context = new ContextKeyService();
+  const ready = context.createKey<boolean>('ready', false);
+  const service = new MenuService({ _serviceBrand: undefined, executeCommand: vi.fn() }, new NullKeybindingService());
+  const registration = registerAction2(class extends Action2 {
+    constructor() { super({ id: 'test.guarded', title: 'Guarded', f1: true, precondition: ContextKeyExpr.has('ready') }); }
+    run() {}
+  });
+  const ids = () => service.getMenuActions(MenuId.CommandPalette, context).flatMap(([, actions]) => actions.map(action => action.id));
+  try {
+    expect(ids()).toEqual([]);
+    ready.set(true);
+    expect(ids()).toEqual(['test.guarded']);
+  } finally {
+    registration.dispose();
+    context.dispose();
+  }
+});
+
 test('uses an explicit palette entry in preference to implicit command metadata', () => {
   const command = { id: 'test.explicit', title: 'Explicit' };
   const declaration = MenuRegistry.addCommand(command);

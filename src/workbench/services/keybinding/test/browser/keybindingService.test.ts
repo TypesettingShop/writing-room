@@ -19,6 +19,7 @@ test.each([
   ['ctrl+k ctrl+s', 'Ctrl+K Ctrl+S'],
   ['ctrl+;', 'Ctrl+;'],
   ['win+q', 'Windows+Q'],
+  ['ctrl+numpad_add', 'Ctrl+NumpadAdd'],
 ])('parses %s as %s', (text, label) => {
   expect(formatKeybinding(parseKeybinding(text)!, 'win')).toBe(label);
 });
@@ -127,6 +128,16 @@ test('swallows a chord prefix and a mismatched continuation, and times out after
   expect(execute).not.toHaveBeenCalled();
   press(target, 'F4');
   expect(execute).toHaveBeenCalledExactlyOnceWith('mismatch-alone');
+});
+
+test('completes a chord whose second stroke is a plain letter while typing in a text input', () => {
+  bind('zen', 'ctrl+k z');
+  input.focus();
+  expect(press(input, 'KeyK', { ctrlKey: true }).defaultPrevented).toBe(true);
+  expect(press(input, 'KeyZ', { key: 'z' }).defaultPrevented).toBe(true);
+  expect(execute).toHaveBeenCalledExactlyOnceWith('zen');
+  expect(press(input, 'KeyZ', { key: 'z' }).defaultPrevented).toBe(false);
+  expect(execute).toHaveBeenCalledOnce();
 });
 
 test('tracks inputFocus and protects typing and composition while dispatching modified physical keys', () => {

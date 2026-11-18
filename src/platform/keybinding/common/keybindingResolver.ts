@@ -20,6 +20,7 @@ type Resolution = { kind: ResultKind.NoMatchingKb | ResultKind.MoreChordsNeeded 
 
 export class KeybindingResolver {
   private readonly rules: ResolvedKeybindingRule[] = [];
+  private readonly lookup = new Map<string, Keybinding>();
 
   // Registrations arrive ordered by increasing weight, id and registration order.
   constructor(rules: readonly IKeybindingRule[], platform: KeybindingPlatform) {
@@ -40,6 +41,11 @@ export class KeybindingResolver {
       }
     }
     this.rules.reverse();
+    for (const { rule, binding } of this.rules) {
+      if (!this.lookup.has(rule.id)) {
+        this.lookup.set(rule.id, binding);
+      }
+    }
   }
 
   resolve(context: IContext, first: KeyCodeChord, second?: KeyCodeChord): Resolution {
@@ -58,6 +64,6 @@ export class KeybindingResolver {
   }
 
   lookupKeybinding(id: string): Keybinding | undefined {
-    return this.rules.find(entry => entry.rule.id === id)?.binding;
+    return this.lookup.get(id);
   }
 }

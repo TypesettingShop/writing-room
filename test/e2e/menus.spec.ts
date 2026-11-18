@@ -29,6 +29,11 @@ test('runs a menu command once and restores focus on close', async ({ page }) =>
   await expect(popup).toHaveCount(0);
   await expect(page.getByRole('status')).toHaveText('1');
   await expect(original).toBeFocused();
+  await bar.getByRole('menuitem', { name: 'File' }).click();
+  const elsewhere = page.getByRole('button', { name: 'Context Target' });
+  await elsewhere.click();
+  await expect(popup).toHaveCount(0);
+  await expect(elsewhere).toBeFocused();
 });
 
 test('reacts to registry and context changes and navigates nested menus', async ({ page }) => {

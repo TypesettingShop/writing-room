@@ -27,5 +27,9 @@ test('lets unmodified letters through to text inputs and consumes both strokes o
   await input.press('Control+k');
   await input.press('Control+s');
   await expect(page.getByRole('status')).toHaveText('Chord');
+  // A plain letter that completes a chord must not also be typed into the input.
+  await input.press('Control+k');
+  await input.press('z');
+  await expect(page.getByRole('status')).toHaveText('Chord Letter Chord');
   await expect(input).toHaveValue('x');
 });

@@ -2,7 +2,7 @@ import { Menu, renderMenuIcon, runMenuAction } from '../../../base/browser/ui/me
 import { Disposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { ILayoutService } from '../../layout/browser/layoutService.js';
 import { IMenuService, MenuItemAction, SubmenuItemAction } from '../common/actions.js';
-import type { IMenuContext, MenuId } from '../common/actions.js';
+import type { IMenuContext, MenuActionGroup, MenuId } from '../common/actions.js';
 
 export class MenuWorkbenchToolBar extends Disposable {
   private readonly popup = this._register(new MutableDisposable<Menu>());
@@ -30,26 +30,33 @@ export class MenuWorkbenchToolBar extends Disposable {
     this._register(toDisposable(() => toolbar.remove()));
 
     const menu = this._register(menuService.createMenu(menuId, contextKeyService));
-    let remaining = menu.getActions().filter(([group]) => group !== 'navigation');
+    let remaining: MenuActionGroup[] = [];
     let returnFocus: HTMLElement | null = null;
+    let opener: HTMLButtonElement | undefined;
 
     const close = () => {
-      if (this.popup.value) {
+      const popup = this.popup.value;
+      if (popup) {
+        const restore = popup.shouldReturnFocus();
         this.popup.clear();
-        overflow.setAttribute('aria-expanded', 'false');
-        returnFocus?.focus({ preventScroll: true });
+        opener?.setAttribute('aria-expanded', 'false');
+        opener = undefined;
+        if (restore) {
+          returnFocus?.focus({ preventScroll: true });
+        }
       }
     };
 
-    const open = (anchor: HTMLButtonElement, groups: ReturnType<typeof menu.getActions>) => {
-      if (this.popup.value) {
-        close();
+    // Clicking the open popup's own button closes it; clicking another popup button switches to it.
+    const open = (anchor: HTMLButtonElement, groups: MenuActionGroup[]) => {
+      const toggled = anchor === opener;
+      close();
+      if (toggled) {
         return;
       }
       returnFocus = document.activeElement as HTMLElement | null;
-      if (anchor === overflow) {
-        overflow.setAttribute('aria-expanded', 'true');
-      }
+      opener = anchor;
+      anchor.setAttribute('aria-expanded', 'true');
       this.popup.value = new Menu({
         container: layoutService.mainContainer,
         anchor,
@@ -65,7 +72,7 @@ export class MenuWorkbenchToolBar extends Disposable {
     const update = () => {
       const actions = menu.getActions();
       remaining = actions.filter(([group]) => group !== 'navigation');
-      if (remaining.length > 0 && overflow.getAttribute('aria-expanded') === 'true') {
+      if (remaining.length > 0 && opener === overflow) {
         this.popup.value?.update(remaining);
       } else {
         close();
@@ -88,13 +95,15 @@ export class MenuWorkbenchToolBar extends Disposable {
         if (action instanceof MenuItemAction && action.checked !== undefined) {
           button.setAttribute('aria-pressed', String(action.checked));
         }
-        if (action.icon) {
-          button.append(renderMenuIcon(document, action.icon));
+        const icon = action.icon && renderMenuIcon(document, action.icon);
+        if (icon) {
+          button.append(icon);
         } else {
           button.textContent = action.label;
         }
         if (action instanceof SubmenuItemAction) {
           button.setAttribute('aria-haspopup', 'menu');
+          button.setAttribute('aria-expanded', 'false');
           button.addEventListener('mousedown', event => event.preventDefault());
           button.addEventListener('click', () => open(button, action.groups));
         } else {

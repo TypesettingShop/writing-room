@@ -36,6 +36,10 @@ export abstract class AbstractKeybindingService extends Disposable implements IK
     };
   }
 
+  protected get inChordMode(): boolean {
+    return this.pending !== undefined;
+  }
+
   protected dispatch(chord: KeyCodeChord, context: IContext): boolean {
     const pending = this.pending;
     this.cancelChord();

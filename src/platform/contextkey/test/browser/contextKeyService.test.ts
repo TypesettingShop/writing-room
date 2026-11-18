@@ -32,6 +32,20 @@ test.each([
   }
 });
 
+test('accepts the unquoted word characters VS Code accepts', () => {
+  const root = new ContextKeyService();
+  try {
+    root.createKey('viewItem', 'file@1,[x]');
+    for (const [text, expected] of [['viewItem == file@1,[x]', true], ['viewItem == *.md', false]] as const) {
+      const expression = ContextKeyExpr.deserialize(text);
+      expect(expression).toBeDefined();
+      expect(root.contextMatchesRules(expression)).toBe(expected);
+    }
+  } finally {
+    root.dispose();
+  }
+});
+
 test.each(['a =~ /x/', 'a in b', 'a not in b', 'n > 1', 'a &&', '(a', "a == 'oops", 'a === b'])(
   'reports a syntax error for %s', text => {
     const parser = new Parser();

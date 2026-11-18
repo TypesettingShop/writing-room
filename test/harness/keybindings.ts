@@ -11,6 +11,7 @@ for (const [id, title, key] of [
   ['test.modifier', 'Modifier Key', 'ctrl+f8'],
   ['test.letter', 'Plain Letter', 'x'],
   ['test.chord', 'Chord', 'ctrl+k ctrl+s'],
+  ['test.letterChord', 'Letter Chord', 'ctrl+k z'],
 ] as const) {
   CommandsRegistry.registerCommand(id, () => { output.value += (output.value ? ' ' : '') + title; });
   KeybindingsRegistry.registerKeybindingRule({ id, key, weight: KeybindingWeight.WorkbenchContrib });

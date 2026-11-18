@@ -115,8 +115,11 @@ export class MenuBar extends Disposable {
     if (this.opened) {
       this.buttons.get(this.opened)?.setAttribute('aria-expanded', 'false');
       this.opened = undefined;
+      const restore = this.popup.value?.shouldReturnFocus() ?? false;
       this.popup.clear();
-      this.returnFocus?.focus({ preventScroll: true });
+      if (restore) {
+        this.returnFocus?.focus({ preventScroll: true });
+      }
       this.returnFocus = undefined;
     }
   }

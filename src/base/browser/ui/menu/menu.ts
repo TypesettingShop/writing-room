@@ -1,5 +1,7 @@
+import { addDisposableListener } from '../../dom.js';
+import { renderIcon } from '../iconLabel/iconLabels.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../common/lifecycle.js';
-import { ThemeIcon } from '../../../common/themables.js';
+import type { ThemeIcon } from '../../../common/themables.js';
 import './menu.css';
 
 export interface MenuAction {
@@ -25,7 +27,7 @@ export interface MenuOptions {
   readonly dismissalBoundary?: HTMLElement;
 }
 
-export function renderMenuIcon(document: Document, icon: NonNullable<MenuAction['icon']>): HTMLElement {
+export function renderMenuIcon(document: Document, icon: NonNullable<MenuAction['icon']>): HTMLElement | undefined {
   if (typeof icon === 'string' || !('id' in icon)) {
     const image = document.createElement('img');
     image.className = 'wr-menu-icon';
@@ -34,9 +36,8 @@ export function renderMenuIcon(document: Document, icon: NonNullable<MenuAction[
     image.draggable = false;
     return image;
   }
-  const glyph = document.createElement('span');
-  glyph.className = 'wr-menu-icon ' + ThemeIcon.asClassName(icon);
-  glyph.setAttribute('aria-hidden', 'true');
+  const glyph = renderIcon(icon);
+  glyph?.classList.add('wr-menu-icon');
   return glyph;
 }
 
@@ -85,15 +86,11 @@ export class Menu extends Disposable {
           options.onClose();
         }
       };
-      document.addEventListener('click', dismiss, true);
-      document.addEventListener('contextmenu', dismiss, true);
-      const reposition = () => this.position();
-      document.defaultView?.addEventListener('resize', reposition);
-      this._register(toDisposable(() => {
-        document.removeEventListener('click', dismiss, true);
-        document.removeEventListener('contextmenu', dismiss, true);
-        document.defaultView?.removeEventListener('resize', reposition);
-      }));
+      this._register(addDisposableListener(document, 'click', dismiss, true));
+      this._register(addDisposableListener(document, 'contextmenu', dismiss, true));
+      if (document.defaultView) {
+        this._register(addDisposableListener(document.defaultView, 'resize', () => this.position()));
+      }
     }
 
     this.update(groups);
@@ -127,6 +124,19 @@ export class Menu extends Disposable {
     }
   }
 
+  /**
+   * Whether closing this menu should send focus back to where it was: true while focus is inside the menu or
+   * nowhere in particular, false once the user has moved it elsewhere (for example by clicking another input).
+   */
+  shouldReturnFocus(): boolean {
+    const { activeElement, body } = this.element.ownerDocument;
+    return !activeElement || activeElement === body || this.hasFocus();
+  }
+
+  private hasFocus(): boolean {
+    return this.element.contains(this.element.ownerDocument.activeElement) || (this.child.value?.hasFocus() ?? false);
+  }
+
   focus(last = false): void {
     const enabled = this.rows.filter(row => row.action.enabled !== false);
     (enabled.at(last ? -1 : 0)?.button ?? this.element).focus();
@@ -146,8 +156,9 @@ export class Menu extends Disposable {
       check.textContent = action.checked ? '✓' : '';
       button.append(check);
     }
-    if (action.icon) {
-      button.append(renderMenuIcon(document, action.icon));
+    const icon = action.icon && renderMenuIcon(document, action.icon);
+    if (icon) {
+      button.append(icon);
     }
     const label = document.createElement('span');
     label.textContent = action.label;
@@ -207,6 +218,7 @@ export class Menu extends Disposable {
         anchor: row.button,
         label: row.action.label,
         onClose: this.options.onClose,
+        onNavigate: this.options.onNavigate,
       }, row.action.groups ?? [], this);
     }
     this.child.value?.focus();

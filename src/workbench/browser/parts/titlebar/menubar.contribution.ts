@@ -16,5 +16,5 @@ MenuRegistry.appendMenuItem(MenuId.MenubarViewMenu, {
   submenu: MenuId.MenubarLayoutMenu, title: 'Editor Layout', group: '2_appearance', order: 2,
 });
 MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
-  submenu: MenuId.MenubarPreferencesMenu, title: 'Preferences', group: '5_settings',
+  submenu: MenuId.MenubarPreferencesMenu, title: 'Preferences', group: '5_autosave', order: 2,
 });
