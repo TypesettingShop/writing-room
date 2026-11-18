@@ -125,6 +125,13 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - Welcome 페이지는 `parts/editor/welcomeEditor.ts`의 작은 페인과 입력(`workbench.editors.gettingStartedInput`)이며, 시작할 때 그룹이 비어 있으면 포커스를 옮기지 않고 연다. VS Code의 Getting Started는 `contrib/welcomeGettingStarted`에 있고 설정과 복원 상태에 따라 연다 — 레이아웃과 에디터 저장 전에는 매번이 첫 실행이다 (wr-cla6.vge)
 - **View → Editor Layout**에 Split Up/Down/Left/Right와 **Join All Editor Groups**를 둔다. VS Code의 Editor Layout 메뉴에는 레이아웃 프리셋도 있다 — 프리셋은 범위 밖이다 (wr-cla6.vge)
 
+#### 에디터 그룹 조작
+
+- **File → New Text File**(Ctrl+Alt+N, Windows는 Ctrl+K N, macOS는 Cmd+Option+N)이 활성 그룹에 `Untitled-N` 텍스트 에디터를 연다. 처음 열 때 Monaco를 받아 온다. 타이핑하면 탭에 점이 붙는다. 첫 화면의 그룹에는 Welcome 페이지가 열린다.
+- 탭을 누르면 그 에디터로 바꾸고, 탭의 닫기 버튼이나 가운데 버튼으로 닫는다. 배경 탭을 닫아도 활성 탭은 그대로다. 탭에 포커스가 있으면 좌우 화살표, Home, End로 탭 사이를 옮긴다. 탭을 오른쪽 클릭하면 Close, Close Others, Close All과 네 방향 분할이 나온다.
+- 각 그룹 타이틀의 **Split Editor Right** 버튼(Ctrl+\\, macOS는 Cmd+\\)이나 **View → Editor Layout**의 Split Up/Down/Left/Right가 같은 에디터를 옆 그룹에 연다. 두 그룹은 같은 텍스트를 편집한다. **Join All Editor Groups**는 모든 그룹을 활성 그룹으로 합친다. 마지막 탭을 닫은 그룹은 다른 그룹이 있으면 사라진다.
+- 그룹 사이 경계를 끌어 크기를 바꾼다. 그룹은 220 x 70 px보다 작아지지 않는다. 팔레트(F1)의 `View:` 커맨드로 다음 그룹 포커스, 다음 그룹으로 에디터 이동, 모든 에디터 닫기도 할 수 있다.
+
 ### Storage and settings
 
 #### Storage
