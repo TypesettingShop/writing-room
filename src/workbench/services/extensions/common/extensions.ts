@@ -7,6 +7,7 @@ export const IExtensionService = createDecorator<IExtensionService>('extensionSe
 
 export interface IExtensionService extends BrandedService {
   initialize?(): void;
+  restartExtensionHost?(): Promise<void>;
   dispose?: IDisposable['dispose'];
   activateByEvent(event: string): Promise<void>;
   activationEventIsDone(event: string): boolean;

@@ -73,6 +73,7 @@ export class Workbench extends Layout {
     for (const [id, contribution] of workbenchContributions.getContributions()) {
       this.startContribution(id, contribution);
     }
+    void extensions.activateByEvent('onStartupFinished').catch(console.error);
   }
 
   private startContribution(id: string, contribution: WorkbenchContribution): void {
