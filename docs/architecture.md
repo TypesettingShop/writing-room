@@ -149,6 +149,13 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Storage and settings
 
+#### Layout and editor persistence
+
+- 페이지를 시작할 때 사이드바와 패널 크기, 파트 표시 여부, 마지막으로 선택한 뷰 컨테이너를 읽는다. 크기는 픽셀 단위로 프로필에 저장하고 현재 창과 파트의 한계에 맞춘다. 표시 여부와 활성 컨테이너는 워크스페이스에 저장한다. 페이지가 숨겨지거나 보이는 페이지에 유휴 저장 알림이 오면 현재 값으로 갱신한다 (wr-cla6.kn7).
+- 워크스페이스의 `memento/workbench.parts.editor` 안에 `editorpart.state`를 저장한다. 그리드 비율, 그룹 ID, 탭 순서, 활성 그룹과 탭을 첫 레이아웃에서 복원한다. 읽을 수 있는 에디터 상태가 처음부터 없으면 Welcome을 열고, 탭을 모두 닫은 뒤 저장한 상태에서는 빈 그룹을 복원한다 (wr-cla6.kn7).
+- 제목 없는 텍스트에는 문서 전체를 기준으로 UTF-16 코드 유닛 1,000,000개의 합계 한도를 적용한다. 최근 사용한 문서부터 넣고, 여러 그룹에 나타나는 문서는 한 번만 계산한다. 첫 탭의 직렬화 문자열에는 Base64로 인코딩한 텍스트를, 나머지 탭에는 같은 입력의 이름을 넣는다. 한도를 넘어서 복원하지 못할 텍스트가 있을 때 브라우저의 페이지 나가기 확인을 건다 (wr-cla6.kn7).
+- 복원된 에디터는 문서의 맨 위에서 열린다. VS Code는 `EditorMemento`로 커서와 스크롤 위치를 복원한다 (wr-cla6.kn7). [VS Code의 에디터 뷰 상태](vscode-state-settings.md#22-저장-항목-목록)
+
 #### Storage
 
 - `getNumber`는 `Number(value)`로 문자열을 숫자로 변환한다. VS Code는 `parseInt(value, 10)`을 쓴다 — `store`로 쓴 소수와 지수 표기 숫자를 같은 값으로 읽기 위해서다 (wr-cla6.68r). [VS Code의 `getNumber`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/storage/common/storage.ts#L115-L125)
@@ -182,4 +189,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og
