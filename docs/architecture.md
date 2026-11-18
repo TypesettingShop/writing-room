@@ -155,6 +155,12 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 유휴 저장은 마지막 유휴 저장 후 최소 60초 간격으로 실행되고, 문서가 숨겨지거나 `pagehide`가 발생하면 동기 저장한다. VS Code 웹은 5초 주기로 포커스가 있고 대기 중인 쓰기가 없을 때 유휴 저장한다 — 동기 백엔드가 페이지를 떠날 때 상태를 반영할 수 있어 주기 저장의 빈도를 낮췄다 (wr-cla6.68r). [VS Code 웹의 저장 주기와 조건](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/storage/browser/storageService.ts)
 - `Memento`의 상태 객체는 인스턴스와 스코프별로 유지된다. VS Code는 같은 ID와 스코프의 객체를 정적 맵에서 공유한다 — 여기서는 상태 객체의 수명을 컴포넌트 인스턴스에 맞춘다. 같은 저장 키를 가진 여러 인스턴스가 각각 수정하면 마지막으로 저장한 값이 남는다 (wr-cla6.68r). [VS Code의 `Memento`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/common/memento.ts#L11-L60)
 
+#### Settings
+
+- **File → Preferences → Open User Settings (JSON)** 또는 F1의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. Monaco에서 키 자동 완성과 스키마 진단을 제공한다. Ctrl+S(macOS에서는 Cmd+S)로 저장하면 열린 Monaco 편집기에 적용한다 (wr-cla6.dnq). [VS Code 설정 열기 커맨드](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts)
+- 프로필 스토리지의 `user.settings.json` 키에 JSONC 텍스트 원문을 저장한다. 주석, 후행 쉼표, 알 수 없는 키를 보존한다. 구문이 깨지면 현재 탭의 마지막 유효한 설정을 적용하고, 새 탭에서 아직 유효한 설정을 읽은 적이 없으면 기본값을 쓴다. 명시적 저장이 실패하면 편집 중인 텍스트와 적용값을 유지한다. 다른 탭의 저장은 적용값을 갱신하면서 이 탭의 더티 텍스트를 보존한다. 프로그램에서 한 키를 바꿀 때는 현재 저장된 텍스트를 읽어 그 키의 값만 편집한다 (wr-cla6.dnq). [VS Code 설정 서비스](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/configuration/browser/configurationService.ts)
+- `editor.fontSize`(14), `editor.tabSize`(4), `editor.wordWrap`(`off`), `editor.lineNumbers`(`on`), `editor.minimap.enabled`(`true`), `workbench.editor.closeEmptyGroups`(`true`), `workbench.commandPalette.history`(50)를 지원한다. 기록을 끄려면 `workbench.commandPalette.history`를 0으로 설정한다 (wr-cla6.dnq).
+
 ### Extensions
 
 #### Manifest contributions
