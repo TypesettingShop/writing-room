@@ -51,6 +51,10 @@ export interface IStorageService {
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue?: T): T | undefined;
 
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void;
+  /** Commit an explicit text save. A transform receives the last persisted value. */
+  storeImmediately(
+    key: string, value: string | ((stored: string | undefined) => string), scope: StorageScope, target: StorageTarget,
+  ): void;
   remove(key: string, scope: StorageScope): void;
   flush(reason?: WillSaveStateReason): Promise<void>;
 }
@@ -150,6 +154,17 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
     }
     const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
     if (this.storage.set(storageKey(scope, key), text)) {
+      this.valueChanges.fire({ scope, key, target });
+    }
+  }
+
+  storeImmediately(
+    key: string, value: string | ((stored: string | undefined) => string), scope: StorageScope, target: StorageTarget,
+  ): void {
+    if (this.disposed) {
+      throw new Error('Workbench storage is closed.');
+    }
+    if (this.storage.setImmediately(storageKey(scope, key), value)) {
       this.valueChanges.fire({ scope, key, target });
     }
   }

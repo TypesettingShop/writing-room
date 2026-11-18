@@ -4,6 +4,7 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import type { ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
+import { NullConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { TextEditorPane } from '../../../../browser/parts/editor/textEditor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
@@ -80,6 +81,12 @@ vi.mock('../../../../../editor/browser/monaco.js', () => ({ loadMonaco: () => fa
 
 type FakeEditor = InstanceType<typeof fake.FakeEditor>;
 
+class FakeMonacoTextModel extends TestTextModel {
+  private tabSize = 4;
+  getOptions(): { tabSize: number } { return { tabSize: this.tabSize }; }
+  updateOptions(options: { tabSize: number }): void { this.tabSize = options.tabSize; }
+}
+
 class TestTextInput extends EditorInput {
   readonly textModel: TestTextModel;
   /** When set, `resolve` waits for it. */
@@ -87,7 +94,7 @@ class TestTextInput extends EditorInput {
 
   constructor(name: string) {
     super();
-    this.textModel = new TestTextModel(URI.parse(`test:${name}`), name, 'plaintext');
+    this.textModel = new FakeMonacoTextModel(URI.parse(`test:${name}`), name, 'plaintext');
     fake.state.models.push(this.textModel);
   }
 
@@ -116,7 +123,7 @@ const panes: TextEditorPane[] = [];
 
 function createPane(size = new Dimension(300, 200)): { pane: TextEditorPane; parent: HTMLElement } {
   const parent = document.body.appendChild(document.createElement('div'));
-  const pane = new TextEditorPane(contextKeys);
+  const pane = new TextEditorPane(contextKeys, new NullConfigurationService());
   pane.create(parent);
   if (size.width > 0) {
     pane.layout(size);
@@ -193,7 +200,7 @@ test('creates the Monaco editor once, on the first real layout, without a model 
 });
 
 test('waits for a pane that is not in the document', async () => {
-  const pane = new TextEditorPane(contextKeys);
+  const pane = new TextEditorPane(contextKeys, new NullConfigurationService());
   panes.push(pane);
   const parent = document.createElement('div');
   pane.create(parent);

@@ -1,4 +1,6 @@
 import { commandTitle, IMenuService, MenuId, MenuItemAction } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { getQuickInputFocus } from '../../../../platform/quickinput/browser/quickInputController.js';
@@ -7,7 +9,18 @@ import type { IQuickPickItem, IQuickPickSeparator } from '../../../../platform/q
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 const historyKey = 'commandPalette.mru.cache';
-const historyLimit = 50;
+const historySetting = 'workbench.commandPalette.history';
+const defaultHistoryLimit = 50;
+configurationRegistry.registerConfiguration({
+  id: 'workbench.commandPalette',
+  title: 'Command Palette',
+  properties: {
+    [historySetting]: {
+      type: 'integer', default: defaultHistoryLimit, minimum: 0,
+      description: 'Sets how many recently used commands are remembered. Zero disables the history.',
+    },
+  },
+});
 
 interface CommandPick extends IQuickPickItem {
   readonly id: string;
@@ -21,6 +34,7 @@ export class CommandsQuickAccessProvider {
     @ILayoutService private readonly layout: ILayoutService,
     @IQuickInputService private readonly quickInput: IQuickInputService,
     @IStorageService private readonly storage: IStorageService,
+    @IConfigurationService private readonly configuration: IConfigurationService,
   ) {}
 
   async show(): Promise<void> {
@@ -57,8 +71,13 @@ export class CommandsQuickAccessProvider {
 
     const picked = await this.quickInput.pick(picks, { placeHolder: 'Type a command' });
     if (picked) {
-      const history = [picked.id, ...this.readHistory().filter(id => id !== picked.id)].slice(0, historyLimit);
-      this.storage.store(historyKey, history, StorageScope.PROFILE, StorageTarget.USER);
+      const limit = this.historyLimit;
+      if (limit === 0) {
+        this.storage.remove(historyKey, StorageScope.PROFILE);
+      } else {
+        const history = [picked.id, ...this.readHistory(limit).filter(id => id !== picked.id)].slice(0, limit);
+        this.storage.store(historyKey, history, StorageScope.PROFILE, StorageTarget.USER);
+      }
       try {
         await picked.action.run();
       } catch (error) {
@@ -67,7 +86,14 @@ export class CommandsQuickAccessProvider {
     }
   }
 
-  private readHistory(): string[] {
+  private get historyLimit(): number {
+    return this.configuration.getValue<number>(historySetting) ?? defaultHistoryLimit;
+  }
+
+  private readHistory(limit = this.historyLimit): string[] {
+    if (limit === 0) {
+      return [];
+    }
     const raw = this.storage.get(historyKey, StorageScope.PROFILE);
     if (!raw) {
       return [];
@@ -87,7 +113,7 @@ export class CommandsQuickAccessProvider {
     for (const id of value) {
       if (typeof id === 'string' && id.length > 0) {
         history.add(id);
-        if (history.size === historyLimit) {
+        if (history.size === limit) {
           break;
         }
       }

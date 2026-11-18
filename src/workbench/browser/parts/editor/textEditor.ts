@@ -9,6 +9,9 @@ import type {
 } from '../../../../editor/browser/monaco.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 import { isTextEditorModel } from '../../../../editor/common/services/resolverService.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import type { IConfigurationPropertySchema } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -16,15 +19,40 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorPane } from './editorPane.js';
 import './media/textEditor.css';
 
+const editorSettings = {
+  'editor.fontSize': { type: 'number', default: 14, minimum: 6, maximum: 100, description: 'Controls the font size in pixels.' },
+  'editor.tabSize': { type: 'integer', default: 4, minimum: 1, description: 'Controls how many columns a tab occupies.' },
+  'editor.wordWrap': {
+    type: 'string', default: 'off', enum: ['off', 'on', 'wordWrapColumn', 'bounded'],
+    description: 'Controls where editor lines wrap.',
+  },
+  'editor.lineNumbers': {
+    type: 'string', default: 'on', enum: ['off', 'on', 'relative', 'interval'],
+    description: 'Controls how editor line numbers are shown.',
+  },
+  'editor.minimap.enabled': { type: 'boolean', default: true, description: 'Shows the editor minimap.' },
+} as const satisfies Record<string, IConfigurationPropertySchema>;
+
+configurationRegistry.registerConfiguration({ id: 'editor', title: 'Editor', properties: editorSettings });
+
 /**
  * Every option the text editor is created with. One function, so configuration can feed it later.
  * The pane lays the editor out itself (`automaticLayout: false`), as all layout here is explicit.
  * The theme is not among them: Monaco's theme is global, and `loadMonaco()` sets it once.
  */
-export function getTextEditorOptions(): IStandaloneEditorConstructionOptions {
+export function getTextEditorOptions(configuration?: IConfigurationService): IStandaloneEditorConstructionOptions {
   return {
     automaticLayout: false,
     ariaLabel: 'Editor content',
+    fontSize: configuration?.getValue<number>('editor.fontSize') ?? editorSettings['editor.fontSize'].default,
+    tabSize: configuration?.getValue<number>('editor.tabSize') ?? editorSettings['editor.tabSize'].default,
+    wordWrap: configuration?.getValue<NonNullable<IStandaloneEditorConstructionOptions['wordWrap']>>('editor.wordWrap')
+      ?? editorSettings['editor.wordWrap'].default,
+    lineNumbers: configuration?.getValue<NonNullable<IStandaloneEditorConstructionOptions['lineNumbers']>>('editor.lineNumbers')
+      ?? editorSettings['editor.lineNumbers'].default,
+    minimap: {
+      enabled: configuration?.getValue<boolean>('editor.minimap.enabled') ?? editorSettings['editor.minimap.enabled'].default,
+    },
   };
 }
 
@@ -58,8 +86,18 @@ export class TextEditorPane extends EditorPane {
   private editorFocus!: IContextKey<boolean>;
   private textInputFocus!: IContextKey<boolean>;
 
-  constructor(@IContextKeyService private readonly contextKeyService: IContextKeyService) {
+  constructor(
+    @IContextKeyService private readonly contextKeyService: IContextKeyService,
+    @IConfigurationService private readonly configuration: IConfigurationService,
+  ) {
     super(TextEditorPane.ID);
+    this._register(configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('editor') && this.editor) {
+        const { tabSize, ...options } = getTextEditorOptions(configuration);
+        this.editor.updateOptions(options);
+        this.updateTabSize(tabSize);
+      }
+    }));
   }
 
   protected createEditor(parent: HTMLElement): void {
@@ -185,8 +223,9 @@ export class TextEditorPane extends EditorPane {
     }
     const { width, height } = this.dimension;
     // Without `model: null` Monaco creates an empty model of its own that nothing would dispose.
+    const { tabSize: _tabSize, ...options } = getTextEditorOptions(this.configuration);
     this.editor = this.monaco.editor.create(this.editorContainer, {
-      ...getTextEditorOptions(),
+      ...options,
       model: null,
       dimension: { width, height },
     });
@@ -210,6 +249,7 @@ export class TextEditorPane extends EditorPane {
     }
     this.hideMessage();
     if (this.editor.getModel() !== shown.model) {
+      this.updateTabSize(getTextEditorOptions(this.configuration).tabSize);
       this.editor.setModel(shown.model);
     }
     if (shown.viewState) {
@@ -219,6 +259,13 @@ export class TextEditorPane extends EditorPane {
     if (this.pendingFocus) {
       this.pendingFocus = false;
       this.editor.focus();
+    }
+  }
+
+  private updateTabSize(tabSize: number | undefined): void {
+    const model = this.shown?.model;
+    if (tabSize !== undefined && model && !model.isDisposed() && model.getOptions().tabSize !== tabSize) {
+      model.updateOptions({ tabSize });
     }
   }
 
