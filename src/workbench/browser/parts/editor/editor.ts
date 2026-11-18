@@ -3,7 +3,8 @@ import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { ISerializableView } from '../../../../base/browser/ui/grid/grid.js';
 import type { IEditorGroupModelOptions, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
-import type { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
+import type { GroupIdentifier } from '../../../common/editor.js';
+import type { GroupDirection, IEditorGroup, IMergeGroupOptions } from '../../../services/editor/common/editorGroupsService.js';
 
 /** The smallest an editor group, and so an editor pane, may be. */
 export const DEFAULT_EDITOR_MIN_DIMENSIONS = new Dimension(220, 70);
@@ -65,11 +66,33 @@ export interface IEditorGroupsView {
 
   activateGroup(group: IEditorGroupView): void;
   removeGroup(group: IEditorGroupView, preserveFocus?: boolean): void;
+
+  // What a drop onto a group's tabs or body does.
+  getGroup(identifier: GroupIdentifier): IEditorGroupView | undefined;
+  addGroup(location: IEditorGroupView, direction: GroupDirection): IEditorGroupView;
+  moveGroup(group: IEditorGroupView, location: IEditorGroupView, direction: GroupDirection): IEditorGroupView;
+  mergeGroup(group: IEditorGroupView, target: IEditorGroupView, options?: IMergeGroupOptions): boolean;
+}
+
+/**
+ * Merges a dragged group into `target` (at `index`, or after its editors) and keeps the editor that
+ * was active in the dragged group active in `target`, as a drop of a whole group does.
+ */
+export function mergeDroppedGroup(groupsView: IEditorGroupsView, source: IEditorGroupView, target: IEditorGroupView, index?: number): void {
+  const active = source.activeEditor;
+  groupsView.mergeGroup(source, target, { index });
+  if (active && target.contains(active)) {
+    void target.openEditor(active);
+  }
 }
 
 /** An editor group as the part and the other groups see it: a group that is also a grid view. */
 export interface IEditorGroupView extends IEditorGroup, ISerializableView {
   readonly disposed: boolean;
+  /** The tab strip area at the top of the group; the drop overlay covers what lies below it. */
+  readonly titleContainer: HTMLElement;
+  /** The height of `titleContainer`, which drop coordinates leave out. */
+  readonly titleHeight: number;
   /** Marks the group as the active one, or not. Only the part calls this. */
   setActive(active: boolean): void;
   toJSON(): ISerializedEditorGroupModel;

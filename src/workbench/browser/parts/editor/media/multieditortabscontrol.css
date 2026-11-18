@@ -96,3 +96,29 @@
 .tabs-and-actions-container > .editor-actions .wr-menu-toolbar button:hover {
   background: rgb(255 255 255 / 10%);
 }
+
+/* The insertion marker of a tab drag: a line at the edge of the tab where the dropped tab lands. */
+.tabs-container > .tab[data-tab-drop-position]::after,
+.tabs-container[data-tab-drop-position="end"] > .tab:last-child::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 2px;
+  content: '';
+  background: var(--vscode-tab-dragAndDropBorder, #eaf0f9);
+  pointer-events: none;
+}
+
+.tabs-container > .tab[data-tab-drop-position="before"]::after {
+  left: -1px;
+}
+
+.tabs-container > .tab[data-tab-drop-position="after"]::after,
+.tabs-container[data-tab-drop-position="end"] > .tab:last-child::after {
+  right: -2px;
+}
+
+.tabs-container[data-tab-drop-position="end"]:empty {
+  background: var(--vscode-editorGroup-dropBackground, rgb(83 89 93 / 50%));
+}

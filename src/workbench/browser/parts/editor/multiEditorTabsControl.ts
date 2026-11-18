@@ -1,4 +1,4 @@
-import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, DragAndDropObserver } from '../../../../base/browser/dom.js';
 import type { MenuAction, MenuGroup } from '../../../../base/browser/ui/menu/menu.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -11,7 +11,10 @@ import { EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { IEditorCommandsContext } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type { IGroupModelChangeEvent } from '../../../common/editor/editorGroupModel.js';
-import type { IEditorGroupView } from './editor.js';
+import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDropObserver } from '../../dnd.js';
+import type { DraggedEditorItem } from '../../dnd.js';
+import { mergeDroppedGroup } from './editor.js';
+import type { IEditorGroupsView, IEditorGroupView } from './editor.js';
 import './media/multieditortabscontrol.css';
 
 interface ITab {
@@ -34,6 +37,25 @@ function pick({ id, label, enabled, checked, icon, keybinding }: MenuAction): Me
 }
 
 /**
+ * The index a dragged tab gets in the target group's model (`moveEditor`'s `index`, counted after
+ * the move) when dropped on the left (`after` false) or right half of the tab at `hoveredIndex`.
+ * An editor the target group already holds at `sourceIndex` (`sameGroup`: its own tab, or the same
+ * editor split into it) leaves its old place first, so moving right it lands one lower to end up
+ * where the marker showed; an editor new to the group leaves nothing behind in it.
+ */
+export function getTabDropIndex(sourceIndex: number, hoveredIndex: number, after: boolean, sameGroup: boolean): number {
+  const slot = hoveredIndex + (after ? 1 : 0);
+  return sameGroup && sourceIndex < slot ? slot - 1 : slot;
+}
+
+/** Whether the pointer at `clientX` is over the right half of a tab spanning `left` to `left + width`. */
+export function isAfterTabMiddle(clientX: number, left: number, width: number): boolean {
+  return clientX - left > width / 2;
+}
+
+const DROP_POSITION = 'data-tab-drop-position';
+
+/**
  * The tab strip of one group, and its title toolbar. It draws from the group's model events alone,
  * never from the caller of a change, so a change made anywhere — a command, a drop, a restore —
  * shows the same way. It has no state of its own beyond the tab elements.
@@ -45,8 +67,12 @@ export class MultiEditorTabsControl extends Disposable {
   private readonly tabs = new Map<EditorInput, ITab>();
   private width = 0;
 
+  /** The tab or strip that shows the insertion marker. */
+  private marked: HTMLElement | undefined;
+
   constructor(
     parent: HTMLElement,
+    private readonly groupsView: IEditorGroupsView,
     private readonly group: IEditorGroupView,
     @IContextMenuService private readonly contextMenuService: IContextMenuService,
     @IMenuService private readonly menuService: IMenuService,
@@ -66,6 +92,8 @@ export class MultiEditorTabsControl extends Disposable {
       }
     }, { passive: false }));
 
+    this.registerDragAndDrop();
+
     const actions = append(container, $('.editor-actions'));
     this._register(instantiationService.createInstance(
       MenuWorkbenchToolBar, actions, MenuId.EditorTitle, group.scopedContextKeyService,
@@ -73,6 +101,100 @@ export class MultiEditorTabsControl extends Disposable {
 
     this._register(group.onDidModelChange(event => this.onDidModelChange(event)));
     this.redraw();
+  }
+
+  private registerDragAndDrop(): void {
+    const observer = EditorDragAndDropObserver.INSTANCE;
+    // The strip's empty part drags the whole group; a tab inside it is its own drag source.
+    this.tabsContainer.draggable = true;
+    this._register(addDisposableListener(this.tabsContainer, 'dragstart', (event: DragEvent) => {
+      if (event.target === this.tabsContainer) {
+        const label = this.group.activeEditor?.getName() ?? 'Editor Group';
+        observer.startDrag(event, this.tabsContainer, new DraggedEditorGroupIdentifier(this.group.id), label);
+      }
+    }));
+
+    const onDragOver = (event: DragEvent) => {
+      const item = observer.getDraggedItem(event, this.tabsContainer);
+      const drop = item && this.isDropOffered(item) ? this.getDropTarget(event) : undefined;
+      if (!drop) {
+        this.updateDropFeedback(undefined);
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'move';
+      this.updateDropFeedback(drop);
+    };
+    // The browser takes a `dragenter`'s answer as the drop operation until the next `dragover`, so
+    // entering each tab is answered too, not only entering the strip.
+    this._register(addDisposableListener(this.tabsContainer, 'dragenter', onDragOver));
+    const dnd = this._register(new DragAndDropObserver(this.tabsContainer, {
+      onDragOver,
+      onDragLeave: () => this.updateDropFeedback(undefined),
+      onDrop: event => {
+        const item = observer.getDraggedItem(event, this.tabsContainer);
+        const drop = item && this.isDropOffered(item) ? this.getDropTarget(event) : undefined;
+        this.updateDropFeedback(undefined);
+        if (!item || !drop) {
+          return;
+        }
+        event.preventDefault();
+        // The dragged tab may leave the document now, and with it the `dragend` it would fire.
+        observer.endDrag();
+        this.onDrop(item, drop.hoveredIndex, drop.after);
+      },
+    }));
+    this._register(observer.onDidEndDrag(() => {
+      dnd.reset();
+      this.updateDropFeedback(undefined);
+    }));
+  }
+
+  private isDropOffered(item: DraggedEditorItem): boolean {
+    if (item instanceof DraggedEditorGroupIdentifier) {
+      return item.identifier !== this.group.id && !!this.groupsView.getGroup(item.identifier);
+    }
+    return !!this.groupsView.getGroup(item.identifier.groupId)?.contains(item.identifier.editor);
+  }
+
+  /** The tab under the pointer and its half, or the slot after the last tab over the empty strip. */
+  private getDropTarget(event: DragEvent): { hoveredIndex: number; after: boolean; element: HTMLElement } {
+    for (const [editor, tab] of this.tabs) {
+      if (tab.element.contains(event.target as Node)) {
+        const bounds = tab.element.getBoundingClientRect();
+        return { hoveredIndex: this.group.getIndexOfEditor(editor), after: isAfterTabMiddle(event.clientX, bounds.left, bounds.width), element: tab.element };
+      }
+    }
+    return { hoveredIndex: this.group.count - 1, after: true, element: this.tabsContainer };
+  }
+
+  private updateDropFeedback(drop: { after: boolean; element: HTMLElement } | undefined): void {
+    const position = !drop ? undefined : drop.element === this.tabsContainer ? 'end' : drop.after ? 'after' : 'before';
+    if (this.marked && this.marked !== drop?.element) {
+      this.marked.removeAttribute(DROP_POSITION);
+      this.marked = undefined;
+    }
+    if (drop && position) {
+      drop.element.setAttribute(DROP_POSITION, position);
+      this.marked = drop.element;
+    }
+  }
+
+  private onDrop(item: DraggedEditorItem, hoveredIndex: number, after: boolean): void {
+    if (item instanceof DraggedEditorIdentifier) {
+      const { groupId, editor } = item.identifier;
+      const source = this.groupsView.getGroup(groupId)!;
+      // This group may hold the editor already: its own tab, or the same editor split here. The
+      // move then shifts that tab, as `openEditor` finds it by `matches`.
+      const held = this.group.editors.findIndex(candidate => candidate === editor || candidate.matches(editor));
+      const index = getTabDropIndex(held, hoveredIndex, after, held !== -1);
+      source.moveEditor(editor, this.group, { index });
+    } else {
+      // A whole group lands at the marker, its tabs in their order.
+      mergeDroppedGroup(this.groupsView, this.groupsView.getGroup(item.identifier)!, this.group, hoveredIndex + (after ? 1 : 0));
+    }
+    this.groupsView.activateGroup(this.group);
+    this.group.focus();
   }
 
   /** The strip is as wide as its group; the active tab is kept in view. */
@@ -134,6 +256,12 @@ export class MultiEditorTabsControl extends Disposable {
     const element = $('.tab', { role: 'none' });
     const label = append(element, $('.tab-label', { role: 'tab' }));
     const close = append(element, $('button.tab-close', { type: 'button', tabindex: -1 }) as HTMLButtonElement);
+    element.draggable = true;
+    disposables.add(addDisposableListener(element, 'dragstart', (event: DragEvent) => {
+      // Read when the drag starts: the tab's group is the one that holds the editor now.
+      const item = new DraggedEditorIdentifier({ groupId: this.group.id, editor });
+      EditorDragAndDropObserver.INSTANCE.startDrag(event, element, item, editor.getName());
+    }));
 
     const editorIndex = () => this.group.getIndexOfEditor(editor);
     disposables.add(addDisposableListener(element, 'mousedown', (event: MouseEvent) => {
@@ -241,6 +369,7 @@ export class MultiEditorTabsControl extends Disposable {
   }
 
   override dispose(): void {
+    this.updateDropFeedback(undefined);
     for (const tab of this.tabs.values()) {
       tab.disposables.dispose();
     }

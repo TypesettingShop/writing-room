@@ -189,21 +189,11 @@ test('moves from the keyboard context menu and resets with the command palette',
 test('ignores a non-container drag from the editor', async ({ appPage: page }) => {
   const editor = part(page, 'editor');
   const explorer = part(page, 'activitybar').getByRole('button', { name: 'Explorer' });
-  // The editor docking epic owns real tabs. Exercise a native drag with an unrelated payload.
-  await editor.evaluate(element => {
-    const tab = document.createElement('button');
-    tab.draggable = true;
-    tab.setAttribute('role', 'tab');
-    tab.textContent = 'Editor tab drag fixture';
-    tab.addEventListener('dragstart', event => event.dataTransfer?.setData('application/x-editor-tab', 'test'));
-    // Inside a group's tab strip: the part's grid fills the part, so a child after it would sit
-    // over the panel below.
-    element.querySelector('[role="tablist"]')!.append(tab);
-  });
-
-  await startDrag(page, editor.getByRole('tab', { name: 'Editor tab drag fixture' }));
+  // A real editor tab: its drag carries an editor, which no composite bar takes.
+  await startDrag(page, editor.getByRole('tab', { name: 'Welcome' }));
   await dragOver(page, explorer);
   await expect(marker(page)).toHaveCount(0);
   await page.mouse.up();
   await expect(explorer).toHaveAttribute('aria-pressed', 'true');
+  await expect(editor.getByRole('tab')).toHaveText(['Welcome']);
 });

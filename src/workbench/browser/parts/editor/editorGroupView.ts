@@ -50,7 +50,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   readonly onWillDispose = this._onWillDispose.event;
 
   private readonly model: EditorGroupModel;
-  private readonly titleContainer: HTMLElement;
+  readonly titleContainer: HTMLElement;
   private readonly editorContainer: HTMLElement;
   private readonly tabsControl: MultiEditorTabsControl;
   private readonly panes = new Map<string, IPaneEntry>();
@@ -76,9 +76,9 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     this.updateContextKeys();
 
     this.titleContainer = append(this.element, $('.title'));
-    this.titleContainer.style.height = `${MultiEditorTabsControl.EDITOR_TAB_HEIGHT.normal}px`;
+    this.titleContainer.style.height = `${this.titleHeight}px`;
     this.editorContainer = append(this.element, $('.editor-container'));
-    this.tabsControl = this._register(instantiationService.createInstance(MultiEditorTabsControl, this.titleContainer, this));
+    this.tabsControl = this._register(instantiationService.createInstance(MultiEditorTabsControl, this.titleContainer, this.groupsView, this));
 
     // Whatever is clicked or focused inside a group makes it the active group, before a toolbar
     // button or a tab acts on "the active group".
@@ -90,6 +90,10 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
 
   get id(): GroupIdentifier {
     return this.model.id;
+  }
+
+  get titleHeight(): number {
+    return MultiEditorTabsControl.EDITOR_TAB_HEIGHT.normal;
   }
 
   get disposed(): boolean {
@@ -379,7 +383,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     if (!this.dimension) {
       return;
     }
-    const height = Math.max(0, this.dimension.height - MultiEditorTabsControl.EDITOR_TAB_HEIGHT.normal);
+    const height = Math.max(0, this.dimension.height - this.titleHeight);
     this.editorContainer.style.width = `${this.dimension.width}px`;
     this.editorContainer.style.height = `${height}px`;
     this.activePaneEntry?.pane.layout(new Dimension(this.dimension.width, height));

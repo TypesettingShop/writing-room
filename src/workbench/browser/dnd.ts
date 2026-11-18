@@ -3,8 +3,22 @@ import { Emitter } from '../../base/common/event.js';
 import { DisposableStore, toDisposable } from '../../base/common/lifecycle.js';
 import type { IDisposable } from '../../base/common/lifecycle.js';
 import { LocalSelectionTransfer } from '../../platform/dnd/browser/dnd.js';
+import type { GroupIdentifier, IEditorIdentifier } from '../common/editor.js';
 
 const compositeMime = 'application/x-writing-room-view-container';
+
+/** Calls `end` however a drag from `source` ends: its `dragend`, Escape, or the window losing focus or the page. */
+function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
+  const window = source.ownerDocument.defaultView!;
+  session.add(addDisposableListener(source, 'dragend', end));
+  session.add(addDisposableListener(window, 'pagehide', end));
+  session.add(addDisposableListener(window, 'blur', end));
+  session.add(addDisposableListener(window, 'keydown', event => {
+    if (event.key === 'Escape') {
+      end();
+    }
+  }, true));
+}
 
 export class DraggedCompositeIdentifier {
   constructor(readonly id: string) {}
@@ -44,15 +58,7 @@ export class CompositeDragAndDropObserver {
       this.transfer.setData([item], DraggedCompositeIdentifier.prototype);
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData(compositeMime, '');
-      const window = element.ownerDocument.defaultView!;
-      this.session.add(addDisposableListener(element, 'dragend', () => this.finish()));
-      this.session.add(addDisposableListener(window, 'pagehide', () => this.finish()));
-      this.session.add(addDisposableListener(window, 'blur', () => this.finish()));
-      this.session.add(addDisposableListener(window, 'keydown', event => {
-        if (event.key === 'Escape') {
-          this.finish();
-        }
-      }, true));
+      trackDragSession(this.session, element, () => this.finish());
     }));
     registrations.add(toDisposable(() => {
       element.draggable = wasDraggable;
@@ -106,6 +112,74 @@ export class CompositeDragAndDropObserver {
       this.transfer.clearData(DraggedCompositeIdentifier.prototype);
       this.session.clear();
       this.dragEnded.fire();
+    }
+  }
+}
+
+// --- editors and editor groups
+
+const editorMime = 'application/x-writing-room-editor';
+
+export class DraggedEditorIdentifier {
+  constructor(readonly identifier: IEditorIdentifier) {}
+}
+
+export class DraggedEditorGroupIdentifier {
+  constructor(readonly identifier: GroupIdentifier) {}
+}
+
+export type DraggedEditorItem = DraggedEditorIdentifier | DraggedEditorGroupIdentifier;
+
+/**
+ * The one editor or editor group drag of the window. The payload lives in `LocalSelectionTransfer`
+ * because `dragover` cannot read `dataTransfer`; the session ends however the drag ends, so a stale
+ * payload never makes a later, unrelated drag act on an editor.
+ */
+export class EditorDragAndDropObserver {
+  static readonly INSTANCE = new EditorDragAndDropObserver();
+
+  private readonly transfer = LocalSelectionTransfer.getInstance<DraggedEditorItem>();
+  private readonly _onDidEndDrag = new Emitter<void>();
+  /** Fires once when the drag ends: drop, `dragend`, Escape, blur or page hide. */
+  readonly onDidEndDrag = this._onDidEndDrag.event;
+  private readonly session = new DisposableStore();
+  private source: HTMLElement | undefined;
+  private type: object | undefined;
+
+  private constructor() {}
+
+  /** Starts a drag of `item` from `source`, from inside its `dragstart` listener. */
+  startDrag(event: DragEvent, source: HTMLElement, item: DraggedEditorItem, label: string): void {
+    this.endDrag();
+    this.source = source;
+    this.type = Object.getPrototypeOf(item) as object;
+    this.transfer.setData([item], this.type);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      // Firefox starts a drag only with data in it; the marker type tells our drags from others.
+      event.dataTransfer.setData('text/plain', label);
+      event.dataTransfer.setData(editorMime, '');
+    }
+    // The source may leave the document on drop (its tab moved away), so the drop target ends
+    // the session too; these catch every other way out.
+    trackDragSession(this.session, source, () => this.endDrag());
+  }
+
+  /** The editor or group this drag carries, if it is ours and still going. */
+  getDraggedItem(event: DragEvent, element: HTMLElement): DraggedEditorItem | undefined {
+    if (this.type && this.source?.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(editorMime)) {
+      return this.transfer.getData(this.type)?.[0];
+    }
+    return undefined;
+  }
+
+  endDrag(): void {
+    if (this.source) {
+      this.source = undefined;
+      this.transfer.clearData(this.type!);
+      this.type = undefined;
+      this.session.clear();
+      this._onDidEndDrag.fire();
     }
   }
 }
