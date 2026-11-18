@@ -25,3 +25,36 @@ test('refreshes an expanded node in place without requesting the root', async ()
   model.dispose();
   refresh.dispose();
 });
+
+test('asks for a collapsed subtree again after a full refresh', async () => {
+  const refresh = new Emitter<readonly string[] | undefined>();
+  const parent: TreeItemDto = { handle: 'parent', label: 'Parent', collapsible: 1 };
+  const group: TreeItemDto = { handle: 'group', label: 'Group', collapsible: 1 };
+  let leaf: TreeItemDto = { handle: 'old', label: 'Old', collapsible: 0 };
+  const model = new TreeViewModel({
+    getChildren: async handle => handle === 'parent' ? [group] : handle === 'group' ? [leaf] : [parent],
+    getItem: async () => undefined,
+    onDidRefresh: refresh.event,
+    reference: handle => ({ handle, view: 'tree', extension: 'e', kind: 'extensionTreeItem' }),
+  });
+  const labels = () => model.rows.map(({ item }) => item.label);
+  await vi.waitFor(() => expect(labels()).toEqual(['Parent']));
+  model.setExpanded('parent', true);
+  await vi.waitFor(() => expect(labels()).toEqual(['Parent', 'Group']));
+  model.setExpanded('group', true);
+  await vi.waitFor(() => expect(labels()).toEqual(['Parent', 'Group', 'Old']));
+  model.setExpanded('parent', false);
+  leaf = { handle: 'new', label: 'New', collapsible: 0 };
+  const reloaded = new Promise<void>(resolve => {
+    const listener = model.onDidChange(() => {
+      listener.dispose();
+      resolve();
+    });
+  });
+  refresh.fire(undefined);
+  await reloaded;
+  model.setExpanded('parent', true);
+  await vi.waitFor(() => expect(labels()).toEqual(['Parent', 'Group', 'New']));
+  model.dispose();
+  refresh.dispose();
+});

@@ -318,6 +318,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
         host.main.remove(key);
       }
       host.synchronized = host.synchronized.then(() => host.proxy.$deltaExtensions([...next.values()], removed));
+      // A replay may match no event, so nothing else is sure to await this chain before the host stops.
+      host.synchronized.catch(() => {});
     }
     void this.replayEvents().catch(() => {});
   }

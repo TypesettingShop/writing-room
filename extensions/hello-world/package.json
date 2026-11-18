@@ -13,8 +13,7 @@
     "menus": {
       "view/title": [{ "command": "hello-world.hello", "when": "view == hello-world.tree", "group": "navigation@2" }],
       "view/item/context": [{ "command": "hello-world.select", "when": "view == hello-world.tree && viewItem == greeting", "group": "navigation" }],
-      "editor/title": [{ "command": "hello-world.select", "title": "Describe Greeting", "category": "Hello World" },
-      { "command": "hello-world.where", "group": "navigation" }]
+      "editor/title": [{ "command": "hello-world.where", "group": "navigation" }]
     },
     "keybindings": [{ "command": "hello-world.hello", "key": "F8" }],
     "viewsContainers": {

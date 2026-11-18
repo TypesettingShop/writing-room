@@ -19,7 +19,8 @@ export class MainThreadStatusBar implements MainThreadStatusBarShape, IDisposabl
     const entries = this.entries.get(extension) ?? new Map();
     this.entries.set(extension, entries);
     const data = {
-      name: entry.name ?? extensionId, text: entry.text, tooltip: entry.tooltip,
+      // The worker is not trusted for shapes: a non-string text would throw inside addEntry after the item is placed.
+      name: entry.name ?? extensionId, text: typeof entry.text === 'string' ? entry.text : '', tooltip: entry.tooltip,
       command: typeof entry.command === 'object'
         ? { id: entry.command.id, arguments: entry.command.args }
         : entry.command,

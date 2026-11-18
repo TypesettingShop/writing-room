@@ -65,3 +65,37 @@ test('coalesces activation, isolates failures, runs own command during activatio
     errorLog.mockRestore();
   }
 });
+
+test('fails activation when a command registration is rejected before activate returns', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const channel = new MessageChannel();
+  const main = new RPCProtocol(channel.port1);
+  const worker = new RPCProtocol(channel.port2);
+  const states: string[] = [];
+  main.set(MainContext.MainThreadCommands, {
+    async $registerCommand(_ext, id) { throw new Error(`command '${id}' already exists`); },
+    async $unregisterCommand() {},
+    async $executeCommand() {},
+  });
+  main.set(MainContext.MainThreadExtensionService, {
+    async $setActivationStatus(_ext, status) { states.push(status.state); },
+  });
+  const service = new ExtHostExtensionService(worker, async (_ext, vscode) => ({
+    async activate() {
+      vscode.commands.registerCommand('test', () => {});
+      // The rejection settles while activation still waits for other work.
+      await new Promise(resolve => setTimeout(resolve, 20));
+    },
+  }));
+  try {
+    const extensions = main.getProxy(ExtHostContext.ExtHostExtensionService);
+    await extensions.$deltaExtensions([description('late')], []);
+    await extensions.$activateByEvent('onCommand:test');
+    await vi.waitFor(() => expect(states).toEqual(['activating', 'failed']));
+  } finally {
+    service.dispose();
+    main.dispose();
+    worker.dispose();
+    errorLog.mockRestore();
+  }
+});

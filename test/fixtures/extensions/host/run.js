@@ -7,6 +7,16 @@ exports.activate = context => {
   } catch (error) {
     requireError = error.message;
   }
+  // Extension code shares the host's realm. A replaced MessageEvent getter must never see the host's port.
+  let portReached = false;
+  const data = Object.getOwnPropertyDescriptor(MessageEvent.prototype, 'data');
+  Object.defineProperty(MessageEvent.prototype, 'data', {
+    ...data,
+    get() {
+      portReached ||= this.currentTarget instanceof MessagePort || this.target instanceof MessagePort;
+      return data.get.call(this);
+    },
+  });
   context.subscriptions.push(vscode.commands.registerCommand('host-fixture.run', () => ({
     worker: typeof WorkerGlobalScope === 'function',
     document: typeof globalThis.document,
@@ -16,5 +26,6 @@ exports.activate = context => {
     importScripts: typeof globalThis.importScripts,
     addEventListener: typeof globalThis.addEventListener,
     requireError,
+    portReached,
   })));
 };

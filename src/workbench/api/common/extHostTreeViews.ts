@@ -84,7 +84,8 @@ class TreeRegistration extends Disposable {
         nodes.set(handle, { element, parent });
         return { handle, item };
       });
-      const rows = prepared.map(({ handle, item }) => this.toDto(handle, item, nodes));
+      let index: Map<unknown, string> | undefined;
+      const rows = prepared.map(({ handle, item }) => this.toDto(handle, item, () => index ??= this.handleIndex(nodes)));
       if (this.loads.get(parent) !== request) {
         return [];
       }
@@ -110,21 +111,34 @@ class TreeRegistration extends Disposable {
     if (node) {
       const item = await this.provider.getTreeItem(node.element);
       if (this.nodes.get(handle) === node) {
-        return this.toDto(handle, item);
+        return this.toDto(handle, item, () => this.handleIndex());
       }
     }
     return undefined;
   }
 
-  private toDto(handle: string, item: vscode.TreeItem, pending?: ReadonlyMap<string, TreeNode>): TreeItemDto {
+  /** Maps each element to its first handle, looking at the batch being loaded before the known nodes. */
+  private handleIndex(pending?: ReadonlyMap<string, TreeNode>): Map<unknown, string> {
+    const index = new Map<unknown, string>();
+    for (const nodes of [pending ?? new Map<string, TreeNode>(), this.nodes]) {
+      for (const [handle, node] of nodes) {
+        if (!index.has(node.element)) {
+          index.set(node.element, handle);
+        }
+      }
+    }
+    return index;
+  }
+
+  private toDto(handle: string, item: vscode.TreeItem, index: () => ReadonlyMap<unknown, string>): TreeItemDto {
     const label = typeof item.label === 'string' ? item.label : item.label?.label ?? '';
     let args: unknown[] | undefined;
     if (item.command?.arguments) {
-      const nodes = [...pending ?? [], ...this.nodes];
+      const handles = index();
       try {
         args = structuredClone(item.command.arguments.map(argument => {
-          const match = nodes.find(([, node]) => node.element === argument);
-          return match ? this.reference(match[0]) : argument;
+          const match = handles.get(argument);
+          return match === undefined ? argument : this.reference(match);
         }));
       } catch {
         throw new Error(`Tree item '${label}' command arguments must be structured-cloneable.`);

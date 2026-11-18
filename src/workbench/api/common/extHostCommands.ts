@@ -49,8 +49,8 @@ export class ExtHostCommands implements ExtHostCommandsShape {
     this.pending.set(extension, operations);
     void operation.then(
       () => operations.delete(operation),
+      // A rejected registration stays pending so that flush() fails activation however early it settled.
       error => {
-        operations.delete(operation);
         if (this.isLive(extension)) {
           console.error(`[${extension}] Command registration failed:`, error);
         }

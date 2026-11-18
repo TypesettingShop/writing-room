@@ -45,6 +45,9 @@ test('main thread removes every tree and status entry for an extension', async (
   await statusbar.$setEntry('a', '1', { alignment: 2, text: 'Second' });
   expect(addEntry).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'First' }), 'test.a.1', StatusbarAlignment.RIGHT, 0);
   expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'Second' }));
+  // A plain JavaScript extension can assign undefined; the status bar renders strings only.
+  await statusbar.$setEntry('a', '1', { alignment: 2, text: undefined as unknown as string });
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ text: '' }));
   statusbar.remove('a');
   expect(dispose).toHaveBeenCalledOnce();
   trees.dispose();

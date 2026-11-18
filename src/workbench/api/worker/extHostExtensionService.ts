@@ -26,6 +26,6 @@ export async function loadCommonJSModule(
     }
     throw new Error(`Cannot load module '${name}'`);
   }
-  evaluate('module', 'exports', 'require', source + '\n//# sourceURL=' + encodeURI(extension.entry))(module, module.exports, require);
+  evaluate('module', 'exports', 'require', source + '\n//# sourceURL=' + extension.entry)(module, module.exports, require);
   return module.exports ?? {};
 }

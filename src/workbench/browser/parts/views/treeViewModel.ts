@@ -87,8 +87,7 @@ export class TreeViewModel extends Disposable {
         if (this.expanded.has(handle) && item.collapsible !== 0) {
           void this.load(handle, true);
         } else {
-          this.requests.delete(handle);
-          this.children.delete(handle);
+          this.invalidate(handle);
         }
         this.changed.fire();
       }
@@ -132,6 +131,8 @@ export class TreeViewModel extends Disposable {
         if (item.collapsible !== 0 && this.expanded.has(item.handle)
           && (refreshDescendants || !this.children.has(item.handle))) {
           void this.load(item.handle, refreshDescendants);
+        } else if (refreshDescendants) {
+          this.invalidate(item.handle);
         }
       }
       this.changed.fire();
@@ -145,6 +146,15 @@ export class TreeViewModel extends Disposable {
         this.requests.delete(parent);
       }
     }
+  }
+
+  /** Drops the cached rows under a hidden node so that expanding it asks the provider again. */
+  private invalidate(handle: string): void {
+    for (const child of this.children.get(handle) ?? []) {
+      this.invalidate(child.handle);
+    }
+    this.children.delete(handle);
+    this.requests.delete(handle);
   }
 
   private forget(handle: string): void {

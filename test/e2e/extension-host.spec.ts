@@ -33,6 +33,7 @@ test('hides worker globals and leaves the workbench responsive through failure, 
     worker: true, document: 'undefined', storage: 'undefined', postMessage: 'undefined',
     close: 'undefined', importScripts: 'undefined', addEventListener: 'undefined',
     requireError: "Cannot load module 'unsupported'",
+    portReached: false,
   });
   await page.locator('#hang').click();
   await page.locator('#ping').click();
