@@ -144,7 +144,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 #### Manifest contributions
 
-- Vite가 빌드 시 내장 확장 매니페스트를 읽고 참조할 수 있는 파일을 URL 에셋으로 발행한다. 매니페스트 위치와 리소스 URL의 매핑은 개발과 배포에서 같은 확장 설명을 쓰게 한다 (wr-cla6.v89). [VS Code 내장 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/builtinExtensionsScannerService.ts)
+- Vite가 빌드 시 내장 확장 매니페스트를 읽고, 빌드 후 디렉터리를 `dist/extensions/`에 복사한다 — 개발과 배포에서 `extensionUri`를 기준으로 매니페스트와 리소스를 읽을 수 있게 한다 (wr-cla6.rmv). [VS Code 내장 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/builtinExtensionsScannerService.ts)
 - 파싱에 실패하는 `when`과 `enablement`는 해당 기여를 건너뛴다. 기여 집합이 바뀌어도 같은 확장의 뷰와 컨테이너를 유지해 열린 위치를 보존한다 (wr-cla6.v89). [VS Code 메뉴 기여 핸들러](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/actions/common/menusExtensionPoint.ts)
 
 #### Extension host
@@ -152,12 +152,19 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 앱과 같은 오리진에서 전용 모듈 Worker 하나를 지연 시작한다. Vite의 Worker URL 변환을 사용하고, 준비·초기화·종료 신호와 객체 기반 RPC가 전용 `MessagePort`를 공유한다. 시작 제한은 60초다. 포그라운드에서 응답이 끊기면 호스트를 중지하고, 재시작으로 이미 발생한 활성화 이벤트를 재생한다 (wr-cla6.rmv). [VS Code 웹 Worker 호스트](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts)
 - 커맨드와 활성화 RPC는 식별자와 구조화 복제 가능한 값을 전달한다. 등록에는 확장 설치 세대의 키를 사용해 제거 후 같은 확장을 다시 설치해도 이전 호스트의 호출이 새 등록을 바꾸지 못하게 한다 (wr-cla6.rmv). [VS Code 확장 호스트 프로토콜](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.protocol.ts)
 
+- 초기화 뒤 Worker의 잡히지 않은 오류와 Promise 거부는 Worker에서 기록한다 — 한 확장의 비동기 예외가 다른 확장의 등록과 실행을 끊지 않게 한다 (wr-cla6.rmv).
+
 #### Extension API
 
 - 트리 RPC는 핸들과 구조화 복제 가능한 행 데이터만 전달한다. 일반 갱신은 하위 목록을 요청하고, 요소 단위 갱신은 `$getTreeItem`으로 행을 다시 받는다. 상태 항목은 한 마이크로태스크에 갱신을 모으고 토스트는 원래 선택지의 인덱스로 응답한다 (wr-cla6.n6y). [VS Code 트리 프로토콜](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.protocol.ts)
 
+- 상태 표시줄 항목의 접근 가능한 이름은 `name`을 우선 사용하며 기본값은 확장 식별자다 — 표시 텍스트가 동적으로 바뀌어도 안정적인 이름을 제공한다 (wr-cla6.n6y).
+- 트리 항목 커맨드에서 `arguments`를 생략하면 해당 항목의 원래 요소 하나를 전달한다 — 간단한 행 커맨드가 대상 요소를 받을 수 있게 한다 (wr-cla6.n6y).
+
 #### Extension installation
 
 - 설치 목록은 프로필 범위 `extensions.user` 키에 매니페스트와 위치를 저장한다. 시작 시 사본을 다시 검사해 내장 확장과 함께 첫 레이아웃에 등록한다. 코드와 이미지 파일은 활성화할 때 해당 위치에 요청하며 설치 목록에는 저장하지 않는다 (wr-cla6.ayw). [VS Code 웹 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/webExtensionsScannerService.ts)
+
+- 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
 Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb

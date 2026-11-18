@@ -28,4 +28,4 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 - 이 워크벤치의 실행 방법 가이드와 확장 작성 가이드는 다른 문서에서 다룬다(확장 API는 `extension-api.md`).
 - VS Code의 채팅, 세션, 노트북, 터미널, 디버그, 설정 에디터 UI, 원격, 데스크톱 빌드는 v0.1.0에서 다루지 않는다.
 
-Decided in: wr-e8v6
+Decided in: wr-e8v6, wr-ggyb
