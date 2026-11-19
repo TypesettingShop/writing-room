@@ -1,3 +1,6 @@
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { findWorkspaceActivation } from './workspaceActivation.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IWorkbenchLayoutService } from '../../layout/browser/layoutService.js';
 import { RemoteExtensionIcons } from './remoteExtensionIcons.js';
@@ -29,6 +32,8 @@ interface HostSession {
   readonly main: MainThreadExtensionService;
   readonly proxy: ExtHostExtensionServiceShape;
   registered: Map<string, HostExtensionDescription>;
+  desired: Set<string>;
+  readonly removing: Map<string, () => void>;
   synchronized: Promise<void>;
 }
 
@@ -56,6 +61,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
   private nextExtensionKey = 0;
   private host?: HostSession;
   private hostFailure?: Error;
+  private readonly removals = new Map<string, Promise<void>>();
+  private readonly workspaceSearch = new AbortController();
   private readonly eventOperations = new Map<string, Promise<void>>();
   private readonly completedEvents = new Set<string>();
   private stopping = false;
@@ -105,6 +112,9 @@ export class ExtensionService extends Disposable implements IExtensionService {
     }
     this.applyContributions();
     this.finishRegistration(true);
+    if (this.instantiation) {
+      void this.searchWorkspaceActivation().catch(error => console.warn('Workspace activation search failed:', error));
+    }
   }
 
   get extensions(): readonly IExtensionDescription[] {
@@ -150,6 +160,28 @@ export class ExtensionService extends Disposable implements IExtensionService {
     return true;
   }
 
+  async whenExtensionRemoved(id: string): Promise<void> {
+    await this.removals.get(id.toLowerCase());
+  }
+
+  private async searchWorkspaceActivation(): Promise<void> {
+    const prefix = 'workspaceContains:';
+    const events = new Set([...this.extensionEvents.values()].flatMap(events => [...events])
+      .filter(event => event.startsWith(prefix)));
+    if (!events.size) {
+      return;
+    }
+    const { files, folders } = this.instantiation!.invokeFunction(accessor => ({
+      files: accessor.get(IFileService),
+      folders: accessor.get(IWorkspaceContextService).getWorkspace().folders,
+    }));
+    await Promise.all([...events].map(async event => {
+      if (await findWorkspaceActivation(files, folders, event.slice(prefix.length), this.workspaceSearch.signal)) {
+        await this.activateByEvent(event);
+      }
+    }));
+  }
+
   private addDescription(extension: IExtensionDescription): boolean {
     const id = extension.identifier.value;
     if (this.descriptions.has(id)) {
@@ -188,7 +220,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
         this.remoteIcons?.activate(id);
       }
     }
-    if (!this.matches(event)) {
+    if (!this.matches(event) && !(origin && this.host)) {
       return;
     }
     if (this.hostFailure) {
@@ -250,15 +282,12 @@ export class ExtensionService extends Disposable implements IExtensionService {
     for (const description of this.extensions) {
       const { identifier, location, manifest } = description;
       const entry = manifest.browser && resolveExtensionEntry(location, manifest.browser);
-      if (!entry) {
-        continue;
-      }
       let key = this.extensionKeys.get(description);
       if (!key) {
         key = String(++this.nextExtensionKey);
         this.extensionKeys.set(description, key);
       }
-      result.set(key, { id: identifier.value, key, location, entry: entry.href, manifest,
+      result.set(key, { id: identifier.value, key, location, entry: entry ? entry.href : '', manifest,
         activationEvents: [...this.extensionEvents.get(identifier.value) ?? []], views: this.viewHandler.viewIds(identifier.value) });
     }
     return result;
@@ -268,7 +297,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const registered = this.hostDescriptions();
     const worker = new WebWorkerExtensionHost([...registered.values()]);
     const host: HostSession = {
-      worker, registered, synchronized: worker.ready,
+      worker, registered, desired: new Set(registered.keys()), removing: new Map(), synchronized: worker.ready,
       proxy: worker.rpc.getProxy(ExtHostContext.ExtHostExtensionService),
       main: this.instantiation!.createInstance(MainThreadExtensionService, worker.rpc, {
         getExtension: key => this.host === host ? host.registered.get(key) : undefined,
@@ -277,6 +306,17 @@ export class ExtensionService extends Disposable implements IExtensionService {
         setStatus: (key, status) => {
           const id = host.registered.get(key)?.id;
           if (this.host === host && id) {
+            const finishRemoval = host.removing.get(key);
+            if (finishRemoval && status.state === 'inactive') {
+              host.registered.delete(key);
+              host.removing.delete(key);
+              host.main.remove(key);
+              finishRemoval();
+              return;
+            }
+            if (finishRemoval) {
+              return;
+            }
             this.activationStatus.set(id, status);
             if (status.state === 'failed') {
               host.main.remove(key);
@@ -306,6 +346,9 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.activationStatus.clear();
     host?.main.dispose();
     host?.worker.dispose();
+    for (const finishRemoval of host?.removing.values() ?? []) {
+      finishRemoval();
+    }
   }
 
   private extensionsChanged(): void {
@@ -314,10 +357,21 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const host = this.host;
     if (host) {
       const next = this.hostDescriptions();
-      const removed = [...host.registered.keys()].filter(key => !next.has(key));
-      host.registered = next;
+      const removed = [...host.desired].filter(key => !next.has(key));
+      host.desired = new Set(next.keys());
       for (const key of removed) {
-        host.main.remove(key);
+        const { id } = host.registered.get(key)!;
+        const previous = this.removals.get(id);
+        const removal = new Promise<void>(resolve => host.removing.set(key, resolve));
+        const completed = Promise.all([previous, removal]).then(() => {
+          if (this.removals.get(id) === completed) {
+            this.removals.delete(id);
+          }
+        });
+        this.removals.set(id, completed);
+      }
+      for (const [key, description] of next) {
+        host.registered.set(key, description);
       }
       host.synchronized = host.synchronized.then(() => host.proxy.$deltaExtensions([...next.values()], removed));
       // A replay may match no event, so nothing else is sure to await this chain before the host stops.
@@ -332,6 +386,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
 
   override dispose(): void {
     this.stopping = true;
+    this.workspaceSearch.abort();
     this.stopHost();
     super.dispose();
   }

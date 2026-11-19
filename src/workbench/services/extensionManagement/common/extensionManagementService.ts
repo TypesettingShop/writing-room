@@ -471,6 +471,7 @@ export class ExtensionManagementService {
     const replaced = this.installed.find(extension => extension.identifier.value === identifier);
     if (replaced) {
       this.active.removeExtension?.(identifier);
+      await this.active.whenExtensionRemoved?.(identifier);
     }
     try {
       if (!this.active.addExtension?.(description)) {
@@ -617,6 +618,7 @@ export class ExtensionManagementService {
     if (!description || !this.active.removeExtension?.(id)) {
       return false;
     }
+    await this.active.whenExtensionRemoved?.(id);
     try {
       await this.scanner.locked(async (read, write) => {
         const installed = read();

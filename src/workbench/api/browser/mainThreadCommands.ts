@@ -96,6 +96,9 @@ export class MainThreadCommands extends Disposable implements MainThreadCommands
       throw new Error('The extension is no longer registered.');
     }
     await this.host.activate('onCommand:' + id, extension);
+    if (!this.host.extensionId(extension)) {
+      throw new Error('The extension is no longer registered.');
+    }
     const command = CommandsRegistry.getCommand(id);
     if (!command) {
       throw new Error(`command '${id}' not found`);
