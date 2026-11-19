@@ -1,6 +1,7 @@
 import { Dimension } from '../../../../base/browser/dom.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
+import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import type { ISerializableView } from '../../../../base/browser/ui/grid/grid.js';
 import type { IEditorGroupModelOptions, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
@@ -26,6 +27,18 @@ export const DEFAULT_EDITOR_PART_OPTIONS: IEditorPartOptions = {
   closeEmptyGroups: true,
   splitSizing: 'auto',
 };
+
+export const closeEmptyGroupsSetting = 'workbench.editor.closeEmptyGroups';
+configurationRegistry.registerConfiguration({
+  id: 'workbench.editor',
+  title: 'Editor Groups',
+  properties: {
+    [closeEmptyGroupsSetting]: {
+      type: 'boolean', default: DEFAULT_EDITOR_PART_OPTIONS.closeEmptyGroups,
+      description: 'Closes an editor group when its last editor closes.',
+    },
+  },
+});
 
 /** The providers set and not yet disposed, the latest last: it is the one in use. */
 const optionsProviders: { readonly provide: () => Partial<IEditorPartOptions> }[] = [];

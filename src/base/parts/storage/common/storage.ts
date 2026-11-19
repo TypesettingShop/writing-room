@@ -37,10 +37,12 @@ export class Storage {
   private items = new Map<string, string>();
   private pending = new Map<string, string | undefined>();
   private scheduled = false;
+  private database: IStorageDatabase;
 
-  constructor(private database: IStorageDatabase) {
+  constructor(private readonly persistentDatabase: IStorageDatabase) {
+    this.database = persistentDatabase;
     try {
-      this.items = database.getItems();
+      this.items = persistentDatabase.getItems();
     } catch (error) {
       this.useMemory(error);
     }
@@ -67,6 +69,30 @@ export class Storage {
       });
     }
     return true;
+  }
+
+  /** Commit an explicit save before changing what readers see. A failed write remains retryable. */
+  setImmediately(key: string, write: string | ((stored: string | undefined) => string)): boolean {
+    const usingFallback = this.database !== this.persistentDatabase;
+    try {
+      // Reopen a backend closed by the fallback, for this write only. A transform also reads the current
+      // persisted value, even when a different tab's storage event has yet to reach this cache.
+      const stored = usingFallback || typeof write === 'function'
+        ? this.persistentDatabase.getItems().get(key) : undefined;
+      const value = typeof write === 'function' ? write(stored) : write;
+      const update = { insert: new Map([[key, value]]), delete: new Set<string>() };
+      this.persistentDatabase.updateItems(update);
+      if (usingFallback) {
+        this.database.updateItems(update);
+      }
+      this.pending.delete(key);
+      return this.updateCache(key, value);
+    } finally {
+      if (usingFallback) {
+        // The rest of this tab's state lives only in memory, so it keeps ignoring other tabs' writes.
+        this.persistentDatabase.close();
+      }
+    }
   }
 
   acceptExternal(key: string, value: string | undefined): boolean {
@@ -108,7 +134,7 @@ export class Storage {
   }
 
   useMemory(error: unknown): void {
-    this.database.close();
+    this.closeDatabases();
     this.database = new InMemoryStorageDatabase(this.items);
     this.pending.clear();
     console.warn('Workbench storage switched to memory.', error);
@@ -116,6 +142,13 @@ export class Storage {
 
   close(): void {
     this.flush();
+    this.closeDatabases();
+  }
+
+  private closeDatabases(): void {
     this.database.close();
+    if (this.database !== this.persistentDatabase) {
+      this.persistentDatabase.close();
+    }
   }
 }

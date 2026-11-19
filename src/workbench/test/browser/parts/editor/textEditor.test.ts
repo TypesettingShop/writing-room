@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { Dimension } from '../../../../../base/browser/dom.js';
-import { Emitter } from '../../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import type { ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
+import { NullConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import type { IConfigurationChangeEvent, IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { TextEditorPane } from '../../../../browser/parts/editor/textEditor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
@@ -15,6 +17,7 @@ const fake = vi.hoisted(() => {
     readonly setModelCalls: unknown[] = [];
     readonly restored: unknown[] = [];
     readonly layouts: { width: number; height: number }[] = [];
+    readonly updates: Record<string, unknown>[] = [];
     focused = 0;
     disposed = false;
     readonly focusText = new Set<() => void>();
@@ -42,6 +45,7 @@ const fake = vi.hoisted(() => {
     }
     restoreViewState(state: unknown) { this.restored.push(state); }
     layout(dimension: { width: number; height: number }) { this.layouts.push(dimension); }
+    updateOptions(options: Record<string, unknown>) { this.updates.push(options); }
     focus() { this.focused++; }
     hasWidgetFocus() { return this.focused > 0; }
     dispose() { this.disposed = true; }
@@ -80,6 +84,12 @@ vi.mock('../../../../../editor/browser/monaco.js', () => ({ loadMonaco: () => fa
 
 type FakeEditor = InstanceType<typeof fake.FakeEditor>;
 
+class FakeMonacoTextModel extends TestTextModel {
+  private tabSize = 4;
+  getOptions(): { tabSize: number } { return { tabSize: this.tabSize }; }
+  updateOptions(options: { tabSize: number }): void { this.tabSize = options.tabSize; }
+}
+
 class TestTextInput extends EditorInput {
   readonly textModel: TestTextModel;
   /** When set, `resolve` waits for it. */
@@ -87,7 +97,7 @@ class TestTextInput extends EditorInput {
 
   constructor(name: string) {
     super();
-    this.textModel = new TestTextModel(URI.parse(`test:${name}`), name, 'plaintext');
+    this.textModel = new FakeMonacoTextModel(URI.parse(`test:${name}`), name, 'plaintext');
     fake.state.models.push(this.textModel);
   }
 
@@ -114,9 +124,30 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
 let contextKeys: ContextKeyService;
 const panes: TextEditorPane[] = [];
 
-function createPane(size = new Dimension(300, 200)): { pane: TextEditorPane; parent: HTMLElement } {
+class TestConfiguration implements IConfigurationService {
+  declare readonly _serviceBrand: undefined;
+  readonly values = new Map<string, unknown>();
+  private readonly changed = new Emitter<IConfigurationChangeEvent>();
+  readonly onDidChangeConfiguration = this.changed.event;
+  readonly onDidChangeUserSettings = Event.None;
+  getValue<T>(key?: string): T | undefined { return key === undefined ? undefined : this.values.get(key) as T | undefined; }
+  async updateValue(): Promise<void> {}
+  getUserSettingsText(): string { return '{}'; }
+  saveUserSettings(): void {}
+  change(values: Record<string, unknown>): void {
+    for (const [key, value] of Object.entries(values)) {
+      this.values.set(key, value);
+    }
+    this.changed.fire({ affectsConfiguration: key => Object.keys(values).some(name => name === key || name.startsWith(key + '.')) });
+  }
+  dispose(): void { this.changed.dispose(); }
+}
+
+function createPane(
+  size = new Dimension(300, 200), configuration: IConfigurationService = new NullConfigurationService(),
+): { pane: TextEditorPane; parent: HTMLElement } {
   const parent = document.body.appendChild(document.createElement('div'));
-  const pane = new TextEditorPane(contextKeys);
+  const pane = new TextEditorPane(contextKeys, configuration);
   pane.create(parent);
   if (size.width > 0) {
     pane.layout(size);
@@ -193,7 +224,7 @@ test('creates the Monaco editor once, on the first real layout, without a model 
 });
 
 test('waits for a pane that is not in the document', async () => {
-  const pane = new TextEditorPane(contextKeys);
+  const pane = new TextEditorPane(contextKeys, new NullConfigurationService());
   panes.push(pane);
   const parent = document.createElement('div');
   pane.create(parent);
@@ -362,4 +393,31 @@ test('dispose takes back what the pane put into its parent', () => {
   pane.dispose();
   expect(parent.classList.contains('text-editor')).toBe(false);
   expect(parent.children).toHaveLength(0);
+});
+
+test('creates the editor with the configured options and applies changes to it and to the tab size of its model', async () => {
+  const configuration = new TestConfiguration();
+  configuration.values.set('editor.fontSize', 20);
+  configuration.values.set('editor.tabSize', 2);
+  try {
+    const { pane } = createPane(undefined, configuration);
+    const input = new TestTextInput('configured');
+    await pane.setInput(input, undefined);
+    const editor = editorOf(pane);
+    const model = input.textModel as FakeMonacoTextModel;
+    expect(editor.options).toMatchObject({ fontSize: 20 });
+    // Monaco keeps the tab size on each model; as an editor option it would reach every model.
+    expect(editor.options).not.toHaveProperty('tabSize');
+    expect(model.getOptions().tabSize).toBe(2);
+
+    configuration.change({ 'editor.fontSize': 22, 'editor.tabSize': 8 });
+    expect(editor.updates.at(-1)).toMatchObject({ fontSize: 22 });
+    expect(editor.updates.at(-1)).not.toHaveProperty('tabSize');
+    expect(model.getOptions().tabSize).toBe(8);
+
+    configuration.change({ 'workbench.commandPalette.history': 1 });
+    expect(editor.updates).toHaveLength(1);
+  } finally {
+    configuration.dispose();
+  }
 });

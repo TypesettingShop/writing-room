@@ -1,3 +1,4 @@
+import { NullConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { MenuId, MenuRegistry } from '../../../../../platform/actions/common/actions.js';
@@ -44,7 +45,7 @@ beforeEach(() => {
     },
     async input() { return undefined; },
   };
-  provider = new CommandsQuickAccessProvider(menus, context, new BrowserLayoutService(), quickInput, storage);
+  provider = new CommandsQuickAccessProvider(menus, context, new BrowserLayoutService(), quickInput, storage, new NullConfigurationService());
   pickId = undefined;
 });
 
