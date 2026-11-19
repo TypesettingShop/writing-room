@@ -214,6 +214,7 @@ test('keeps the API and registrations until asynchronous deactivation finishes',
   const steps: string[] = [];
   const inside = deferred();
   const continueDeactivating = deferred();
+  const listChanged = vi.fn();
   const removed = deferred();
   main.set(MainContext.MainThreadExtensionService, {
     async $setActivationStatus(_id, status) {
@@ -228,8 +229,11 @@ test('keeps the API and registrations until asynchronous deactivation finishes',
     async $unregisterCommand(_key, command) { steps.push(command + ':unregistered'); },
     async $executeCommand() { throw new Error('own command went to main thread'); },
   });
+  let isActive = () => false;
   const service = new ExtHostExtensionService(worker, async (_extension, api) => ({
     activate(context) {
+      isActive = () => context.extension.isActive;
+      api.extensions.onDidChange(listChanged);
       context.subscriptions.push({ dispose: () => steps.push('disposed') });
       api.commands.registerCommand('during', () => steps.push('called'));
     },
@@ -247,11 +251,16 @@ test('keeps the API and registrations until asynchronous deactivation finishes',
     await host.$deltaExtensions([], ['deactivate']);
     await inside.promise;
     expect(steps).toEqual(['during:registered']);
+    expect(isActive()).toBe(true);
     continueDeactivating.resolve();
     await removed.promise;
     expect(steps).toEqual([
       'during:registered', 'called', 'disposed', 'late:registered', 'during:unregistered', 'late:unregistered', 'removed',
     ]);
+    expect(isActive()).toBe(false);
+    listChanged.mockClear();
+    await host.$deltaExtensions([description('another')], []);
+    expect(listChanged).not.toHaveBeenCalled();
   } finally {
     service.dispose();
     main.dispose();

@@ -104,12 +104,13 @@ export class ExtensionsActivator {
     const activator = this;
     const { id, key, location } = target.description;
     const extensionUri = Uri.parse(location);
+    const isActive = () => target.state === 'active' || target.state === 'deactivating';
     return Object.freeze({
       id, extensionUri, extensionPath: extensionUri.fsPath,
-      get isActive() { return target.state === 'active'; },
+      get isActive() { return isActive(); },
       get packageJSON() { return structuredClone(target.description.manifest); },
       extensionKind: 2 as vscode.ExtensionKind.Workspace,
-      get exports() { return target.state === 'active' ? target.exports : undefined; },
+      get exports() { return isActive() ? target.exports : undefined; },
       async activate() {
         if (!activator.isLive(caller.description.key) || activator.extensions.get(key) !== target
           || activator.removing.has(target)) {
@@ -136,7 +137,11 @@ export class ExtensionsActivator {
         const match = available().find(extension => extension.description.id.toLowerCase() === id.toLowerCase());
         return match && this.extensionView(match, caller);
       },
-      onDidChange: this.onDidChange.event,
+      onDidChange: (listener, thisArgs, disposables) => {
+        const subscription = this.onDidChange.event(listener, thisArgs, disposables);
+        caller.subscriptions.push(subscription);
+        return subscription;
+      },
     };
   }
 
