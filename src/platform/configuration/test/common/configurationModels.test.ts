@@ -110,9 +110,11 @@ test('registers what is valid, reports the rest with both owners, and throws wit
     },
   };
   registry.registerConfigurations([node], problem => problems.push(problem));
-  expect(problems.map(({ source, key }) => source + ' ' + key)).toEqual(['pub.a editor.fontSize', 'pub.a a.__proto__.x', 'pub.a a.bad']);
+  expect(problems.map(({ source, key }) => source + ' ' + key)).toEqual(['pub.a editor.fontSize', 'pub.a a.__proto__.x']);
   expect(problems[0].message).toContain("already registered by 'editor'");
-  expect([...registry.getConfigurationProperties().keys()]).toEqual(['editor.fontSize', 'a.good']);
+  // As in VS Code, a default that does not match its type is no reason to refuse the property.
+  expect([...registry.getConfigurationProperties().keys()]).toEqual(['editor.fontSize', 'a.bad', 'a.good']);
+  expect(registry.getConfigurationProperties().get('a.bad')?.default).toBe(1);
   expect(() => registry.registerConfiguration({ id: 'b', properties: { 'b.ok': { type: 'string' }, 'a.good.x': { type: 'string' } } }))
     .toThrow("'a.good.x'");
   expect(registry.getConfigurationProperties().has('b.ok')).toBe(false);

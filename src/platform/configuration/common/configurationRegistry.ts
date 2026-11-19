@@ -262,9 +262,7 @@ export class ConfigurationRegistry {
     if (existing) {
       return `Cannot register '${key}'. This property is already registered by '${nodeSource(existing.node)}'.`;
     }
-    if (schema.default !== undefined && !validateConfigurationValue(schema, schema.default)) {
-      return `The default value of '${key}' does not match its schema.`;
-    }
+    // As in VS Code, the declared default is not checked against the schema: `type: "string", default: null` stands.
     return undefined;
   }
 

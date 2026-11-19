@@ -30,7 +30,7 @@
 `configuration`은 객체 하나나 객체 배열이다. 각 마디는 `title`, `order`, `properties`를 갖는다. 속성은 `type`(`string`, `number`, `integer`, `boolean`, `array`, `object`, `null` 또는 그 목록), `default`, `description`, `markdownDescription`, `enum`, `enumDescriptions`, `markdownEnumDescriptions`, `minimum`, `maximum`, `pattern`, `items`, `properties`, `additionalProperties`, `scope`, `deprecationMessage`, `order`를 받는다. `default`가 없으면 첫 타입의 기본(`""`, `0`, `false`, `[]`, `{}`, `null`)이다.
 
 - 다른 확장이나 워크벤치가 이미 등록한 키는 건너뛰고, 확장의 메시지에 `Cannot register '<키>'. This property is already registered by '<먼저 등록한 쪽>'.`을 남긴다. 먼저 등록한 쪽이 이긴다. 내장 확장이 먼저, 그다음 설치 순이다.
-- `default`가 자기 타입에 맞지 않거나, 키에 `__proto__`, `prototype`, `constructor` 조각이 있으면 그 속성만 건너뛰고 경고한다. 키가 `[언어]` 꼴이면 언어 구역은 `configurationDefaults`로 기여하라는 경고와 함께 건너뛴다. 나머지 속성은 등록된다. 마디 자체의 모양이 틀리면(`title`이 문자열이 아니거나 `properties`가 객체가 아니면) 그 마디만 오류로 건너뛴다.
+- 키에 `__proto__`, `prototype`, `constructor` 조각이 있으면 그 속성만 건너뛰고 경고한다. `default`가 자기 타입에 맞지 않아도(`type: "string"`, `default: null`) VS Code처럼 경고 없이 그 값을 기본으로 등록한다. 키가 `[언어]` 꼴이면 언어 구역은 `configurationDefaults`로 기여하라는 경고와 함께 건너뛴다. 나머지 속성은 등록된다. 마디 자체의 모양이 틀리면(`title`이 문자열이 아니거나 `properties`가 객체가 아니면) 그 마디만 오류로 건너뛴다.
 - 메시지는 확장의 상태와 개발자 콘솔에 `contributes.configuration.properties.<키>` 경로로 남는다.
 
 `configurationDefaults`는 일반 키나 언어 구역의 기본값을 바꾼다. 등록된 속성의 타입에 맞지 않는 값은 건너뛰고 경고한다. 아직 등록되지 않은 키의 기본값은 그 키가 등록될 때 적용된다. 여러 확장이 같은 키를 바꾸면 나중에 등록한 쪽이 이긴다.
