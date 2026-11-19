@@ -1,0 +1,12 @@
+{
+  "name": "file-system",
+  "publisher": "fixture",
+  "version": "1.0.0",
+  "engines": { "vscode": "*" },
+  "browser": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "fixture.fileSystem.check", "title": "Check File System API" }
+    ]
+  }
+}
