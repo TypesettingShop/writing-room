@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import type { Connect, Plugin, ViteDevServer } from 'vite';
 
@@ -18,7 +19,7 @@ function webviewShell(): Plugin {
     return readFileSync(new URL('./src/workbench/contrib/webview/browser/pre/' + path.split('/').at(-1), import.meta.url));
   }
 
-  const serve: Connect.NextHandleFunction = (request, response, next) => {
+  const assets = (read: (path: string) => Buffer): Connect.NextHandleFunction => (request, response, next) => {
     const path = request.url?.split('?', 1)[0] ?? '';
     const type = webviewAssets.get(path);
     if (!type) {
@@ -33,15 +34,26 @@ function webviewShell(): Plugin {
       response.writeHead(405, { Allow: 'GET, HEAD' }).end();
       return;
     }
+    let body: Buffer | undefined;
+    try {
+      body = request.method === 'GET' ? read(path) : undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        response.writeHead(404).end();
+        return;
+      }
+      throw error;
+    }
     response.writeHead(200, {
       'Content-Type': type,
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
-    }).end(request.method === 'GET' ? readAsset(path) : undefined);
+    }).end(body);
   };
 
   async function configure(
-    app: ViteDevServer['httpServer'], middleware: Connect.Server, requestedPort: number, strictPort: boolean | undefined,
+    app: ViteDevServer['httpServer'], middleware: Connect.Server, requestedPort: number,
+    strictPort: boolean | undefined, serve: Connect.NextHandleFunction,
   ): Promise<void> {
     if (rawPort !== undefined) {
       const port = Number(rawPort);
@@ -93,10 +105,12 @@ function webviewShell(): Plugin {
   return {
     name: 'webview-shell',
     configureServer({ httpServer, middlewares, config }) {
-      return configure(httpServer, middlewares, config.server.port ?? 5173, config.server.strictPort);
+      return configure(httpServer, middlewares, config.server.port ?? 5173,
+        config.server.strictPort, assets(readAsset));
     },
     configurePreviewServer({ httpServer, middlewares, config }) {
-      return configure(httpServer, middlewares, config.preview.port ?? 4173, config.preview.strictPort);
+      return configure(httpServer, middlewares, config.preview.port ?? 4173,
+        config.preview.strictPort, assets(path => readFileSync(resolve(config.root, config.build.outDir, path.slice(1)))));
     },
     generateBundle() {
       for (const path of webviewAssets.keys()) {
