@@ -26,7 +26,7 @@ test('diagnostics set before the document opens draw in the editor, and one exte
   await expect(squiggles(page, 'info')).toHaveCount(1);
 
   await hoverLine(page, 'first line');
-  await expect(page.getByText('Fixture error', { exact: true })).toBeVisible();
+  await expect(part(page, 'editor').getByText('Fixture error', { exact: true })).toBeVisible();
 
   await activeEditor(page).focus();
   await runCommand(page, 'Clear Fixture Diagnostics');
@@ -34,7 +34,7 @@ test('diagnostics set before the document opens draw in the editor, and one exte
   await expect(squiggles(page, 'warning')).toHaveCount(0);
   await expect(squiggles(page, 'info')).toHaveCount(0);
   await hoverLine(page, 'fifth line');
-  await expect(page.getByText('Other fixture error', { exact: true })).toBeVisible();
+  await expect(part(page, 'editor').getByText('Other fixture error', { exact: true })).toBeVisible();
 });
 
 const settingsProblems = [
