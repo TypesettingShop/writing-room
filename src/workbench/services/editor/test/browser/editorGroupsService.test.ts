@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { $, append } from '../../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../../base/browser/dom.js';
 import { Orientation } from '../../../../../base/browser/ui/grid/grid.js';
@@ -362,6 +362,50 @@ describe('editors in groups', () => {
     expect(targetPane.getViewState(a)).toEqual({ cursor: 7 });
     expect(sourcePane.element).toBe(sourceElement);
     expect(a.isDisposed()).toBe(false);
+  });
+
+  test('a replacement takes the editor’s index, activity and view state, and the replaced editor goes unasked', async () => {
+    const group = part.activeGroup;
+    const [a, b, c] = await open(group, 'a', 'b', 'c');
+    await group.openEditor(b);
+    const pane = group.activeEditorPane as BaseTestPane;
+    pane.viewStates.set(b, { cursor: 42 });
+    pane.viewStates.set(c, { cursor: 3 });
+    const ask = vi.fn(() => true);
+    Object.assign(b, { closeHandler: { showConfirm: ask, confirm: vi.fn() } });
+    const forB = new TestInput('b2');
+    const forC = new TestInput('c2');
+
+    await group.replaceEditors([{ editor: b, replacement: forB }, { editor: c, replacement: forC }]);
+    expect(group.editors).toEqual([a, forB, forC]);
+    expect(group.activeEditor).toBe(forB);
+    expect(pane.opened.at(-1)).toEqual({ input: forB, options: expect.objectContaining({ viewState: { cursor: 42 } }) });
+    // The background editor stays in the background, its state handed on for when it shows.
+    expect(group.isActive(forC)).toBe(false);
+    await group.openEditor(forC);
+    expect(pane.opened.at(-1)).toEqual({ input: forC, options: expect.objectContaining({ viewState: { cursor: 3 } }) });
+    expect(ask).not.toHaveBeenCalled();
+    expect([b.isDisposed(), c.isDisposed()]).toEqual([true, true]);
+
+    // An editor the group does not hold is skipped.
+    await group.replaceEditors([{ editor: new TestInput('elsewhere'), replacement: new TestInput('never') }]);
+    expect(group.editors).toEqual([a, forB, forC]);
+  });
+
+  test('a background replacement moved to another group before it shows takes its handed view state along', async () => {
+    const group = part.activeGroup;
+    const [a, c] = await open(group, 'a', 'c');
+    await group.openEditor(a);
+    (group.activeEditorPane as BaseTestPane).viewStates.set(c, { cursor: 7 });
+    const forC = new TestInput('c2');
+    await group.replaceEditors([{ editor: c, replacement: forC }]);
+    expect(group.isActive(forC)).toBe(false);
+
+    const other = part.addGroup(group, GroupDirection.RIGHT);
+    group.moveEditor(forC, other);
+    await vi.waitFor(() => expect(other.activeEditor).toBe(forC));
+    expect((other.activeEditorPane as BaseTestPane).opened.at(-1))
+      .toEqual({ input: forC, options: expect.objectContaining({ viewState: { cursor: 7 } }) });
   });
 
   test('moving the focused active editor out leaves focus with it, not with the editor behind it', async () => {

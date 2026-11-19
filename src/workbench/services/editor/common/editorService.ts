@@ -19,6 +19,13 @@ export type SIDE_GROUP_TYPE = typeof SIDE_GROUP;
 
 export type PreferredGroup = IEditorGroup | GroupIdentifier | ACTIVE_GROUP_TYPE | SIDE_GROUP_TYPE;
 
+export interface ISaveEditorsOptions {
+  /** Why the save happens; `explicit` for the save commands. */
+  readonly reason?: 'explicit' | 'auto';
+  /** Save under a resource the user picks, as Save As does. */
+  readonly saveAs?: boolean;
+}
+
 export interface IEditorCloseEvent extends IEditorIdentifier {
   /** The index the editor had in its group. */
   readonly index: number;
@@ -51,4 +58,12 @@ export interface IEditorService extends BrandedService {
   openEditor(editor: IResourceEditorInput, group?: PreferredGroup): Promise<IEditorPane | undefined>;
   /** The open editors of `resource`, in every group or in `group`. */
   findEditors(resource: URI, group?: IEditorGroup | GroupIdentifier): readonly IEditorIdentifier[];
+  /**
+   * Saves the editors one after another, through their inputs' `save` (or `saveAs`). When a save
+   * gives another editor, such as untitled text saved to a file, that editor takes the saved one's
+   * place: in its group, or in every group that shows it for untitled text, at the same index and
+   * with the same view state. Stops at the first editor that did not save (failed or cancelled) and
+   * resolves to whether all of them saved.
+   */
+  save(editors: IEditorIdentifier | readonly IEditorIdentifier[], options?: ISaveEditorsOptions): Promise<boolean>;
 }

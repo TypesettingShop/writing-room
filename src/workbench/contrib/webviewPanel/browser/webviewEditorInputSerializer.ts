@@ -5,7 +5,7 @@ import type { WebviewContentOptions, WebviewIcon, WebviewPanelOptions } from '..
 import type { IEditorSerializer } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
-import { WebviewEditorInput } from './webviewEditorInput.js';
+import { toWebviewThemeIcon, WebviewEditorInput } from './webviewEditorInput.js';
 
 const idFormat = /^[\da-f-]{36}$/;
 const extensionFormat = /^[\w-]+\.[\w-]+$/;
@@ -30,8 +30,9 @@ function recoverIcon(value: unknown): WebviewIcon | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
-  if (typeof value.id === 'string' && /^[\w-]+$/.test(value.id)) {
-    return { id: value.id };
+  const themeIcon = toWebviewThemeIcon(value);
+  if (themeIcon) {
+    return themeIcon;
   }
   const light = recoverResource(value.light);
   const dark = recoverResource(value.dark);

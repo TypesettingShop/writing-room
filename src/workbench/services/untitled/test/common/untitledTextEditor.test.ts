@@ -1,11 +1,14 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { IModelService } from '../../../../../editor/common/services/model.js';
 import { TestModelService } from '../../../../../editor/test/common/testTextModel.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
+import { IFileDialogService } from '../../../dialogs/common/dialogs.js';
+import { ITextFileService } from '../../../textfile/common/textfiles.js';
+import { UntitledTextEditorInputSerializer } from '../../common/untitledTextEditorHandler.js';
 import { UntitledTextEditorInput } from '../../common/untitledTextEditorInput.js';
-import { UntitledTextEditorService } from '../../common/untitledTextEditorService.js';
+import { IUntitledTextEditorService, UntitledTextEditorService } from '../../common/untitledTextEditorService.js';
 
 let models: TestModelService;
 let service: UntitledTextEditorService;
@@ -127,4 +130,45 @@ test('keeps the number of a model disposed while its text model is on its way un
   await closing;
   await expect(opening).resolves.toBe(next.model);
   expect(service.create().resource.toString()).toBe('untitled:Untitled-1');
+});
+
+describe('the untitled editor serializer', () => {
+  function restoreFrom(value: string) {
+    const fresh = new TestModelService();
+    const instantiation = new InstantiationService(new ServiceCollection([IModelService, fresh]));
+    const restoredService = instantiation.createInstance(UntitledTextEditorService);
+    // The input saves and asks through these; restoring needs neither.
+    const withService = new InstantiationService(new ServiceCollection(
+      [IUntitledTextEditorService, restoredService], [ITextFileService, {} as ITextFileService], [IFileDialogService, {} as IFileDialogService],
+    ));
+    const input = new UntitledTextEditorInputSerializer().deserialize(withService, value);
+    return { input: input as UntitledTextEditorInput | undefined, models: fresh };
+  }
+
+  test('keeps the language a tab was switched to across a reload', async () => {
+    const input = new UntitledTextEditorInput(service.create({ initialValue: '# notes' }));
+    await input.resolve();
+    input.model.setLanguageId('markdown');
+    const value = new UntitledTextEditorInputSerializer().serialize(input)!;
+
+    const { input: restored, models: restoredModels } = restoreFrom(value);
+    await restored!.resolve();
+    expect(restored!.model.getValue()).toBe('# notes');
+    expect(restoredModels.created[0].languageId).toBe('markdown');
+  });
+
+  test('still reads the v0.1.0 form without a language, and drops a language that cannot be one', async () => {
+    const withoutLanguage = new UntitledTextEditorInputSerializer().serialize(new UntitledTextEditorInput(service.create({ initialValue: 'old' })))!;
+    // Plain text is saved as v0.1.0 saved every untitled tab.
+    expect(withoutLanguage.split('\n')).toHaveLength(2);
+    const old = restoreFrom(withoutLanguage);
+    await old.input!.resolve();
+    expect(old.input!.model.getValue()).toBe('old');
+    expect(old.models.created[0].languageId).toBe('plaintext');
+
+    const broken = restoreFrom(withoutLanguage + '\nmark down');
+    await broken.input!.resolve();
+    expect(broken.input!.model.getValue()).toBe('old');
+    expect(broken.models.created[0].languageId).toBe('plaintext');
+  });
 });

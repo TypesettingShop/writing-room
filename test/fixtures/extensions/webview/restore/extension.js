@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+let blockShutdown = false;
 
 exports.activate = function (context) {
   let release;
@@ -23,12 +24,21 @@ exports.activate = function (context) {
 
   function open(id, title, column) {
     const panel = vscode.window.createWebviewPanel('fixture.' + id, title, column, { enableScripts: true });
+    context.subscriptions.push(panel.onDidDispose(() => {
+      console.log('Webview fixture disposed: ' + title);
+      panel.dispose();
+    }));
     render(panel, undefined, 'Opened');
   }
 
   register('restore', () => open('restore', 'Restorable', vscode.ViewColumn.One));
   register('restore-fail', () => open('restore-fail', 'Failing Restore', vscode.ViewColumn.Two));
   register('restore-late', () => open('restore-late', 'Late Restore', vscode.ViewColumn.One));
+  register('restore-transient', () => open('restore-transient', 'Transient', vscode.ViewColumn.Two));
+  register('block-shutdown', () => {
+    blockShutdown = true;
+    console.debug('Webview fixture armed shutdown block');
+  });
   register('restore-release', () => { release(); });
   context.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer('fixture.restore', {
@@ -51,4 +61,12 @@ exports.activate = function (context) {
       },
     }),
   );
+};
+
+exports.deactivate = function () {
+  if (blockShutdown) {
+    console.log('Webview fixture blocked shutdown');
+    for (;;) {}
+  }
+  console.debug('Webview fixture deactivated');
 };

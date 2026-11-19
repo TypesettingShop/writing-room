@@ -54,11 +54,28 @@ panel.webview.html = `<!doctype html>
 
 `webview/context` 메뉴의 `webviewId`는 패널의 `viewType` 또는 뷰의 ID다. 콘텐츠 안에서 `data-vscode-context='{"webviewSection":"preview"}'`와 같이 요소별 컨텍스트를 제공할 수 있다.
 
+## 탭 아이콘
+
+`panel.iconPath`에 `ThemeIcon`, 이미지 URI 하나, 또는 밝은 테마와 어두운 테마에 쓸 `{ light, dark }` URI 쌍을 지정한다. 워크벤치는 현재 테마에 맞는 이미지를 탭 제목 옆에 표시한다. 밝은 고대비 테마는 `light`, 어두운 고대비 테마는 `dark`를 사용한다.
+
+```js
+panel.iconPath = {
+  light: vscode.Uri.joinPath(context.extensionUri, 'media', 'preview-light.png'),
+  dark: vscode.Uri.joinPath(context.extensionUri, 'media', 'preview-dark.png'),
+}
+```
+
+이미지 URI는 확장 자신의 설치 폴더 안을 가리켜야 한다. URI 쌍이면 두 주소가 모두 이 조건을 충족해야 하며, 선택한 이미지 파일을 최대 256 KiB까지 읽는다. `iconPath`에 `undefined`를 지정하면 아이콘이 사라진다. 새로고침 뒤 복원하는 탭의 저장된 아이콘은 해당 탭이 처음 보일 때 현재 설치 위치를 기준으로 다시 검증한다.
+
 ## 새로고침 후 상태 복원
 
 패널의 `viewType`에 해당하는 `onWebviewPanel:<viewType>`을 매니페스트에 적고, 활성화에서 `window.registerWebviewPanelSerializer`를 호출한다. 새로고침 후 해당 탭이 처음 보일 때 확장을 활성화하고 `deserializeWebviewPanel(panel, state)`를 호출한다. 직렬화기는 `panel.webview.html`과 이벤트 구독을 다시 설정한다.
 
 레이아웃에는 탭 제목, 확장 ID, 표시 옵션과 리소스 루트 등 입력 메타데이터를 저장한다. 웹뷰의 `setState`가 넘긴 JSON은 워크스페이스의 별도 키에 저장하며 웹뷰당 256 KiB, 워크스페이스당 전체 1 MiB까지 허용한다. 숨겼다가 다시 연 문서의 `getState`와 새로고침 뒤 직렬화기에 이 상태가 전달된다. 한도를 넘긴 업데이트는 마지막으로 저장한 상태를 유지하고 한 번 경고한다.
+
+## 확장 호스트 재시작
+
+명령 팔레트에서 **Restart Extension Host**를 실행하면, 정상 종료 경로에서 기존 Worker가 살아 있는 패널 객체마다 `onDidDispose`를 한 번 전달한다. 직렬화할 수 있는 탭은 배치와 저장 상태를 보존하며 새 Worker에서 새 핸들로 복원된다. 다른 WebviewPanel 탭은 닫힌다. Worker가 이미 응답하지 않는 경우에는 종료 시한에 맞춰 교체된다 (wr-drjj).
 
 ## 사이드바와 패널의 WebviewView
 
@@ -71,6 +88,7 @@ panel.webview.html = `<!doctype html>
 - wr-cpnc.flj. 로컬 파일과 확장 리소스는 메인 스레드의 파일 서비스를 통해 읽는다. `asWebviewUri`는 `http(s)` 주소도 웹뷰 리소스 주소로 바꾼다. VS Code는 이런 주소를 그대로 돌려준다. 바뀐 주소는 `localResourceRoots` 안에 있을 때만 읽히므로 CDN 같은 외부 주소는 `asWebviewUri`를 거치지 않고 그대로 쓴다.
 - wr-cpnc.flj. `localResourceRoots`에는 워크스페이스 폴더와 그 확장의 설치 폴더 안쪽 루트만 남는다. 다른 확장의 폴더나 `globalStorageUri` 같은 사용자 저장소 루트는 경고 없이 빠진다.
 - wr-cpnc.flj. `TabInputWebview.viewType`은 확장이 패널을 만들 때 전달한 식별자다. VS Code의 탭 API는 `mainThreadWebview-` 접두사를 붙인다.
+- wr-ob6x. Writing Room은 탭 아이콘 이미지의 URI를 소유 확장의 설치 폴더로 제한한다. VS Code의 탭 아이콘 설정 경로에는 같은 설치 폴더 검사가 없다. [VS Code의 탭 아이콘 설정 구현](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/api/browser/mainThreadWebviewPanels.ts)
 - wr-cpnc.6ly. 뷰 배지는 이 에픽의 범위 밖이다.
 
 Decided in: wr-efqx.n9k, wr-cpnc

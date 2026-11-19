@@ -5,6 +5,7 @@ export const enum ExtensionHostMessage {
   Initialize = 'initialize',
   Initialized = 'initialized',
   Terminate = 'terminate',
+  Terminated = 'terminated',
   Ping = 'ping',
   Pong = 'pong',
 }
@@ -27,5 +28,6 @@ export type ExtensionHostStatus =
 
 export type HostControlMessage =
   | { kind: ExtensionHostMessage.Initialize; extensions: HostExtensionDescription[] }
-  | { kind: ExtensionHostMessage.Ready | ExtensionHostMessage.Initialized | ExtensionHostMessage.Terminate }
+  | { kind: ExtensionHostMessage.Ready | ExtensionHostMessage.Initialized
+    | ExtensionHostMessage.Terminate | ExtensionHostMessage.Terminated }
   | { kind: ExtensionHostMessage.Ping | ExtensionHostMessage.Pong; sequence: number };

@@ -56,9 +56,13 @@ listen('message', ({ data, ports }) => {
     } else if (data.kind === ExtensionHostMessage.Ping) {
       send({ kind: ExtensionHostMessage.Pong, sequence: data.sequence });
     } else if (data.kind === ExtensionHostMessage.Terminate) {
-      service?.dispose();
-      rpc.dispose();
-      close();
+      try {
+        service?.dispose();
+        send({ kind: ExtensionHostMessage.Terminated });
+      } finally {
+        rpc.dispose();
+        close();
+      }
     }
   });
   send({ kind: ExtensionHostMessage.Ready });
