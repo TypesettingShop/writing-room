@@ -192,3 +192,75 @@ test('an explicit settings write can retry the persistent backend after a backgr
     warn.mockRestore();
   }
 });
+
+test('writes a language value inside its section, creating it, and keeps comments, commas and unknown keys', async () => {
+  const raw = '{\n  // mine\n  "editor.fontSize": 18,\n  "unknown": [1,],\n}\n';
+  const service = start(raw);
+  const changed = vi.fn();
+  disposables.add(service.onDidChangeConfiguration(changed));
+  await service.updateValue('editor.fontSize', 20, { overrideIdentifier: 'markdown' });
+  expect(service.getUserSettingsText()).toBe('{\n  // mine\n  "editor.fontSize": 18,\n  "unknown": [1,],\n'
+    + '  "[markdown]": {\n    "editor.fontSize": 20\n  },\n}\n');
+  expect(service.getValue('editor.fontSize')).toBe(18);
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(20);
+  const event = changed.mock.calls[0][0];
+  expect(event.affectsConfiguration('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(true);
+  expect(event.affectsConfiguration('editor.fontSize', { overrideIdentifier: 'plaintext' })).toBe(false);
+
+  await service.updateValue('editor.tabSize', 2, { overrideIdentifier: 'markdown' });
+  await service.updateValue('editor.fontSize', undefined, { overrideIdentifier: 'markdown' });
+  expect(service.getUserSettingsText()).toBe('{\n  // mine\n  "editor.fontSize": 18,\n  "unknown": [1,],\n'
+    + '  "[markdown]": {\n    "editor.tabSize": 2\n  },\n}\n');
+  await service.updateValue('editor.fontSize', undefined);
+  expect(service.getUserSettingsText()).toBe('{\n  // mine\n  "unknown": [1,],\n'
+    + '  "[markdown]": {\n    "editor.tabSize": 2\n  },\n}\n');
+  expect(service.inspect('editor.fontSize', { overrideIdentifier: 'markdown' })).toMatchObject({ value: 14, userValue: undefined });
+});
+
+test('two writers of different keys in a row both stay, and a key nobody registered is refused', async () => {
+  const service = start('{\n}\n');
+  await Promise.all([service.updateValue('editor.fontSize', 30), service.updateValue('editor.tabSize', 3)]);
+  expect(service.getValue('editor')).toMatchObject({ fontSize: 30, tabSize: 3 });
+  await expect(service.updateValue('future.key', true)).rejects.toThrow('future.key is not a registered configuration');
+  await expect(service.updateValue('editor.fontSize', { size: 1 })).rejects.toThrow('Unsupported value');
+  await expect(service.updateValue('editor.fontSize', 12, { overrideIdentifier: 'a]b' })).rejects.toThrow('Unsupported language');
+});
+
+test('a deregistered key reads as undefined with a change event, and its user value stays in the text', () => {
+  const node = { id: 'late', properties: { 'late.value': { type: 'string', default: 'd' } } } as const;
+  registry.registerConfiguration(node);
+  const raw = '{ "late.value": "mine" }';
+  const service = start(raw);
+  const changed = vi.fn();
+  disposables.add(service.onDidChangeConfiguration(changed));
+  expect(service.getValue('late.value')).toBe('mine');
+  registry.deregisterConfigurations([node]);
+  expect(service.getValue('late.value')).toBeUndefined();
+  expect(changed).toHaveBeenCalledOnce();
+  expect(changed.mock.calls[0][0].affectsConfiguration('late')).toBe(true);
+  expect(service.getUserSettingsText()).toBe(raw);
+  registry.registerConfiguration(node);
+  expect(service.getValue('late.value')).toBe('mine');
+});
+
+test('a default for a language changes the value for that language only and fires a change', () => {
+  const service = start('{ "editor.fontSize": 16 }');
+  const changed = vi.fn();
+  disposables.add(service.onDidChangeConfiguration(changed));
+  const defaults = { overrides: { '[markdown]': { 'editor.fontSize': 20 } }, source: 'ext' };
+  registry.registerDefaultConfigurations([defaults]);
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(20);
+  expect(service.getValue('editor.fontSize')).toBe(16);
+  expect(changed).toHaveBeenCalledOnce();
+  registry.deregisterDefaultConfigurations([defaults]);
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(16);
+  expect(changed).toHaveBeenCalledTimes(2);
+});
+
+test('a language write is not hidden by a later section naming several languages', async () => {
+  const service = start('{ "[markdown]": { "editor.fontSize": 22 }, "[markdown][plaintext]": { "editor.fontSize": 20 } }');
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(22);
+  await service.updateValue('editor.fontSize', 30, { overrideIdentifier: 'markdown' });
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(30);
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'plaintext' })).toBe(20);
+});

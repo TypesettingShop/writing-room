@@ -1,25 +1,21 @@
 import { expect, test } from 'vitest';
-import { Emitter, Event } from '../../../../../base/common/event.js';
+import { Emitter } from '../../../../../base/common/event.js';
 import { IModelService } from '../../../../../editor/common/services/model.js';
-import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { IConfigurationService, NullConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
 import { SettingsEditorInput } from '../../browser/settingsEditorInput.js';
 
-class TestConfiguration implements IConfigurationService {
-  declare readonly _serviceBrand: undefined;
+class TestConfiguration extends NullConfigurationService {
   readonly saved: string[] = [];
   private readonly changed = new Emitter<string>();
-  readonly onDidChangeConfiguration = Event.None;
-  readonly onDidChangeUserSettings = this.changed.event;
-  getValue(): undefined { return undefined; }
-  async updateValue(): Promise<void> {}
-  getUserSettingsText(): string { return this.saved.at(-1) ?? '{\n}\n'; }
-  saveUserSettings(text: string): void {
+  override readonly onDidChangeUserSettings = this.changed.event;
+  override getUserSettingsText(): string { return this.saved.at(-1) ?? '{\n}\n'; }
+  override saveUserSettings(text: string): void {
     this.saved.push(text);
     this.changed.fire(text);
   }
-  dispose(): void { this.changed.dispose(); }
+  override dispose(): void { this.changed.dispose(); }
 }
 
 test('saves a draft restored from a closed editor before its model exists', () => {

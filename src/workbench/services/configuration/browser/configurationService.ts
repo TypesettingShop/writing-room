@@ -2,10 +2,15 @@ import { Emitter } from '../../../../base/common/event.js';
 import { parseJSONC, setJSONCProperty } from '../../../../base/common/jsonc.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { defaultUserSettingsText, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import type { ConfigurationValue, IConfigurationChangeEvent } from '../../../../platform/configuration/common/configuration.js';
-import { buildConfiguration, configurationChange, readConfiguration } from '../../../../platform/configuration/common/configurationModels.js';
-import { configurationRegistry, validateConfigurationValue } from '../../../../platform/configuration/common/configurationRegistry.js';
+import type {
+  ConfigurationValue, IConfigurationChangeEvent, IConfigurationOverrides, IConfigurationValue,
+} from '../../../../platform/configuration/common/configuration.js';
+import { Configuration, configurationChange } from '../../../../platform/configuration/common/configurationModels.js';
+import {
+  configurationRegistry, keyFromOverrideIdentifiers, validateConfigurationValue,
+} from '../../../../platform/configuration/common/configurationRegistry.js';
 import type { ConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { isJSONValue } from '../../../../platform/configuration/common/configurationValues.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -23,7 +28,7 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
   private readonly pendingText: string[] = [];
   // Keep unknown keys from the last valid document for configuration registered later.
   private user: Readonly<Record<string, unknown>> = {};
-  private values: ReadonlyMap<string, ConfigurationValue>;
+  private configuration: Configuration;
 
   constructor(
     private readonly registry: ConfigurationRegistry,
@@ -32,7 +37,7 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
     super();
     this.text = storage.get(userSettingsKey, scope, defaultUserSettingsText);
     this.readUser();
-    this.values = buildConfiguration(registry.getConfigurationProperties(), this.user);
+    this.configuration = this.build();
     const listeners = this._register(new DisposableStore());
     storage.onDidChangeValue(scope, userSettingsKey, listeners)(() => this.acceptText(
       storage.get(userSettingsKey, scope, defaultUserSettingsText),
@@ -40,8 +45,16 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
     this._register(registry.onDidUpdateConfiguration(() => this.refresh()));
   }
 
-  getValue<T = unknown>(key?: string): T | undefined {
-    return readConfiguration(this.values, key) as T | undefined;
+  getValue<T = unknown>(key?: string, overrides?: IConfigurationOverrides): T | undefined {
+    return this.configuration.getValue<T>(key, overrides);
+  }
+
+  inspect<T = unknown>(key: string, overrides?: IConfigurationOverrides): IConfigurationValue<T> {
+    return this.configuration.inspect<T>(key, overrides);
+  }
+
+  getConfiguration(): Configuration {
+    return this.configuration;
   }
 
   getUserSettingsText(): string {
@@ -52,14 +65,27 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
     this.storage.storeImmediately(userSettingsKey, text, scope, StorageTarget.USER);
   }
 
-  async updateValue(key: string, value: ConfigurationValue): Promise<void> {
+  /**
+   * Reads the stored text and changes only this key in it, so another writer's keys, comments and
+   * unknown keys stay. The change event has fired by the time this returns.
+   */
+  async updateValue(key: string, value: ConfigurationValue, overrides?: IConfigurationOverrides): Promise<void> {
     const schema = this.registry.getConfigurationProperties().get(key);
-    if (!schema || !validateConfigurationValue(schema, value)) {
+    if (!schema) {
+      throw new Error(`Unable to write to User Settings because ${key} is not a registered configuration.`);
+    }
+    if (value !== undefined && (!isJSONValue(value) || !validateConfigurationValue(schema, value))) {
       throw new Error(`Unsupported value for configuration '${key}'.`);
     }
+    const language = overrides?.overrideIdentifier;
+    if (language?.includes(']')) {
+      // "[a]b]" would not read back as a language section, so the write would change nothing.
+      throw new Error(`Unsupported language '${language}' for configuration '${key}'.`);
+    }
+    const path = language ? [keyFromOverrideIdentifiers([language]), key] : [key];
     this.storage.storeImmediately(userSettingsKey, stored => {
       try {
-        return setJSONCProperty(stored ?? defaultUserSettingsText, key, value);
+        return setJSONCProperty(stored ?? defaultUserSettingsText, path, value);
       } catch (cause) {
         throw new Error('Fix the syntax of settings.json before updating a setting.', { cause });
       }
@@ -93,10 +119,14 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
     }
   }
 
+  private build(): Configuration {
+    return Configuration.build(this.registry.getConfigurationProperties(), this.registry.getLanguageDefaults(), this.user);
+  }
+
   private refresh(): void {
-    const next = buildConfiguration(this.registry.getConfigurationProperties(), this.user);
-    const change = configurationChange(this.values, next);
-    this.values = next;
+    const next = this.build();
+    const change = configurationChange(this.configuration, next);
+    this.configuration = next;
     if (change) {
       this.changed.fire(change);
     }
