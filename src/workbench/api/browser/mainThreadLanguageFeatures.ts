@@ -9,6 +9,7 @@ import { IModelService } from '../../../editor/common/services/model.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { waitForBuiltinLanguage } from '../../services/language/browser/monacoLanguages.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { createMainThreadCompletions } from './mainThreadLanguageFeaturesCompletions.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from '../common/extHost.protocol.languageFeatures.js';
 import type {
   CommandDto, ExtHostLanguageFeaturesShape, LanguageConfigurationDto, MainThreadLanguageFeaturesSeamShape, RegExpDto,
@@ -29,7 +30,7 @@ const MAX_SELECTOR_STRING = 1024;
 export type MainThreadLanguageFeatureGroupFactory = (seam: MainThreadLanguageFeatures) => object & Partial<IDisposable>;
 
 /** The workbench's feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [];
+const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [createMainThreadCompletions];
 
 function selectorString(value: unknown): string | undefined {
   if (value === undefined) {
@@ -338,6 +339,10 @@ export function isSynchronized(model: IMonacoTextModel): boolean {
  * synchronized, and undefined when the host fails or the request was cancelled before the answer.
  */
 export async function request<R>(model: IMonacoTextModel, token: { readonly isCancellationRequested: boolean }, call: (resource: URI) => Promise<R>): Promise<R | undefined> {
+  // The model's last change crosses to the extension host in a microtask queued when it happened
+  // (`mainThreadDocuments.ts`). Monaco asks right after a keystroke, in the same task: wait for that
+  // microtask, so the change arrives before the request and the provider reads the text Monaco has.
+  await Promise.resolve();
   if (!isSynchronized(model) || token.isCancellationRequested) {
     return undefined;
   }

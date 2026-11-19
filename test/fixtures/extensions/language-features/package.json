@@ -1,0 +1,49 @@
+{
+  "name": "language-features",
+  "publisher": "fixtures",
+  "displayName": "Language Features Fixture",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "browser": "./extension.js",
+  "activationEvents": [
+    "onLanguage:lftest"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "lftest",
+        "aliases": [
+          "LF Test",
+          "lftest"
+        ],
+        "extensions": [
+          ".lft"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "languageFeaturesFixture.report",
+        "title": "Report Completions",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.hoverCommand",
+        "title": "Hover Command",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.unregister",
+        "title": "Unregister Providers",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.register",
+        "title": "Register Providers",
+        "category": "Language Features"
+      }
+    ]
+  }
+}

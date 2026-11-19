@@ -1,4 +1,6 @@
 import type { URI } from '../../../base/common/uri.js';
+import type { CancellationToken } from '../../../base/common/cancellation.js';
+import type { EditorPosition, EditorRange, EditorTextEdit } from './extHostTypeConverters.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
 
 /*
@@ -80,11 +82,125 @@ export interface ExtHostLanguageFeaturesSeamShape {
   $executeProviderCommand(ref: number): Promise<void>;
 }
 
+// --- Completions, hover and signature help (wr-c9d8.w6j) ----------------------------------------
+
+/** A markdown string as Monaco renders it. The workbench checks every field before Monaco sees it. */
+export interface MarkdownStringDto {
+  readonly value: string;
+  readonly isTrusted?: boolean | { readonly enabledCommands: readonly string[] };
+  readonly supportThemeIcons?: boolean;
+  readonly supportHtml?: boolean;
+  readonly baseUri?: URI;
+}
+
+export interface CompletionItemLabelDto {
+  readonly label: string;
+  readonly detail?: string;
+  readonly description?: string;
+}
+
+/** Where an item goes: one range, or the range to insert into and the range to replace. */
+export type CompletionRangeDto = EditorRange | { readonly insert: EditorRange; readonly replace: EditorRange };
+
+/**
+ * One item of a list. `kind`, `tags` and `insertTextRules` are Monaco's numbers. `index` names the item
+ * in its list for resolving. An item without `range` takes the list's `defaults`.
+ */
+export interface CompletionItemDto {
+  readonly index: number;
+  readonly label: string | CompletionItemLabelDto;
+  readonly kind: number;
+  readonly tags?: readonly number[];
+  readonly detail?: string;
+  readonly documentation?: string | MarkdownStringDto;
+  readonly sortText?: string;
+  readonly filterText?: string;
+  readonly preselect?: boolean;
+  readonly insertText: string;
+  readonly insertTextRules?: number;
+  readonly range?: CompletionRangeDto;
+  readonly commitCharacters?: readonly string[];
+  readonly additionalTextEdits?: readonly EditorTextEdit[];
+  readonly command?: CommandDto;
+}
+
+/**
+ * A list the extension host keeps under `id` until `$releaseCompletionItems`: its items for resolving,
+ * their commands for running. `defaults` is the word at the position, sent once per list.
+ */
+export interface CompletionListDto {
+  readonly id: number;
+  readonly incomplete?: boolean;
+  readonly defaults: { readonly insert: EditorRange; readonly replace: EditorRange };
+  readonly items: readonly CompletionItemDto[];
+}
+
+/** What resolving may fill in; the insert text and the range never change. */
+export interface ResolvedCompletionItemDto {
+  readonly detail?: string;
+  readonly documentation?: string | MarkdownStringDto;
+  readonly additionalTextEdits?: readonly EditorTextEdit[];
+  readonly command?: CommandDto;
+}
+
+/** Monaco's trigger kind numbers, which are the API's. */
+export interface CompletionContextDto {
+  readonly triggerKind: number;
+  readonly triggerCharacter?: string;
+}
+
+export interface HoverDto {
+  readonly contents: readonly MarkdownStringDto[];
+  readonly range?: EditorRange;
+}
+
+export interface ParameterInformationDto {
+  readonly label: string | readonly [number, number];
+  readonly documentation?: string | MarkdownStringDto;
+}
+
+export interface SignatureInformationDto {
+  readonly label: string;
+  readonly documentation?: string | MarkdownStringDto;
+  readonly parameters: readonly ParameterInformationDto[];
+  readonly activeParameter?: number;
+}
+
+export interface SignatureHelpDto {
+  readonly signatures: readonly SignatureInformationDto[];
+  readonly activeSignature: number;
+  readonly activeParameter: number;
+}
+
+export interface SignatureHelpContextDto {
+  readonly triggerKind: number;
+  readonly triggerCharacter?: string;
+  readonly isRetrigger: boolean;
+  readonly activeSignatureHelp?: SignatureHelpDto;
+}
+
+export interface MainThreadCompletionsShape {
+  $registerCompletionsSupport(extension: string, handle: number, selector: LanguageSelectorDto, triggerCharacters: readonly string[], supportsResolve: boolean): Promise<void>;
+  $registerHoverSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerSignatureHelpSupport(extension: string, handle: number, selector: LanguageSelectorDto, triggerCharacters: readonly string[], retriggerCharacters: readonly string[]): Promise<void>;
+}
+
+export interface ExtHostCompletionsShape {
+  $provideCompletionItems(handle: number, uri: URI, position: EditorPosition, context: CompletionContextDto, token: CancellationToken): Promise<CompletionListDto | undefined>;
+  $resolveCompletionItem(handle: number, id: number, index: number, token: CancellationToken): Promise<ResolvedCompletionItemDto | undefined>;
+  /** Forgets a list: its items and their commands. */
+  $releaseCompletionItems(handle: number, id: number): Promise<void>;
+  /** How many lists the extension host keeps, for tests that look for leaks. */
+  $completionCacheSize(): Promise<number>;
+  $provideHover(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<HoverDto | undefined>;
+  $provideSignatureHelp(handle: number, uri: URI, position: EditorPosition, context: SignatureHelpContextDto, token: CancellationToken): Promise<SignatureHelpDto | undefined>;
+}
+
 // --- The merged shapes ---------------------------------------------------------------------------
 
-export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape;
+export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape & MainThreadCompletionsShape;
 
-export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape;
+export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape & ExtHostCompletionsShape;
 
 /**
  * The `$` methods of every feature group, bound, under one object: each side answers under one RPC

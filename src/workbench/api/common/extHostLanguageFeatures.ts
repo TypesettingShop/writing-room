@@ -15,6 +15,7 @@ import type { ExtHostDocuments } from './extHostDocuments.js';
 import { languageConfigurationToDto, selectorFromDto, selectorToDto } from './extHostLanguageConverters.js';
 import { Disposable } from './extHostTypes.js';
 import { setLanguageWordPattern } from './extHostLanguageWordPatterns.js';
+import { createCompletionsGroup } from './extHostLanguageFeaturesCompletions.js';
 
 /*
  * The seam every language feature provider goes through.
@@ -47,7 +48,7 @@ export interface LanguageFeatureGroup {
 export type LanguageFeatureGroupFactory = (features: ExtHostLanguageFeatures) => LanguageFeatureGroup;
 
 /** The feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly LanguageFeatureGroupFactory[] = [];
+const groupFactories: readonly LanguageFeatureGroupFactory[] = [createCompletionsGroup];
 
 export enum IndentAction { None = 0, Indent = 1, IndentOutdent = 2, Outdent = 3 }
 export enum SyntaxTokenType { Other = 0, Comment = 1, String = 2, RegEx = 3 }
