@@ -24,4 +24,13 @@ module.exports.activate = context => {
     });
     await vscode.window.showInformationMessage('Save dialog gave ' + describe(result));
   }));
+  // Explorer context menu entries: what they are given is shown as a message.
+  for (const id of ['filesFixture.markdownItem', 'filesFixture.folderItem']) {
+    context.subscriptions.push(vscode.commands.registerCommand(id, async uri => {
+      const kind = uri instanceof vscode.Uri ? 'Uri' : typeof uri;
+      await vscode.window.showInformationMessage(id + ' gave ' + kind + ' ' + (uri ? uri.scheme + ':' + uri.path : ''));
+    }));
+  }
+  context.subscriptions.push(vscode.commands.registerCommand('filesFixture.revealDeep', () =>
+    vscode.commands.executeCommand('revealInExplorer', vscode.Uri.parse('vscode-vfs://writing-room/workspace/deep/inner/note.md'))));
 };

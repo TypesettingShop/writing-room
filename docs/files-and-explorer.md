@@ -200,6 +200,100 @@
   확장자 100개까지, `defaultUri`는 `Uri`)을 검사해 틀리면 호출을 거부하고, 돌려줄 URI가 정규화된 경로로 워크스페이스 폴더
   안에 있는지 다시 확인한다. 아니면 `undefined`다. 취소도 `undefined`다.
 
+## Explorer
+
+사이드바의 Explorer 컨테이너(`workbench.view.explorer`)의 첫 뷰가 워크스페이스 폴더의 파일 트리다. 뷰 id는
+`workbench.explorer.fileView`이고 뷰 머리글은 폴더 이름(`workspace`)이다. v0.1.0의 자리표시자(`workbench.explorer.emptyView`,
+"No folder opened")를 같은 컨테이너에서 바꾼 것이라 컨테이너를 패널로 옮기거나 숨긴 저장 배치는 그대로 유효하다. 확장이
+`views.explorer`에 기여한 뷰는 파일 트리 아래에 그대로 나온다.
+
+### 트리
+
+- 워크스페이스 폴더 자체는 행이 아니다. 그 안의 항목이 1단계(`aria-level="1"`)다.
+- 폴더가 먼저, 그다음 파일이다. 각각 이름순이며 대소문자와 악센트를 가리지 않고 숫자는 값으로 비교한다(`file2` 다음
+  `file10`). VS Code의 기본 정렬(`explorer.sortOrder: default`)과 같다.
+- 폴더는 처음 펼칠 때 읽는다. 한 폴더에 보이는 항목은 10,000개까지이고, 넘으면 마지막에 `N more items are not shown`
+  행이 나온다(이 행은 고를 수 없다).
+- 파일 변경(이 탭의 저장·만들기·지우기와 다른 탭의 변경)이 오면 화면에 보이는 폴더만 다시 읽는다. 읽어 둔 폴더가 접혀
+  있으면 그 목록을 버렸다가 다음에 펼칠 때 읽는다. 같은 폴더의 읽기가 겹치면 마지막 것만 받아들인다.
+- 활성 에디터가 바뀌면 그 파일을 트리에서 고르고 위의 폴더를 펼친다(VS Code의 `explorer.autoReveal` 기본값). 포커스는
+  옮기지 않는다.
+
+### 조작과 키
+
+트리 역할은 `tree`(이름 `Files Explorer`), 행은 `treeitem`이고 `aria-level`, `aria-selected`, 폴더는 `aria-expanded`를
+가진다. 고른 행이 탭 순서에 들어간다.
+
+| 조작 | 마우스 | 키 |
+| --- | --- | --- |
+| Explorer로 포커스 | 활동 표시줄의 Explorer | Ctrl+Shift+E (macOS ⇧⌘E), `View: Show Explorer` |
+| 위아래로 옮기기, 처음과 끝 | | ↑ ↓ Home End |
+| 폴더 펼치기 / 첫 자식으로 | 폴더 행 누르기 | → |
+| 폴더 접기 / 부모 폴더로 | 폴더 행 누르기 | ← |
+| 파일 열기 | 파일 행 누르기(포커스는 트리에 남는다) | Enter(포커스가 에디터로 간다), Space(트리에 남는다) |
+| 새 파일, 새 폴더 | 뷰 제목의 버튼, 컨텍스트 메뉴 | 컨텍스트 메뉴(Shift+F10, 메뉴 키) |
+| 이름 바꾸기 | 컨텍스트 메뉴 **Rename...** | F2 |
+| 지우기 | 컨텍스트 메뉴 **Delete** | Delete |
+| 새로 고침, 모두 접기 | 뷰 제목의 버튼 | 팔레트 `File: Refresh Explorer`, `File: Collapse Folders in Explorer` |
+
+| 커맨드 | 하는 일 |
+| --- | --- |
+| `explorer.newFile`, `explorer.newFolder` | 인자 URI(없으면 고른 항목)가 폴더면 그 안, 파일이면 그 폴더에 줄 안의 입력을 연다 |
+| `renameFile`, `deleteFile` | 인자 URI(없으면 고른 항목)의 이름을 바꾸거나 지운다 |
+| `workbench.files.action.refreshFilesExplorer` | 보이는 폴더를 모두 다시 읽는다 |
+| `workbench.files.action.collapseExplorerFolders` | 모든 폴더를 접는다 |
+| `revealInExplorer` | 인자 URI(없으면 활성 에디터의 파일)를 드러낸다: Explorer 컨테이너를 연다(사이드바가 닫혀 있거나 패널로 옮겨졌어도), 접힌 폴더를 펼치고, 고르고, 보이게 하고, 포커스를 준다 |
+| `workbench.view.explorer` | Explorer 뷰를 열고 트리에 포커스를 준다 |
+
+### 줄 안의 입력
+
+- 새 파일과 새 폴더는 그 폴더 안에(폴더는 맨 위, 파일은 첫 파일 자리) 입력 칸이 생긴다. 이름 바꾸기는 그 행이 입력
+  칸이 되고 확장자 앞까지 골라 둔다. 입력 칸의 이름은 `Type file name. Press Enter to confirm or Escape to cancel.`이다.
+- 칠 때마다 검사하고, 받을 수 없으면 입력 칸 아래에 이유를 보이며 입력 칸이 `aria-invalid="true"`가 되고 이유가 그
+  설명(`aria-describedby`)이 된다. 이유가 있는 동안 Enter는 아무것도 하지 않는다.
+  - 빈 이름: `A file or folder name must be provided.`(새 이름은 빈 채로는 이유를 보이지 않고 Enter만 막는다)
+  - `/`, `\`, 제어 문자를 담거나 `.`, `..`인 이름: `This name is not valid as a file or folder name: ...`
+  - 255자를 넘는 이름: `The name is longer than 255 characters.`
+  - 같은 폴더에 같은 이름(대소문자까지 같음)이 있음: `A file or folder <이름> already exists at this location. Please choose a different name.`
+    이름 바꾸기에서 자기 이름은 괜찮고 아무 일도 하지 않는다.
+- Enter는 받고, Escape는 취소한다. 입력 칸을 떠나면 받을 수 있는 이름은 받고 아니면 취소한다(VS Code와 같다).
+- 입력 도중 다른 탭의 변경으로 트리가 다시 그려져도 친 글자, 커서, 포커스가 그대로다. 입력 중에 다른 탭이 같은 이름을
+  만들면 그 이름도 거부된다. 입력 칸이 있던 폴더가 사라지면 입력은 닫힌다.
+- 새 파일은 만든 뒤 에디터로 열리고(포커스가 에디터로 간다), 새 폴더는 트리에서 골라지고 포커스를 받는다. 만들지 못하면
+  (이미 있음, 저장소가 가득 참) 오른쪽 아래에 `Unable to create '<이름>': <이유>` 알림이 뜬다.
+
+### 이름 바꾸기와 지우기
+
+- 이름 바꾸기: 바꿀 파일(폴더면 그 아래 전부) 가운데 고치고 저장하지 않은 것이 있으면 먼저 퀵 픽으로 묻는다: 제목
+  `'<파일>' has unsaved changes. Save them before renaming '<이름>'?`, 항목 **Save and Rename** / **Cancel**. Cancel(Esc)이면
+  이름도 고친 내용도 그대로이고, 저장이 실패해도 이름을 바꾸지 않는다. 그다음 파일 서비스의 `move`(작업 전 참여자
+  `onWillRunOperation`을 거친다)로 옮기고, 옛 경로를 보던 에디터는 같은 그룹, 같은 자리에 새 경로로 다시 열린다(커서와
+  스크롤이 그대로다). 펼친 폴더 상태도 새 경로로 옮겨진다.
+- 지우기: 퀵 픽으로 확인한다: `Are you sure you want to permanently delete '<이름>'?`(폴더는 `... '<이름>' and its contents?`),
+  항목 **Delete**(`This action is irreversible!`) / **Cancel**. 브라우저 저장소에는 휴지통이 없어 늘 영구 삭제다. 확인하면
+  그 파일(폴더면 그 아래 전부)을 보는 에디터를 그룹마다 닫는데, 고친 에디터는 [닫기 전 확인](#닫기-전-확인)을 거친다.
+  거기서 취소하면 아무것도 지우지 않는다(앞 그룹에서 이미 닫힌 탭은 닫힌 채다). 그다음 파일 서비스의 `del`(재귀)로 지우고
+  다음 항목(없으면 앞 항목, 그것도 없으면 부모)을 고른다.
+- 이름 바꾸기와 지우기가 실패하면 `Unable to rename '<이름>': <이유>`, `Unable to delete '<이름>': <이유>` 알림이 뜬다.
+- 워크스페이스 폴더 자체는 이름을 바꾸거나 지울 수 없다.
+
+### 컨텍스트 메뉴
+
+- 행에서 오른쪽 클릭, Shift+F10, 메뉴 키로 연다. 빈 곳에서 열면 워크스페이스 폴더의 메뉴다.
+- 내장 항목: **New File...**, **New Folder...**(`navigation`), **Rename...**, **Delete**(`7_modification`, 워크스페이스 폴더에는
+  없다). 확장이 `menus`의 `explorer/context`에 기여한 항목이 그룹 순서대로 함께 나온다.
+- 메뉴의 `when`은 그 항목의 키로 평가한다: `resource`, `resourceScheme`, `resourceFilename`, `resourceExtname`,
+  `resourceDirname`, `resourcePath`, `resourceLangId`, `resourceSet`, 그리고 `explorerResourceIsFolder`,
+  `explorerResourceIsRoot`. 확장 커맨드는 첫 인자로 그 항목의 `Uri`를 받는다.
+
+### 펼침 저장
+
+- 펼친 폴더 목록은 워크스페이스 범위 저장소의 `workbench.explorer.treeViewState`(VS Code의 키)에
+  `{"expanded": ["<폴더 URI>", ...]}`로 둔다. 펼치거나 접을 때마다 쓴다. 새로고침하면 그 폴더들을 다시 읽어 펼친다.
+- 읽을 때 검사한다. JSON이 아니거나 모양이 다르면 모두 접힌 채로 시작하고, 워크스페이스 폴더 밖이나 폴더 자체를 가리키는
+  항목은 버린다. 10,000개까지만 읽고 쓴다. 지워진 폴더는 목록에서 빠진다.
+- **Collapse Folders in Explorer**는 목록을 비운다.
+
 ## Deviations from VS Code
 
 - 텍스트 파일은 UTF-8만 읽고 쓴다. 인코딩 선택, 추측, 다시 열기가 없다 (wr-jrhv.q50).
@@ -223,6 +317,18 @@
 - 다른 이름으로 저장이 열려 있지 않은 파일에 쓸 때는 저장 전 참여자(`onWillSave`)를 부르지 않고 바로 쓴다. 대상 파일이 열려
   있으면 그 모델이 저장하므로 참여자가 돈다. 쓴 파일은 BOM 없는 UTF-8이다 (wr-jrhv.r4v).
 - 제목 없는 텍스트의 제안 이름은 첫 줄이 아니라 `Untitled-N`과 언어의 확장자다 (wr-jrhv.r4v).
+- Explorer 트리는 가상화 목록이 아니라 보이는 행을 모두 DOM에 그린다. 그래서 한 폴더에 10,000개까지만 보이고 나머지는
+  "more" 행으로 센다(VS Code에는 이 한도가 없다). 여러 개 고르기, 끌어서 옮기기, 잘라내기·복사·붙여넣기, 찾기(타이핑 필터),
+  압축 폴더(`explorer.compactFolders`), 파일 아이콘 테마와 장식, 열린 에디터 뷰, 실행 취소가 없다 (wr-jrhv.02j).
+- 지우기는 늘 영구 삭제이고 확인은 모달 대화상자가 아니라 퀵 픽이다. 지우는 파일을 보는 에디터를 닫으며 닫기 확인을 거친다.
+  VS Code는 고친 파일이 있으면 "unsaved changes" 경고를 한 번 묻고 에디터를 (설정에 따라) 남긴다 (wr-jrhv.02j).
+- 고친 파일의 이름을 바꿀 때 먼저 저장할지 묻는다. VS Code는 작업 사본을 새 경로로 옮겨 고친 채로 둔다 (wr-jrhv.02j).
+- 뷰 머리글은 폴더 이름이고 뷰 설명자의 이름도 그것이다. VS Code의 설명자 이름은 `Folders`이고 머리글만 작업 영역 이름이다.
+  폴더가 `workspace` 하나로 고정이라 모듈을 읽을 때 이름을 정한다 (wr-jrhv.02j).
+- 새 이름 검사는 경로가 든 이름(`a/b`)을 거부한다. VS Code는 그것으로 중간 폴더를 만든다. 앞뒤 공백 경고는 없다 (wr-jrhv.02j).
+- F2, Delete, Enter, Space는 키 바인딩이 아니라 트리가 직접 받는다(VS Code는 `filesExplorerFocus` 조건의 키 바인딩). 그래서 키
+  바인딩 편집으로 바꿀 수 없다 (wr-jrhv.02j).
+
 - 폴더를 독립 레코드로 저장해 빈 폴더를 새로고침 뒤에도 유지한다 (wr-lv5h.123).
   [VS Code의 웹 파일 제공자 초기화](vscode-web-build.md#24-webfactoryts의-create와-webmaints의-browsermain)
 - 만들기, 삭제, 이동, 복사의 작업 전후 이벤트는 파일 서비스가 전달한다.
@@ -238,4 +344,14 @@
   제공자 사이의 이동은 대상과 원본에 걸치는 순서 있는 작업으로 처리한다
   (wr-lv5h.gi4).
 
-Decided in: wr-efqx.n9k, wr-lv5h, wr-jrhv.q50, wr-jrhv.r4v
+## 기술 부채
+
+- Explorer 트리(`src/workbench/contrib/files/browser/views/explorerView.ts`)와 확장 트리 뷰
+  (`src/workbench/browser/parts/views/treeView.ts`)는 따로 그린다. 키보드 처리, 행 그리기, 컨텍스트 메뉴가 겹친다. VS Code는
+  둘 다 `WorkbenchAsyncDataTree`(가상화 목록)를 쓴다. 트리 위젯 하나로 합치는 일은 확장 트리 뷰가 테마 에픽에서 안정된 뒤로
+  미뤘다 (wr-jrhv.02j).
+- 뷰 레지스트리는 본문에 요소만 주므로 Explorer 본문은 모듈 변수에 담긴 인스턴스화 서비스를 기다린다(`explorerViewlet.ts`의
+  `ExplorerViewletContribution`이 시작할 때 채운다). 사이드바가 기여보다 먼저 그려지기 때문이다. 뷰 설명자가 생성자 서술자를
+  받게 되면 없앤다 (wr-jrhv.02j).
+
+Decided in: wr-efqx.n9k, wr-lv5h, wr-jrhv.q50, wr-jrhv.r4v, wr-jrhv.02j

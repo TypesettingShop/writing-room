@@ -3,6 +3,8 @@
 import '../../../services/textfile/browser/textFileService.js';
 import '../../../services/dialogs/browser/fileDialogService.js';
 import './fileActions.contribution.js';
+import './explorerService.js';
+import './explorerActions.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../browser/editor.js';
@@ -13,6 +15,7 @@ import { FileEditorInput } from './editors/fileEditorInput.js';
 import { TextFileEditor } from './editors/textFileEditor.js';
 import { TextFileSaveErrorHandler } from './editors/textFileSaveErrorHandler.js';
 import { FileBackupRestorer } from './fileBackupRestorer.js';
+import { ExplorerViewletContribution } from './explorerViewlet.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPane(
   EditorPaneDescriptor.create(TextFileEditor, TextFileEditor.ID, 'Text File Editor'),
@@ -24,3 +27,4 @@ Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!
 registerWorkbenchContribution2(FileEditorResolverContribution.ID, FileEditorResolverContribution);
 registerWorkbenchContribution2(TextFileSaveErrorHandler.ID, TextFileSaveErrorHandler);
 registerWorkbenchContribution2(FileBackupRestorer.ID, FileBackupRestorer);
+registerWorkbenchContribution2(ExplorerViewletContribution.ID, ExplorerViewletContribution);

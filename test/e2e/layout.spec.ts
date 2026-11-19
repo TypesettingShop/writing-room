@@ -97,7 +97,7 @@ test('Explorer exposes an icon and opens or closes the sidebar, and tabs switch 
   await expect(sidebar).toBeHidden();
   await expect(explorer).toHaveAttribute('aria-pressed', 'false');
   await explorer.click();
-  await expect(sidebar.getByRole('heading', { name: 'Files' })).toBeVisible();
+  await expect(sidebar.getByRole('heading', { name: 'workspace' })).toBeVisible();
   await expect(explorer).toHaveAttribute('aria-pressed', 'true');
 
   const output = panel.getByRole('tab', { name: 'Output' });
@@ -140,7 +140,7 @@ test('a late sidebar registration appears in the Activity Bar and can be opened'
   await search.click();
   await expect(sidebar).toBeHidden();
   await activitybar.getByRole('button', { name: 'Explorer' }).click();
-  await expect(sidebar.getByRole('heading', { name: 'Files' })).toBeVisible();
+  await expect(sidebar.getByRole('heading', { name: 'workspace' })).toBeVisible();
 });
 
 test('workbench shortcuts toggle the sidebar and panel', async ({ appPage: page }) => {
@@ -153,7 +153,7 @@ test('workbench shortcuts toggle the sidebar and panel', async ({ appPage: page 
 });
 
 test('hiding the focused view moves focus to the editor', async ({ appPage: page }) => {
-  const files = part(page, 'sidebar').getByRole('region', { name: 'Files' });
+  const files = part(page, 'sidebar').getByRole('region', { name: 'workspace' });
   await files.focus();
   await expect(files).toBeFocused();
 

@@ -13,7 +13,41 @@
       {
         "command": "filesFixture.saveOutside",
         "title": "Files Fixture: Save Starting Outside"
+      },
+      {
+        "command": "filesFixture.markdownItem",
+        "title": "Fixture Markdown Action"
+      },
+      {
+        "command": "filesFixture.folderItem",
+        "title": "Fixture Folder Action"
+      },
+      {
+        "command": "filesFixture.revealDeep",
+        "title": "Files Fixture: Reveal Deep Note"
       }
-    ]
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "filesFixture.markdownItem",
+          "when": "resourceExtname == .md",
+          "group": "fixture"
+        },
+        {
+          "command": "filesFixture.folderItem",
+          "when": "explorerResourceIsFolder",
+          "group": "fixture"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "filesFixture.view",
+          "name": "Files Fixture View"
+        }
+      ]
+    }
   }
 }
