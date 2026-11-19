@@ -8,7 +8,7 @@ import { InMemoryFileSystemProvider } from '../../../../../platform/files/common
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
 import { IQuickInputService } from '../../../../../platform/quickinput/common/quickInput.js';
-import type { IInputOptions, IPickOptions, IQuickInputService as IQuickInput, IQuickPickItem, IQuickPickSeparator } from '../../../../../platform/quickinput/common/quickInput.js';
+import type { IInputBox, IInputOptions, IPickOptions, IQuickInputButton, IQuickPick, IQuickInputService as IQuickInput, IQuickPickItem, IQuickPickSeparator } from '../../../../../platform/quickinput/common/quickInput.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import type { IWorkspaceContextService as IWorkspace, IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
 import { ConfirmResult } from '../../../../common/editor/editorInput.js';
@@ -51,6 +51,11 @@ class ScriptedQuickInput implements IQuickInput {
     this.questions.push(question);
     return this.answers.shift()?.(question) as string | undefined;
   }
+
+  // The dialog asks through `pick` and `input` only.
+  readonly backButton: IQuickInputButton = { icon: 'arrow-left', tooltip: 'Back' };
+  createQuickPick<T extends IQuickPickItem>(): IQuickPick<T> { throw new Error('The dialog does not create quick picks.'); }
+  createInputBox(): IInputBox { throw new Error('The dialog does not create input boxes.'); }
 }
 
 const choose = (label: string): Answer => question => {

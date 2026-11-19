@@ -3,9 +3,8 @@ import { basename } from '../../../../../base/common/resources.js';
 import {
   FileOperationError, FileOperationResult, FileSystemProviderErrorCode, toFileSystemProviderErrorCode,
 } from '../../../../../platform/files/common/files.js';
-import { ILayoutService } from '../../../../../platform/layout/browser/layoutService.js';
+import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../../platform/quickinput/common/quickInput.js';
-import { NotificationsToasts } from '../../../../browser/parts/notifications/notificationsToasts.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 import type {
   ITextFileEditorModel, ITextFileSaveErrorHandler, TextFileConflictResolution,
@@ -40,15 +39,12 @@ export function describeSaveError(error: unknown, model: Pick<ITextFileEditorMod
 export class TextFileSaveErrorHandler extends Disposable implements ITextFileSaveErrorHandler {
   static readonly ID = 'workbench.contrib.textFileSaveErrorHandler';
 
-  private readonly toasts: NotificationsToasts;
-
   constructor(
     @IQuickInputService private readonly quickInput: IQuickInputService,
-    @ILayoutService layout: ILayoutService,
+    @INotificationService private readonly notifications: INotificationService,
     @ITextFileService textFileService: ITextFileService,
   ) {
     super();
-    this.toasts = this._register(new NotificationsToasts(layout.mainContainer));
     const files = textFileService.files;
     const previous = files.saveErrorHandler;
     files.saveErrorHandler = this;
@@ -71,6 +67,6 @@ export class TextFileSaveErrorHandler extends Disposable implements ITextFileSav
 
   onSaveError(error: unknown, model: Pick<ITextFileEditorModel, 'resource'>): void {
     console.warn(`Failed to save ${model.resource}.`, error);
-    this.toasts.show('error', describeSaveError(error, model), [], () => {});
+    this.notifications.error(describeSaveError(error, model));
   }
 }

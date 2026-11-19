@@ -225,17 +225,19 @@ test('shows one file in two groups through one text, and tells same-named files 
   await expectEditorText(left, 'docs shared');
 });
 
-test('shows a read-only file with a lock and does not take typing', async ({ appPage: page, baseURL }) => {
-  await openFilesByRestore(page, [new URL('/index.html', baseURL).href]);
+test('a saved tab list naming a remote resource or a draft opens neither as a text file', async ({ appPage: page, baseURL }) => {
+  // Only the workspace folder and the file systems extensions register open as text files. A remote
+  // extension resource or the user data store (drafts, packages) named in the saved state stays shut.
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'a.md', 'workspace text');
+  await openFilesByRestore(page, [
+    new URL('/index.html', baseURL).href,
+    'vscode-userdata:/User/workspaceStorage/writing-room/backups/0',
+    'a.md',
+  ]);
   const group = groups(page).first();
-  await expect(selectedTab(group)).toHaveText('index.html');
-  await expect(selectedTab(group)).toHaveAccessibleDescription('Read-only');
-  await expect(group.locator('.monaco-editor')).toBeVisible();
-  const before = await group.locator('.monaco-editor .view-lines').first().innerText();
-  await focusEditorEnd(page, group);
-  await page.keyboard.type('typed');
-  await expect(selectedTab(group)).toHaveAccessibleDescription('Read-only');
-  expect(await group.locator('.monaco-editor .view-lines').first().innerText()).toBe(before);
+  await expect(group.getByRole('tab')).toHaveCount(1);
+  await expect(selectedTab(group)).toHaveText('a.md');
 });
 
 test('a dirty file asks before it closes: Cancel keeps the tab, the text and the draft; a clean file closes at once', async ({ appPage: page }) => {

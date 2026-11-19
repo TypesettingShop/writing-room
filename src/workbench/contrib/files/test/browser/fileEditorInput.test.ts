@@ -6,7 +6,7 @@ import { IModelService } from '../../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { TestModelService } from '../../../../../editor/test/common/testTextModel.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
-import { FileSystemProviderError, FileSystemProviderErrorCode, IFileService } from '../../../../../platform/files/common/files.js';
+import { FileSystemProviderCapabilities, FileSystemProviderError, FileSystemProviderErrorCode, IFileService } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
@@ -117,6 +117,21 @@ describe('file editor input', () => {
     await input.revert(1);
     expect(model.textEditorModel!.getValue()).toBe('# changed');
     expect(input.isDirty()).toBe(false);
+  });
+
+  test('a file of a read-only file system is read-only and says so in its title', async () => {
+    // A file system an extension registers can be read-only; the workspace folder is not.
+    const provider = disposables.add(new InMemoryFileSystemProvider());
+    const resource = URI.from({ scheme: 'readonly-test', path: '/notes.md' });
+    await provider.writeFile(resource, bytes('# fixed'), { create: true, overwrite: false });
+    Object.defineProperty(provider, 'capabilities', { value: provider.capabilities | FileSystemProviderCapabilities.Readonly });
+    disposables.add(files.registerProvider('readonly-test', provider));
+
+    const input = disposables.add(instantiation.createInstance(FileEditorInput, resource, {}));
+    expect(input.isReadonly()).toBe(false);
+    await input.resolve();
+    expect(input.isReadonly()).toBe(true);
+    expect(input.getTitle()).toContain('read-only');
   });
 
   test('a tab restored with a draft is dirty until its model says otherwise', async () => {

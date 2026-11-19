@@ -12,10 +12,9 @@ import type { FileChangesEvent } from '../../../../platform/files/common/files.j
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
-import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { NotificationsToasts } from '../../../browser/parts/notifications/notificationsToasts.js';
 import { ExplorerModel } from '../common/explorerModel.js';
 import { isStorageFullError } from './editors/textFileSaveErrorHandler.js';
 import type { ExplorerItem } from '../common/explorerModel.js';
@@ -114,7 +113,6 @@ export class ExplorerService extends Disposable implements IExplorerService {
   private selected: ExplorerItem | undefined;
   private _editable: IExplorerEditable | undefined;
   private view: IExplorerView | undefined;
-  private toasts: NotificationsToasts | undefined;
 
   constructor(
     @IFileService private readonly fileService: IFileService,
@@ -300,10 +298,7 @@ export class ExplorerService extends Disposable implements IExplorerService {
   }
 
   showError(message: string): void {
-    this.toasts ??= this._register(new NotificationsToasts(
-      this.instantiationService.invokeFunction(accessor => accessor.get(ILayoutService)).mainContainer,
-    ));
-    this.toasts.show('error', message, [], () => {});
+    this.instantiationService.invokeFunction(accessor => accessor.get(INotificationService)).error(message);
   }
 
   /** Waits for the folder's latest read, starting one when there is none. */
