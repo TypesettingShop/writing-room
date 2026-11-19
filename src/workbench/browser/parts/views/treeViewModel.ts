@@ -16,9 +16,15 @@ export class TreeViewModel extends Disposable {
   private readonly seen = new Set<string>();
   private readonly requests = new Map<string | undefined, object>();
   private readonly refreshes = new Map<string, object>();
+  private readonly loading = new Map<string | undefined, Promise<void>>();
   private readonly changed = this._register(new Emitter<void>());
   readonly onDidChange = this.changed.event;
+  private readonly expansionChanged = this._register(new Emitter<{ readonly handle: string; readonly expanded: boolean }>());
+  /** The user or a reveal expanded or collapsed a node; the provider's initial expanded state does not count. */
+  readonly onDidChangeExpansion = this.expansionChanged.event;
   error?: string;
+  /** The root's children have arrived once. */
+  loaded = false;
 
   constructor(private readonly source: TreeDataSource) {
     super();
@@ -50,6 +56,9 @@ export class TreeViewModel extends Disposable {
   }
 
   setExpanded(handle: string, expanded: boolean): void {
+    if (this.expanded.has(handle) !== expanded) {
+      this.expansionChanged.fire({ handle, expanded });
+    }
     if (expanded) {
       this.expanded.add(handle);
       if (!this.children.has(handle)) {
@@ -61,7 +70,78 @@ export class TreeViewModel extends Disposable {
     this.changed.fire();
   }
 
-  private find(handle: string): { item: TreeItemDto; parent: string | undefined } | undefined {
+  /** Collapses every node, as the view's Collapse All does. */
+  collapseAll(): void {
+    for (const handle of [...this.expanded]) {
+      this.expansionChanged.fire({ handle, expanded: false });
+    }
+    this.expanded.clear();
+    this.changed.fire();
+  }
+
+  /**
+   * Expands the ancestors in `chain` from the root down and then `levels` levels below its last node,
+   * loading what is not loaded yet. Resolves to whether the last node is in the tree.
+   */
+  async reveal(chain: readonly string[], levels: number): Promise<boolean> {
+    let parent: string | undefined;
+    for (const [index, handle] of chain.entries()) {
+      await this.ensureLoaded(parent);
+      if (!this.children.get(parent)?.some(item => item.handle === handle)) {
+        return false;
+      }
+      if (index < chain.length - 1) {
+        this.expandLoaded(handle);
+      }
+      parent = handle;
+    }
+    let level = [chain[chain.length - 1]];
+    for (let depth = 0; depth < levels && level.length; depth++) {
+      const next: string[] = [];
+      for (const handle of level) {
+        const item = this.find(handle)?.item;
+        if (item && item.collapsible !== 0) {
+          this.expandLoaded(handle);
+          await this.ensureLoaded(handle);
+          next.push(...(this.children.get(handle) ?? []).map(child => child.handle));
+        }
+      }
+      level = next;
+    }
+    this.changed.fire();
+    return true;
+  }
+
+  /** Replaces a shown item, as when the user checked its box, until the provider sends it again. */
+  replaceItem(handle: string, change: (item: TreeItemDto) => TreeItemDto): void {
+    const found = this.find(handle);
+    const items = found && this.children.get(found.parent);
+    if (found && items) {
+      items[items.indexOf(found.item)] = change(found.item);
+      this.changed.fire();
+    }
+  }
+
+  /** The loaded children of a node, or of the root. */
+  childrenOf(handle: string | undefined): readonly TreeItemDto[] {
+    return this.children.get(handle) ?? [];
+  }
+
+  private expandLoaded(handle: string): void {
+    if (!this.expanded.has(handle)) {
+      this.expanded.add(handle);
+      this.expansionChanged.fire({ handle, expanded: true });
+    }
+  }
+
+  private async ensureLoaded(parent: string | undefined): Promise<void> {
+    // A load that a newer one replaced settles without children, so wait for the newer one too.
+    for (let attempt = 0; attempt < 3 && !this.children.has(parent) && !this.isDisposed; attempt++) {
+      await (this.loading.get(parent) ?? this.load(parent, false));
+    }
+  }
+
+  find(handle: string): { item: TreeItemDto; parent: string | undefined } | undefined {
     for (const [parent, items] of this.children) {
       const item = items.find(candidate => candidate.handle === handle);
       if (item) {
@@ -103,7 +183,18 @@ export class TreeViewModel extends Disposable {
     }
   }
 
-  private async load(parent: string | undefined, refreshDescendants: boolean): Promise<void> {
+  private load(parent: string | undefined, refreshDescendants: boolean): Promise<void> {
+    const loading = this.loadChildren(parent, refreshDescendants);
+    this.loading.set(parent, loading);
+    void loading.finally(() => {
+      if (this.loading.get(parent) === loading) {
+        this.loading.delete(parent);
+      }
+    });
+    return loading;
+  }
+
+  private async loadChildren(parent: string | undefined, refreshDescendants: boolean): Promise<void> {
     const request = {};
     this.requests.set(parent, request);
     try {
@@ -112,14 +203,23 @@ export class TreeViewModel extends Disposable {
         return;
       }
       const newHandles = new Set(items.map(item => item.handle));
-      for (const old of this.children.get(parent) ?? []) {
-        if (!newHandles.has(old.handle)) {
-          this.forget(old.handle);
+      // A node with a stable id may have moved here from another parent: it leaves that parent's list.
+      for (const [other, list] of this.children) {
+        if (other !== parent && list.some(item => newHandles.has(item.handle))) {
+          this.children.set(other, list.filter(item => !newHandles.has(item.handle)));
         }
       }
+      const old = this.children.get(parent) ?? [];
       this.children.set(parent, items);
+      for (const item of old) {
+        // A node that moved to another parent keeps its subtree and state there.
+        if (!newHandles.has(item.handle) && !this.find(item.handle)) {
+          this.forget(item.handle);
+        }
+      }
       if (!parent) {
         this.error = undefined;
+        this.loaded = true;
       }
       for (const item of items) {
         if (!this.seen.has(item.handle)) {
@@ -168,8 +268,12 @@ export class TreeViewModel extends Disposable {
     this.seen.delete(handle);
   }
 
+  private isDisposed = false;
+
   override dispose(): void {
+    this.isDisposed = true;
     this.requests.clear();
+    this.loading.clear();
     this.refreshes.clear();
     super.dispose();
   }
