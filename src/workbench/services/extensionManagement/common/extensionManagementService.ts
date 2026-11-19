@@ -80,6 +80,8 @@ export interface PackageInstallSource {
 export interface PackageInstallConfirmation {
   readonly identifier: string;
   readonly manifest: IExtensionManifest;
+  /** The display name with its `%key%` placeholder replaced from the package's localized strings. */
+  readonly displayName: string;
   readonly source: PackageInstallSource;
   /** Size of the package as received, in bytes. */
   readonly size: number;
@@ -153,6 +155,38 @@ export function normalizeExtensionLocation(value: string): URL {
     url.pathname += '/';
   }
   return url;
+}
+
+/** The display name, with a `%key%` placeholder replaced from the extension's localized strings. */
+export function localizedDisplayName(manifest: IExtensionManifest, nls: Readonly<Record<string, string>> | undefined): string {
+  const name = manifest.displayName ?? manifest.name;
+  const key = /^%(.+)%$/.exec(name)?.[1];
+  return (key && nls?.[key]) || name;
+}
+
+/** Whether `value` names a `.vsix` file rather than an extension folder. */
+export function isPackageUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).pathname.toLowerCase().endsWith('.vsix');
+  } catch {
+    return false;
+  }
+}
+
+/** The folder URL rules, for a `.vsix` file: the query stays, as a download link may need it. */
+export function normalizePackageUrl(value: string): URL {
+  const url = normalizeExtensionLocation(value);
+  const original = new URL(value.trim());
+  original.hash = '';
+  if (!original.pathname.toLowerCase().endsWith('.vsix') || url.origin !== original.origin) {
+    throw new Error('Enter the URL of a .vsix file.');
+  }
+  return original;
+}
+
+/** Whether the manifest has `%key%` values that a `package.nls.json` replaces. */
+export function usesNlsPlaceholders(manifest: IExtensionManifest): boolean {
+  return /"%[^"%\\]+%"/.test(JSON.stringify(manifest));
 }
 
 export function validateInstalledManifest(input: unknown, location: string): IExtensionManifest {
@@ -278,12 +312,14 @@ export class ExtensionManagementService {
     const manifest = validateInstalledManifest(await this.loadManifest(location), location.href);
     const identifier = ExtensionIdentifier.fromManifest(manifest).value;
     this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
-    const description = toExtensionDescription({ identifier, location: location.href, manifest });
+    const nls = usesNlsPlaceholders(manifest) ? await this.loadNls(location) : undefined;
+    const description = toExtensionDescription({ identifier, location: location.href, manifest, nls });
     if (!await confirm(description)) {
       return undefined;
     }
     const record: StoredWebExtension = {
       identifier, location: location.href, manifest, installedAt: Date.now(), source: 'location', version: manifest.version,
+      ...(nls ? { nls } : {}),
     };
     await this.scanner.locked(async (read, write) => {
       const installed = read();
@@ -356,10 +392,10 @@ export class ExtensionManagementService {
       throw new Error(`'${identifier}' is a built-in extension.`);
     }
     const warnings = [...pkg.warnings];
-    const nls = await this.readPackageNls(pkg, language, warnings, signal);
+    const nls = usesNlsPlaceholders(manifest) ? await this.readPackageNls(pkg, language, warnings, signal) : undefined;
     const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
     const confirmed = await confirm({
-      identifier, manifest, source, size: bytes.byteLength, sha256, signature: 'unsigned', engine,
+      identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature: 'unsigned', engine,
       isWebExtension: manifest.browser !== undefined,
       existing: previous && { version: previous.version, source: previous.source },
       persistent: await this.packages.isPersistent(), warnings,
@@ -492,6 +528,41 @@ export class ExtensionManagementService {
     } catch {
       throw new Error('The extension package.json must contain valid JSON.');
     }
+  }
+
+  /** Reads `package.nls.json` next to a folder install's manifest. A missing or unreadable file is skipped. */
+  private async loadNls(location: URL): Promise<Record<string, string> | undefined> {
+    try {
+      const { bytes } = await fetchBoundedResource(new URL('package.nls.json', location), {
+        limit: extensionResourceLimits.nls, request: this.fetchManifest,
+      });
+      return readNlsBundle(bytes, 'package.nls.json');
+    } catch (error) {
+      console.warn(`Installing without localized manifest strings from ${location.href}.`, error);
+      return undefined;
+    }
+  }
+
+  /** Downloads a `.vsix` once, up to the package limit, and installs exactly those bytes. */
+  async installFromPackageUrl(
+    value: string,
+    confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
+    options: PackageInstallOptions = {},
+  ): Promise<IExtensionDescription | undefined> {
+    await this.active.whenInstalledExtensionsRegistered();
+    const url = normalizePackageUrl(value);
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      ({ bytes } = await fetchBoundedResource(url, {
+        limit: vsixLimits.download, request: this.fetchManifest, signal: options.signal,
+      }));
+    } catch (error) {
+      if (error instanceof ResourceRequestError) {
+        throw new Error(`Cannot download the package from ${url.origin}. The server may be unavailable, may require a redirect, or may not allow cross-origin requests (CORS).`);
+      }
+      throw new Error(`Could not download the package from ${url.origin}: ${describe(error)}`);
+    }
+    return this.installPackage(bytes, { kind: 'vsix', label: url.origin + url.pathname }, confirm, options);
   }
 
   /**

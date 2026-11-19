@@ -12,7 +12,9 @@ import { InMemoryStorageService, StorageScope } from '../../../../../platform/st
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
 import { extensionPackageCleanupAge, ExtensionPackageStore, extensionPackagesRoot, readPackageIcon } from '../../browser/extensionPackageStore.js';
 import { userExtensionsKey, WebExtensionsScannerService } from '../../browser/webExtensionsScannerService.js';
-import { ExtensionManagementService, sha256Hex } from '../../common/extensionManagementService.js';
+import {
+  ExtensionManagementService, isPackageUrl, localizedDisplayName, normalizePackageUrl, sha256Hex, usesNlsPlaceholders,
+} from '../../common/extensionManagementService.js';
 import type { PackageInstallConfirmation } from '../../common/extensionManagementService.js';
 
 const location = 'vscode-userdata:/extensions/tester.sample-1.0.0/';
@@ -21,7 +23,7 @@ const source = { kind: 'vsix', label: 'sample.vsix' } as const;
 
 afterEach(() => vi.restoreAllMocks());
 
-function setup(provider = new InMemoryFileSystemProvider()) {
+function setup(provider = new InMemoryFileSystemProvider(), request: typeof fetch = fetch) {
   let time = Date.now();
   const files = new FileService();
   files.registerProvider(Schemas.vscodeUserData, provider);
@@ -40,7 +42,7 @@ function setup(provider = new InMemoryFileSystemProvider()) {
       return index >= 0 && extensions.splice(index, 1).length === 1;
     }),
   });
-  const service = new ExtensionManagementService(fetch, scanner, active, packages);
+  const service = new ExtensionManagementService(request, scanner, active, packages);
   const confirmations: PackageInstallConfirmation[] = [];
   const confirm = vi.fn(async (confirmation: PackageInstallConfirmation) => {
     confirmations.push(confirmation);
@@ -246,4 +248,74 @@ test('reads package icons up to 256 KiB from package folders only', async () => 
     .rejects.toThrow('not inside an extension package folder');
   await expect(readPackageIcon(files, new URL(location + '../../User/globalStorage/x/icon.png'), 256 * 1024, signal))
     .rejects.toThrow('not inside an extension package folder');
+});
+
+test('tells package URLs from folder URLs and keeps the folder URL rules for them', () => {
+  expect(isPackageUrl('https://example.com/a/sample.VSIX?token=1')).toBe(true);
+  expect(isPackageUrl('https://example.com/a/sample/')).toBe(false);
+  expect(normalizePackageUrl('https://example.com/a/sample.vsix?token=1#x').href).toBe('https://example.com/a/sample.vsix?token=1');
+  for (const value of ['http://example.com/a.vsix', 'https://user:pw@example.com/a.vsix', 'file:///a.vsix', 'https://example.com/a/']) {
+    expect(() => normalizePackageUrl(value), value).toThrow();
+  }
+});
+
+test('installs the downloaded bytes of a package URL, fetched without credentials or redirects, once per package', async () => {
+  const bytes = createVsix();
+  const request = vi.fn(async () => new Response(bytes));
+  const { service, confirm, confirmations, records } = setup(undefined, request);
+  const url = 'http://127.0.0.1:5000/packages/sample.vsix?v=1';
+  const [first, second] = await Promise.all([service.installFromPackageUrl(url, confirm), service.installFromPackageUrl(url, confirm)]);
+  expect(first).toBe(second);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request).toHaveBeenCalledWith(new URL(url), expect.objectContaining({ credentials: 'omit', redirect: 'error', mode: 'cors' }));
+  expect(confirmations).toEqual([expect.objectContaining({
+    source: { kind: 'vsix', label: 'http://127.0.0.1:5000/packages/sample.vsix' }, sha256: await sha256Hex(bytes),
+  })]);
+  expect(records()).toEqual([expect.objectContaining({ packageSha256: await sha256Hex(bytes) })]);
+});
+
+test('stops a package download at 50 MiB and reports unreachable servers', async () => {
+  const cancel = vi.fn();
+  let chunks = 0;
+  const large = setup(undefined, async () => new Response(new ReadableStream({
+    pull(controller) {
+      chunks++;
+      controller.enqueue(new Uint8Array(1024 * 1024));
+    },
+    cancel,
+  })));
+  await expect(large.service.installFromPackageUrl('https://example.com/a.vsix', large.confirm)).rejects.toThrow('exceeds 52428800 bytes');
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(chunks).toBeLessThan(53);
+  const offline = setup(undefined, async () => { throw new TypeError('Failed to fetch'); });
+  await expect(offline.service.installFromPackageUrl('https://example.com/a.vsix', offline.confirm)).rejects.toThrow(/Cannot download the package/);
+  expect(large.confirm).not.toHaveBeenCalled();
+});
+
+test('reads localized manifest strings only for manifests with placeholders', async () => {
+  expect(usesNlsPlaceholders({ ...sampleManifest, displayName: '%name%' })).toBe(true);
+  expect(usesNlsPlaceholders({ ...sampleManifest, displayName: '100% done' })).toBe(false);
+  expect(localizedDisplayName({ ...sampleManifest, displayName: '%name%' }, { name: 'Sample' })).toBe('Sample');
+  expect(localizedDisplayName({ ...sampleManifest, displayName: '%name%' }, undefined)).toBe('%name%');
+
+  const location = 'http://127.0.0.1:5000/folder/';
+  const plain = vi.fn(async () => Response.json({ ...sampleManifest }));
+  const first = setup(undefined, plain);
+  await first.service.installFromLocation(location, async () => true);
+  expect(plain).toHaveBeenCalledOnce();
+  expect(first.records()[0].nls).toBeUndefined();
+
+  const localized = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith('package.nls.json')
+    ? Response.json({ name: { message: 'Sample' } }) : Response.json({ ...sampleManifest, displayName: '%name%' }));
+  const second = setup(undefined, localized as typeof fetch);
+  const description = await second.service.installFromLocation(location, async () => true);
+  expect(localized.mock.calls.map(([input]) => String(input))).toEqual([location + 'package.json', location + 'package.nls.json']);
+  expect(description?.nls).toEqual({ name: 'Sample' });
+  expect(second.records()[0].nls).toEqual({ name: 'Sample' });
+
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const missing = setup(undefined, (async (input: RequestInfo | URL) => String(input).endsWith('package.nls.json')
+    ? new Response('', { status: 404 }) : Response.json({ ...sampleManifest, displayName: '%name%' })) as typeof fetch);
+  await missing.service.installFromLocation(location, async () => true);
+  expect(missing.records()[0].nls).toBeUndefined();
 });
