@@ -13,7 +13,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { ColorScheme, IThemeService } from '../../../../platform/theme/common/themeService.js';
 import type { ExtensionTreeViews, TreeDataSource } from '../../../api/browser/mainThreadTreeViews.js';
-import type { TreeItemIconDto, TreeRevealOptionsDto } from '../../../api/common/extHost.protocol.js';
+import type { TreeItemDto, TreeItemIconDto, TreeRevealOptionsDto } from '../../../api/common/extHost.protocol.js';
 import type { IViewBody } from '../../../common/views.js';
 import type { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { TreeViewDragAndDrop } from './treeViewDragAndDrop.js';
@@ -559,9 +559,9 @@ export class TreeViewPane extends Disposable implements IViewBody {
         }
       }
     }
-    for (const [changed, value] of changes) {
-      model.replaceItem(changed, item => item.checkbox ? { ...item, checkbox: { ...item.checkbox, checked: value } } : item);
-    }
+    // One change event for all of them: each event draws the whole tree again.
+    model.replaceItems(new Map([...changes].map(([changed, value]) => [changed,
+      (item: TreeItemDto) => item.checkbox ? { ...item, checkbox: { ...item.checkbox, checked: value } } : item])));
     source.setCheckboxState?.([...changes]);
   }
 
@@ -591,7 +591,8 @@ export class TreeViewPane extends Disposable implements IViewBody {
       this.setSelection([target], target);
       return;
     }
-    this.setSelection(handles.slice(Math.min(from, to), Math.max(from, to) + 1), this.selectionAnchor);
+    // Without an anchor the range starts at the target, which anchors the next one.
+    this.setSelection(handles.slice(Math.min(from, to), Math.max(from, to) + 1), this.selectionAnchor ?? target);
   }
 
   private setSelection(handles: readonly string[], anchor: string | undefined): void {

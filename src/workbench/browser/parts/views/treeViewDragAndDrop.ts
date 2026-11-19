@@ -3,7 +3,7 @@ import { CancellationTokenSource } from '../../../../base/common/cancellation.js
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { ExtensionTreeViews, TreeDataSource } from '../../../api/browser/mainThreadTreeViews.js';
 import type { DataTransferItemDto } from '../../../api/common/extHost.protocol.js';
-import { DraggedTreeItems, isWorkbenchDrag, TreeDragAndDropObserver } from '../../dnd.js';
+import { DraggedTreeItems, isWorkbenchDrag, TreeDragAndDropObserver, treeMime } from '../../dnd.js';
 
 /** The most a file dragged in from the operating system may hold for `asFile()`. */
 export const maxDroppedFileSize = 50 * 1024 * 1024;
@@ -12,6 +12,11 @@ let nextDrag = 0;
 
 function treeType(view: string): string {
   return 'application/vnd.code.tree.' + view.toLowerCase();
+}
+
+/** The MIME type a dragged file is offered under: its own, or `application/octet-stream` when it has none. */
+function fileMimeType(file: { readonly type: string }): string {
+  return file.type.toLowerCase() || 'application/octet-stream';
 }
 
 function hasDragAndDrop(source: TreeDataSource | undefined): boolean {
@@ -60,7 +65,11 @@ export class TreeViewDragAndDrop extends Disposable {
       onDragLeave: () => this.highlight(undefined),
       onDrop: event => void this.onDrop(event),
     }));
-    this._register(toDisposable(() => this.sourceChanged()));
+    // A pane that goes away mid-drag no longer hears the drag end, so it ends its drags itself.
+    this._register(toDisposable(() => {
+      this.endDrags(() => true);
+      this.highlight(undefined);
+    }));
   }
 
   private get source(): TreeDataSource | undefined {
@@ -92,16 +101,21 @@ export class TreeViewDragAndDrop extends Disposable {
 
   /** Ends the drags of a provider that went away, and releases what their host kept. */
   sourceChanged(): void {
-    for (const [drag, { source }] of [...this.started]) {
-      if (source !== this.source) {
+    this.endDrags(source => source !== this.source);
+    this.highlight(undefined);
+  }
+
+  /** Ends the drags this view started from a source `ended` names, cancelling and releasing what their host kept. */
+  private endDrags(ended: (source: TreeDataSource) => boolean): void {
+    for (const [drag, { source, cancellation }] of [...this.started]) {
+      if (ended(source)) {
         this.observer.endDrag(false);
-        if (this.started.has(drag)) {
-          this.started.delete(drag);
+        if (this.started.delete(drag)) {
+          cancellation.dispose(true);
           source.releaseDrag?.(drag);
         }
       }
     }
-    this.highlight(undefined);
   }
 
   private accepts(event: DragEvent): boolean {
@@ -116,12 +130,13 @@ export class TreeViewDragAndDrop extends Disposable {
     }
     const types = [...event.dataTransfer.types].map(type => type.toLowerCase());
     // A tree drag without its session belongs to no live drag; the workbench's own drags are never a tree's.
-    if (types.includes('application/x-writing-room-tree') || isWorkbenchDrag(event)) {
+    if (types.includes(treeMime) || isWorkbenchDrag(event)) {
       return false;
     }
     const files = [...event.dataTransfer.items].filter(entry => entry.kind === 'file');
+    // A file without a type is `application/octet-stream`, as the drop gives it.
     return types.some(type => type !== 'files' && options.dropMimeTypes.includes(type))
-      || files.some(file => options.dropMimeTypes.includes('files') || options.dropMimeTypes.includes(file.type.toLowerCase()));
+      || files.some(file => options.dropMimeTypes.includes('files') || options.dropMimeTypes.includes(fileMimeType(file)));
   }
 
   private onDragOver(event: DragEvent): void {
@@ -167,7 +182,7 @@ export class TreeViewDragAndDrop extends Disposable {
         }
       }
       for (const file of transfer.files) {
-        const type = file.type.toLowerCase() || 'application/octet-stream';
+        const type = fileMimeType(file);
         if (dropMimeTypes.includes('files') || dropMimeTypes.includes(type)) {
           files.push({ type, file });
         }

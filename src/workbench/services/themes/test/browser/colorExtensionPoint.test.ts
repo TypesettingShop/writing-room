@@ -111,7 +111,7 @@ test('a wrong id or default is refused with a message, and the other colors stay
   // As in VS Code, a default that is not a hex color names another color: `red` is a color id, of no color.
   expect(colorRegistry.getColors().filter(color => color.extensionId).map(color => color.id))
     .toEqual(['fixture.named', 'fixture.accent', 'fixture.follow']);
-  expect(variable('fixture.named')).toBe('');
+  expect(variable('fixture.named')).toBe('initial');
   expect(variable('editor.background')).toBe('#171b24');
   expect(container.getAttribute('style')).not.toMatch(/url\(|display|bad-id/);
 });

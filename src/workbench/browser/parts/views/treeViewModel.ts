@@ -17,6 +17,8 @@ export class TreeViewModel extends Disposable {
   private readonly requests = new Map<string | undefined, object>();
   private readonly refreshes = new Map<string, object>();
   private readonly loading = new Map<string | undefined, Promise<void>>();
+  /** The item the provider sent for each item `replaceItems` made in its place. */
+  private readonly sent = new WeakMap<TreeItemDto, TreeItemDto>();
   private readonly changed = this._register(new Emitter<void>());
   readonly onDidChange = this.changed.event;
   private readonly expansionChanged = this._register(new Emitter<{ readonly handle: string; readonly expanded: boolean }>());
@@ -86,8 +88,7 @@ export class TreeViewModel extends Disposable {
   async reveal(chain: readonly string[], levels: number): Promise<boolean> {
     let parent: string | undefined;
     for (const [index, handle] of chain.entries()) {
-      await this.ensureLoaded(parent);
-      if (!this.children.get(parent)?.some(item => item.handle === handle)) {
+      if (!(await this.ensureChild(parent, handle))) {
         return false;
       }
       if (index < chain.length - 1) {
@@ -114,12 +115,31 @@ export class TreeViewModel extends Disposable {
 
   /** Replaces a shown item, as when the user checked its box, until the provider sends it again. */
   replaceItem(handle: string, change: (item: TreeItemDto) => TreeItemDto): void {
-    const found = this.find(handle);
-    const items = found && this.children.get(found.parent);
-    if (found && items) {
-      items[items.indexOf(found.item)] = change(found.item);
+    this.replaceItems(new Map([[handle, change]]));
+  }
+
+  /** Replaces several shown items in one pass, with one change event. */
+  replaceItems(changes: ReadonlyMap<string, (item: TreeItemDto) => TreeItemDto>): void {
+    let replaced = false;
+    for (const items of this.children.values()) {
+      items.forEach((item, index) => {
+        const change = changes.get(item.handle);
+        if (change) {
+          const next = change(item);
+          this.sent.set(next, this.sentItem(item));
+          items[index] = next;
+          replaced = true;
+        }
+      });
+    }
+    if (replaced) {
       this.changed.fire();
     }
+  }
+
+  /** The item the provider sent that `item` replaces, or `item` itself. */
+  private sentItem(item: TreeItemDto): TreeItemDto {
+    return this.sent.get(item) ?? item;
   }
 
   /** The loaded children of a node, or of the root. */
@@ -132,6 +152,20 @@ export class TreeViewModel extends Disposable {
       this.expanded.add(handle);
       this.expansionChanged.fire({ handle, expanded: true });
     }
+  }
+
+  /**
+   * Whether `handle` is among `parent`'s children, loading them first. The extension host has just found
+   * it there, so a loaded list without it is stale, as after a refresh that is still on its way: that
+   * listing is waited for, or the children are asked for again.
+   */
+  private async ensureChild(parent: string | undefined, handle: string): Promise<boolean> {
+    const has = () => !!this.children.get(parent)?.some(item => item.handle === handle);
+    await this.ensureLoaded(parent);
+    for (let attempt = 0; !has() && attempt < 2 && !this.isDisposed; attempt++) {
+      await (this.loading.get(parent) ?? this.load(parent, false));
+    }
+    return has();
   }
 
   private async ensureLoaded(parent: string | undefined): Promise<void> {
@@ -161,7 +195,9 @@ export class TreeViewModel extends Disposable {
     try {
       const item = await this.source.getItem(handle);
       const items = this.children.get(before.parent);
-      const index = items?.indexOf(before.item) ?? -1;
+      // An item replaced meanwhile, as by a check box or a resolved tooltip, still stands for what was sent.
+      const sent = this.sentItem(before.item);
+      const index = items?.findIndex(candidate => this.sentItem(candidate) === sent) ?? -1;
       if (item && items && index >= 0 && this.refreshes.get(handle) === request) {
         items[index] = item;
         if (this.expanded.has(handle) && item.collapsible !== 0) {

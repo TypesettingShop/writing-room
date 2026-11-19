@@ -64,6 +64,29 @@ function schemeKey(scheme: ColorScheme): keyof ColorDefaults {
 /** References are followed this deep; a longer chain is a cycle and gives no color. */
 const MAX_REFERENCE_DEPTH = 16;
 
+/**
+ * `color` frozen, with its hex defaults normalized. An id that is not a color identifier, or a default that
+ * is neither a hex color nor a color identifier, throws.
+ */
+function checkedColor({ id, defaults, description, extensionId }: ColorContribution): ColorContribution {
+  if (!isColorIdentifier(id)) {
+    throw new Error(`'${id}' is not a color identifier.`);
+  }
+  for (const value of Object.values(defaults)) {
+    if (value !== null && !isHexColor(value) && !isColorIdentifier(value)) {
+      throw new Error(`The default '${String(value)}' of '${id}' is neither a hex color nor a color identifier.`);
+    }
+  }
+  const normalize = (value: ColorValue) => value !== null && isHexColor(value) ? normalizeHexColor(value) : value;
+  return Object.freeze({
+    id, description, extensionId,
+    defaults: Object.freeze({
+      dark: normalize(defaults.dark), light: normalize(defaults.light),
+      hcDark: normalize(defaults.hcDark), hcLight: normalize(defaults.hcLight),
+    }),
+  });
+}
+
 class ColorRegistry {
   private readonly colors = new Map<ColorIdentifier, ColorContribution>();
   private readonly changed = new Emitter<void>();
@@ -75,22 +98,7 @@ class ColorRegistry {
    * a color identifier, throws: built-in colors are code.
    */
   registerColor(id: ColorIdentifier, defaults: ColorDefaults, description: string, extensionId?: string): ColorIdentifier {
-    if (!isColorIdentifier(id)) {
-      throw new Error(`'${id}' is not a color identifier.`);
-    }
-    for (const value of Object.values(defaults)) {
-      if (value !== null && !isHexColor(value) && !isColorIdentifier(value)) {
-        throw new Error(`The default '${String(value)}' of '${id}' is neither a hex color nor a color identifier.`);
-      }
-    }
-    const normalize = (value: ColorValue) => value !== null && isHexColor(value) ? normalizeHexColor(value) : value;
-    this.colors.set(id, Object.freeze({
-      id, description, extensionId,
-      defaults: Object.freeze({
-        dark: normalize(defaults.dark), light: normalize(defaults.light),
-        hcDark: normalize(defaults.hcDark), hcLight: normalize(defaults.hcLight),
-      }),
-    }));
+    this.colors.set(id, checkedColor({ id, defaults, description, extensionId }));
     this.changed.fire();
     return id;
   }
@@ -106,15 +114,12 @@ class ColorRegistry {
    * defaults are checked as `registerColor` checks them, before anything changes.
    */
   changeColors(remove: readonly ColorIdentifier[], add: readonly ColorContribution[]): void {
-    const checked = new ColorRegistry();
-    for (const { id, defaults, description, extensionId } of add) {
-      checked.registerColor(id, defaults, description, extensionId);
-    }
+    const checked = add.map(checkedColor);
     let changed = false;
     for (const id of remove) {
       changed = this.colors.delete(id) || changed;
     }
-    for (const color of checked.colors.values()) {
+    for (const color of checked) {
       this.colors.set(color.id, color);
       changed = true;
     }

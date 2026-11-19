@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import type { Locator, Page, Request } from '@playwright/test';
 import type { IExtensionManifest } from '../../src/platform/extensions/common/extensions.js';
+import { settingsKey } from './configuration.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { expect } from './fixtures.js';
 
 /** A fixture folder under `test/fixtures/extensions/theming/`. */
 export type ThemingFixture = 'color-theme/' | 'theme-api/';
 
-export const settingsKey = 'writing-room:storage:0:user.settings.json';
+export { persistedSettings, settingsKey } from './configuration.helpers.js';
 
 function manifest(fixture: ThemingFixture): IExtensionManifest {
   return JSON.parse(readFileSync(new URL(`../fixtures/extensions/theming/${fixture}package.json`, import.meta.url), 'utf8')) as IExtensionManifest;
@@ -45,8 +46,6 @@ export function colorVariable(page: Page, id: string): Promise<string> {
 export function kindClass(page: Page): Promise<string | undefined> {
   return workbench(page).evaluate(element => ['vs', 'vs-dark', 'hc-black', 'hc-light'].find(name => element.classList.contains(name)));
 }
-
-export const persistedSettings = (page: Page): Promise<string | null> => page.evaluate(key => localStorage.getItem(key), settingsKey);
 
 /** Opens the color theme picker from the command palette. */
 export async function openThemePicker(page: Page): Promise<Locator> {

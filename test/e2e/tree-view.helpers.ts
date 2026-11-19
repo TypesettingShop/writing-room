@@ -4,6 +4,8 @@ import type { IExtensionManifest } from '../../src/platform/extensions/common/ex
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { box, expect } from './fixtures.js';
 
+export { runCommand } from './window-ui.helpers.js';
+
 const manifest = JSON.parse(readFileSync(
   new URL('../fixtures/extensions/theming/tree-view/package.json', import.meta.url), 'utf8')) as IExtensionManifest;
 
@@ -25,21 +27,6 @@ export const item = (page: Page, name: string): Locator => notesTree(page).getBy
 
 /** The fixture's event log in the status bar, which holds its last twelve events. */
 export const eventLog = (page: Page): Locator => page.locator('[id="workbench.parts.statusbar"]');
-
-/** Runs a command from the palette. */
-export async function runCommand(page: Page, title: string): Promise<void> {
-  await page.keyboard.press('F1');
-  const palette = page.getByRole('combobox', { name: 'Type a command' });
-  await palette.fill(title);
-  await expect(page.getByRole('option', { name: title, exact: true })).toHaveAttribute('aria-selected', 'true');
-  await palette.press('Enter');
-}
-
-/** Picks a color theme by its label from the theme picker. */
-export async function selectColorTheme(page: Page, label: string): Promise<void> {
-  await runCommand(page, 'Preferences: Color Theme');
-  await page.getByRole('option', { name: label }).click();
-}
 
 export async function center(locator: Locator): Promise<{ x: number; y: number }> {
   const bounds = await box(locator);

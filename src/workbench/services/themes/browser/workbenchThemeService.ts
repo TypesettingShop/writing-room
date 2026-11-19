@@ -264,10 +264,10 @@ export class WorkbenchThemeService extends Disposable implements IThemeService {
     const container = this.layout.mainContainer;
     const values = new Map<string, string>();
     for (const { id } of colorRegistry.getColors()) {
-      const value = theme.getColor(id);
-      if (value !== undefined) {
-        values.set(asCssVariableName(id), value);
-      }
+      // A color the theme gives no value is unset on the container with `initial`: removing it would let the
+      // first paint's dark value that `workbench.css` sets there show, as in a high contrast theme that leaves
+      // `menu.selectionBackground` out. A stylesheet's own fallback still applies.
+      values.set(asCssVariableName(id), theme.getColor(id) ?? 'initial');
     }
     for (const [id, value] of theme.ownColors()) {
       // Ids nothing registered are published too, as VS Code does; they were checked when the file was read.

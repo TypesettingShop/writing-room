@@ -7,7 +7,8 @@ import type { GroupIdentifier, IEditorIdentifier } from '../common/editor.js';
 
 const compositeMime = 'application/x-writing-room-view-container';
 const editorMime = 'application/x-writing-room-editor';
-const treeMime = 'application/x-writing-room-tree';
+/** The marker type of a drag of extension tree items. */
+export const treeMime = 'application/x-writing-room-tree';
 
 /** Calls `end` however a drag from `source` ends: its `dragend`, Escape, or the window losing focus or the page. */
 function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {

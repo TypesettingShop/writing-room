@@ -77,6 +77,25 @@ test('reveal lists the unknown ancestors and sends their handles with the option
   expect(proxy.$reveal).toHaveBeenLastCalledWith('e', 'tree', [rootRows[0].handle], { select: true, focus: false, expand: 0 });
 });
 
+test('reveal waits for the workbench\'s listing on its way and does not leave it empty', async () => {
+  const proxy = mainThread();
+  const trees = new ExtHostTreeViews(proxy, () => ['tree']);
+  const roots = tree(['Fruit', ['Apple']]);
+  let release!: () => void;
+  const held = new Promise<void>(resolve => release = resolve);
+  const { provider: slow } = provider(() => roots);
+  const view = trees.createTreeView('e', 'tree', { ...slow, getChildren: async element => {
+    await held;
+    return element ? element.children ?? [] : roots;
+  } });
+  const listing = trees.$getChildren('e', 'tree');
+  const revealed = view.reveal(roots[0]);
+  release();
+  expect((await listing).map(row => row.label)).toEqual(['Fruit']);
+  await revealed;
+  expect(proxy.$reveal).toHaveBeenCalledOnce();
+});
+
 test('selection, expansion and visibility events carry the extension\'s own elements', async () => {
   const proxy = mainThread();
   const trees = new ExtHostTreeViews(proxy, () => ['tree']);

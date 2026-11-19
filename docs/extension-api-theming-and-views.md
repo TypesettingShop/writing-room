@@ -10,7 +10,7 @@ Decided in: wr-efqx.n9k
 
 ### 색 레지스트리
 
-- `src/platform/theme/common/colorRegistry.ts`가 색을 등록한다. 색마다 테마 종류 넷(어두움, 밝음, 고대비 어두움, 고대비 밝음)의 기본값을 가진다. 기본값은 16진 색, 다른 색의 id(같은 테마에서 그 색의 값을 따른다), 또는 없음이다. 없으면 변수를 두지 않아 스타일시트의 대체값이 쓰인다.
+- `src/platform/theme/common/colorRegistry.ts`가 색을 등록한다. 색마다 테마 종류 넷(어두움, 밝음, 고대비 어두움, 고대비 밝음)의 기본값을 가진다. 기본값은 16진 색, 다른 색의 id(같은 테마에서 그 색의 값을 따른다), 또는 없음이다. 없으면 컨테이너에 그 변수를 `initial`로 걸어 `workbench.css`가 첫 그림을 위해 둔 어두운 값을 가리고, 스타일시트의 대체값이 쓰인다.
 - 내장 색은 204개다: 기본 색, 글, 버튼과 체크박스, 드롭다운과 입력, 배지·스크롤바·진행 표시, 목록과 트리, 액티비티 바, 사이드바, 에디터 그룹과 탭, 패널, 상태 표시줄, 제목 표시줄과 메뉴, 알림과 퀵 인풋, 차트, 에디터. `titleBar.iconForeground`(제목 표시줄의 제품 아이콘)만 Writing Room의 이름이고 나머지는 VS Code의 이름이다.
 - 색 id는 VS Code의 `colors` 패턴(`^\w+[.\w+]*$`)을 따라야 한다(`isColorIdentifier`). 줄표, 공백, 괄호, 세미콜론이 들어갈 수 없으니 변수 이름이 선언이나 규칙을 끝낼 수 없다.
 - 색 값은 16진 표기 넷만 받는다: `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`(`isHexColor`). 받은 값은 `#rrggbb`나 `#rrggbbaa`의 소문자로 바꿔 둔다.
@@ -206,7 +206,7 @@ view.badge = { value: 3, tooltip: '3 unread notes' };
 
 ### 아이콘과 레이블
 
-- `ThemeIcon`: id가 codicon 이름 꼴(`[a-zA-Z0-9-]+`, 뒤에 `~spin`)일 때만 `codicon-…` 클래스로 그린다. 색(`ThemeIcon.color`)은 색 id 패턴을 지난 id만 `var(--vscode-…)`로 건다. 테마가 값을 주지 않는 id는 변수가 없어 행의 글자 색을 따른다. 색이 없는 `ThemeIcon`은 `icon.foreground`다.
+- `ThemeIcon`: id가 codicon 이름 꼴(`[a-zA-Z0-9-]+`, 뒤에 `~spin`)일 때만 `codicon-…` 클래스로 그린다. 색(`ThemeIcon.color`)은 색 id 패턴을 지난 id만 `var(--vscode-…)`로 건다. 테마가 값을 주지 않는 id는 변수에 값이 없어(`initial`이거나 미등록) 행의 글자 색을 따른다. 색이 없는 `ThemeIcon`은 `icon.foreground`다.
 - `Uri`와 `{ light, dark }`: 메인 스레드가 그 확장의 설치 폴더나 워크스페이스 폴더 안인지 정규화한 뒤 확인한다. 밖이면(다른 확장의 폴더, 임의의 웹 주소, `%2e%2e`로 올라가는 경로) 아이콘을 버린다. 둘 가운데 하나라도 밖이면 쌍 전체를 버린다.
 - 그림은 `IFileService`로 256 KiB까지 읽고(넘으면 그리지 않는다), 확장자가 `svg`, `png`, `jpg`, `jpeg`, `gif`, `webp`인 것만 blob URL을 만들어 `<img>`로 넣는다. SVG를 문서 안에 넣지 않으므로 그림 속 스크립트나 스타일이 워크벤치에 닿지 않는다.
 - 밝은 종류(`vs`, `hc-light`)의 테마에서는 `light`, 그 밖에서는 `dark`를 그린다. 테마가 바뀌면 바로 다른 쪽으로 바꾼다.

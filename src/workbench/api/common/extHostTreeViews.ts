@@ -131,6 +131,8 @@ class TreeRegistration extends Disposable {
   private readonly nodes = new Map<string, TreeNode>();
   private readonly children = new Map<string | undefined, Set<string>>();
   private readonly loads = new Map<string | undefined, object>();
+  /** The listing of each parent that is on its way, whoever asked for it. */
+  private readonly listings = new Map<string | undefined, Promise<TreeItemDto[]>>();
   /** The `TreeItem` the provider last gave for each handle, which `resolveTreeItem` and check boxes update. */
   private readonly items = new Map<string, vscode.TreeItem>();
   private generation = 0;
@@ -178,7 +180,20 @@ class TreeRegistration extends Disposable {
     this.generation++;
   }
 
-  async getChildren(parent?: string): Promise<TreeItemDto[]> {
+  /** Lists `parent`'s children. A listing that a newer one for the same parent replaced gives none. */
+  getChildren(parent?: string): Promise<TreeItemDto[]> {
+    const listing = this.list(parent);
+    this.listings.set(parent, listing);
+    const settle = () => {
+      if (this.listings.get(parent) === listing) {
+        this.listings.delete(parent);
+      }
+    };
+    listing.then(settle, settle);
+    return listing;
+  }
+
+  private async list(parent?: string): Promise<TreeItemDto[]> {
     const parentNode = parent === undefined ? undefined : this.nodes.get(parent);
     if (parent && !parentNode) {
       return [];
@@ -335,9 +350,11 @@ class TreeRegistration extends Disposable {
     for (const item of chain) {
       const find = () => [...this.children.get(parent) ?? []].find(handle => this.nodes.get(handle)?.element === item);
       let handle = find();
-      // A listing the workbench started at the same time may win the race, so ask until one lands.
-      for (let attempt = 0; handle === undefined && attempt < 2; attempt++) {
-        await this.getChildren(parent);
+      // A listing already on its way, such as the workbench's, is waited for and not replaced: a replaced
+      // listing gives the workbench no children. One the workbench starts after this one replaces it, so
+      // ask until one lands.
+      for (let attempt = 0; handle === undefined && attempt < 3; attempt++) {
+        await (this.listings.get(parent) ?? this.getChildren(parent));
         handle = find();
       }
       if (handle === undefined) {
@@ -412,6 +429,7 @@ class TreeRegistration extends Disposable {
     this.items.clear();
     this.children.clear();
     this.loads.clear();
+    this.listings.clear();
     this.selected = [];
     for (const emitter of [this.expanded, this.collapsed, this.selectionChanged, this.visibilityChanged, this.checkboxChanged]) {
       emitter.dispose();

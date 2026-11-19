@@ -1,8 +1,9 @@
 import { expect, test } from './fixtures.js';
 import {
   activityButton, center, dragOver, dropFromOutside, eventLog, item, notesTree, notesView, openTreeFixture, runCommand,
-  selectColorTheme, startDrag,
+  startDrag,
 } from './tree-view.helpers.js';
+import { chooseTheme } from './themes.helpers.js';
 
 test('draws codicons, images from the extension for the theme kind, resource labels and late tooltips', async ({ page }) => {
   await openTreeFixture(page);
@@ -24,7 +25,7 @@ test('draws codicons, images from the extension for the theme kind, resource lab
   await readme.hover();
   await expect(readme).toHaveAttribute('title', 'Resolved readme');
 
-  await selectColorTheme(page, 'Writing Room Light');
+  await chooseTheme(page, 'Writing Room Light');
   await expect(item(page, 'Draft').locator('img')).toHaveAttribute('data-icon', 'light');
   await expect(item(page, 'Draft').locator('img')).toHaveAttribute('src', /^blob:/);
 });

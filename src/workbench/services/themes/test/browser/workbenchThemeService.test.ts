@@ -162,8 +162,8 @@ test('the default theme is v0.1.0\'s dark palette on the container, with its kin
   expect(variable('list.hoverBackground')).toBe('#ffffff12');
   // A reference resolves through the same theme.
   expect(variable('tab.activeBackground')).toBe('#171b24');
-  // A color without a default stays unset, so a stylesheet's fallback applies.
-  expect(variable('selection.background')).toBe('');
+  // A color without a default stays unset, so a stylesheet's fallback applies, but not workbench.css's first paint.
+  expect(variable('selection.background')).toBe('initial');
   expect(events).toEqual([]);
 });
 

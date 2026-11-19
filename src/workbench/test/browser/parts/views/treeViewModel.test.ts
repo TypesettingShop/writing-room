@@ -91,6 +91,18 @@ test('reveal loads and expands the ancestors and then the asked levels below', a
   refresh.dispose();
 });
 
+test('reveal of an item added since the children were loaded asks for them again', async () => {
+  const roots: TreeItemDto[] = [{ handle: 'a', label: 'a', collapsible: 0 }];
+  const { model, refresh } = source(async parent => parent === undefined ? [...roots] : []);
+  await vi.waitFor(() => expect(model.loaded).toBe(true));
+  // The extension added `b` and revealed it; the refresh it fired has not landed yet.
+  roots.push({ handle: 'b', label: 'b', collapsible: 0 });
+  expect(await model.reveal(['b'], 0)).toBe(true);
+  expect(model.rows.map(({ item }) => item.handle)).toEqual(['a', 'b']);
+  model.dispose();
+  refresh.dispose();
+});
+
 test('a full refresh shows a node that moved to another parent once, whichever parent loads first (wr-5r5z)', async () => {
   for (const first of ['old', 'new']) {
     let moved = false;
