@@ -4,9 +4,11 @@ import { DefaultThemeService } from '../../src/platform/theme/common/themeServic
 import { FetchFileSystemProvider } from '../../src/workbench/services/extensions/browser/webWorkerFileSystemProvider.js';
 import { asWebviewUri } from '../../src/workbench/contrib/webview/browser/resourceLoading.js';
 import { WebviewElement } from '../../src/workbench/contrib/webview/browser/webviewElement.js';
-import { resolveWebviewOrigin } from '../../src/workbench/contrib/webview/browser/webviewOrigin.js';
+import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../src/workbench/contrib/webview/browser/webviewOrigin.js';
 
-const origin = resolveWebviewOrigin(new URL(location.href), new URL(location.href).searchParams.get('template') ?? undefined);
+const page = new URL(location.href);
+const template = page.searchParams.get('template') ?? undefined;
+const origin = resolveWebviewOrigin(page, template, undefined, await getWebviewForwardingPorts(page, template));
 const files = new FileService();
 files.registerProvider('http', new FetchFileSystemProvider());
 const links: string[] = [];

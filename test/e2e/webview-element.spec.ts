@@ -1,35 +1,13 @@
-import { build } from 'vite';
 import { expect, test } from '@playwright/test';
+import { bundleWebviewHarness, openWebviewHarness } from './webview-harness.helpers.js';
 
 let harnessCode: string;
 test.beforeAll(async () => {
-  const result = await build({
-    configFile: false,
-    logLevel: 'silent',
-    build: { write: false, lib: { entry: 'test/harness/webview.ts', formats: ['es'] } },
-  });
-  if (!Array.isArray(result)) {
-    throw new Error('Expected the bundled Webview harness.');
-  }
-  const chunk = result[0].output.find(output => output.type === 'chunk');
-  if (!chunk || chunk.type !== 'chunk') {
-    throw new Error('The Webview harness has no script.');
-  }
-  harnessCode = chunk.code;
+  harnessCode = await bundleWebviewHarness();
 });
 
-async function openHarness(page: import('@playwright/test').Page, query = '') {
-  // Use a real loopback response so Chromium attributes its local-network address space.
-  await page.goto('/' + query);
-  await page.evaluate(code => {
-    (0, eval)(code);
-    const element = document.querySelector<HTMLElement>('.webview-element')!;
-    Object.assign(element.style, { position: 'fixed', width: '640px', height: '480px', inset: '0', zIndex: '100' });
-  }, harnessCode);
-}
-
 test('isolates the workbench, serves the first bounded resource and exchanges messages', async ({ page }) => {
-  await openHarness(page);
+  await openWebviewHarness(page, '/', harnessCode);
   const extensionOrigin = 'http://127.0.0.1:' + process.env.E2E_EXTENSIONS_PORT;
   await page.evaluate(extensionOrigin => {
     const harness = (window as any).harness;
@@ -67,7 +45,7 @@ test('isolates the workbench, serves the first bounded resource and exchanges me
 });
 
 test('renders with scripts disabled and shows same-origin configuration errors', async ({ page }) => {
-  await openHarness(page);
+  await openWebviewHarness(page, '/', harnessCode);
   await page.evaluate(() => (window as any).harness.set(
     '<p>Scriptless</p><script>document.body.append("Unexpected script");</script>', false));
   const content = page.frameLocator('iframe[title="Webview"]').frameLocator('iframe[title="Webview content"]');
@@ -75,7 +53,7 @@ test('renders with scripts disabled and shows same-origin configuration errors',
   await expect(content.getByText('Unexpected script')).toHaveCount(0);
 
   const appOrigin = new URL(page.url()).origin;
-  await openHarness(page, '?template=' + encodeURIComponent(appOrigin));
+  await openWebviewHarness(page, '/?template=' + encodeURIComponent(appOrigin), harnessCode);
   await expect(page.locator('.webview-element').getByRole('status')).toContainText('separate origin');
   await expect(page.locator('iframe')).toHaveCount(0);
 });
