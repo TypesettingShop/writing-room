@@ -16,10 +16,15 @@ const extension: HostExtensionDescription = {
 
 test('joins an area’s window, type and context, guards methods and isolates cleanup', async () => {
   const events: string[] = [];
+  let current = 0;
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
   const first = extHostApiRegistry.register('test.first', () => ({
     create: () => ({
-      namespaces: { window: { sync: () => 42, async: promiseApiMethod(async () => 27) } },
+      namespaces: { window: {
+        sync: () => 42,
+        async: promiseApiMethod(async () => 27),
+        get current() { return current; },
+      } },
       types: { TestType: class {} },
       context: { belongsToFirst: 1 },
     }),
@@ -34,7 +39,7 @@ test('joins an area’s window, type and context, guards methods and isolates cl
   const worker = new RPCProtocol(channel.port2);
   main.set(MainContext.MainThreadExtensionService, { async $setActivationStatus() {} });
   let showInformationMessage!: typeof vscode.window.showInformationMessage;
-  let windowApi!: { sync(): number; async(): Promise<number> };
+  let windowApi!: { sync(): number; async(): Promise<number>; readonly current: number };
   const service = new ExtHostExtensionService(worker, async (_extension, api) => {
     showInformationMessage = api.window.showInformationMessage;
     windowApi = api.window as unknown as typeof windowApi;
@@ -43,6 +48,9 @@ test('joins an area’s window, type and context, guards methods and isolates cl
       async activate(context) {
         expect(context).toHaveProperty('belongsToFirst', 1);
         expect(windowApi.sync()).toBe(42);
+        expect(windowApi.current).toBe(0);
+        current = 1;
+        expect(windowApi.current).toBe(1);
         expect(await windowApi.async()).toBe(27);
         context.subscriptions.push({ dispose: () => events.push('subscription') });
       },
@@ -55,6 +63,7 @@ test('joins an area’s window, type and context, guards methods and isolates cl
     await proxy.$deltaExtensions([], [extension.key]);
     expect(events).toEqual(['first', 'second', 'subscription']);
     expect(() => windowApi.sync()).toThrow('no longer active');
+    expect(() => windowApi.current).toThrow('no longer active');
     await expect(windowApi.async()).rejects.toThrow('no longer active');
     await expect(showInformationMessage('Inactive')).rejects.toThrow('no longer active');
     service.dispose();

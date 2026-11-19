@@ -69,7 +69,7 @@ export function promiseApiMethod<T extends (...args: any[]) => PromiseLike<unkno
   return method;
 }
 
-export function guardApiMethod(value: unknown, checkLive: () => void): unknown {
+export function guardApiMethod<T>(value: T, checkLive: () => void): T {
   if (typeof value !== 'function') {
     return value;
   }
@@ -83,5 +83,5 @@ export function guardApiMethod(value: unknown, checkLive: () => void): unknown {
       throw error;
     }
     return Reflect.apply(value, this, args);
-  };
+  } as T;
 }

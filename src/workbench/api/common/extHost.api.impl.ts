@@ -5,19 +5,28 @@ import type { ExtHostApiContribution } from './extHostApiRegistry.js';
 
 interface Property {
   readonly area: string;
-  readonly value: unknown;
+  readonly descriptor: PropertyDescriptor;
 }
 
-function add(properties: Map<string, Property>, name: string, area: string, value: unknown): void {
+function add(
+  properties: Map<string, Property>, name: string, area: string, descriptor: PropertyDescriptor, path = name,
+): void {
   const existing = properties.get(name);
   if (existing) {
-    throw new Error(`Duplicate extension API property '${name}' from '${existing.area}' and '${area}'.`);
+    throw new Error("Duplicate extension API property '" + path + "' from '" + existing.area + "' and '" + area + "'.");
   }
-  properties.set(name, { area, value });
+  properties.set(name, { area, descriptor });
 }
 
 function asObject(properties: ReadonlyMap<string, Property>): Record<string, unknown> {
-  return Object.fromEntries([...properties].map(([name, { value }]) => [name, value]));
+  const descriptors = Object.fromEntries([...properties].map(([name, { descriptor }]) => [name, descriptor]));
+  return Object.defineProperties({}, descriptors);
+}
+
+function guardProperty(property: PropertyDescriptor, checkLive: () => void): PropertyDescriptor {
+  return 'value' in property
+    ? { ...property, value: guardApiMethod(property.value, checkLive) }
+    : { ...property, get: guardApiMethod(property.get, checkLive), set: guardApiMethod(property.set, checkLive) };
 }
 
 export function createExtensionApi(
@@ -31,39 +40,37 @@ export function createExtensionApi(
   const context = new Map<string, Property>();
   const checkLive = () => {
     if (!isLive()) {
-      throw new Error(`Extension '${extension.key}' is no longer active.`);
+      throw new Error("Extension '" + extension.key + "' is no longer active.");
     }
   };
-  for (const [name, value] of Object.entries(baseContext)) {
-    add(context, name, 'extension context', value);
+  for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(baseContext))) {
+    add(context, name, 'extension context', descriptor);
   }
   for (const [area, contribution] of contributions) {
     const fragments = contribution.create?.(extension);
-    for (const [name, type] of Object.entries(fragments?.types ?? {})) {
-      add(top, name, area, type);
+    for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(fragments?.types ?? {}))) {
+      add(top, name, area, descriptor);
     }
     for (const [namespace, properties] of Object.entries(fragments?.namespaces ?? {})) {
       let values = namespaces.get(namespace);
       if (!values) {
         values = new Map();
         namespaces.set(namespace, values);
-        add(top, namespace, area, values);
+        add(top, namespace, area, { enumerable: true });
       }
-      for (const [name, value] of Object.entries(properties)) {
-        const existing = values.get(name);
-        if (existing) {
-          throw new Error(`Duplicate extension API property '${namespace}.${name}' from '${existing.area}' and '${area}'.`);
-        }
-        add(values, name, area, guardApiMethod(value, checkLive));
+      for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(properties))) {
+        add(values, name, area, guardProperty(descriptor, checkLive), namespace + '.' + name);
       }
     }
-    for (const [name, value] of Object.entries(fragments?.context ?? {})) {
-      add(context, name, area, guardApiMethod(value, checkLive));
+    for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(fragments?.context ?? {}))) {
+      add(context, name, area, guardProperty(descriptor, checkLive));
     }
   }
-  const api = asObject(top);
   for (const [name, values] of namespaces) {
-    Object.defineProperty(api, name, { value: Object.freeze(asObject(values)), enumerable: true });
+    top.get(name)!.descriptor.value = Object.freeze(asObject(values));
   }
-  return { api: Object.freeze(api) as typeof vscode, context: asObject(context) as unknown as vscode.ExtensionContext };
+  return {
+    api: Object.freeze(asObject(top)) as typeof vscode,
+    context: asObject(context) as unknown as vscode.ExtensionContext,
+  };
 }
