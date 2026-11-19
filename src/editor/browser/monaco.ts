@@ -44,8 +44,11 @@ async function load(): Promise<MonacoNamespace> {
     },
   };
   const monaco = await import('monaco-editor');
-  // The theme service gives Monaco the workbench's color theme here, before the first editor exists.
-  announceEditorLoaded(monaco);
+  // The theme service gives Monaco the workbench's color theme here, before the first editor exists. A
+  // page without one, such as the editor harness, keeps v0.1.0's theme.
+  if (!announceEditorLoaded(monaco)) {
+    monaco.editor.setTheme('vs-dark');
+  }
   // F1 belongs to the workbench's command palette, not to Monaco's own.
   monaco.editor.addKeybindingRule({ keybinding: monaco.KeyCode.F1, command: '-editor.action.quickCommand' });
   return monaco;

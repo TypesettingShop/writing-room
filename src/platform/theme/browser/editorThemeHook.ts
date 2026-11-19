@@ -7,9 +7,10 @@ import type { IDisposable } from '../../../base/common/lifecycle.js';
 let loaded: { readonly namespace: unknown } | undefined;
 const listeners = new Set<(namespace: unknown) => void>();
 
-/** Called by the editor package's loader once, with its namespace. */
-export function announceEditorLoaded(namespace: unknown): void {
+/** Called by the editor package's loader once, with its namespace; `false` when nobody was listening. */
+export function announceEditorLoaded(namespace: unknown): boolean {
   loaded = { namespace };
+  const listening = listeners.size > 0;
   for (const listener of [...listeners]) {
     try {
       listener(namespace);
@@ -17,6 +18,7 @@ export function announceEditorLoaded(namespace: unknown): void {
       console.error(error);
     }
   }
+  return listening;
 }
 
 /**
