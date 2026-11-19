@@ -45,11 +45,11 @@ test('URL installation keeps commands with icon pairs and commands whose icons f
   await page.getByRole('option', { name: /Install Foundation Fixture/ }).click();
 
   await expect(page.getByRole('button', { name: 'Report Fixture Resource' })).toBeVisible();
-  await expect.poll(() => requested.some(path => path === '/foundation/icons/dark.svg')).toBe(true);
   await page.reload();
   await page.keyboard.press('F1');
   await page.getByRole('combobox').fill('Report Fixture Code Action Kind');
   await page.getByRole('option', { name: /Report Fixture Code Action Kind/ }).click();
   await expect(page.getByText('Fixture code action kind: quickfix', { exact: true })).toBeVisible();
+  await expect.poll(() => requested.some(path => path === '/foundation/icons/dark.svg')).toBe(true);
   expect(requested).not.toContain('/outside.svg');
 });
