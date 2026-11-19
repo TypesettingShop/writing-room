@@ -1,5 +1,6 @@
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
+import { PLAINTEXT_LANGUAGE_ID } from '../../../../editor/common/languages/language.js';
 import type { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions } from '../../../common/editor.js';
@@ -37,6 +38,22 @@ function decodeText(encoded: string): string | undefined {
   return text;
 }
 
+const MAX_LANGUAGE_ID_LENGTH = 256;
+
+/**
+ * A language id as it may stand in a saved editor: no whitespace or control characters, and not
+ * longer than `MAX_LANGUAGE_ID_LENGTH`. Anything else is dropped and the text opens in the language
+ * guessed for it.
+ */
+function readLanguageId(value: string): string | undefined {
+  return value.length <= MAX_LANGUAGE_ID_LENGTH && /^[^\s\p{Cc}]+$/u.test(value) ? value : undefined;
+}
+
+/**
+ * `name`, or `name\ntext` for the first tab of an input, or `name\ntext\nlanguage` when its language
+ * is not plain text. v0.1.0 saved the first two only; they still read, in the language guessed for
+ * the text.
+ */
 export class UntitledTextEditorInputSerializer implements IEditorSerializer {
   private readonly restoredInputs = new WeakMap<UntitledTextEditorModel, UntitledTextEditorInput>();
 
@@ -46,7 +63,10 @@ export class UntitledTextEditorInputSerializer implements IEditorSerializer {
 
   serialize(editor: EditorInput): string | undefined {
     if (editor instanceof UntitledTextEditorInput && this.canSerialize(editor)) {
-      return editor.getName() + '\n' + encodeText(editor.model.getValue());
+      // Plain text keeps the v0.1.0 form: without a language, restoring guesses one again.
+      const languageId = editor.model.getLanguageId();
+      const language = languageId === PLAINTEXT_LANGUAGE_ID ? '' : '\n' + languageId;
+      return editor.getName() + '\n' + encodeText(editor.model.getValue()) + language;
     }
     return undefined;
   }
@@ -64,14 +84,18 @@ export class UntitledTextEditorInputSerializer implements IEditorSerializer {
       const model = service.get(resource);
       return model && this.restoredInputs.get(model);
     }
-    const text = decodeText(value.slice(separator + 1));
+    // Base64 has no line breaks, so a second one starts the language.
+    const rest = value.slice(separator + 1);
+    const languageSeparator = rest.indexOf('\n');
+    const text = decodeText(languageSeparator < 0 ? rest : rest.slice(0, languageSeparator));
     if (text === undefined) {
       return undefined;
     }
-    const model = service.restore(resource, text);
+    const languageId = languageSeparator < 0 ? undefined : readLanguageId(rest.slice(languageSeparator + 1));
+    const model = service.restore(resource, text, languageId);
     let input = this.restoredInputs.get(model);
     if (!input) {
-      input = new UntitledTextEditorInput(model);
+      input = instantiationService.createInstance(UntitledTextEditorInput, model);
       this.restoredInputs.set(model, input);
     }
     return input;

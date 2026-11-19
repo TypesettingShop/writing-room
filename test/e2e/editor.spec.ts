@@ -14,6 +14,15 @@ async function newTextFile(page: Page): Promise<void> {
   await page.getByRole('menu', { name: 'File' }).getByRole('menuitem', { name: 'New Text File' }).click();
 }
 
+/**
+ * Answers Don't Save to the question v0.2.0 asks before an untitled editor with text closes
+ * (promise 9 of the v0.2.0 plan; v0.1.0 closed it at once).
+ */
+async function dontSave(page: Page, name: string): Promise<void> {
+  await expect(page.getByRole('combobox', { name: `Do you want to save the changes you made to ${name}?` })).toBeFocused();
+  await page.getByRole('option', { name: /^Don't Save/ }).click();
+}
+
 /** Opens a new untitled editor in the active group and types into it. */
 async function openAndType(page: Page, text?: string): Promise<void> {
   await newTextFile(page);
@@ -67,6 +76,7 @@ test('tabs switch content and close without activating background tabs', async (
   await page.waitForTimeout(500);
   await page.keyboard.press('End');
   await g.getByRole('tab', { name: 'Untitled-2' }).click({ button: 'middle' });
+  await dontSave(page, 'Untitled-2');
   await expect(g.getByRole('tab', { name: 'Untitled-2' })).toHaveCount(0);
   await expect(g.getByRole('tab', { name: 'Untitled-3' })).toHaveAttribute('aria-selected', 'true');
   await expect.poll(() => renderedText(g)).toBe('gamma');
@@ -75,6 +85,7 @@ test('tabs switch content and close without activating background tabs', async (
 
   // The close button also closes a background tab without activating it.
   await g.getByRole('button', { name: 'Close Untitled-1' }).click();
+  await dontSave(page, 'Untitled-1');
   await expect(g.getByRole('tab', { name: 'Untitled-1' })).toHaveCount(0);
   await expect(g.getByRole('tab', { name: 'Untitled-3' })).toHaveAttribute('aria-selected', 'true');
 });
@@ -132,6 +143,8 @@ test('the tab context menu closes the other tabs', async ({ appPage: page }) => 
     await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
   }
   await menu.getByRole('menuitem', { name: 'Close Others', exact: true }).click();
+  await dontSave(page, 'Untitled-1');
+  await dontSave(page, 'Untitled-3');
   await expect(menu).toHaveCount(0);
   await expect(g.getByRole('tab')).toHaveCount(1);
   await expect(g.getByRole('tab', { name: 'Untitled-2' })).toHaveAttribute('aria-selected', 'true');
