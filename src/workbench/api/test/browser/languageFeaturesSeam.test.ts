@@ -3,39 +3,27 @@ import type * as vscode from 'vscode';
 import { afterEach, expect, test, vi } from 'vitest';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import type { CancellationToken } from '../../../../base/common/cancellation.js';
-import { toDisposable } from '../../../../base/common/lifecycle.js';
-import type { IDisposable } from '../../../../base/common/lifecycle.js';
-import { URI } from '../../../../base/common/uri.js';
+import type { URI } from '../../../../base/common/uri.js';
 import type { IMonacoTextModel, MonacoNamespace } from '../../../../editor/browser/monaco.js';
 import type { IPosition } from '../../../../editor/common/model.js';
 import { MODEL_SYNC_LIMIT } from '../../../../editor/common/model.js';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
-import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js';
-import {
-  checkRegExp, checkSelector, createMainThreadLanguageFeatures, request, toMonacoLanguageConfiguration,
-} from '../../browser/mainThreadLanguageFeatures.js';
+import { checkRegExp, checkSelector, request, toMonacoLanguageConfiguration } from '../../browser/mainThreadLanguageFeatures.js';
 import type { MainThreadLanguageFeatures } from '../../browser/mainThreadLanguageFeatures.js';
-import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy } from '../../common/extHost.protocol.languageFeatures.js';
-import { ExtHostDocuments } from '../../common/extHostDocuments.js';
-import type { ExtHostCommands } from '../../common/extHostCommands.js';
-import { createLanguageFeaturesArea, IndentAction } from '../../common/extHostLanguageFeatures.js';
+import { checkSelector as checkApiSelector, IndentAction } from '../../common/extHostLanguageFeatures.js';
 import type { ExtHostLanguageFeatures } from '../../common/extHostLanguageFeatures.js';
-import { checkSelector as checkApiSelector } from '../../common/extHostLanguageFeatures.js';
 import { positionFromEditor } from '../../common/extHostTypeConverters.js';
 import { Position, RelativePattern, Uri } from '../../common/extHostTypes.js';
+import { createLanguageFeatureTestHost, settle as settleHost, testExtensions, testModel, workspaceUri } from './languageFeaturesTestHost.js';
 
 /*
  * The seam with a feature of the test's own: `registerTestProvider` on the extension host, a Monaco
- * "test provider" on the workbench side that asks `$provideTest` with a URI and a position.
+ * "TestProvider" on the workbench side that asks `$provideTest` with a URI and a position.
  */
 
-const extensions: Record<string, HostExtensionDescription> = {
-  '1': { key: '1', id: 'test.first', location: 'https://example.test/1/', entry: '', activationEvents: [], manifest: { name: 'first', publisher: 'test', version: '1.0.0' } },
-  '2': { key: '2', id: 'test.second', location: 'https://example.test/2/', entry: '', activationEvents: [], manifest: { name: 'second', publisher: 'test', version: '1.0.0' } },
-};
 const text = ['# Title', 'SECRET body text that must not cross', 'last'];
-const resource = URI.parse('vscode-vfs://writing-room/workspace/a.md');
-const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+const resource = workspaceUri('a.md');
+const extensions = testExtensions;
 
 interface TestProvider { provideTest(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken): vscode.ProviderResult<string> }
 
@@ -52,6 +40,7 @@ function testGroup(features: ExtHostLanguageFeatures) {
           (features.proxy as unknown as { $registerTestSupport(key: string, handle: number, selector: unknown): Promise<void> })
             .$registerTestSupport(extension.key, handle, dto));
       },
+      registerTestCommand: (command: vscode.Command) => features.createCommandStore(extension).toDto(command),
     }),
     $provideTest(handle: number, uri: URI, position: IPosition, token: CancellationToken): Promise<string | undefined> {
       return features.invoke(handle, TestAdapter, token, undefined, async (adapter, extension) => {
@@ -62,85 +51,40 @@ function testGroup(features: ExtHostLanguageFeatures) {
   };
 }
 
-interface FakeProvider { readonly selector: unknown; provide(model: IMonacoTextModel, position: IPosition, token: CancellationToken): Promise<string | undefined> }
+interface FakeProvider { provideTest(model: IMonacoTextModel, position: IPosition, token: CancellationToken): Promise<string | undefined> }
 
-function fakeMonaco() {
-  const providers = new Set<FakeProvider>();
-  const configurations: { languageId: string; configuration: unknown }[] = [];
-  const monaco = {
-    languages: {
-      setLanguageConfiguration: (languageId: string, configuration: unknown) => {
-        const entry = { languageId, configuration };
-        configurations.push(entry);
-        return toDisposable(() => configurations.splice(configurations.indexOf(entry), 1));
-      },
-    },
-  } as unknown as MonacoNamespace;
-  return { monaco, providers, configurations };
-}
-
-function mainTestGroup(providers: Set<FakeProvider>) {
-  return (seam: MainThreadLanguageFeatures) => ({
+function mainTestGroup(seam: MainThreadLanguageFeatures) {
+  return {
     $registerTestSupport(extension: string, handle: number, selector: unknown): Promise<void> {
       const checked = checkSelector(selector);
-      return seam.register(extension, handle, () => {
-        const provider: FakeProvider = {
-          selector: checked,
-          provide: (model, position, token) => request(model, token, uri =>
-            (seam.proxy as unknown as { $provideTest(handle: number, uri: URI, position: IPosition, token: CancellationToken): Promise<string | undefined> })
-              .$provideTest(handle, uri, position, token)),
-        };
-        providers.add(provider);
-        return toDisposable(() => providers.delete(provider));
-      });
+      return seam.register(extension, handle, monaco => (monaco.languages as unknown as Record<string, Function>).registerTestProvider(checked, {
+        provideTest: (model, position, token) => request(model, token, uri =>
+          (seam.proxy as unknown as { $provideTest(handle: number, uri: URI, position: IPosition, token: CancellationToken): Promise<string | undefined> })
+            .$provideTest(handle, uri, position, token)),
+      } satisfies FakeProvider));
     },
-  });
+  };
 }
 
-function model(length = text.join('\n').length): IMonacoTextModel {
-  return {
-    uri: { scheme: resource.scheme, authority: resource.authority, path: resource.path, query: '', fragment: '' },
-    isDisposed: () => false,
-    getValueLength: () => length,
-  } as unknown as IMonacoTextModel;
-}
+const model = (length?: number) => testModel(resource, text.join('\n'), { length });
 
-const disposables: IDisposable[] = [];
+let host: Awaited<ReturnType<typeof createLanguageFeatureTestHost>> | undefined;
 afterEach(() => {
-  for (const disposable of disposables.splice(0)) {
-    disposable.dispose();
-  }
+  host?.dispose();
+  host = undefined;
   vi.restoreAllMocks();
 });
 
 async function setup(options: { monaco?: () => Promise<MonacoNamespace> } = {}) {
-  const { port1, port2 } = new MessageChannel();
-  const sent: unknown[] = [];
-  const post = port1.postMessage.bind(port1);
-  port1.postMessage = ((message: unknown, transfer?: Transferable[]) => {
-    sent.push(message);
-    post(message, transfer as Transferable[]);
-  }) as typeof port1.postMessage;
-  const main = new RPCProtocol(port1);
-  const worker = new RPCProtocol(port2);
-  const fake = fakeMonaco();
-  const live = new Set(['1', '2']);
-  const documents = new ExtHostDocuments({ $startDocumentSync: async () => {} } as never, key => live.has(key));
-  await documents.$acceptDocumentDelta({ added: [{ id: 'a', uri: resource, lines: text, eol: '\n', version: 1, language: 'markdown', dirty: false }] });
-  const host = createLanguageFeaturesArea(worker, documents, {} as ExtHostCommands, key => live.has(key), [testGroup]);
-  const workbench = createMainThreadLanguageFeatures(main.getProxy(ExtHostLanguageFeaturesProxy), key => live.has(key) ? extensions[key] : undefined,
-    { monaco: options.monaco ?? (async () => fake.monaco), waitForLanguage: async () => {} }, [mainTestGroup(fake.providers)]);
-  main.set(MainThreadLanguageFeaturesProxy, workbench.handlers as never);
-  const api = (key: string) => host.groups[0].api(extensions[key]) as { registerTestProvider(selector: vscode.DocumentSelector, provider: TestProvider): vscode.Disposable };
-  disposables.push({ dispose: () => { workbench.dispose(); host.features.dispose(); documents.dispose(); main.dispose(); worker.dispose(); } });
-  return { ...fake, host, workbench, api, live, sent, documents };
+  host = await createLanguageFeatureTestHost({
+    hostGroups: [testGroup], mainGroups: [mainTestGroup], documents: [{ uri: resource, text: text.join('\n') }], monaco: options.monaco,
+  });
+  const api = host.api as unknown as (key: string) => ReturnType<ReturnType<typeof testGroup>['api']>;
+  const providers = { get size() { return host!.of('TestProvider').length; }, [Symbol.iterator]: () => host!.of('TestProvider').map(entry => entry.provider as FakeProvider)[Symbol.iterator]() };
+  return { ...host, api, providers, configurations: host.configurations };
 }
 
-async function settle(times = 5) {
-  for (let i = 0; i < times; i++) {
-    await tick();
-  }
-}
+const settle = settleHost;
 
 test('a call carries the URI and the position, the provider gets the document and a 0-based position', async () => {
   const { api, providers, sent } = await setup();
@@ -149,9 +93,9 @@ test('a call carries the URI and the position, the provider gets the document an
   await settle();
   expect(providers.size).toBe(1);
   const [provider] = providers;
-  expect(provider.selector).toEqual({ language: 'markdown' });
+  expect(host!.of('TestProvider')[0].selector).toEqual({ language: 'markdown' });
   sent.length = 0;
-  await expect(provider.provide(model(), { lineNumber: 2, column: 8 }, new CancellationTokenSource().token)).resolves.toBe('body text that must not cross');
+  await expect(provider.provideTest(model(), { lineNumber: 2, column: 8 }, new CancellationTokenSource().token)).resolves.toBe('body text that must not cross');
   expect(provideTest.mock.calls[0][1]).toEqual(new Position(1, 7));
   // Only identifiers and positions crossed, never the text.
   expect(JSON.stringify(sent)).not.toContain('SECRET');
@@ -164,7 +108,7 @@ test('a provider that throws gives nothing and is logged with the public identif
   api('1').registerTestProvider('markdown', { provideTest: () => { throw new Error('broken provider'); } });
   api('2').registerTestProvider('markdown', { provideTest: () => 'second' });
   await settle();
-  const results = await Promise.all([...providers].map(provider => provider.provide(model(), { lineNumber: 1, column: 1 }, new CancellationTokenSource().token)));
+  const results = await Promise.all([...providers].map(provider => provider.provideTest(model(), { lineNumber: 1, column: 1 }, new CancellationTokenSource().token)));
   expect(results).toEqual([undefined, 'second']);
   expect(error).toHaveBeenCalledTimes(1);
   expect(String(error.mock.calls[0][0])).toContain('[test.first]');
@@ -183,7 +127,7 @@ test('cancelling on the workbench side cancels the provider\'s token, and its la
   });
   await settle();
   const source = new CancellationTokenSource();
-  const result = [...providers][0].provide(model(), { lineNumber: 1, column: 1 }, source.token);
+  const result = [...providers][0].provideTest(model(), { lineNumber: 1, column: 1 }, source.token);
   await settle();
   expect(providerToken?.isCancellationRequested).toBe(false);
   source.cancel();
@@ -194,13 +138,13 @@ test('cancelling on the workbench side cancels the provider\'s token, and its la
 });
 
 test('the extension host answers a cancelled call at once, without waiting for the provider', async () => {
-  const { api, host } = await setup();
+  const { api, features } = await setup();
   api('1').registerTestProvider('markdown', { provideTest: () => new Promise<string>(() => {}) });
   await settle();
   const source = new CancellationTokenSource();
-  const handler = (host.features as unknown as { registrations: Map<number, unknown> });
+  const handler = (features as unknown as { registrations: Map<number, unknown> });
   const [handle] = handler.registrations.keys();
-  const result = (testGroup(host.features)).$provideTest(handle, resource, { lineNumber: 1, column: 1 }, source.token);
+  const result = (testGroup(features)).$provideTest(handle, resource, { lineNumber: 1, column: 1 }, source.token);
   source.cancel();
   await expect(result).resolves.toBeUndefined();
 });
@@ -212,16 +156,16 @@ test('a model above the synchronization limit, or a cancelled request, never rea
   await settle();
   sent.length = 0;
   const [provider] = providers;
-  await expect(provider.provide(model(MODEL_SYNC_LIMIT + 1), { lineNumber: 1, column: 1 }, new CancellationTokenSource().token)).resolves.toBeUndefined();
+  await expect(provider.provideTest(model(MODEL_SYNC_LIMIT + 1), { lineNumber: 1, column: 1 }, new CancellationTokenSource().token)).resolves.toBeUndefined();
   const cancelled = new CancellationTokenSource();
   cancelled.cancel();
-  await expect(provider.provide(model(), { lineNumber: 1, column: 1 }, cancelled.token)).resolves.toBeUndefined();
+  await expect(provider.provideTest(model(), { lineNumber: 1, column: 1 }, cancelled.token)).resolves.toBeUndefined();
   expect(provideTest).not.toHaveBeenCalled();
   expect(sent).toEqual([]);
 });
 
 test('disposing, removing the extension or ending the host takes every Monaco registration back', async () => {
-  const { api, providers, workbench, host } = await setup();
+  const { api, providers, workbench, host: area } = await setup();
   const first = api('1').registerTestProvider('markdown', { provideTest: () => 'a' });
   api('1').registerTestProvider('markdown', { provideTest: () => 'b' });
   api('2').registerTestProvider('markdown', { provideTest: () => 'c' });
@@ -233,15 +177,15 @@ test('disposing, removing the extension or ending the host takes every Monaco re
   first.dispose();
   await settle();
   expect(providers.size).toBe(2);
-  expect(host.features.size).toBe(2);
+  expect(area.features.size).toBe(2);
   // A request that was on its way when the registration went answers with nothing.
-  await expect(provider.provide(model(), { lineNumber: 1, column: 1 }, new CancellationTokenSource().token)).resolves.toBeUndefined();
+  await expect(provider.provideTest(model(), { lineNumber: 1, column: 1 }, new CancellationTokenSource().token)).resolves.toBeUndefined();
 
   workbench.seam.remove('1');
   expect(providers.size).toBe(1);
-  host.features.release('1');
+  area.features.release('1');
   await settle();
-  expect(host.features.size).toBe(1);
+  expect(area.features.size).toBe(1);
 
   workbench.dispose();
   expect(providers.size).toBe(0);
@@ -249,11 +193,11 @@ test('disposing, removing the extension or ending the host takes every Monaco re
 });
 
 test('the extension\'s release unregisters on the workbench side too', async () => {
-  const { api, providers, host } = await setup();
+  const { api, providers, features } = await setup();
   api('1').registerTestProvider('markdown', { provideTest: () => 'a' });
   api('2').registerTestProvider('markdown', { provideTest: () => 'b' });
   await settle();
-  host.features.release('1');
+  features.release('1');
   await settle();
   expect(providers.size).toBe(1);
 });
@@ -301,8 +245,9 @@ test('selectors cross as strings and filters; a relative pattern carries its bas
 });
 
 test('languages.match scores like VS Code', async () => {
-  const { host, documents } = await setup();
-  const document = documents.getByUri(resource as unknown as vscode.Uri)!;
+  const { features: { match }, features, document: find } = await setup();
+  const document = find(resource);
+  const host = { features: { match: match.bind(features) } };
   expect(host.features.match('markdown', document)).toBe(10);
   expect(host.features.match({ language: 'plaintext' }, document)).toBe(0);
   expect(host.features.match(['plaintext', '*'], document)).toBe(5);
@@ -312,8 +257,9 @@ test('languages.match scores like VS Code', async () => {
 });
 
 test('a language configuration reaches Monaco with its regular expressions, and its word pattern is the document\'s default', async () => {
-  const { host, configurations, documents, workbench } = await setup();
-  const document = documents.getByUri(resource as unknown as vscode.Uri)!;
+  const { features, configurations, document: find, workbench } = await setup();
+  const host = { features };
+  const document = find(resource);
   expect(document.getWordRangeAtPosition(new Position(1, 8))?.end.character).toBe(11);
   const registration = host.features.setLanguageConfiguration(extensions['1'], 'markdown', {
     comments: { blockComment: ['<!--', '-->'] },
@@ -340,6 +286,31 @@ test('a language configuration reaches Monaco with its regular expressions, and 
   expect(workbench.seam.registrationCount).toBe(0);
   expect(document.getWordRangeAtPosition(new Position(1, 8))?.end.character).toBe(11);
   expect(() => host.features.setLanguageConfiguration(extensions['1'], 'markdown', { wordPattern: /x*/ })).toThrow('empty string');
+});
+
+test('a provider\'s command crosses as a reference, runs on the extension host with its own arguments, and goes with its store', async () => {
+  const { api, features, seam, monaco, run, executed } = await setup();
+  const argument = { notCloneable: () => 'kept on the host' };
+  const store = features.createCommandStore(extensions['1']);
+  const dto = store.toDto({ command: 'fixture.run', title: 'Run', tooltip: 'Runs', arguments: [argument, 2] })!;
+  expect(dto).toEqual({ title: 'Run', tooltip: 'Runs', ref: expect.any(Number) });
+  expect(store.toDto({ title: 'No id' } as vscode.Command)).toBeUndefined();
+  const command = seam.toMonacoCommand(monaco, dto)!;
+  expect(command).toEqual({ id: expect.stringMatching(/^_writingRoom\.languageFeatures\.\d+\.run$/), title: 'Run', tooltip: 'Runs', arguments: [dto.ref] });
+  run(command);
+  await settle();
+  expect(executed).toEqual([{ extension: '1', id: 'fixture.run', args: [argument, 2] }]);
+  expect(features.commandCount).toBe(1);
+  store.dispose();
+  expect(features.commandCount).toBe(0);
+  run(command);
+  await settle();
+  expect(executed).toHaveLength(1);
+  // A released extension's commands go too.
+  api('1').registerTestCommand({ command: 'fixture.other', title: 'Other' });
+  features.release('1');
+  expect(features.commandCount).toBe(0);
+  expect(seam.toMonacoCommand(monaco, { title: 'x', ref: 1.5 })).toBeUndefined();
 });
 
 test('the workbench builds regular expressions only from a source and plain flags', () => {

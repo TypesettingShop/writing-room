@@ -56,6 +56,16 @@ export interface LanguageConfigurationDto {
   readonly autoClosingPairs?: ReadonlyArray<{ readonly open: string; readonly close: string; readonly notIn?: readonly string[] }>;
 }
 
+/**
+ * A command of a provider's result (a completion item's, a code lens's): the extension host keeps the
+ * command and its arguments, which need not survive a copy, and the workbench runs it by `ref`.
+ */
+export interface CommandDto {
+  readonly title: string;
+  readonly tooltip?: string;
+  readonly ref: number;
+}
+
 // --- The seam ------------------------------------------------------------------------------------
 
 export interface MainThreadLanguageFeaturesSeamShape {
@@ -65,11 +75,16 @@ export interface MainThreadLanguageFeaturesSeamShape {
   $setLanguageConfiguration(extension: string, handle: number, languageId: string, configuration: LanguageConfigurationDto): Promise<void>;
 }
 
+export interface ExtHostLanguageFeaturesSeamShape {
+  /** Runs a command a provider's result held. A command that was released does nothing. */
+  $executeProviderCommand(ref: number): Promise<void>;
+}
+
 // --- The merged shapes ---------------------------------------------------------------------------
 
 export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape;
 
-export type ExtHostLanguageFeaturesShape = object;
+export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape;
 
 /**
  * The `$` methods of every feature group, bound, under one object: each side answers under one RPC

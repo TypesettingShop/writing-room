@@ -6,7 +6,9 @@ import { score } from '../../../editor/common/languageSelector.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from './extHost.protocol.languageFeatures.js';
-import type { LanguageSelectorDto, MainThreadLanguageFeaturesShape } from './extHost.protocol.languageFeatures.js';
+import type {
+  CommandDto, ExtHostLanguageFeaturesSeamShape, LanguageSelectorDto, MainThreadLanguageFeaturesShape,
+} from './extHost.protocol.languageFeatures.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
 import type { ExtHostCommands } from './extHostCommands.js';
 import type { ExtHostDocuments } from './extHostDocuments.js';
@@ -55,9 +57,20 @@ interface Registration {
   readonly adapter: object;
 }
 
-export class ExtHostLanguageFeatures {
+/**
+ * The commands of one kept result. They go with the result: `dispose` when the workbench releases it.
+ */
+export interface CommandStore {
+  /** Keeps `command` and gives what crosses; a value that is not a command gives undefined. */
+  toDto(command: vscode.Command | undefined): CommandDto | undefined;
+  dispose(): void;
+}
+
+export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape {
   private readonly registrations = new Map<number, Registration>();
   private nextHandle = 0;
+  private readonly kept = new Map<number, { readonly extension: HostExtensionDescription; readonly command: vscode.Command }>();
+  private nextCommand = 0;
 
   constructor(
     readonly proxy: MainThreadLanguageFeaturesShape,
@@ -176,6 +189,42 @@ export class ExtHostLanguageFeatures {
     });
   }
 
+  /** The commands kept for the workbench, for tests that look for leaks. */
+  get commandCount(): number {
+    return this.kept.size;
+  }
+
+  /** A store for the commands of one result of `extension`. */
+  createCommandStore(extension: HostExtensionDescription): CommandStore {
+    const refs = new Set<number>();
+    return {
+      toDto: command => {
+        if (!command || typeof command.command !== 'string' || !command.command || typeof command.title !== 'string') {
+          return undefined;
+        }
+        const ref = ++this.nextCommand;
+        this.kept.set(ref, { extension, command });
+        refs.add(ref);
+        return { title: command.title, tooltip: typeof command.tooltip === 'string' ? command.tooltip : undefined, ref };
+      },
+      dispose: () => {
+        for (const ref of refs) {
+          this.kept.delete(ref);
+        }
+        refs.clear();
+      },
+    };
+  }
+
+  async $executeProviderCommand(ref: number): Promise<void> {
+    const entry = this.kept.get(ref);
+    if (!entry || !this.isLive(entry.extension.key)) {
+      return;
+    }
+    const { command, arguments: args } = entry.command;
+    await this.commands.executeCommand(entry.extension.key, command, Array.isArray(args) ? args : []);
+  }
+
   /** Drops the registrations of an extension that was released, and tells the workbench. */
   release(key: string): void {
     for (const [handle, { extension }] of [...this.registrations]) {
@@ -183,10 +232,16 @@ export class ExtHostLanguageFeatures {
         this.unregister(handle);
       }
     }
+    for (const [ref, { extension }] of [...this.kept]) {
+      if (extension.key === key) {
+        this.kept.delete(ref);
+      }
+    }
   }
 
   dispose(): void {
     this.registrations.clear();
+    this.kept.clear();
   }
 }
 
@@ -201,7 +256,7 @@ export function createLanguageFeaturesArea(
 ) {
   const features = new ExtHostLanguageFeatures(rpc.getProxy(MainThreadLanguageFeaturesProxy), documents, commands, isLive);
   const groups = factories.map(factory => factory(features));
-  rpc.set(ExtHostLanguageFeaturesProxy, mergeHandlers(groups));
+  rpc.set(ExtHostLanguageFeaturesProxy, mergeHandlers([features, ...groups]) as unknown as ExtHostLanguageFeaturesSeamShape);
   return { features, groups };
 }
 

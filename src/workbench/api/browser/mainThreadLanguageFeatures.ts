@@ -11,7 +11,7 @@ import { waitForBuiltinLanguage } from '../../services/language/browser/monacoLa
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from '../common/extHost.protocol.languageFeatures.js';
 import type {
-  ExtHostLanguageFeaturesShape, LanguageConfigurationDto, MainThreadLanguageFeaturesSeamShape, RegExpDto,
+  CommandDto, ExtHostLanguageFeaturesShape, LanguageConfigurationDto, MainThreadLanguageFeaturesSeamShape, RegExpDto,
 } from '../common/extHost.protocol.languageFeatures.js';
 
 /*
@@ -174,8 +174,20 @@ export interface MainThreadLanguageFeaturesOptions {
   readonly waitForLanguage?: (monaco: MonacoNamespace, languageId: string) => Promise<void>;
 }
 
+/** Monaco's `languages.Command`. */
+export interface MonacoCommand {
+  readonly id: string;
+  readonly title: string;
+  readonly tooltip?: string;
+  readonly arguments?: unknown[];
+}
+
+let nextInstance = 0;
+
 export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSeamShape, IDisposable {
   private readonly registrations = new Map<number, Registration>();
+  private readonly commands = new Map<string, { id: string; registration: IDisposable }>();
+  private readonly instance = ++nextInstance;
   private disposed = false;
 
   constructor(
@@ -259,6 +271,34 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
     });
   }
 
+  /**
+   * A Monaco command of this host that runs `handler` with the command's arguments. Each name is
+   * registered once, the first time it is asked for, and goes with the host.
+   */
+  monacoCommand(monaco: MonacoNamespace, name: string, handler: (...args: unknown[]) => unknown): string {
+    let command = this.commands.get(name);
+    if (!command) {
+      const id = `_writingRoom.languageFeatures.${this.instance}.${name}`;
+      command = { id, registration: monaco.editor.registerCommand(id, (_accessor, ...args: unknown[]) => handler(...args)) };
+      this.commands.set(name, command);
+    }
+    return command.id;
+  }
+
+  /**
+   * The Monaco command of a provider's command: running it asks the extension host to run the command
+   * it kept. A value of another shape gives undefined.
+   */
+  toMonacoCommand(monaco: MonacoNamespace, dto: CommandDto | undefined): MonacoCommand | undefined {
+    if (!dto || typeof dto !== 'object' || !Number.isSafeInteger(dto.ref) || typeof dto.title !== 'string') {
+      return undefined;
+    }
+    const id = this.monacoCommand(monaco, 'run', ref => {
+      void this.proxy.$executeProviderCommand(ref as number).catch(error => console.error('A language feature command failed:', error));
+    });
+    return { id, title: dto.title, tooltip: typeof dto.tooltip === 'string' ? dto.tooltip : undefined, arguments: [dto.ref] };
+  }
+
   /** Disposes every registration of an extension that was removed or failed. */
   remove(extension: string): void {
     for (const [handle, registration] of [...this.registrations]) {
@@ -275,6 +315,10 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
       registration.disposable?.dispose();
     }
     this.registrations.clear();
+    for (const { registration } of this.commands.values()) {
+      registration.dispose();
+    }
+    this.commands.clear();
   }
 }
 
