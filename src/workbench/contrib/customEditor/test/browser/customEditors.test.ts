@@ -27,6 +27,8 @@ import {
   DEFAULT_EDITOR_ID, EDITOR_ASSOCIATIONS_SETTING, IEditorResolverService, RegisteredEditorPriority,
 } from '../../../../services/editor/common/editorResolverService.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
+import { UntitledTextEditorInput } from '../../../../services/untitled/common/untitledTextEditorInput.js';
+import { IUntitledTextEditorService } from '../../../../services/untitled/common/untitledTextEditorService.js';
 import { IExtensionService } from '../../../../services/extensions/common/extensions.js';
 import { ExtensionMessageCollector } from '../../../../services/extensions/common/extensionsRegistry.js';
 import type { IExtensionPointUser } from '../../../../services/extensions/common/extensionsRegistry.js';
@@ -381,5 +383,27 @@ describe('the open editors', () => {
     expect(group.editors[1]).toBeInstanceOf(FileEditorInput);
     expect(group.editors[1]!.isDirty()).toBe(true);
     expect(custom!.isDisposed()).toBe(true);
+  });
+
+  test('untitled text keeps its text when Reopen With puts a custom editor in its place, and goes with the last editor', async () => {
+    provide('one.preview');
+    contributions.set([{ ...contributions.editors[0]!, filenamePatterns: ['Untitled-*'] }]);
+    await settle();
+    const untitled = service(IUntitledTextEditorService);
+    const model = untitled.create({ initialValue: 'draft' });
+    const group = part.activeGroup;
+    await group.openEditor(instantiation.createInstance(UntitledTextEditorInput, model));
+    await model.resolve();
+    answerPick = items => items.find(item => item.id === 'one.preview');
+    await reopenWith();
+    const custom = group.activeEditor as CustomEditorInput;
+    expect(custom).toBeInstanceOf(CustomEditorInput);
+    expect(custom.resource.toString()).toBe(model.resource.toString());
+    await settle();
+    expect((await custom.acquireModel()).getValue()).toBe('draft');
+    expect(custom.isDirty()).toBe(true);
+    custom.dispose();
+    await settle();
+    expect(untitled.get(model.resource)).toBeUndefined();
   });
 });

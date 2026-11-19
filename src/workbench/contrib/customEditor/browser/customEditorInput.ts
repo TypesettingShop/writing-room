@@ -63,6 +63,7 @@ export class CustomEditorInput extends EditorInput {
   private cancellation: CancellationTokenSource | undefined;
   /** Untitled text the editor was made for, kept until it has the model (see `acquireModel`). */
   private untitledSnapshot: { readonly value: string; readonly languageId: string } | undefined;
+  private readonly services: IInstantiationService;
 
   constructor(
     readonly resource: URI,
@@ -74,12 +75,13 @@ export class CustomEditorInput extends EditorInput {
     @ITextFileService private readonly textFiles: ITextFileService,
     @ITextModelService private readonly textModels: ITextModelService,
     @IUntitledTextEditorService private readonly untitled: IUntitledTextEditorService,
-    @IEditorGroupsService private readonly groups: IEditorGroupsService,
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
     @IFileDialogService fileDialogs: IFileDialogService,
-    @ICustomEditorService customEditors: ICustomEditorService,
   ) {
     super();
+    // The editor groups and the custom editor service are looked up when needed: an input restored
+    // with the editor part is made while the part (the groups service) is still being made.
+    this.services = instantiation;
     const webview = this.webview = this._register(
       instantiation.createInstance(CustomEditorWebview, viewType, undefined, options.retainContextWhenHidden === true));
     if (resource.scheme === Schemas.untitled) {
@@ -96,7 +98,7 @@ export class CustomEditorInput extends EditorInput {
     };
     this._register(Event.filter(textFiles.onDidChangeDirty, changed => isEqual(changed, resource))(() => this._onDidChangeDirty.fire()));
     this._register(Event.filter(textFiles.files.onDidChangeReadonly, model => isEqual(model.resource, resource))(() => this._onDidChangeLabel.fire()));
-    this._register(webview.onDidShow(() => customEditors.resolve(this)));
+    this._register(webview.onDidShow(() => instantiation.invokeFunction(accessor => accessor.get(ICustomEditorService)).resolve(this)));
   }
 
   override get typeId(): string {
@@ -213,7 +215,8 @@ export class CustomEditorInput extends EditorInput {
   }
 
   private isShownElsewhere(): boolean {
-    return this.groups.groups.some(group => group.editors.some(editor => editor !== this && !editor.matches(this)
+    const groups = this.services.invokeFunction(accessor => accessor.get(IEditorGroupsService));
+    return groups.groups.some(group => group.editors.some(editor => editor !== this && !editor.matches(this)
       && isEqual(editor.resource, this.resource)));
   }
 
