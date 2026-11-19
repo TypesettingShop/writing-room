@@ -25,7 +25,7 @@ let context: ContextKeyService;
 let views: ExtensionTreeViews;
 let section: HTMLElement;
 let children: Map<string | undefined, TreeItemDto[]>;
-let calls: { selection: string[][]; expanded: [string, boolean][] };
+let calls: { selection: string[][]; expanded: [string, boolean][]; checkboxes: [string, boolean][][] };
 let blobs: Set<string>;
 
 beforeEach(() => {
@@ -40,7 +40,7 @@ beforeEach(() => {
   context = disposables.add(new ContextKeyService());
   views = disposables.add(new ExtensionTreeViews());
   children = new Map();
-  calls = { selection: [], expanded: [] };
+  calls = { selection: [], expanded: [], checkboxes: [] };
   blobs = new Set();
   let next = 0;
   vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
@@ -62,15 +62,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function register(options: { canSelectMany?: boolean } = {}) {
+async function register(options: { canSelectMany?: boolean; manageCheckboxStateManually?: boolean } = {}) {
   const trees = disposables.add(new MainThreadTreeViews({
     $getChildren: async (_extension, _view, parent) => children.get(parent) ?? [],
     $getTreeItem: async () => undefined,
     $setSelection: async (_extension, _view, handles) => void calls.selection.push(handles),
     $setExpanded: async (_extension, _view, handle, expanded) => void calls.expanded.push([handle, expanded]),
+    $changeCheckboxState: async (_extension, _view, items) => void calls.checkboxes.push(items),
   }, views, () => true, { iconFolders: () => [folder] }));
   await trees.$registerTreeViewDataProvider('a', 'tree', {
-    showCollapseAll: true, canSelectMany: !!options.canSelectMany, manageCheckboxStateManually: false,
+    showCollapseAll: true, canSelectMany: !!options.canSelectMany, manageCheckboxStateManually: !!options.manageCheckboxStateManually,
     dropMimeTypes: [], dragMimeTypes: [], hasHandleDrag: false, hasHandleDrop: false,
   });
   return trees;
@@ -217,4 +218,30 @@ test('the view header shows the title, description and badge the extension sets,
   pane.dispose();
   expect(heading.textContent).toBe('Original');
   expect(section.querySelector('.tree-view-badge')).toBeNull();
+});
+
+test('a check box sends its new state, with its loaded children and parent unless the extension manages them', async () => {
+  for (const manual of [false, true]) {
+    calls.checkboxes = [];
+    const box = (checked: boolean) => ({ checked });
+    children.set(undefined, [{ handle: 'p', label: 'Parent', collapsible: 2, checkbox: box(false) }]);
+    children.set('p', [
+      { handle: 'c1', label: 'One', collapsible: 0, checkbox: box(true) },
+      { handle: 'c2', label: 'Two', collapsible: 0, checkbox: box(false) },
+    ]);
+    const trees = await register({ manageCheckboxStateManually: manual });
+    const pane = createPane();
+    await vi.waitFor(() => expect(row('Two')).toBeTruthy());
+    const checkbox = (label: string) => row(label).querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(checkbox('One').checked).toBe(true);
+    checkbox('Two').click();
+    expect(checkbox('Two').checked).toBe(true);
+    expect(calls.checkboxes).toEqual([manual ? [['c2', true]] : [['c2', true], ['p', true]]]);
+    expect(checkbox('Parent').checked).toBe(!manual);
+    row('Parent').focus();
+    row('Parent').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(calls.checkboxes[1]).toEqual(manual ? [['p', true]] : [['p', false], ['c1', false], ['c2', false]]);
+    pane.dispose();
+    trees.dispose();
+  }
 });

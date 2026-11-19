@@ -3,7 +3,7 @@ import { expect, test, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { URI } from '../../../../base/common/uri.js';
 import { ExtHostTreeViews, TreeItem, TreeItemCheckboxState } from '../../common/extHostTreeViews.js';
-import { CancellationTokenSource, EventEmitter, ThemeColor, ThemeIcon, TreeItemCollapsibleState } from '../../common/extHostTypes.js';
+import { CancellationTokenSource, DataTransferItem, EventEmitter, ThemeColor, ThemeIcon, TreeItemCollapsibleState } from '../../common/extHostTypes.js';
 import type { MainThreadTreeViewsShape } from '../../common/extHost.protocol.js';
 
 interface Node { readonly name: string; readonly children?: Node[]; parent?: Node }
@@ -212,4 +212,95 @@ test('the item constructor takes a resource and the check box state enum exists'
   expect(item.label).toBeUndefined();
   expect(item.collapsibleState).toBe(TreeItemCollapsibleState.Expanded);
   expect(TreeItemCheckboxState.Checked).toBe(1);
+});
+
+test('a check box change updates the item and reports the extension\'s element', async () => {
+  const trees = new ExtHostTreeViews(mainThread(), () => ['tree']);
+  const elements = [{ name: 'Plain' }, { name: 'Detailed' }];
+  const items = new Map<object, TreeItem>();
+  const view = trees.createTreeView('e', 'tree', {
+    getChildren: () => elements,
+    getTreeItem: element => {
+      const item = new TreeItem(element.name);
+      item.checkboxState = element === elements[0] ? TreeItemCheckboxState.Unchecked
+        : { state: TreeItemCheckboxState.Checked, tooltip: 'Done', accessibilityInformation: { label: 'Mark done' } };
+      items.set(element, item);
+      return item;
+    },
+  });
+  const rows = await trees.$getChildren('e', 'tree');
+  expect(rows.map(row => row.checkbox)).toEqual([
+    { checked: false },
+    { checked: true, tooltip: 'Done', accessibilityInformation: { label: 'Mark done', role: undefined } },
+  ]);
+  const events: unknown[] = [];
+  view.onDidChangeCheckboxState(event => events.push(event.items));
+  await trees.$changeCheckboxState('e', 'tree', [[rows[0].handle, true], [rows[1].handle, false]]);
+  expect(events).toEqual([[[elements[0], TreeItemCheckboxState.Checked], [elements[1], TreeItemCheckboxState.Unchecked]]]);
+  expect((events[0] as [unknown][])[0][0]).toBe(elements[0]);
+  expect(items.get(elements[0])!.checkboxState).toBe(TreeItemCheckboxState.Checked);
+  expect(items.get(elements[1])!.checkboxState).toEqual({ state: TreeItemCheckboxState.Unchecked, tooltip: 'Done', accessibilityInformation: { label: 'Mark done' } });
+  await trees.$changeCheckboxState('other', 'tree', [[rows[0].handle, false]]);
+  expect(events).toHaveLength(1);
+});
+
+test('handleDrop gets what handleDrag put in for the same extension, and strings for another', async () => {
+  const proxy = mainThread();
+  const trees = new ExtHostTreeViews(proxy, () => ['source', 'target', 'foreign']);
+  const payload = { kind: 'notes', count: 2 };
+  const dropped: { target: unknown; values: [string, unknown][] }[] = [];
+  const controller = (name: string): vscode.TreeDragAndDropController<string> => ({
+    dragMimeTypes: ['application/vnd.test.notes'],
+    dropMimeTypes: ['application/vnd.test.notes', 'files'],
+    handleDrag: (source, transfer) => {
+      transfer.set('application/vnd.test.notes', new DataTransferItem({ ...payload, source }));
+    },
+    handleDrop: async (target, transfer) => {
+      const values: [string, unknown][] = [];
+      for (const [mimeType, item] of transfer) {
+        values.push([mimeType, item.asFile() ? await item.asFile()!.data().then(data => data.length, error => error.message) : item.value]);
+      }
+      dropped.push({ target: name + ':' + target, values });
+    },
+  });
+  const provider = (names: string[]): vscode.TreeDataProvider<string> => ({ getChildren: () => names, getTreeItem: name => new TreeItem(name) });
+  trees.createTreeView('e', 'source', provider(['a', 'b']), { dragAndDropController: controller('source') });
+  trees.createTreeView('e', 'target', provider(['t']), { dragAndDropController: controller('target') });
+  trees.createTreeView('f', 'foreign', provider(['x']), { dragAndDropController: controller('foreign') });
+  expect(proxy.$registerTreeViewDataProvider).toHaveBeenCalledWith('e', 'source', expect.objectContaining({
+    dragMimeTypes: ['application/vnd.test.notes'], hasHandleDrag: true, hasHandleDrop: true,
+  }));
+  const [a, b] = await trees.$getChildren('e', 'source');
+  const [t] = await trees.$getChildren('e', 'target');
+  await trees.$getChildren('f', 'foreign');
+
+  const strings = await trees.$handleDrag('e', 'source', [a.handle, b.handle], 'drag-1');
+  expect(strings).toEqual([{ mimeType: 'application/vnd.test.notes', value: JSON.stringify({ ...payload, source: ['a', 'b'] }) }]);
+  await trees.$handleDrop('e', 'target', t.handle, strings, 'drag-1');
+  expect(dropped[0].target).toBe('target:t');
+  // The very value the source put in, not its JSON text.
+  expect(dropped[0].values).toEqual([['application/vnd.test.notes', { ...payload, source: ['a', 'b'] }]]);
+
+  await trees.$handleDrag('e', 'source', [a.handle], 'drag-2');
+  // Another extension names the drag but gets only the strings.
+  await trees.$handleDrop('f', 'foreign', undefined, strings, 'drag-2');
+  expect(dropped[1].values).toEqual([['application/vnd.test.notes', JSON.stringify({ ...payload, source: ['a', 'b'] })]]);
+  await trees.$releaseDrag('e', 'drag-2');
+  await trees.$handleDrop('e', 'target', undefined, [], 'drag-2');
+  expect(dropped[2].values).toEqual([]);
+
+  // Files from the operating system: their bytes, or an error when they were over the limit.
+  await trees.$handleDrop('e', 'target', undefined, [
+    { mimeType: 'text/plain', value: '', file: { name: 'small.txt', data: new Uint8Array(3) } },
+    { mimeType: 'image/png', value: '', file: { name: 'huge.png' } },
+  ], undefined);
+  expect(dropped[3].values).toEqual([['text/plain', 3], ['image/png', "The file 'huge.png' is too large to drop."]]);
+
+  // Releasing the extension forgets its drags.
+  await trees.$handleDrag('e', 'source', [a.handle], 'drag-3');
+  trees.remove('e');
+  trees.createTreeView('e', 'target', provider(['t']), { dragAndDropController: controller('target') });
+  const [again] = await trees.$getChildren('e', 'target');
+  await trees.$handleDrop('e', 'target', again.handle, [], 'drag-3');
+  expect(dropped[4].values).toEqual([]);
 });

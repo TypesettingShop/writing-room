@@ -6,6 +6,8 @@ import { LocalSelectionTransfer } from '../../platform/dnd/browser/dnd.js';
 import type { GroupIdentifier, IEditorIdentifier } from '../common/editor.js';
 
 const compositeMime = 'application/x-writing-room-view-container';
+const editorMime = 'application/x-writing-room-editor';
+const treeMime = 'application/x-writing-room-tree';
 
 /** Calls `end` however a drag from `source` ends: its `dragend`, Escape, or the window losing focus or the page. */
 function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
@@ -99,6 +101,11 @@ export class CompositeDragAndDropObserver {
     return registrations;
   }
 
+  /** A view container drag is going on. */
+  get isDragging(): boolean {
+    return !!this.source;
+  }
+
   private getItem(element: HTMLElement, event: DragEvent): DraggedCompositeIdentifier | undefined {
     if (this.source?.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(compositeMime)) {
       return this.transfer.getData(DraggedCompositeIdentifier.prototype)?.[0];
@@ -117,8 +124,6 @@ export class CompositeDragAndDropObserver {
 }
 
 // --- editors and editor groups
-
-const editorMime = 'application/x-writing-room-editor';
 
 export class DraggedEditorIdentifier {
   constructor(readonly identifier: IEditorIdentifier) {}
@@ -165,6 +170,11 @@ export class EditorDragAndDropObserver {
     trackDragSession(this.session, source, () => this.endDrag());
   }
 
+  /** An editor or group drag is going on. */
+  get isDragging(): boolean {
+    return !!this.source;
+  }
+
   /** The editor or group this drag carries, if it is ours and still going. */
   getDraggedItem(event: DragEvent, element: HTMLElement): DraggedEditorItem | undefined {
     if (this.type && this.source?.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(editorMime)) {
@@ -182,4 +192,87 @@ export class EditorDragAndDropObserver {
       this._onDidEndDrag.fire();
     }
   }
+}
+
+// --- extension tree items
+
+/** The items of an extension's tree view one drag carries, and what the tree's `handleDrag` adds to it. */
+export class DraggedTreeItems {
+  constructor(
+    readonly view: string,
+    readonly extension: string,
+    readonly handles: readonly string[],
+    /** Names this drag in the extension host, which keeps the values `handleDrag` put in until it ends. */
+    readonly drag: string,
+    /** The drag's own types: the tree's `application/vnd.code.tree.<view>` and its `dragMimeTypes`. */
+    readonly mimeTypes: readonly string[],
+    /** The strings of what `handleDrag` put in, for a tree of another extension. */
+    readonly data: Promise<readonly { readonly mimeType: string; readonly value: string }[]>,
+  ) {}
+}
+
+/**
+ * The one tree item drag of the window, kept apart from editor and view container drags by its own
+ * marker type and session: the editor area and the view containers do not take it, and a tree does not
+ * take theirs. The session ends however the drag ends.
+ */
+export class TreeDragAndDropObserver {
+  static readonly INSTANCE = new TreeDragAndDropObserver();
+
+  private readonly transfer = LocalSelectionTransfer.getInstance<DraggedTreeItems>();
+  private readonly _onDidEndDrag = new Emitter<{ readonly item: DraggedTreeItems; readonly dropped: boolean }>();
+  /** Fires once when the drag ends; `dropped` when a tree took it. */
+  readonly onDidEndDrag = this._onDidEndDrag.event;
+  private readonly session = new DisposableStore();
+  private source: HTMLElement | undefined;
+  private item: DraggedTreeItems | undefined;
+
+  private constructor() {}
+
+  /** Starts a drag of `item` from `source`, from inside its `dragstart` listener. */
+  startDrag(event: DragEvent, source: HTMLElement, item: DraggedTreeItems): void {
+    this.endDrag(false);
+    this.source = source;
+    this.item = item;
+    this.transfer.setData([item], DraggedTreeItems.prototype);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copyMove';
+      // The marker's value is not empty, so every browser starts the drag with it.
+      event.dataTransfer.setData(treeMime, item.view);
+      for (const type of item.mimeTypes) {
+        event.dataTransfer.setData(type, '');
+      }
+    }
+    trackDragSession(this.session, source, () => this.endDrag(false));
+  }
+
+  /** The tree items this drag carries, if it is ours and still going. */
+  getDraggedItem(event: DragEvent, element: HTMLElement): DraggedTreeItems | undefined {
+    if (this.item && this.source?.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(treeMime)) {
+      return this.transfer.getData(DraggedTreeItems.prototype)?.[0];
+    }
+    return undefined;
+  }
+
+  /** Ends the drag; a tree that took the drop says so with `dropped`. */
+  endDrag(dropped: boolean): void {
+    const item = this.item;
+    if (item) {
+      this.source = undefined;
+      this.item = undefined;
+      this.transfer.clearData(DraggedTreeItems.prototype);
+      this.session.clear();
+      this._onDidEndDrag.fire({ item, dropped });
+    }
+  }
+}
+
+/**
+ * Whether the drag is one of the workbench's own that a tree view must not take: an editor, an editor
+ * group or a view container, by its marker type or by the session going on.
+ */
+export function isWorkbenchDrag(event: DragEvent): boolean {
+  const types = event.dataTransfer?.types ?? [];
+  return types.includes(editorMime) || types.includes(compositeMime)
+    || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging;
 }

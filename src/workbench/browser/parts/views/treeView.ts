@@ -16,6 +16,7 @@ import type { ExtensionTreeViews, TreeDataSource } from '../../../api/browser/ma
 import type { TreeItemIconDto, TreeRevealOptionsDto } from '../../../api/common/extHost.protocol.js';
 import type { IViewBody } from '../../../common/views.js';
 import type { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { TreeViewDragAndDrop } from './treeViewDragAndDrop.js';
 import { TreeViewIcons } from './treeViewIcons.js';
 import { TreeViewModel } from './treeViewModel.js';
 import type { VisibleTreeItem } from './treeViewModel.js';
@@ -107,6 +108,9 @@ export class TreeViewPane extends Disposable implements IViewBody {
   private readonly modelStore = this._register(new DisposableStore());
   private readonly header: TreeViewHeader;
   private readonly icons: TreeViewIcons;
+  private readonly dnd: TreeViewDragAndDrop;
+  /** The handle each drawn row shows. */
+  private rowHandles = new WeakMap<Element, string>();
   private source: TreeDataSource | undefined;
   private model: TreeViewModel | undefined;
   private focused?: string;
@@ -137,6 +141,11 @@ export class TreeViewPane extends Disposable implements IViewBody {
     this._register(toDisposable(() => this.content.remove()));
     this.header = this._register(new TreeViewHeader(parent));
     this.icons = this._register(new TreeViewIcons(files));
+    this.dnd = this._register(new TreeViewDragAndDrop(viewId, this.content, views, target => {
+      const row = target instanceof Element ? target.closest<HTMLElement>('[role="treeitem"]') : null;
+      const handle = row ? this.rowHandles.get(row) : undefined;
+      return row && handle !== undefined ? { handle, row } : undefined;
+    }, handle => this.selection.includes(handle) ? this.selection : [handle]));
     this._register(this.icons.onDidLoad(() => this.render()));
     this._register(themes.onDidColorThemeChange(() => this.render()));
     this._register(viewWelcomeContributions.onDidChange(() => this.render()));
@@ -187,6 +196,7 @@ export class TreeViewPane extends Disposable implements IViewBody {
     this.selectionAnchor = undefined;
     const source = this.source = this.views.get(this.viewId);
     this.model = undefined;
+    this.dnd.sourceChanged();
     if (!source) {
       this.header.update(undefined, undefined, undefined);
       this.header.setCollapseAll(undefined);
@@ -361,6 +371,10 @@ export class TreeViewPane extends Disposable implements IViewBody {
         this.run(row, model, source);
         break;
       case ' ':
+        if (row.item.checkbox) {
+          this.toggleCheckbox(row.item.handle, model, source);
+          break;
+        }
         this.setSelection([row.item.handle], row.item.handle);
         this.run(row, model, source);
         break;
@@ -447,6 +461,22 @@ export class TreeViewPane extends Disposable implements IViewBody {
       });
     }
     element.append(twistie);
+    if (item.checkbox) {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'extension-tree-checkbox';
+      checkbox.tabIndex = -1;
+      checkbox.checked = item.checkbox.checked;
+      checkbox.title = item.checkbox.tooltip ?? '';
+      checkbox.setAttribute('aria-label', item.checkbox.accessibilityInformation?.label ?? item.checkbox.tooltip ?? item.label);
+      checkbox.addEventListener('click', event => {
+        event.stopPropagation();
+        event.preventDefault();
+        element.focus();
+        this.toggleCheckbox(item.handle, model, source);
+      });
+      element.append(checkbox);
+    }
     const icon = this.renderIcon(item.icon, used);
     if (icon) {
       element.append(icon);
@@ -461,6 +491,8 @@ export class TreeViewPane extends Disposable implements IViewBody {
       description.textContent = item.description;
       element.append(description);
     }
+    this.rowHandles.set(element, item.handle);
+    this.dnd.makeDraggable(element, item.handle);
     element.addEventListener('focus', () => {
       this.content.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.setAttribute('tabindex', '-1');
       this.focused = item.handle;
@@ -492,6 +524,45 @@ export class TreeViewPane extends Disposable implements IViewBody {
       this.showContext(row, source, { x: event.clientX, y: event.clientY });
     });
     return element;
+  }
+
+  /**
+   * Checks or unchecks an item's box. Unless the extension manages the boxes, the loaded children
+   * follow it and each parent is checked when all its children with a box are.
+   */
+  private toggleCheckbox(handle: string, model: TreeViewModel, source: TreeDataSource): void {
+    const found = model.find(handle);
+    if (!found?.item.checkbox) {
+      return;
+    }
+    const checked = !found.item.checkbox.checked;
+    const changes = new Map<string, boolean>([[handle, checked]]);
+    if (!source.options?.manageCheckboxStateManually) {
+      const visit = (parent: string) => {
+        for (const child of model.childrenOf(parent)) {
+          if (child.checkbox && child.checkbox.checked !== checked) {
+            changes.set(child.handle, checked);
+          }
+          visit(child.handle);
+        }
+      };
+      visit(handle);
+      for (let parent = found.parent; parent !== undefined; parent = model.find(parent)?.parent) {
+        const parentItem = model.find(parent)?.item;
+        const boxes = model.childrenOf(parent).filter(child => child.checkbox);
+        const all = boxes.every(child => changes.get(child.handle) ?? child.checkbox!.checked);
+        if (!parentItem?.checkbox) {
+          break;
+        }
+        if (parentItem.checkbox.checked !== all) {
+          changes.set(parent, all);
+        }
+      }
+    }
+    for (const [changed, value] of changes) {
+      model.replaceItem(changed, item => item.checkbox ? { ...item, checkbox: { ...item.checkbox, checked: value } } : item);
+    }
+    source.setCheckboxState?.([...changes]);
   }
 
   private async resolveTooltip(handle: string, source: TreeDataSource, model: TreeViewModel): Promise<void> {
