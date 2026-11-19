@@ -222,7 +222,7 @@ test('starts with defaults while preserving a newer version of stored state', as
   const marker = 'writing-room:storage:version';
   await page.addInitScript(({ marker, key }) => {
     if (!window.localStorage.getItem(marker)) {
-      window.localStorage.setItem(marker, '2');
+      window.localStorage.setItem(marker, '3');
       window.localStorage.setItem(key, '450');
     }
   }, { marker, key: sidebarSizeKey });
@@ -235,5 +235,5 @@ test('starts with defaults while preserving a newer version of stored state', as
   expect((await box(part(page, 'sidebar'))).width).toBe(300);
   expect(await page.evaluate(({ marker, key }) => [
     window.localStorage.getItem(marker), window.localStorage.getItem(key),
-  ], { marker, key: sidebarSizeKey })).toEqual(['2', '450']);
+  ], { marker, key: sidebarSizeKey })).toEqual(['3', '450']);
 });

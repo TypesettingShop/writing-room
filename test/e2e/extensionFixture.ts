@@ -28,11 +28,13 @@ function makeStorageSeed(extensions: readonly InstalledExtensionFixture[]) {
       location: base.href,
       manifest,
       installedAt: 1,
+      source: 'location',
+      version: manifest.version,
     };
   });
   return {
     schemaKey: 'writing-room:storage:version',
-    schemaVersion: '1',
+    schemaVersion: '2',
     installedKey: 'writing-room:storage:0:extensions.user',
     installed: JSON.stringify(installed),
   };

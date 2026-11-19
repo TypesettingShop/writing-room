@@ -3,16 +3,149 @@ import { SyncDescriptor } from '../../../../platform/instantiation/common/descri
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { ExtensionManagementService, IExtensionManagementService, normalizeExtensionLocation } from '../../../services/extensionManagement/common/extensionManagementService.js';
+import { Schemas } from '../../../../base/common/network.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import { vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { product } from '../../../../platform/product/common/product.js';
+import {
+  ExtensionManagementService, IExtensionManagementService, IExtensionPackageStore, isExtensionPackageLocation,
+  isPackageUrl, IWebExtensionsScannerService, localizedDisplayName, normalizeExtensionLocation, normalizePackageUrl,
+} from '../../../services/extensionManagement/common/extensionManagementService.js';
+import type { PackageInstallConfirmation } from '../../../services/extensionManagement/common/extensionManagementService.js';
+import { readPackageIcon } from '../../../services/extensionManagement/browser/extensionPackageStore.js';
 import '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { registerExtensionIconReader } from '../../../services/extensions/browser/remoteExtensionIcons.js';
 
 registerSingleton(IExtensionManagementService, new SyncDescriptor(ExtensionManagementService, [
   (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
 ]));
 
+/** Serves package icons to the workbench and clears what interrupted installs left behind. */
+class ExtensionPackagesContribution extends Disposable {
+  constructor(
+    @IFileService files: IFileService,
+    @IExtensionService extensions: IExtensionService,
+    @IWebExtensionsScannerService scanner: IWebExtensionsScannerService,
+    @IExtensionPackageStore packages: IExtensionPackageStore,
+  ) {
+    super();
+    this._register(toDisposable(registerExtensionIconReader(Schemas.vscodeUserData,
+      (url, limit, signal) => readPackageIcon(files, url, limit, signal)).dispose));
+    void extensions.whenInstalledExtensionsRegistered()
+      .then(() => scanner.locked(async (_read, _write, locations) => {
+        // Folders named by a record that fails validation stay, and an unreadable list skips the cleanup,
+        // so a damaged list never takes an installed package's files with it.
+        const recorded = locations();
+        if (recorded) {
+          await packages.cleanup(recorded);
+        } else {
+          console.warn('Skipped the extension package cleanup: the installed extensions list cannot be read.');
+        }
+      }))
+      .catch(error => console.warn('Could not clean up extension package folders.', error));
+  }
+}
+
+registerWorkbenchContribution2('workbench.contrib.extensionPackages', ExtensionPackagesContribution);
+
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+const sourceNames = { location: 'folder URL', vsix: 'VSIX', gallery: 'Open VSX' } as const;
+
+/** Asks before a package install. Every value shown describes the bytes that are installed. */
+async function confirmPackage(quickInput: IQuickInputService, confirmation: PackageInstallConfirmation): Promise<boolean> {
+  const { manifest, source, existing } = confirmation;
+  const name = confirmation.displayName;
+  const action = !confirmation.isWebExtension ? 'Install Contributions Only'
+    : existing?.version === manifest.version ? 'Reinstall'
+      : existing ? 'Replace' : 'Install';
+  const facts = [
+    ...confirmation.isWebExtension ? [] : ['Not a web extension: only its contributions apply.'],
+    ...existing ? [existing.version === manifest.version
+      ? `Reinstalls version ${existing.version}.`
+      : `Replaces version ${existing.version} (${sourceNames[existing.source]}).`] : [],
+    `Source: ${source.label}`,
+    `Size: ${confirmation.size} bytes`,
+    `SHA-256: ${confirmation.sha256}`,
+    `Signature: ${confirmation.signature}`,
+    `engines.vscode ${confirmation.engine} is compatible with ${product.version}`,
+    ...confirmation.persistent ? [] : ['Browser storage is unavailable: the extension stays for this session only.'],
+    ...confirmation.warnings,
+    'Extension code can make requests as this page’s origin.',
+  ];
+  const selected = await quickInput.pick([
+    { id: 'cancel', label: 'Cancel' },
+    {
+      id: 'install', label: action,
+      description: `${name} · ${manifest.publisher} · ${manifest.version} · ${confirmation.identifier}`,
+      detail: facts.join(' · '),
+    },
+  ], { title: `${action} extension from ${source.label}` });
+  return selected?.id === 'install';
+}
+
+async function showInstallError(quickInput: IQuickInputService, error: unknown): Promise<void> {
+  await quickInput.pick([{ label: 'OK', detail: describeError(error) }], { title: 'Could not install extension' });
+}
+
+/** Opens the browser's file chooser for one `.vsix`. It opens only from a user gesture, such as the command. */
+function chooseVsixFile(): Promise<File | undefined> {
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.vsix';
+    input.hidden = true;
+    const done = (file: File | undefined) => {
+      input.remove();
+      resolve(file);
+    };
+    let settled = false;
+    const finish = (file: File | undefined) => {
+      if (!settled) {
+        settled = true;
+        window.removeEventListener('focus', refocused);
+        done(file);
+      }
+    };
+    // A browser without the `cancel` event gives the window focus back when its chooser closes. A chosen
+    // file's `change` follows the focus, so wait a moment before taking the focus as a cancellation.
+    const refocused = () => setTimeout(() => finish(input.files?.[0]), 1000);
+    input.addEventListener('change', () => finish(input.files?.[0]), { once: true });
+    input.addEventListener('cancel', () => finish(undefined), { once: true });
+    document.body.append(input);
+    input.click();
+    window.addEventListener('focus', refocused, { once: true });
+  });
+}
+
+registerAction2(class InstallFromVSIX extends Action2 {
+  constructor() {
+    super({ id: 'workbench.extensions.action.installVSIX', title: 'Install from VSIX...', f1: true });
+  }
+
+  async run(accessor: ServicesAccessor): Promise<void> {
+    const quickInput = accessor.get(IQuickInputService);
+    const management = accessor.get(IExtensionManagementService);
+    const file = await chooseVsixFile();
+    if (!file) {
+      return;
+    }
+    try {
+      if (file.size > vsixLimits.download) {
+        throw new Error(`'${file.name}' is ${file.size} bytes, more than the ${vsixLimits.download}-byte limit.`);
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await management.installPackage(bytes, { kind: 'vsix', label: file.name }, confirmation => confirmPackage(quickInput, confirmation));
+    } catch (error) {
+      await showInstallError(quickInput, error);
+    }
+  }
+});
 
 registerAction2(class InstallExtensionFromLocation extends Action2 {
   constructor() {
@@ -24,10 +157,14 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
     const management = accessor.get(IExtensionManagementService);
     const location = await quickInput.input({
       title: 'Install Extension from Location',
-      placeHolder: 'Extension directory URL',
+      placeHolder: 'Extension directory URL or .vsix URL',
       validateInput: value => {
         try {
-          normalizeExtensionLocation(value);
+          if (isPackageUrl(value)) {
+            normalizePackageUrl(value);
+          } else {
+            normalizeExtensionLocation(value);
+          }
           return undefined;
         } catch (error) {
           return describeError(error);
@@ -38,9 +175,13 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
       return;
     }
     try {
-      await management.installFromLocation(location, async ({ manifest, location }) => {
+      if (isPackageUrl(location)) {
+        await management.installFromPackageUrl(location, confirmation => confirmPackage(quickInput, confirmation));
+        return;
+      }
+      await management.installFromLocation(location, async ({ manifest, location, nls }) => {
         const origin = new URL(location).origin;
-        const name = manifest.displayName ?? manifest.name;
+        const name = localizedDisplayName(manifest, nls);
         const selected = await quickInput.pick([
           { id: 'cancel', label: 'Cancel' },
           {
@@ -53,7 +194,7 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
         return selected?.id === 'install';
       });
     } catch (error) {
-      await quickInput.pick([{ label: 'OK', detail: describeError(error) }], { title: 'Could not install extension' });
+      await showInstallError(quickInput, error);
     }
   }
 });
@@ -66,10 +207,16 @@ registerAction2(class UninstallExtension extends Action2 {
   async run(accessor: ServicesAccessor): Promise<void> {
     const quickInput = accessor.get(IQuickInputService);
     const management = accessor.get(IExtensionManagementService);
-    const entries = management.installed.map(({ identifier, manifest, location }) => ({
-      id: identifier.value, label: manifest.displayName ?? manifest.name,
-      description: `${identifier.value} · ${manifest.version}`, detail: new URL(location).origin,
-    }));
+    const records = new Map(accessor.get(IWebExtensionsScannerService).scanUserExtensions().map(record => [record.identifier, record]));
+    const entries = management.installed.map(({ identifier, manifest, location, nls }) => {
+      const record = records.get(identifier.value);
+      const source = record ? sourceNames[record.source] : isExtensionPackageLocation(location) ? 'package' : 'folder URL';
+      return {
+        id: identifier.value, label: localizedDisplayName(manifest, nls),
+        description: `${identifier.value} · ${manifest.version} · ${source}`,
+        detail: isExtensionPackageLocation(location) ? 'Stored in this browser' : new URL(location).origin,
+      };
+    });
     if (!entries.length) {
       await quickInput.pick([{ label: 'OK' }], { title: 'No installed extensions' });
       return;
