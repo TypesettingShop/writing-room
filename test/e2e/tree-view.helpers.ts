@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Locator, Page } from '@playwright/test';
 import type { IExtensionManifest } from '../../src/platform/extensions/common/extensions.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
-import { box, expect } from './fixtures.js';
+import { expect } from './fixtures.js';
 
 export { runCommand } from './window-ui.helpers.js';
 
@@ -28,9 +28,15 @@ export const item = (page: Page, name: string): Locator => notesTree(page).getBy
 /** The fixture's event log in the status bar, which holds its last twelve events. */
 export const eventLog = (page: Page): Locator => page.locator('[id="workbench.parts.statusbar"]');
 
+/**
+ * The middle of `locator`. The tree draws its rows again when an icon arrives, so a row can be between two
+ * renders for a moment; ask until it has a box instead of failing on the one that was just replaced.
+ */
 export async function center(locator: Locator): Promise<{ x: number; y: number }> {
-  const bounds = await box(locator);
-  return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  let bounds: Awaited<ReturnType<Locator['boundingBox']>> = null;
+  await expect.poll(async () => (bounds = await locator.boundingBox()) !== null).toBe(true);
+  const { x, y, width, height } = bounds!;
+  return { x: x + width / 2, y: y + height / 2 };
 }
 
 /** Presses the mouse on `from` and moves off it, so the browser starts a drag. */
