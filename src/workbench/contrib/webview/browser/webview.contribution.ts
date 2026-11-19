@@ -1,2 +1,3 @@
-// 이 영역의 기능은 배정된 에픽에서 이 파일에 등록한다.
-export {};
+import './webview.js';
+import '../../webviewPanel/browser/webviewPanel.contribution.js';
+import '../../webviewView/browser/webviewView.contribution.js';
