@@ -15,6 +15,13 @@ export const settingsTab = (page: Page) => page.getByRole('tab', { name: 'settin
 export const settingsEditor = (page: Page) => page.locator('[data-group-id]').filter({ has: settingsTab(page) }).first();
 export const activeEditor = (page: Page) => page.locator('[data-group-id].active').getByRole('textbox', { name: 'Editor content' });
 
+export const part = (page: Page, name: string) => page.locator(`[id="workbench.parts.${name}"]`);
+export const problemsTree = (page: Page) => page.getByRole('tree', { name: 'Problems' });
+export const problemItems = (page: Page) => problemsTree(page).getByRole('treeitem');
+/** The accessible names of the Problems list, in display order. */
+export const problemNames = (page: Page) => problemItems(page).evaluateAll(items => items.map(item => item.getAttribute('aria-label')));
+export const problemsStatus = (page: Page, name: string) => part(page, 'statusbar').getByRole('button', { name });
+
 /** Installs both diagnostics fixtures and the settings text before the workbench starts, then opens the app. */
 export async function openWithDiagnosticsFixtures(page: Page, settings = settingsText): Promise<void> {
   await seedInstalledExtensions(page, [
@@ -50,3 +57,5 @@ export async function hoverLine(page: Page, text: string): Promise<void> {
   // Near the start of the line: every fixture range starts at its first column.
   await line.hover({ position: { x: 8, y: 5 } });
 }
+
+export const openProblemsCommand = 'View: Focus Problems (Errors, Warnings, Infos)';
