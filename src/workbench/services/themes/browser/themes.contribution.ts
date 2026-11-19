@@ -55,8 +55,9 @@ registerAction2(class SelectColorThemeAction extends Action2 {
     const items = themePickItems(themes.getColorThemes());
     pick.placeholder = 'Select Color Theme (Up/Down Keys to Preview)';
     pick.items = items;
-    const configured = themes.getConfiguredThemeId();
-    const current = items.find((item): item is ThemeItem => item.type !== 'separator' && item.id === configured);
+    // The theme on screen: while the chosen one is missing, that is the default, not the setting's value.
+    const applied = themes.getAppliedThemeId();
+    const current = items.find((item): item is ThemeItem => item.type !== 'separator' && item.id === applied);
     if (current) {
       pick.activeItems = [current];
     }

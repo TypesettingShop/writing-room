@@ -12,6 +12,8 @@ export interface IThemeContribution {
   /** The extension's display name, which the theme picker shows beside the label. */
   readonly extensionName: string;
   readonly extensionLocation: URI;
+  /** The extension's version: a new version at the same location reads the file again. */
+  readonly extensionVersion: string;
   /** The value of `workbench.colorTheme` that chooses the theme: the entry's `id`, or else its `label`. */
   readonly settingsId: string;
   readonly label: string;
@@ -31,7 +33,9 @@ export function reserveThemeSettingsId(settingsId: string): void {
 
 /** Equal for equal contributions, so a contribution applied again unchanged is seen to be the same. */
 export function themeContributionKey(theme: IThemeContribution): string {
-  return JSON.stringify([theme.extensionId, theme.extensionLocation.toString(), theme.settingsId, theme.label, theme.uiTheme, theme.path]);
+  return JSON.stringify([
+    theme.extensionId, theme.extensionVersion, theme.extensionLocation.toString(), theme.settingsId, theme.label, theme.uiTheme, theme.path,
+  ]);
 }
 
 ExtensionsRegistry.registerExtensionPoint<unknown[]>({
@@ -45,6 +49,7 @@ ExtensionsRegistry.registerExtensionPoint<unknown[]>({
       const { displayName, name } = description.manifest;
       const extensionName = typeof displayName === 'string' && displayName ? displayName : name;
       const extensionLocation = URI.parse(description.location);
+      const extensionVersion = String(description.manifest.version);
       value.forEach((entry, index) => {
         const path = `contributes.themes[${index}]`;
         if (!isRecord(entry)) {
@@ -82,7 +87,7 @@ ExtensionsRegistry.registerExtensionPoint<unknown[]>({
         }
         seen.add(settingsId);
         contributions.push(Object.freeze({
-          extensionId, extensionName, extensionLocation, settingsId, label: entry.label, uiTheme: entry.uiTheme, path: entry.path,
+          extensionId, extensionName, extensionLocation, extensionVersion, settingsId, label: entry.label, uiTheme: entry.uiTheme, path: entry.path,
         }));
       });
     }

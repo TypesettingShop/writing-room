@@ -115,6 +115,11 @@ test('removing the theme\'s extension falls back and keeps the setting; installi
   await page.reload();
   await expect(statusPart(page)).toHaveCSS('background-color', rgb('#20334e'));
   expect(await persistedSettings(page)).toBe(settings);
+  // The picker starts on the theme on screen, so opening it previews nothing else.
+  const input = await openThemePicker(page);
+  await expect(page.getByRole('option', { name: /^Writing Room Dark/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(statusPart(page)).toHaveCSS('background-color', rgb('#20334e'));
+  await input.press('Escape');
 
   await page.keyboard.press('F1');
   await page.getByRole('combobox').fill('Install Extension from Location');

@@ -177,6 +177,11 @@ export class WorkbenchThemeService extends Disposable implements IThemeService {
     ];
   }
 
+  /** The settings id of the theme applied now, which is not the setting's value while that theme is missing. */
+  getAppliedThemeId(): string {
+    return this.current.settingsId;
+  }
+
   /** The setting's value: the chosen theme, whether or not it is there now. */
   getConfiguredThemeId(): string {
     const value = this.configuration.getValue<unknown>(COLOR_THEME_SETTING);

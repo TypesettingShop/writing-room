@@ -26,7 +26,7 @@ const extensionsAt = 'http://127.0.0.1:9/';
 class Host {
   readonly messages: IExtensionMessage[] = [];
   private store = new DisposableStore();
-  extensions: readonly { id: string; themes: unknown }[] = [];
+  extensions: readonly { id: string; themes: unknown; version?: string }[] = [];
 
   apply(extensions = this.extensions): void {
     this.extensions = extensions;
@@ -37,7 +37,7 @@ class Host {
       description: {
         identifier: new ExtensionIdentifier(extension.id),
         location: extensionsAt + extension.id + '/',
-        manifest: { name: extension.id, displayName: extension.id + ' Themes' },
+        manifest: { name: extension.id, displayName: extension.id + ' Themes', version: extension.version ?? '1.0.0' },
       } as unknown as IExtensionDescription,
       value: extension.themes,
       collector: new ExtensionMessageCollector(extension.id, message => this.messages.push(message)),
@@ -378,6 +378,26 @@ test('removing the chosen theme\'s extension falls back without touching the set
   expect(events.map(theme => theme.label)).toEqual(['Ocean', 'Writing Room Dark', 'Ocean']);
   // The file is read again for the new contribution.
   expect(files.reads).toHaveLength(2);
+});
+
+test('a new version of the extension at the same place reads the theme file again', async () => {
+  host.apply([oceanTheme]);
+  files.set('fixture/themes/ocean.json', { colors: { 'editor.background': '#003344' } });
+  const { service } = createService('{ "workbench.colorTheme": "Ocean" }');
+  await flush();
+  expect(variable('editor.background')).toBe('#003344');
+  files.set('fixture/themes/ocean.json', { colors: { 'editor.background': '#004455' } });
+  host.apply([{ ...oceanTheme, version: '2.0.0' }]);
+  await flush();
+  expect(variable('editor.background')).toBe('#004455');
+  expect(service.getColorTheme().label).toBe('Ocean');
+  expect(files.reads).toHaveLength(2);
+});
+
+test('while the chosen theme is missing, the applied theme is the default one', () => {
+  const { service } = createService('{ "workbench.colorTheme": "Ocean" }');
+  expect(service.getConfiguredThemeId()).toBe('Ocean');
+  expect(service.getAppliedThemeId()).toBe('Writing Room Dark');
 });
 
 test('a theme file that arrives after another theme was chosen is dropped, even when it read fine', async () => {
