@@ -37,10 +37,10 @@ writing-room(v0.1.0)은 VS Code 워크벤치를 참고해 처음부터 직접 �
 | 확장 호스트(Worker) | `src/vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts` | `src/workbench/services/extensions/browser/webWorkerExtensionHost.ts` | [확장](vscode-extensions.md) |
 | RPC 프로토콜 | `src/vs/workbench/services/extensions/common/rpcProtocol.ts` | `src/workbench/services/extensions/common/rpcProtocol.ts` | [확장](vscode-extensions.md) |
 | 웹 확장 설치 | `src/vs/workbench/services/extensionManagement/browser/webExtensionsScannerService.ts` | `src/workbench/services/extensionManagement/browser/webExtensionsScannerService.ts` | [확장](vscode-extensions.md) |
-| 웹 진입점 | `src/vs/code/browser/workbench/workbench.ts`, `src/vs/workbench/browser/web.main.ts` | `src/code/browser/workbench/workbench.ts`, `src/workbench/browser/web.main.ts` | [웹 빌드](vscode-web-build.md) |
+| 웹 진입점 | `src/vs/code/browser/workbench/workbench.ts`, `src/vs/workbench/browser/web.main.ts` | `src/code/browser/workbench/workbench.ts`, `src/workbench/browser/web.factory.ts`, `src/workbench/workbench.web.main.ts` | [웹 빌드](vscode-web-build.md) |
 | 스토리지 서비스 | `src/vs/platform/storage/common/storage.ts` | `src/platform/storage/common/storage.ts` | [상태와 설정](vscode-state-settings.md) |
 | 브라우저 스토리지 백엔드 | `src/vs/workbench/services/storage/browser/storageService.ts` | `src/workbench/services/storage/browser/storageService.ts` | [상태와 설정](vscode-state-settings.md) |
-| 설정 서비스 | `src/vs/platform/configuration/common/configuration.ts` | `src/platform/configuration/common/configuration.ts` | [상태와 설정](vscode-state-settings.md) |
+| 설정 서비스 | `src/vs/platform/configuration/common/configuration.ts` | `src/platform/configuration/common/configuration.ts`, `src/workbench/services/configuration/browser/configurationService.ts` | [상태와 설정](vscode-state-settings.md) |
 
 ## Deviations from VS Code
 
@@ -100,7 +100,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `IModelService.createModel`은 비동기다. VS Code는 동기다 — 패키지를 처음 쓸 때 로드하므로 모델을 만들기 전에 기다려야 한다 (wr-cla6.36n)
 - 에디터 페인 레지스트리는 입력의 `typeId`로 페인을 찾는다(`registerEditorPane(descriptor, editorTypeIds)`). VS Code는 입력 생성자의 `SyncDescriptor`로 찾는다 — 입력 타입 id가 이미 계약이라 `instanceof`가 필요 없다 (wr-cla6.36n)
 - 제목 없는 에디터의 이름은 언제나 `Untitled-N`이다. VS Code는 텍스트의 첫 줄에서 이름을 만든다 (wr-cla6.36n)
-- `URI`는 퍼센트 인코딩 없이 구성 요소를 그대로 이어 쓴다 — v0.1.0의 리소스는 워크벤치가 만드는 `untitled:Untitled-N`뿐이다. 그렇게 이어 쓰면 다른 URI로 읽히는 구성 요소(경로의 `?`·`#`, authority가 있을 때 `/`로 시작하지 않는 경로 등)는 거부한다 (wr-cla6.36n)
+- `URI`는 퍼센트 인코딩 없이 구성 요소를 그대로 이어 쓴다 — v0.1.0의 에디터 리소스는 워크벤치가 만드는 `untitled:Untitled-N`과 `vscode-userdata:/User/settings.json`이다. 그렇게 이어 쓰면 다른 URI로 읽히는 구성 요소(경로의 `?`·`#`, authority가 있을 때 `/`로 시작하지 않는 경로 등)는 거부한다 (wr-cla6.36n)
 - `TextEditorPane`은 입력별 뷰 상태를 페인 안의 메모리 맵에 두고 입력이 dispose되면 지운다. VS Code의 `AbstractEditorWithViewState`는 그룹과 리소스 키로 memento에 저장한다 — 새로고침 뒤 복원은 레이아웃과 에디터 저장 멤버의 몫이다. 다른 페인으로 옮길 때는 `getViewState()`와 `setInput`의 `viewState` 옵션으로 넘긴다 (wr-cla6.36n)
 - 페인은 새 입력을 로드하는 동안 이전 모델을 떼어(`setModel(null)`) 둔다. VS Code는 새 모델로 바로 바꾼다 — 패키지나 모델 로드가 늦을 때 이전 탭의 텍스트가 새 탭 아래 보이지 않게 한다. 떼기 전에 에디터에 포커스가 있었으면 새 모델이 붙을 때 되돌린다 (wr-cla6.36n)
 - Monaco 자체의 F1 바인딩(`editor.action.quickCommand`)을 지운다 — F1은 워크벤치의 커맨드 팔레트로 간다. Monaco의 컨텍스트 메뉴, 찾기 위젯, 다른 키바인딩은 그대로 둔다 (wr-cla6.36n)
@@ -198,4 +198,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6
