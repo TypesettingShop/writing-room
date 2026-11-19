@@ -64,7 +64,7 @@ export class RelativePattern implements vscode.RelativePattern {
       throw new Error('Illegal argument: pattern');
     }
     if (typeof base === 'string') {
-      this.base = base;
+      this.baseUri = Uri.file(base);
     } else {
       this.baseUri = base instanceof URI ? base as unknown as vscode.Uri : (base as vscode.WorkspaceFolder).uri;
     }

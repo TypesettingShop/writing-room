@@ -4,6 +4,8 @@ import { product } from '../../../platform/product/common/product.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
 import { DataTransfer, DataTransferItem, LogLevel, MarkdownString, RelativePattern, ThemeColor, ThemeIcon, Uri } from './extHostCommonTypes.js';
 import { EndOfLine, Location, Position, Range, Selection, SnippetString, SnippetTextEdit, TextEdit, ViewColumn, WorkspaceEdit } from './extHostEditorTypes.js';
+export { CancellationTokenSource } from '../../../base/common/cancellation.js';
+export { CancellationError } from '../../../base/common/errors.js';
 export { DataTransfer, DataTransferItem, LogLevel, MarkdownString, RelativePattern, ThemeColor, ThemeIcon, Uri } from './extHostCommonTypes.js';
 export { EndOfLine, Location, Position, Range, Selection, SnippetString, SnippetTextEdit, TextEdit, ViewColumn, WorkspaceEdit } from './extHostEditorTypes.js';
 
