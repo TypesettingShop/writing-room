@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <title>Grid test harness</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; color: #ccc; font: 13px sans-serif; }
+      header { height: 40px; display: flex; gap: 8px; align-items: center; padding: 0 8px; box-sizing: border-box; }
+      main { position: absolute; top: 40px; left: 0; }
+      .harness-view { box-sizing: border-box; padding: 8px; overflow: hidden; }
+    </style>
+    <script type="module" src="./grid.ts"></script>
+  </head>
+  <body>
+    <header role="toolbar" aria-label="Grid actions"></header>
+    <main></main>
+  </body>
+</html>

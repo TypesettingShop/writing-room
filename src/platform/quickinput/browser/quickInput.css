@@ -1,0 +1,113 @@
+.wr-quick-input {
+  position: fixed;
+  z-index: 1000;
+  width: 36rem;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--wr-quick-input-foreground, #222d3a);
+  background: var(--wr-quick-input-background, #fff);
+  border: 1px solid var(--wr-quick-input-border, #ccd4dc);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px #172b4240;
+  font: 0.875rem/1.5 system-ui, sans-serif;
+}
+
+.wr-quick-input-box {
+  padding: 8px 10px;
+  overflow: auto;
+}
+
+.wr-quick-input-box > input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  color: inherit;
+  background: var(--wr-quick-input-field, #f6f8fa);
+  border: 1px solid var(--wr-quick-input-border, #ccd4dc);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.wr-quick-input-box > input:focus {
+  outline: 2px solid var(--wr-quick-input-focus, #1c67a9);
+  outline-offset: -2px;
+}
+
+.wr-quick-input-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.wr-quick-input-prompt,
+.wr-quick-input-message:not(:empty) {
+  margin-top: 4px;
+}
+
+.wr-quick-input-message {
+  color: var(--wr-quick-input-error, #a42929);
+}
+
+.wr-quick-input-list {
+  min-height: 0;
+  max-height: 22rem;
+  padding: 0 4px 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.wr-quick-input-option[hidden] {
+  display: none;
+}
+
+.wr-quick-input-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.wr-quick-input-option:hover,
+.wr-quick-input-option[aria-selected='true'] {
+  background: var(--wr-quick-input-selection, #e1effa);
+}
+
+.wr-quick-input-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wr-quick-input-description {
+  margin-inline-start: 8px;
+}
+
+.wr-quick-input-description,
+.wr-quick-input-detail,
+.wr-quick-input-shortcut,
+.wr-quick-input-separator {
+  color: var(--wr-quick-input-secondary, #46596e);
+  font-size: 0.8rem;
+}
+
+.wr-quick-input-shortcut {
+  flex: none;
+  white-space: nowrap;
+}
+
+.wr-quick-input-separator {
+  margin: 4px 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--wr-quick-input-border, #ccd4dc);
+}
+
+.wr-quick-input-option mark {
+  color: inherit;
+  background: transparent;
+  font-weight: 700;
+  text-decoration: underline;
+}
