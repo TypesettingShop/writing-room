@@ -4,7 +4,7 @@ Webview는 확장이 만든 HTML을 에디터나 뷰에 표시한다. 브라우�
 
 ## 포워딩 주소에서 실행하기
 
-앱과 웹뷰 셸의 두 포트를 포워딩한다. 앱의 포트가 5173이고 웹뷰의 포트가 5174라면 다음 명령으로 개발 서버를 연다.
+워크벤치는 브라우저 탭에서 연다. 앱과 웹뷰 셸의 두 포트를 포워딩한다. 앱의 포트가 5173이고 웹뷰의 포트가 5174라면 다음 명령으로 개발 서버를 연다.
 
 ```sh
 WRITING_ROOM_WEBVIEW_PORT=5174 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
@@ -18,6 +18,8 @@ WRITING_ROOM_WEBVIEW_PORT=5174 npm run dev -- --host 127.0.0.1 --port 5173 --str
 4. 워크벤치로 돌아가 웹뷰를 여는 확장 명령을 실행한다. 웹뷰의 외부 iframe이 5174 포워딩 주소를 쓰며 확장의 스크립트나 CSS가 적용됐는지 확인한다.
 5. 포트가 다른 호스트에서 `/`와 `/webview/config.json`을 열어 모두 404인지 확인한다. 그 호스트는 셸 HTML과 서비스 워커 파일을 제공한다.
 
+포워딩 서비스가 설정 JSON 요청에도 인증 쿠키를 요구하면, 같은 오리진 주소의 설정을 자격 증명 없이 읽는 경로를 사용할 수 없다. 이 배포에서는 제품 설정에 웹뷰 오리진 주소 틀을 지정한다.
+
 안내가 보이면 서버 실행 시 `WRITING_ROOM_WEBVIEW_PORT`를 주었는지, 포트 두 개를 포워딩했는지, 브라우저에서 두 번째 주소에 로그인했는지 확인한다. 셸과 연결할 수 없으면 10초 뒤에 안내를 표시한다. 포워딩 주소와 루프백 주소의 설치 확장, 파일, 설정은 브라우저 오리진에 따라 별도로 저장된다.
 
 ## 오리진 선택
@@ -25,5 +27,48 @@ WRITING_ROOM_WEBVIEW_PORT=5174 npm run dev -- --host 127.0.0.1 --port 5173 --str
 Vite 제품 설정 `VITE_WRITING_ROOM_PRODUCT`의 `webviewContentExternalBaseUrlTemplate`가 있으면 먼저 사용한다. 정적 배포는 그 HTTPS 오리진의 `/webview/`에 배포 빌드의 셸과 서비스 워커를 둔다. `{{uuid}}`를 호스트 이름에 넣으면 웹뷰마다 별도 오리진을 쓸 수 있다.
 
 제품 설정이 없으면 개발 서버와 프리뷰는 같은 포트의 `127.0.0.1`과 `localhost`를 서로 바꾼다. 두 루프백 호스트는 같은 Vite 서버에서 파일을 가져오지만 브라우저 저장소를 오리진별로 사용한다. 포워딩은 페이지의 호스트 이름에 있는 앱 포트 표식을 교체한다. 설정을 검증할 수 없거나 같은 오리진이 나오면 웹뷰를 열기 전에 안내를 표시한다.
+
+## 패널의 콘텐츠와 메시지
+
+`window.createWebviewPanel(viewType, title, showOptions, options)`으로 에디터 탭을 연다. `viewType`은 복원과 메뉴에 쓰는 고정 식별자다. `webview.html`에 전체 문서를 넣고, `enableScripts: true`를 설정한 패널에서 `acquireVsCodeApi()`를 한 번 호출한다.
+
+아래 예에서 스크립트는 확장의 `media` 폴더에 있다. 로컬 파일의 주소는 `asWebviewUri`로 바꾸고, CSP에 그 파일을 제공하는 웹뷰 오리진을 명시한다.
+
+```js
+const media = vscode.Uri.joinPath(context.extensionUri, 'media')
+const panel = vscode.window.createWebviewPanel('example.preview', 'Preview', vscode.ViewColumn.Beside, {
+  enableScripts: true,
+  localResourceRoots: [media],
+})
+const script = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'preview.js'))
+panel.webview.html = `<!doctype html>
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src ${panel.webview.cspSource}">
+  <main id="preview"></main>
+  <script src="${script}"></script>`
+```
+
+`localResourceRoots`의 기본값은 현재 워크스페이스와 그 확장의 설치 폴더다. 읽기는 정규화된 루트 안에서 파일마다 50 MiB까지 허용된다. HTTP(S) 링크를 누르면 워크벤치가 주소를 보여 주고 확인을 거쳐 열어 준다.
+
+확장과 화면의 양방향 메시지는 `Webview.postMessage` 및 `onDidReceiveMessage`, 화면의 `acquireVsCodeApi().postMessage` 및 `message` 이벤트를 사용한다. 패널을 숨기면 기본값으로 HTML 문서를 버리며, 이 동안 확장에서 보낸 메시지의 결과는 `false`다. `retainContextWhenHidden`을 지정한 패널은 화면 바깥에 있을 때에도 문서를 유지한다.
+
+`webview/context` 메뉴의 `webviewId`는 패널의 `viewType` 또는 뷰의 ID다. 콘텐츠 안에서 `data-vscode-context='{"webviewSection":"preview"}'`와 같이 요소별 컨텍스트를 제공할 수 있다.
+
+## 새로고침 후 상태 복원
+
+패널의 `viewType`에 해당하는 `onWebviewPanel:<viewType>`을 매니페스트에 적고, 활성화에서 `window.registerWebviewPanelSerializer`를 호출한다. 새로고침 후 해당 탭이 처음 보일 때 확장을 활성화하고 `deserializeWebviewPanel(panel, state)`를 호출한다. 직렬화기는 `panel.webview.html`과 이벤트 구독을 다시 설정한다.
+
+레이아웃에는 탭 제목, 확장 ID, 표시 옵션과 리소스 루트 등 입력 메타데이터를 저장한다. 웹뷰의 `setState`가 넘긴 JSON은 워크스페이스의 별도 키에 저장하며 웹뷰당 256 KiB, 워크스페이스당 전체 1 MiB까지 허용한다. 숨겼다가 다시 연 문서의 `getState`와 새로고침 뒤 직렬화기에 이 상태가 전달된다. 한도를 넘긴 업데이트는 마지막으로 저장한 상태를 유지하고 한 번 경고한다.
+
+## 사이드바와 패널의 WebviewView
+
+매니페스트의 `contributes.views`에 `"type": "webview"`를 지정한다. 확장은 같은 ID로 `window.registerWebviewViewProvider`를 호출하고, `resolveWebviewView(view, context, token)`에서 `view.webview.html`을 설정한다. 상태는 `context.state`로 전달된다. 사이드바와 패널 사이에서 컨테이너를 옮길 때 브라우저 프레임은 유지된다.
+
+## Deviations from VS Code
+
+- wr-cpnc.hs9, wr-cpnc.hmr. 개발과 프리뷰의 루프백 경로와 포워딩 모드는 워크벤치와 웹뷰의 오리진을 분리한다. 같은 웹뷰 오리진에 여러 문서가 뜨는 모드에서는 그 문서들이 브라우저의 같은 오리진 권한을 공유한다. 웹뷰마다 다른 오리진이 필요한 배포는 호스트 이름에 `{{uuid}}`가 들어간 HTTPS 주소 틀을 사용한다.
+- wr-cpnc.flj. 찾기와 `portMapping`은 옵션을 받되 동작하지 않는다. `enableCommandUris`도 옵션을 받으며 링크 처리는 HTTP와 HTTPS를 지원한다.
+- wr-cpnc.flj. 로컬 파일과 확장 리소스는 메인 스레드의 파일 서비스를 통해 읽는다. 원격 URL도 확장의 설치 루트에 있으면 `asWebviewUri`가 웹뷰 리소스 주소를 만든다.
+- wr-cpnc.6ly. 뷰 배지는 이 에픽의 범위 밖이다.
 
 Decided in: wr-efqx.n9k, wr-cpnc
