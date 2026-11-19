@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-sxeONo4sHlcWCgDLTgIm+4CqbBkBNBdOYhZ5l8M4xLk='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-mZYZBdmeJ7nFwfOFNK7KszWnakliQVQ+9b3q3KU8acc='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Webview</title>
 <style>
@@ -89,13 +89,7 @@
       const capture = { capture: true };
       document.addEventListener('click', followLink, capture);
       document.addEventListener('auxclick', followLink, capture);
-      document.addEventListener('keydown', event => {
-        if (!event.isTrusted || event.defaultPrevented || event.isComposing) {
-          return;
-        }
-        const { key, code, ctrlKey, altKey, shiftKey, metaKey } = event;
-        send({ type: 'key', revision: content.revision, key, code, ctrlKey, altKey, shiftKey, metaKey });
-      });
+      document.addEventListener('keydown', forwardKey);
       document.addEventListener('contextmenu', event => {
         if (!event.isTrusted || event.defaultPrevented) {
           return;
@@ -121,6 +115,15 @@
         send({ type: 'context-menu', revision: content.revision, x: event.clientX, y: event.clientY, context });
       });
     }
+
+    function forwardKey(event) {
+      if (!content || !event.isTrusted || event.defaultPrevented || event.isComposing) {
+        return;
+      }
+      const { key, code, ctrlKey, altKey, shiftKey, metaKey } = event;
+      send({ type: 'key', revision: content.revision, key, code, ctrlKey, altKey, shiftKey, metaKey });
+    }
+    document.addEventListener('keydown', forwardKey);
 
     function followLink(event) {
       const link = event.composedPath().find(element => element.localName === 'a' && element.hasAttribute('href'));
@@ -156,6 +159,7 @@
         setTheme(current.contentDocument);
         attachContentListeners(current.contentDocument);
         loaded = true;
+        send({ type: 'content-ready', revision: content.revision });
         for (const message of queue.splice(0)) {
           relayMessage(message);
         }

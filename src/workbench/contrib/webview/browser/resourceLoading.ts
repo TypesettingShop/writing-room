@@ -34,7 +34,8 @@ export function normalizeWebviewResource(resource: URI): URI | undefined {
     || (resource.scheme !== Schemas.vscodeVfs && resource.scheme !== Schemas.http && resource.scheme !== Schemas.https)) {
     return undefined;
   }
-  return normalizePath(resource.with({ query: '', fragment: '' }));
+  const normalized = normalizePath(resource.with({ query: '', fragment: '' }));
+  return normalized.path.length > 1 ? normalized.with({ path: normalized.path.replace(/\/+$/, '') }) : normalized;
 }
 
 function decodeResource(path: string): URI | undefined {

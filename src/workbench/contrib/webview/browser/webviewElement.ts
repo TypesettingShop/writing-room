@@ -21,6 +21,8 @@ interface PendingMessage {
 const shellTimeout = 10_000;
 
 export class WebviewElement extends Disposable {
+  private readonly contentReady = this._register(new Emitter<void>());
+  readonly onDidLoadContent = this.contentReady.event;
   private readonly messages = this._register(new Emitter<unknown>());
   readonly onDidReceiveMessage = this.messages.event;
   private readonly contextMenus = this._register(new Emitter<{ x: number; y: number; context: unknown }>());
@@ -37,6 +39,7 @@ export class WebviewElement extends Disposable {
   private port: MessagePort | undefined;
   private disposed = false;
   private ready = false;
+  private loaded = false;
   private revision = 0;
   private sequence = 0;
   private html = '';
@@ -123,12 +126,17 @@ export class WebviewElement extends Disposable {
     });
   }
 
-  focus(): void {
-    this.frame?.focus();
+  focus(): boolean {
+    if (!this.loaded || !this.frame?.parentNode) {
+      return false;
+    }
+    this.frame.focus();
     this.port?.postMessage({ type: 'focus' });
+    return true;
   }
 
   private render(): void {
+    this.loaded = false;
     this.abortReads();
     this.port?.postMessage({
       type: 'content', revision: ++this.revision, html: this.html, state: this.state,
@@ -190,6 +198,10 @@ export class WebviewElement extends Disposable {
       this.resolveMessage(data.id, data.accepted === true);
     } else if (data.revision === this.revision) {
       switch (data.type) {
+        case 'content-ready':
+          this.loaded = true;
+          this.contentReady.fire();
+          break;
         case 'message':
           this.messages.fire(data.value);
           break;
