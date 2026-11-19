@@ -13,7 +13,10 @@ import { ITextFileService } from '../../textfile/common/textfiles.js';
 
 interface IResolved {
   readonly object: IResolvedTextEditorModel;
-  /** Whether this service made the model and so disposes it after the last reference. */
+  /**
+   * Whether the last reference disposes `object`: a model a content provider made here, and what the
+   * text file service hands out, whose disposal tells that service the references are gone.
+   */
   readonly owned: boolean;
 }
 
@@ -31,7 +34,8 @@ function borrowed(model: ITextModel): IResolvedTextEditorModel {
 
 /**
  * Counts the references to each resource's text model. The first reference creates or finds the
- * model; the last one lets go of it, which disposes it only when a content provider made it here.
+ * model; the last one lets go of it, which disposes it when a content provider made it here and
+ * tells the text file service when it is that service's.
  */
 export class TextModelResolverService implements ITextModelService {
   declare readonly _serviceBrand: undefined;
@@ -108,9 +112,10 @@ export class TextModelResolverService implements ITextModelService {
   }
 
   private async resolve(resource: URI): Promise<IResolved> {
-    // Text the text file service holds (untitled text, files) belongs to it; a reference never disposes it.
+    // Text the text file service holds (untitled text, files) belongs to it. Disposing what it hands
+    // out tells it the last reference went: a file model then goes once clean, untitled text stays.
     if (this.textFileService.canHandleResource(resource)) {
-      return { object: await this.textFileService.resolve(resource), owned: false };
+      return { object: await this.textFileService.resolve(resource), owned: true };
     }
 
     // A model that already exists belongs to whoever created it (the settings editor, say).

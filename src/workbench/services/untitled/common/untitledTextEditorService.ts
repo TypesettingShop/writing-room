@@ -20,8 +20,11 @@ export interface IUntitledTextEditorService extends BrandedService {
    * and was not restored on this page.
    */
   create(options?: INewUntitledTextEditorOptions): UntitledTextEditorModel;
-  /** Restores a named input's model with its initial text, without reusing its number later. */
-  restore(resource: URI, initialValue: string): UntitledTextEditorModel;
+  /**
+   * Restores a named input's model with its initial text and, when one was saved, its language,
+   * without reusing its number later.
+   */
+  restore(resource: URI, initialValue: string, languageId?: string): UntitledTextEditorModel;
   get(resource: URI): UntitledTextEditorModel | undefined;
   /** One of the models gained or lost unsaved text. */
   readonly onDidChangeDirty: Event<UntitledTextEditorModel>;
@@ -48,9 +51,9 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     return this.createModel(resource, options.initialValue ?? '', options.languageId);
   }
 
-  restore(resource: URI, initialValue: string): UntitledTextEditorModel {
+  restore(resource: URI, initialValue: string, languageId?: string): UntitledTextEditorModel {
     this.restored.add(resource.toString());
-    return this.get(resource) ?? this.createModel(resource, initialValue);
+    return this.get(resource) ?? this.createModel(resource, initialValue, languageId);
   }
 
   private createModel(resource: URI, initialValue: string, languageId?: string): UntitledTextEditorModel {

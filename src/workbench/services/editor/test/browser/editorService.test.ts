@@ -147,6 +147,8 @@ describe('glob matching', () => {
     ['*.md', 'test:/a/b/Notes.MD', true],
     ['*.md', 'test:/a/b/notes.txt', false],
     ['*.{md,markdown}', 'test:/x.markdown', true],
+    // Nested alternatives, as the shared glob reads them.
+    ['*.{md,{txt,markdown}}', 'test:/x.markdown', true],
     ['readme.?d', 'test:/README.md', true],
     ['[!r]*.md', 'test:/readme.md', false],
     ['[a-c]*.md', 'test:/beta.md', true],
