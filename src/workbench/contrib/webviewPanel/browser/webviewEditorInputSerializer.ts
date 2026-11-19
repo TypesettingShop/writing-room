@@ -46,7 +46,7 @@ export class WebviewEditorInputSerializer implements IEditorSerializer {
   serialize(editor: WebviewEditorInput): string {
     return JSON.stringify({
       version: 1, id: editor.id, extension: editor.extensionId, viewType: editor.viewType,
-      title: editor.getName(), options: editor.options, contentOptions: editor.contentOptions, icon: editor.iconPath,
+      title: editor.getName(), options: editor.options, contentOptions: editor.contentOptions, icon: editor.persistedIconPath,
     });
   }
 
@@ -73,7 +73,7 @@ export class WebviewEditorInputSerializer implements IEditorSerializer {
       const input = instantiation.createInstance(WebviewEditorInput,
         value.id, value.extension, value.viewType, value.title, options, webview, true);
       input.contentOptions = contentOptions;
-      input.setIconPath(recoverIcon(value.icon));
+      input.setStoredIconPath(recoverIcon(value.icon));
       input.markForRestore();
       return input;
     } catch {

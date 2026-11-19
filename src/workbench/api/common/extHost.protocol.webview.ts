@@ -66,5 +66,25 @@ export interface ExtHostWebviewsShape {
   $onPanelDisposed(extension: string, handle: string): Promise<void>;
 }
 
+export type MainThreadWebviewContent = Pick<MainThreadWebviewsShape, '$setHtml' | '$setOptions' | '$postMessage'>;
+
+export interface MainThreadWebviewViewsShape extends MainThreadWebviewContent {
+  $registerProvider(extension: string, viewId: string, retainContextWhenHidden: boolean): Promise<void>;
+  $unregisterProvider(extension: string, viewId: string): Promise<void>;
+  $setViewLabel(extension: string, handle: string, label: 'title' | 'description', value: string | undefined): Promise<void>;
+  $showView(extension: string, handle: string, preserveFocus: boolean): Promise<void>;
+}
+
+export interface ExtHostWebviewViewsShape {
+  $resolveView(extension: string, handle: string, viewId: string, title: string, state: unknown, visible: boolean,
+    token: CancellationToken): Promise<void>;
+  $onViewMessage(extension: string, handle: string, value: unknown): Promise<void>;
+  $onViewVisibility(extension: string, handle: string, visible: boolean): Promise<void>;
+  $onViewDisposed(extension: string, handle: string): Promise<void>;
+}
+
+export const MainThreadWebviewViewsProxy = createProxyIdentifier<MainThreadWebviewViewsShape>('MainThreadWebviewViews');
+export const ExtHostWebviewViewsProxy = createProxyIdentifier<ExtHostWebviewViewsShape>('ExtHostWebviewViews');
+
 export const MainThreadWebviewsProxy = createProxyIdentifier<MainThreadWebviewsShape>('MainThreadWebviews');
 export const ExtHostWebviewsProxy = createProxyIdentifier<ExtHostWebviewsShape>('ExtHostWebviews');

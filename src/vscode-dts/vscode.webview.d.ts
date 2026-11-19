@@ -49,11 +49,35 @@ declare module 'vscode' {
     deserializeWebviewPanel(webviewPanel: WebviewPanel, state: T): Thenable<void>;
   }
 
+  interface WebviewView {
+    readonly viewType: string;
+    readonly webview: Webview;
+    title?: string;
+    description?: string;
+    readonly onDidDispose: Event<void>;
+    readonly visible: boolean;
+    readonly onDidChangeVisibility: Event<void>;
+    show(preserveFocus?: boolean): void;
+  }
+
+  interface WebviewViewResolveContext<T = unknown> {
+    readonly state: T | undefined;
+  }
+
+  interface WebviewViewProvider {
+    resolveWebviewView(webviewView: WebviewView, context: WebviewViewResolveContext, token: CancellationToken): Thenable<void> | void;
+  }
+
   namespace window {
     export function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn | {
       readonly viewColumn: ViewColumn;
       readonly preserveFocus?: boolean;
     }, options?: WebviewPanelOptions & WebviewOptions): WebviewPanel;
+    export function registerWebviewViewProvider(viewId: string, provider: WebviewViewProvider, options?: {
+      readonly webviewOptions?: {
+        readonly retainContextWhenHidden?: boolean;
+      };
+    }): Disposable;
     export function registerWebviewPanelSerializer(viewType: string, serializer: WebviewPanelSerializer): Disposable;
   }
 }

@@ -1,0 +1,24 @@
+{
+  "name": "webview-view",
+  "displayName": "Webview View Fixture",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "engines": { "vscode": "^1.95.0" },
+  "browser": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "fixture-webview-view", "title": "Webview View Fixture", "icon": "$(extensions)" }
+      ]
+    },
+    "views": {
+      "fixture-webview-view": [
+        { "id": "fixture.webview.view", "name": "Fixture Webview", "type": "webview" },
+        { "id": "fixture.webview.empty", "name": "Empty Fixture Webview", "type": "webview" }
+      ]
+    },
+    "commands": [
+      { "command": "fixture.webview.showView", "title": "Fixture: Show Webview View" }
+    ]
+  }
+}

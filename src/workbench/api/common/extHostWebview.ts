@@ -1,3 +1,4 @@
+import './extHostWebviewView.js';
 import type * as vscode from 'vscode';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
@@ -5,21 +6,23 @@ import type { URI } from '../../../base/common/uri.js';
 import { product } from '../../../platform/product/common/product.js';
 import { asWebviewUri } from '../../contrib/webview/common/webviewUri.js';
 import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
-import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
+import type { WebviewForwardingPorts, WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import { ExtHostWebviewsProxy, MainThreadWebviewsProxy } from './extHost.protocol.webview.js';
 import type {
-  ExtHostWebviewsShape, MainThreadWebviewsShape, WebviewContentOptions, WebviewIcon, WebviewPanelRestoreData, WebviewPanelViewState, WebviewShowOptions,
+  ExtHostWebviewsShape, MainThreadWebviewContent, MainThreadWebviewsShape, WebviewContentOptions, WebviewIcon, WebviewPanelRestoreData, WebviewPanelViewState, WebviewShowOptions,
 } from './extHost.protocol.webview.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
 import { Disposable } from './extHostTypes.js';
 
 const page = typeof location === 'undefined' ? undefined : new URL(location.href);
 const template = product.webviewContentExternalBaseUrlTemplate;
-// Resolve forwarding once in the trusted Worker bootstrap. Extension code reads cspSource synchronously.
-const forwarding = page && await getWebviewForwardingPorts(page, template);
+// Let the Worker attach its RPC port while forwarding loads. Activation waits before exposing the
+// synchronous cspSource and asWebviewUri APIs.
+let forwarding: WebviewForwardingPorts | undefined;
+const forwardingReady = page && getWebviewForwardingPorts(page, template).then(ports => { forwarding = ports; });
 const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
 
-type SendWebviewCall = <T>(call: () => Promise<T>, fallback: T) => Promise<T>;
+export type SendWebviewCall = <T>(call: () => Promise<T>, fallback: T) => Promise<T>;
 
 export function toContentOptions(options: vscode.WebviewOptions): WebviewContentOptions {
   return {
@@ -27,6 +30,10 @@ export function toContentOptions(options: vscode.WebviewOptions): WebviewContent
     enableForms: options.enableForms,
     localResourceRoots: options.localResourceRoots as readonly URI[] | undefined,
   };
+}
+
+export function extHostWebviewOrigin(id: string): WebviewOrigin {
+  return page ? resolveWebviewOrigin(page, template, id, forwarding) : { error: 'No Webview origin' };
 }
 
 export class ExtHostWebview implements vscode.Webview {
@@ -42,7 +49,7 @@ export class ExtHostWebview implements vscode.Webview {
 
   constructor(
     origin: WebviewOrigin, options: vscode.WebviewOptions, send: SendWebviewCall,
-    proxy: MainThreadWebviewsShape, extension: string, handle: string,
+    proxy: MainThreadWebviewContent, extension: string, handle: string,
   ) {
     this.#origin = origin;
     this.#options = options;
@@ -208,6 +215,7 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   constructor(private readonly proxy: MainThreadWebviewsShape) {}
 
   async $getForwardingPorts() {
+    await forwardingReady;
     return forwarding;
   }
 
@@ -242,7 +250,7 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
       readonly contentOptions: vscode.WebviewOptions;
     }, ready: Promise<void>,
   ): ExtHostWebviewPanel {
-    const origin = page ? resolveWebviewOrigin(page, template, data.id, forwarding) : { error: 'No Webview origin' };
+    const origin = extHostWebviewOrigin(data.id);
     const send: SendWebviewCall = (call, fallback) => ready.then(() => this.panels.has(handle) ? call() : fallback);
     const webview = new ExtHostWebview(origin, data.contentOptions, send, this.proxy, extension, handle);
     const panel = new ExtHostWebviewPanel(data.viewType, data.title, webview, data.options, data.viewState, send,
@@ -366,6 +374,7 @@ extHostApiRegistry.register('webviews', ({ rpc }) => {
   rpc.set(ExtHostWebviewsProxy, webviews);
   return {
     service: webviews,
+    ready: forwardingReady,
     create: ({ key }) => ({
       namespaces: {
         window: {

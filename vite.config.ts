@@ -126,8 +126,6 @@ const resolvedCodiconModule = '\0' + codiconModule;
 
 export default defineConfig({
   appType: 'mpa',
-  // The extension Worker initializes forwarding before it exposes the synchronous Webview API.
-  worker: { format: 'es' },
   server: { host: '127.0.0.1' },
   preview: { host: '127.0.0.1' },
   plugins: [

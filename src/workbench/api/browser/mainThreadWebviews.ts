@@ -1,3 +1,4 @@
+import './mainThreadWebviewViews.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
@@ -8,6 +9,7 @@ import { product } from '../../../platform/product/common/product.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { normalizeWebviewResource } from '../../contrib/webview/browser/resourceLoading.js';
 import { IWebviewStateStore } from '../../contrib/webview/browser/webviewStateStore.js';
+import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResourceScope.js';
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
 import { resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import { WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
@@ -62,7 +64,8 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     panelOptions: WebviewPanelOptions, options: WebviewContentOptions,
   ): Promise<void> {
     const owner = this.getExtension(extension);
-    if (!owner || !/^[\da-f-]{36}$/.test(handle) || this.panels.has(handle) || !viewType || typeof title !== 'string') {
+    if (!owner || !/^[\da-f-]{36}$/.test(handle) || this.panels.has(handle)
+      || typeof viewType !== 'string' || !viewType || typeof title !== 'string') {
       throw new Error('Invalid Webview panel.');
     }
     const forwarding = await this.proxy.$getForwardingPorts();
@@ -209,7 +212,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     }
     const entry = this.bindPanel(extension, handle, owner, input, input.contentOptions);
     const saved = this.states.get(input.id, owner.id);
-    input.setIconPath(this.validateIcon(owner, input.iconPath));
+    input.setIconPath(this.validateIcon(owner, input.persistedIconPath));
     input.webview.setState(saved);
     input.webview.setOrigin(resolveWebviewOrigin(new URL(location.href),
       product.webviewContentExternalBaseUrlTemplate, input.id, forwarding));
@@ -251,7 +254,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
   }
 
   private setContentOptions(owner: HostExtensionDescription, entry: PanelEntry, options: WebviewContentOptions): void {
-    entry.options = this.scope(owner, options);
+    entry.options = scopeWebviewOptions(owner.location, this.workspace.getWorkspace().folders.map(folder => folder.uri), options);
     entry.input.contentOptions = {
       ...entry.options, localResourceRoots: options.localResourceRoots === undefined ? undefined : entry.options.localResourceRoots,
     };
@@ -270,29 +273,19 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       return undefined;
     }
     const root = normalizeWebviewResource(URI.parse(owner.location));
-    const allowed = (uri: unknown): uri is URI => {
+    const allowed = (uri: unknown): URI | undefined => {
       const value = URI.isUri(uri) && normalizeWebviewResource(uri);
-      return !!(root && value && isEqualOrParent(value, root));
+      return root && value && isEqualOrParent(value, root) ? value : undefined;
     };
     if (URI.isUri(icon)) {
-      return allowed(icon) ? icon : undefined;
+      return allowed(icon);
     }
     if ('light' in icon) {
-      return allowed(icon.light) && allowed(icon.dark) ? icon : undefined;
+      const light = allowed(icon.light);
+      const dark = allowed(icon.dark);
+      return light && dark ? { light, dark } : undefined;
     }
     return typeof icon.id === 'string' && /^[\w-]+$/.test(icon.id) ? icon : undefined;
-  }
-
-  private scope(owner: HostExtensionDescription, options: WebviewContentOptions): WebviewContentOptions {
-    const roots = [...this.workspace.getWorkspace().folders.map(folder => folder.uri), URI.parse(owner.location)]
-      .map(normalizeWebviewResource).filter(root => root !== undefined);
-    const explicit = Array.isArray(options.localResourceRoots) ? options.localResourceRoots : roots;
-    return {
-      enableScripts: options.enableScripts === true,
-      enableForms: typeof options.enableForms === 'boolean' ? options.enableForms : undefined,
-      localResourceRoots: explicit.filter(URI.isUri).map(normalizeWebviewResource).filter(
-        (root): root is URI => root !== undefined && roots.some(scope => isEqualOrParent(root, scope))),
-    };
   }
 
   private updateContent(entry: PanelEntry): void {

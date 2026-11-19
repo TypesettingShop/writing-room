@@ -10,6 +10,7 @@ export class WebviewEditorInput extends EditorInput {
   readonly typeId = WebviewEditorInput.typeId;
   readonly resource: URI;
   private icon: WebviewIcon | undefined;
+  private storedIcon: WebviewIcon | undefined;
   private generation = 0;
   private restorePending = false;
   contentOptions: WebviewContentOptions = {};
@@ -70,7 +71,16 @@ export class WebviewEditorInput extends EditorInput {
     return this.icon;
   }
 
+  get persistedIconPath(): WebviewIcon | undefined {
+    return this.storedIcon ?? this.icon;
+  }
+
+  setStoredIconPath(icon: WebviewIcon | undefined): void {
+    this.storedIcon = icon;
+  }
+
   setIconPath(icon: WebviewIcon | undefined): void {
+    this.storedIcon = undefined;
     this.icon = icon;
     this._onDidChangeLabel.fire();
   }
