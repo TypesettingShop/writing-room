@@ -63,6 +63,14 @@ export interface IEditorMoveOptions {
   readonly preserveFocus?: boolean;
 }
 
+/** An editor and what takes its place in the group. */
+export interface IEditorReplacement {
+  readonly editor: EditorInput;
+  readonly replacement: EditorInput;
+  /** How the replacement opens; by default with the replaced editor's view state. */
+  readonly options?: IEditorOpenOptions;
+}
+
 export interface ICloseEditorsFilter {
   /** Close every editor of the group except this one. */
   readonly except?: EditorInput;
@@ -117,6 +125,12 @@ export interface IEditorGroup {
   /** Closes the editors, asking about each that wants it first; one cancel keeps them all. */
   closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): Promise<boolean>;
   closeAllEditors(): Promise<boolean>;
+  /**
+   * Puts each replacement where its editor is: the same index, active if the editor was, with the
+   * editor's view state (cursor, scroll) unless the options give one. The replaced editor closes
+   * without being asked about. An editor the group does not hold is skipped.
+   */
+  replaceEditors(editors: readonly IEditorReplacement[]): Promise<void>;
 
   focus(): void;
 }

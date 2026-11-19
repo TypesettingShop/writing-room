@@ -1,18 +1,19 @@
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Schemas } from '../../../../base/common/network.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
 import { isResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import type { IResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { GroupModelChangeKind } from '../../../common/editor.js';
+import { EditorInput } from '../../../common/editor/editorInput.js';
 import type { GroupIdentifier, IEditorIdentifier, IEditorPane } from '../../../common/editor.js';
-import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../common/editorGroupsService.js';
 import type { IEditorGroup, IEditorOpenOptions } from '../common/editorGroupsService.js';
 import { IEditorResolverService } from '../common/editorResolverService.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../common/editorService.js';
-import type { IEditorCloseEvent, PreferredGroup } from '../common/editorService.js';
+import type { IEditorCloseEvent, ISaveEditorsOptions, PreferredGroup } from '../common/editorService.js';
 
 /** Editors across the groups of the editor part. */
 export class EditorService extends Disposable implements IEditorService {
@@ -119,6 +120,39 @@ export class EditorService extends Disposable implements IEditorService {
     return groups.flatMap(candidate => candidate.editors
       .filter(editor => isEqual(editor.resource, resource))
       .map(editor => ({ groupId: candidate.id, editor })));
+  }
+
+  async save(editors: IEditorIdentifier | readonly IEditorIdentifier[], options: ISaveEditorsOptions = {}): Promise<boolean> {
+    const list: readonly IEditorIdentifier[] = Array.isArray(editors) ? editors : [editors as IEditorIdentifier];
+    for (const { groupId, editor } of list) {
+      if (editor.isDisposed()) {
+        continue;
+      }
+      const saveOptions = { reason: options.reason ?? 'explicit' } as const;
+      const result = options.saveAs ? await editor.saveAs(groupId, saveOptions) : await editor.save(groupId, saveOptions);
+      if (!result) {
+        return false;
+      }
+      await this.replaceSaved(groupId, editor, result);
+    }
+    return true;
+  }
+
+  /** Puts what a save gave in the saved editor's place, unless it is the same editor. */
+  private async replaceSaved(groupId: GroupIdentifier, editor: EditorInput, result: EditorInput | IResourceEditorInput): Promise<void> {
+    // A save that stayed where it was (Save As onto the file itself) has nothing to put in its place.
+    if (result === editor || (result instanceof EditorInput ? result.matches(editor) : isEqual(result.resource, editor.resource))) {
+      return;
+    }
+    // Untitled text is one input wherever it shows, and it goes: every group gets the file.
+    const groups = editor.resource?.scheme === Schemas.untitled
+      ? this.editorGroupsService.groups.filter(group => group.contains(editor))
+      : [this.editorGroupsService.getGroup(groupId)].filter((group): group is IEditorGroup => group !== undefined && group.contains(editor));
+    for (const group of groups) {
+      const replacement = result instanceof EditorInput ? result
+        : (await this.editorResolverService.resolveEditor({ resource: result.resource }, group)).editor;
+      await group.replaceEditors([{ editor, replacement }]);
+    }
   }
 
   private findTargetGroup(preferred: PreferredGroup): IEditorGroup {

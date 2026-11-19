@@ -75,8 +75,11 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
   private restoredState = false;
 
   private readonly untitledListeners = new Map<UntitledTextEditorInput, IDisposable>();
-  /** Each listened untitled input's serialized text, until its content changes. */
-  private readonly serializedUntitled = new Map<UntitledTextEditorInput, string>();
+  /**
+   * Each listened untitled input's serialized text, until its content changes, with the language it
+   * was written in: the serialized form holds the language, which changes without a content change.
+   */
+  private readonly serializedUntitled = new Map<UntitledTextEditorInput, { readonly value: string; readonly languageId: string }>();
   /** In insertion order, least recently active first. */
   private readonly recentUntitled = new Set<UntitledTextEditorInput>();
   private readonly beforeUnload = this._register(new MutableDisposable<IDisposable>());
@@ -495,13 +498,14 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
   private serializeUntitledEditor(editor: UntitledTextEditorInput): string | undefined {
     // Only an input whose content changes this part hears about can reuse its last text.
     const cacheable = this.untitledListeners.has(editor);
+    const languageId = editor.model.getLanguageId();
     const cached = cacheable ? this.serializedUntitled.get(editor) : undefined;
-    if (cached !== undefined) {
-      return cached;
+    if (cached !== undefined && cached.languageId === languageId) {
+      return cached.value;
     }
     const value = serializeEditorInput(editor);
     if (cacheable && typeof value === 'string') {
-      this.serializedUntitled.set(editor, value);
+      this.serializedUntitled.set(editor, { value, languageId });
     }
     return value;
   }

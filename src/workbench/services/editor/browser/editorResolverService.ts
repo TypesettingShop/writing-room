@@ -53,7 +53,7 @@ export class EditorResolverService implements IEditorResolverService {
         const open = accessor.get(IEditorGroupsService).groups.flatMap(group => group.editors)
           .find(editor => editor instanceof UntitledTextEditorInput && isEqual(editor.resource, resource));
         const untitled = accessor.get(IUntitledTextEditorService);
-        return { editor: open ?? new UntitledTextEditorInput(untitled.get(resource) ?? untitled.restore(resource, '')), options };
+        return { editor: open ?? instantiation.createInstance(UntitledTextEditorInput, untitled.get(resource) ?? untitled.restore(resource, '')), options };
       }));
   }
 

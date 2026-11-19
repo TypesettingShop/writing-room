@@ -38,7 +38,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   const problems = panel.getByRole('tab', { name: 'Problems' });
   const output = panel.getByRole('tab', { name: 'Output' });
   await moveSampleToPanel(page);
-  const original = await sidebar.getByText('No folder opened').elementHandle();
+  const original = await sidebar.getByRole('tree', { name: 'Files Explorer' }).elementHandle();
 
   await startDrag(page, explorerIcon);
   await dragOver(page, problems, 0.25);
@@ -47,7 +47,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await expect(marker(page)).toHaveCount(0);
   await expect(panel.getByRole('tab')).toHaveText(['Output', 'Explorer', 'Problems', 'Hello World']);
   await expect(explorerTab).toHaveAttribute('aria-selected', 'true');
-  await expect(panel.getByText('No folder opened')).toBeVisible();
+  await expect(panel.getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
   expect(await original?.evaluate(element => element.closest('.part')?.id)).toBe('workbench.parts.panel');
   await expect(explorerIcon).toHaveCount(0);
   await expect(sidebar).toBeHidden();
@@ -70,7 +70,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await page.mouse.up();
   await expect(explorerTab).toHaveCount(0);
   await expect(explorerIcon).toHaveAttribute('aria-pressed', 'true');
-  await expect(sidebar.getByText('No folder opened')).toBeVisible();
+  await expect(sidebar.getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
   await expect(panel.getByRole('tab', { name: 'Hello World' })).toHaveAttribute('aria-selected', 'true');
 });
 
@@ -177,14 +177,14 @@ test('moves from the keyboard context menu and resets with the command palette',
   await page.keyboard.press('Enter');
   await expect(sidebar).toBeHidden();
   await expect(panel.getByRole('tab', { name: 'Explorer' })).toHaveAttribute('aria-selected', 'true');
-  await expect(panel.getByRole('region', { name: 'Files' })).toBeFocused();
+  await expect(panel.getByRole('region', { name: 'workspace' })).toBeFocused();
 
   await page.keyboard.press('F1');
   await page.getByRole('combobox').fill('Reset View Locations');
   await page.getByRole('option', { name: /Reset View Locations/ }).click();
   await expect(explorer).toHaveAttribute('aria-pressed', 'true');
   await expect(panel.getByRole('tab')).toHaveText(['Output', 'Problems']);
-  await expect(sidebar.getByText('No folder opened')).toBeVisible();
+  await expect(sidebar.getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
 });
 
 test('reveals the auto-hidden sidebar when resetting view locations after reload', async ({ appPage: page }) => {
@@ -207,7 +207,7 @@ test('reveals the auto-hidden sidebar when resetting view locations after reload
   await page.getByRole('combobox').fill('Reset View Locations');
   await page.getByRole('option', { name: /Reset View Locations/ }).click();
   await expect(explorer).toHaveAttribute('aria-pressed', 'true');
-  await expect(sidebar.getByText('No folder opened')).toBeVisible();
+  await expect(sidebar.getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
 });
 
 test('ignores a non-container drag from the editor', async ({ appPage: page }) => {
