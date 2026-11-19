@@ -9,6 +9,10 @@ export interface UriComponents {
   readonly fragment?: string;
   /** Carries path ambiguity across structured cloning and RPC. */
   readonly hasEncodedPathSeparator?: boolean;
+  /** HTTP path spelling, where escaped bytes can have distinct meanings. */
+  readonly httpPath?: string;
+  /** The query spelling as parsed, including any escaped delimiters. */
+  readonly rawQuery?: string;
 }
 
 const uriPattern = /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#([\s\S]*))?$/;
@@ -43,8 +47,9 @@ function encode(value: string, allowed = ''): string {
   });
 }
 
-export class URI implements Required<UriComponents> {
-  #originalQuery: string | undefined;
+type UriChange = { [K in 'scheme' | 'authority' | 'path' | 'query' | 'fragment']?: UriComponents[K] | null };
+
+export class URI implements Required<Omit<UriComponents, 'httpPath' | 'rawQuery'>> {
   /** The components never change, and equality checks and map keys format the same URI repeatedly. */
   #formatted: string | undefined;
 
@@ -55,6 +60,8 @@ export class URI implements Required<UriComponents> {
     readonly query: string,
     readonly fragment: string,
     readonly hasEncodedPathSeparator: boolean,
+    private readonly httpPath?: string,
+    readonly rawQuery?: string,
   ) {}
 
   static from(components: UriComponents, strict = false): URI {
@@ -70,7 +77,11 @@ export class URI implements Required<UriComponents> {
     if ((authority && path && !path.startsWith('/')) || (!authority && path.startsWith('//'))) {
       throw new Error(`Invalid URI path: ${path}`);
     }
-    return new URI(scheme, authority, path, query, fragment, hasEncodedPathSeparator === true);
+    const http = /^https?$/i.test(scheme);
+    const httpPath = checkedSpelling(http ? components.httpPath : undefined, path, /[?#\\\x00-\x20\x7f]/);
+    const rawQuery = checkedSpelling(components.rawQuery, query, /[#\x00-\x1f\x7f]/);
+    return new URI(scheme, authority, path, query, fragment,
+      hasEncodedPathSeparator === true || (httpPath !== undefined && encodedSeparator.test(httpPath)), httpPath, rawQuery);
   }
 
   static parse(value: string, strict = false): URI {
@@ -79,12 +90,10 @@ export class URI implements Required<UriComponents> {
       throw new Error(`Invalid URI: ${value}`);
     }
     const [, scheme, authority, path, query, fragment] = match;
-    const uri = URI.from({
+    return URI.from({
       scheme, authority: decode(authority), path: decode(path), query: decode(query), fragment: decode(fragment),
-      hasEncodedPathSeparator: encodedSeparator.test(path),
+      hasEncodedPathSeparator: encodedSeparator.test(path), httpPath: path, rawQuery: query,
     }, strict);
-    uri.#originalQuery = query;
-    return uri;
   }
 
   static file(path: string): URI {
@@ -96,7 +105,13 @@ export class URI implements Required<UriComponents> {
     if (!resource.path) {
       throw new Error('Cannot join a URI without a path');
     }
-    return resource.with({ path: join(resource.path, ...fragments) });
+    const path = join(resource.path, ...fragments);
+    if (resource.hasEncodedPathSeparator || resource.httpPath !== undefined) {
+      const httpPath = resource.httpPath === undefined ? undefined
+        : join(resource.httpPath, ...fragments.map(encodeHttpPath));
+      return URI.from({ ...resource.toJSON(), path, httpPath }, true);
+    }
+    return resource.with({ path });
   }
 
   static revive(value: URI | UriComponents): URI;
@@ -116,28 +131,37 @@ export class URI implements Required<UriComponents> {
     return this.path.replace(/^\/([a-z]):/i, (_, drive: string) => drive.toLowerCase() + ':');
   }
 
-  /** HTTP query syntax preserves escaped delimiters from the parsed URL. */
-  get encodedHttpQuery(): string {
-    return this.#originalQuery ?? encodeURI(this.query).replaceAll('#', '%23');
+  /** Serialize a web address with the browser's HTTP path and query syntax. */
+  toHttpURL(): URL {
+    if (!/^https?$/i.test(this.scheme) || !this.authority) {
+      throw new Error('An HTTP or HTTPS URI with an authority is required');
+    }
+    const url = new URL(this.toString());
+    url.pathname = this.httpPath ?? encodeHttpPath(this.path);
+    const query = this.rawQuery ?? encodeURI(this.query).replaceAll('#', '%23');
+    url.search = this.rawQuery !== undefined || query ? '?' + query : '';
+    return url;
   }
 
-  with(change?: { [K in Exclude<keyof UriComponents, 'hasEncodedPathSeparator'>]?: UriComponents[K] | null }): URI {
+  with(change?: UriChange): URI {
     if (!change) {
       return this;
     }
+    const path = change.path === undefined ? this.path : change.path ?? '';
+    const query = change.query === undefined ? this.query : change.query ?? '';
     const resource = URI.from({
       scheme: change.scheme === undefined ? this.scheme : change.scheme ?? '',
       authority: change.authority === undefined ? this.authority : change.authority ?? '',
-      path: change.path === undefined ? this.path : change.path ?? '',
-      query: change.query === undefined ? this.query : change.query ?? '',
+      path,
+      query,
       fragment: change.fragment === undefined ? this.fragment : change.fragment ?? '',
-      hasEncodedPathSeparator: this.hasEncodedPathSeparator,
-    }, true);
-    if (change.query === undefined) {
-      resource.#originalQuery = this.#originalQuery;
-    }
+      hasEncodedPathSeparator: path === this.path && this.hasEncodedPathSeparator,
+      httpPath: path === this.path ? this.httpPath : undefined,
+      rawQuery: change.query === undefined ? this.rawQuery : undefined,
+    });
     return resource.scheme === this.scheme && resource.authority === this.authority && resource.path === this.path
-      && resource.query === this.query && resource.fragment === this.fragment ? this : resource;
+      && resource.query === this.query && resource.fragment === this.fragment
+      && resource.hasEncodedPathSeparator === this.hasEncodedPathSeparator && resource.rawQuery === this.rawQuery ? this : resource;
   }
 
   /** `skipEncoding` is the `vscode.Uri` option. As in VS Code, only the encoded form is cached. */
@@ -170,6 +194,16 @@ export class URI implements Required<UriComponents> {
   toJSON(): UriComponents & { $mid: 1 } {
     const { scheme, authority, path, query, fragment, hasEncodedPathSeparator } = this;
     return { $mid: 1, scheme, authority, path, query, fragment,
-      ...(hasEncodedPathSeparator ? { hasEncodedPathSeparator } : {}) };
+      ...(hasEncodedPathSeparator ? { hasEncodedPathSeparator } : {}),
+      ...(this.httpPath ? { httpPath: this.httpPath } : {}),
+      ...(this.rawQuery !== undefined ? { rawQuery: this.rawQuery } : {}) };
   }
+}
+
+function checkedSpelling(raw: string | undefined, decoded: string, forbidden: RegExp): string | undefined {
+  return typeof raw === 'string' && !forbidden.test(raw) && decode(raw) === decoded ? raw : undefined;
+}
+
+function encodeHttpPath(path: string): string {
+  return encode(path, "/!$&'()*+,;=:@");
 }

@@ -87,9 +87,8 @@ function toURL(resource: URI): URL {
     throw new FileSystemProviderError('Invalid remote resource URL', Code.NoPermissions);
   }
   try {
-    const url = new URL(`${resource.scheme}://${resource.authority}`);
-    url.pathname = resource.path.split('/').map(encodeURIComponent).join('/');
-    url.search = resource.query ? '?' + resource.encodedHttpQuery : '';
+    const url = resource.toHttpURL();
+    url.hash = '';
     return url;
   } catch (error) {
     throw new FileSystemProviderError('Invalid remote resource URL', Code.NoPermissions, { cause: error });

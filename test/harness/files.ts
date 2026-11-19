@@ -1,15 +1,8 @@
-import { Schemas } from '../../src/base/common/network.js';
 import { URI } from '../../src/base/common/uri.js';
-import {
-  BrowserFileDatabase, IndexedDBFileSystemProvider,
-} from '../../src/platform/files/browser/indexedDBFileSystemProvider.js';
-import { FileService } from '../../src/platform/files/common/fileService.js';
 import { FileChangeType, FileOperationError, FileOperationResult } from '../../src/platform/files/common/files.js';
+import { BrowserFileService } from '../../src/workbench/services/workspaces/browser/browserFileService.js';
 
-const database = new BrowserFileDatabase();
-const provider = new IndexedDBFileSystemProvider(database, Schemas.vscodeVfs);
-const files = new FileService();
-files.registerProvider(Schemas.vscodeVfs, provider);
+const files = new BrowserFileService();
 const root = URI.parse('vscode-vfs://writing-room/workspace');
 const uri = (path: string) => URI.joinPath(root, path);
 const events: string[] = [];
@@ -51,8 +44,4 @@ declare global {
 await files.createFolder(root);
 window.filesHarness = api;
 document.querySelector('#status')!.textContent = 'Ready';
-window.addEventListener('pagehide', () => {
-  files.dispose();
-  provider.dispose();
-  database.dispose();
-}, { once: true });
+window.addEventListener('pagehide', () => files.dispose(), { once: true });

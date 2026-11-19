@@ -27,7 +27,7 @@ export function parse(glob: Glob): Matcher {
   }
   const alternatives = expandBraces(pattern).map(alternative => ({
     absolute: alternative.startsWith('/'),
-    segments: alternative.split('/').filter(Boolean).map(compileSegment),
+    segments: alternative.split('/').filter(segment => segment && segment !== '.').map(compileSegment),
   }));
   return candidate => {
     let path = normalize(candidate);
@@ -39,8 +39,10 @@ export function parse(glob: Glob): Matcher {
       path = path === base ? '' : path.slice(prefix.length);
     }
     const segments = path.split('/').filter(Boolean);
+    const absolute = path.startsWith('/');
     return alternatives.some(alternative =>
-      (!alternative.absolute || path.startsWith('/')) && matchSegments(alternative.segments, segments));
+      (alternative.absolute === absolute || (absolute && alternative.segments[0] === '**'))
+      && matchSegments(alternative.segments, segments));
   };
 }
 

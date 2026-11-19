@@ -1,9 +1,9 @@
-import { IndexedDB, idbRequest, idbStringPrefixRange } from '../../../base/browser/indexedDB.js';
+import { IndexedDB, idbDirectoryKeys, idbRequest, idbStringPrefixRange } from '../../../base/browser/indexedDB.js';
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { Schemas } from '../../../base/common/network.js';
 import { URI } from '../../../base/common/uri.js';
-import { normalizeFileResource, workspaceAuthority } from '../common/fileResource.js';
+import { fileAuthority, isFileStoragePath, normalizeFileResource } from '../common/fileResource.js';
 import { FileChangeType, FileSystemProviderError, FileSystemProviderErrorCode, FileType } from '../common/files.js';
 import type { IFileChange } from '../common/files.js';
 import { InMemoryFileTree } from '../common/inMemoryFilesystemProvider.js';
@@ -19,6 +19,7 @@ const Code = FileSystemProviderErrorCode;
 
 export class BrowserFileDatabase implements IDisposable {
   private opened: Promise<IndexedDB | undefined> | undefined;
+  private inMemory = false;
   private disposed = false;
 
   constructor(
@@ -27,17 +28,32 @@ export class BrowserFileDatabase implements IDisposable {
       console.warn('Workbench file storage switched to memory. Files are kept for this session only.', error),
   ) {}
 
-  get(): Promise<IndexedDB | undefined> {
-    if (this.disposed) {
-      return Promise.reject(new FileSystemProviderError('File storage is closed', Code.Unavailable));
-    }
-    this.opened ??= Promise.resolve().then(this.open).catch(error => {
-      if (!this.disposed) {
-        this.warn(error);
+  get usesMemory(): boolean {
+    return this.inMemory;
+  }
+
+  async get(): Promise<IndexedDB | undefined> {
+    while (!this.disposed) {
+      const opening = this.opened ??= Promise.resolve().then(this.open).catch(error => {
+        if (!this.disposed) {
+          this.inMemory = true;
+          this.warn(error);
+        }
+        return undefined;
+      });
+      const database = await opening;
+      if (this.disposed) {
+        break;
       }
-      return undefined;
-    });
-    return this.opened;
+      if (!database?.isClosed) {
+        return database;
+      }
+      // The original open can be shared by both schemes. Only its first waiter resets it.
+      if (this.opened === opening) {
+        this.opened = undefined;
+      }
+    }
+    throw new FileSystemProviderError('File storage is closed', Code.Unavailable);
   }
 
   dispose(): void {
@@ -77,15 +93,20 @@ export class IndexedDBFileSystemProvider extends StoredFileSystemProvider {
     }
     const database = await this.database.get();
     if (!database) {
+      this.channel?.close();
+      this.channel = undefined;
       return this.memory.transaction(mode, run);
     }
     this.startChannel();
 
     try {
       return await database.runInTransaction(this.scheme, mode, native => run({
-        get: async path => validateEntry(await idbRequest<unknown>(native.get(path))),
-        keys: async prefix => (await idbRequest(native.getAllKeys(idbStringPrefixRange(prefix))))
-          .filter((key): key is string => typeof key === 'string' && !!this.revivePath(key)),
+        get: async path => isFileStoragePath(this.scheme, path)
+          ? validateEntry(await idbRequest<unknown>(native.get(path))) : undefined,
+        keys: async (prefix, immediate) => immediate
+          ? idbDirectoryKeys(native, prefix)
+          : (await idbRequest(native.getAllKeys(idbStringPrefixRange(prefix))))
+            .filter((key): key is string => typeof key === 'string'),
         set: async (path, entry) => { await idbRequest(native.put(entry, path)); },
         delete: async path => { await idbRequest(native.delete(path)); },
       }));
@@ -104,7 +125,7 @@ export class IndexedDBFileSystemProvider extends StoredFileSystemProvider {
 
   protected override emitChanges(changes: readonly IFileChange[]): void {
     // Publish only after the transaction commits. A channel failure does not invalidate a committed write.
-    if (changes.length && this.channel) {
+    if (changes.length && this.channel && !this.database.usesMemory) {
       try {
         this.channel.postMessage({
           version: FILE_DATABASE_VERSION,
@@ -141,7 +162,7 @@ export class IndexedDBFileSystemProvider extends StoredFileSystemProvider {
   }
 
   private receiveChanges(message: unknown): void {
-    if (!message || typeof message !== 'object' || !('version' in message) || message.version !== FILE_DATABASE_VERSION
+    if (this.database.usesMemory || !message || typeof message !== 'object' || !('version' in message) || message.version !== FILE_DATABASE_VERSION
       || !('changes' in message) || !Array.isArray(message.changes)) {
       return;
     }
@@ -162,13 +183,8 @@ export class IndexedDBFileSystemProvider extends StoredFileSystemProvider {
   }
 
   private revivePath(path: string): URI | undefined {
-    try {
-      const resource = URI.from({
-        scheme: this.scheme, authority: this.scheme === Schemas.vscodeVfs ? workspaceAuthority : '', path,
-      });
-      return path !== '/' && this.normalizeResource(resource).path === path ? resource : undefined;
-    } catch {
-      return undefined;
+    if (path !== '/' && isFileStoragePath(this.scheme, path)) {
+      return URI.from({ scheme: this.scheme, authority: fileAuthority(this.scheme), path });
     }
   }
 }

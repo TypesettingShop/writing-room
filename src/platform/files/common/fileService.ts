@@ -109,7 +109,7 @@ export class FileService extends Disposable implements IFileService {
       // Some providers are registered under more than one scheme.
       if (change.resource.scheme === scheme) {
         const { authority, path, query, fragment } = change.resource;
-        const key = JSON.stringify([change.type, scheme, authority, path, query, fragment]);
+        const key = JSON.stringify([change.type, scheme, authority, path, query, fragment, change.resource.hasEncodedPathSeparator]);
         // A repeated change moves to the end, so ADDED, DELETED, ADDED does not end as DELETED.
         this.pendingChanges.delete(key);
         this.pendingChanges.set(key, change);

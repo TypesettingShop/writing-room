@@ -2,7 +2,8 @@ import * as path from './path.js';
 import { URI } from './uri.js';
 
 export function isEqual(first: URI | undefined, second: URI | undefined): boolean {
-  return first === second || (!!first && !!second && first.toString() === second.toString());
+  return first === second || (!!first && !!second
+    && first.hasEncodedPathSeparator === second.hasEncodedPathSeparator && first.toString() === second.toString());
 }
 
 export function joinPath(resource: URI, ...fragments: string[]): URI {
@@ -10,7 +11,7 @@ export function joinPath(resource: URI, ...fragments: string[]): URI {
 }
 
 export function dirname(resource: URI): URI {
-  return resource.path ? resource.with({ path: path.dirname(resource.path) }) : resource;
+  return resource.path ? withDerivedPath(resource, path.dirname(resource.path)) : resource;
 }
 
 export function basename(resource: URI): string {
@@ -22,7 +23,7 @@ export function extname(resource: URI): string {
 }
 
 export function normalizePath(resource: URI): URI {
-  return resource.path ? resource.with({ path: path.normalize(resource.path) }) : resource;
+  return resource.path ? withDerivedPath(resource, path.normalize(resource.path)) : resource;
 }
 
 export function relativePath(from: URI, to: URI): string | undefined {
@@ -33,7 +34,8 @@ export function relativePath(from: URI, to: URI): string | undefined {
 }
 
 export function isEqualOrParent(resource: URI, parent: URI): boolean {
-  if (resource.scheme !== parent.scheme || !isEqualAuthority(resource, parent)
+  if (resource.hasEncodedPathSeparator || parent.hasEncodedPathSeparator
+    || resource.scheme !== parent.scheme || !isEqualAuthority(resource, parent)
     || resource.query !== parent.query || resource.fragment !== parent.fragment) {
     return false;
   }
@@ -43,4 +45,10 @@ export function isEqualOrParent(resource: URI, parent: URI): boolean {
 
 function isEqualAuthority(first: URI, second: URI): boolean {
   return first.authority.toLowerCase() === second.authority.toLowerCase();
+}
+
+function withDerivedPath(resource: URI, path: string): URI {
+  return resource.hasEncodedPathSeparator
+    ? URI.from({ ...resource.toJSON(), path }, true)
+    : resource.with({ path });
 }

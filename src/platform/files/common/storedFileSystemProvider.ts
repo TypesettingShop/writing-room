@@ -28,7 +28,7 @@ export type FileTreeTransactionMode = 'readonly' | 'readwrite';
 export interface FileTreeStore {
   get(path: string): Promise<StoredEntry | undefined>;
   /** Return keys below the trailing-slash prefix, excluding the root key itself. */
-  keys(prefix: string): Promise<readonly string[]>;
+  keys(prefix: string, immediate?: boolean): Promise<readonly string[]>;
   set(path: string, entry: StoredEntry): Promise<void>;
   delete(path: string): Promise<void>;
 }
@@ -67,10 +67,7 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
     const { path } = this.normalizeResource(resource);
     return this.transaction('readonly', async store => {
       requireDirectory(await getEntry(store, path), path);
-      const prefix = childPrefix(path);
-      const keys = (await store.keys(prefix)).filter(key => !key.slice(prefix.length).includes('/'));
-      const entries = await Promise.all(keys.map(async key => [basename(key), await store.get(key)] as const));
-      return entries.flatMap(([name, entry]) => entry ? [[name, entry.type]] : []);
+      return (await directoryChildren(store, path)).map(([key, entry]) => [basename(key), entry.type]);
     });
   }
 
@@ -169,28 +166,28 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
         throw new FileSystemProviderError(target, Code.FileExists);
       }
       await makeDirectories(store, dirname(target), changed);
-      const overwritten = existing ? await treeEntries(store, target, existing) : [];
-      await Promise.all(overwritten.map(([key]) => store.delete(key)));
-      if (existing) {
+      const overwritten = existing ? await treeSnapshot(store, target, existing) : undefined;
+      if (overwritten) {
+        await Promise.all(overwritten.keys.map(key => store.delete(key)));
         changed(target, FileChangeType.DELETED);
       }
 
-      const previous = new Map(overwritten);
-      const entries = await treeEntries(store, source, entry);
+      const previous = new Map(overwritten?.entries);
+      const snapshot = await treeSnapshot(store, source, entry);
       const now = Date.now();
       // The trees do not overlap, so the requests can be queued together without awaiting each one.
-      await Promise.all(entries.flatMap(([key, value]) => {
+      await Promise.all(snapshot.entries.map(([key, value]) => {
         const destination = target + key.slice(source.length);
         const replaced = previous.get(destination);
         changed(destination, FileChangeType.ADDED);
-        const write = store.set(destination, {
+        return store.set(destination, {
           ...value,
           ctime: move ? value.ctime : now,
           mtime: Math.max(move ? value.mtime : now, replaced ? replaced.mtime + 1 : 0),
         });
-        return move ? [write, store.delete(key)] : [write];
       }));
       if (move) {
+        await Promise.all(snapshot.keys.map(key => store.delete(key)));
         changed(source, FileChangeType.DELETED);
       }
     });
@@ -204,10 +201,10 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
     }
     await this.mutate(resource, async (store, changed) => {
       const entry = await getEntry(store, path);
-      const keys = entry.type === FileType.Directory ? await store.keys(childPrefix(path)) : [];
-      if (keys.length && !options.recursive) {
+      if (entry.type === FileType.Directory && !options.recursive && (await directoryChildren(store, path)).length) {
         throw new FileSystemProviderError(`Directory is not empty: ${path}`, Code.NoPermissions);
       }
+      const keys = entry.type === FileType.Directory ? await store.keys(childPrefix(path)) : [];
       await Promise.all([...keys, path].map(key => store.delete(key)));
       changed(path, FileChangeType.DELETED);
     });
@@ -241,19 +238,16 @@ async function lookup(store: FileTreeStore, path: string): Promise<StoredEntry |
     return root;
   }
   const entry = await store.get(path);
-  if (entry) {
-    return entry;
-  }
-  // A missing entry can actually be an illegal descent through a file.
-  for (let ancestor = dirname(path); ancestor !== '/'; ancestor = dirname(ancestor)) {
-    const parent = await store.get(ancestor);
-    if (parent?.type === FileType.File) {
-      throw new FileSystemProviderError(ancestor, Code.FileNotADirectory);
+  const ancestors = parentPaths(path);
+  const parents = await Promise.all(ancestors.map(ancestor => store.get(ancestor)));
+  for (let index = parents.length - 1; index >= 0; index--) {
+    const parent = parents[index];
+    if (!parent) {
+      return undefined;
     }
-    if (parent) {
-      break;
-    }
+    requireDirectory(parent, ancestors[index]);
   }
+  return entry;
 }
 
 async function getEntry(store: FileTreeStore, path: string): Promise<StoredEntry> {
@@ -270,38 +264,62 @@ function requireDirectory(entry: StoredEntry, path: string): void {
   }
 }
 
+function parentPaths(path: string): string[] {
+  const parents: string[] = [];
+  for (let parent = dirname(path); parent !== '/'; parent = dirname(parent)) {
+    parents.push(parent);
+  }
+  return parents;
+}
+
 async function makeDirectories(
   store: FileTreeStore, path: string, changed: (path: string, type: FileChangeType) => void,
 ): Promise<void> {
-  const missing: string[] = [];
-  for (let current = path; current !== '/'; current = dirname(current)) {
-    const entry = await store.get(current);
+  if (path === '/') {
+    return;
+  }
+  const paths = [...parentPaths(path).reverse(), path];
+  const existing = await Promise.all(paths.map(current => store.get(current)));
+  const time = Date.now();
+  for (let index = 0; index < paths.length; index++) {
+    const current = paths[index];
+    const entry = existing[index];
     if (entry) {
       requireDirectory(entry, current);
-      break;
+    } else {
+      await store.set(current, { type: FileType.Directory, ctime: time, mtime: time, size: 0 });
+      changed(current, FileChangeType.ADDED);
     }
-    missing.push(current);
-  }
-  const time = Date.now();
-  for (const current of missing.reverse()) {
-    await store.set(current, { type: FileType.Directory, ctime: time, mtime: time, size: 0 });
-    changed(current, FileChangeType.ADDED);
   }
 }
 
-async function treeEntries(
+async function directoryChildren(store: FileTreeStore, path: string): Promise<[string, StoredEntry][]> {
+  const keys = await store.keys(childPrefix(path), true);
+  const children = await Promise.all(keys.map(key => store.get(key)));
+  return keys.flatMap((key, index) => {
+    const entry = children[index];
+    return entry ? [[key, entry]] : [];
+  });
+}
+
+async function treeSnapshot(
   store: FileTreeStore, path: string, entry: StoredEntry,
-): Promise<readonly [string, StoredEntry][]> {
-  const result: [string, StoredEntry][] = [[path, entry]];
-  if (entry.type === FileType.Directory) {
-    const keys = await store.keys(childPrefix(path));
-    const children = await Promise.all(keys.map(key => store.get(key)));
-    keys.forEach((key, index) => {
-      const child = children[index];
-      if (child) {
-        result.push([key, child]);
-      }
-    });
+): Promise<{ keys: readonly string[]; entries: readonly [string, StoredEntry][] }> {
+  if (entry.type !== FileType.Directory) {
+    return { keys: [path], entries: [[path, entry]] };
   }
-  return result;
+  const keys = [...await store.keys(childPrefix(path))].sort();
+  const children = await Promise.all(keys.map(key => store.get(key)));
+  const directories = new Set([path]);
+  const entries: [string, StoredEntry][] = [[path, entry]];
+  keys.forEach((key, index) => {
+    const child = children[index];
+    if (child && directories.has(dirname(key))) {
+      entries.push([key, child]);
+      if (child.type === FileType.Directory) {
+        directories.add(key);
+      }
+    }
+  });
+  return { keys: [path, ...keys], entries };
 }

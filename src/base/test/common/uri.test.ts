@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { match, parse } from '../../common/glob.js';
-import { basename, dirname, extname, isEqualOrParent, normalizePath, relativePath } from '../../common/resources.js';
+import { basename, dirname, extname, isEqual, isEqualOrParent, normalizePath, relativePath } from '../../common/resources.js';
 import { URI } from '../../common/uri.js';
 
 describe('URI', () => {
@@ -11,7 +11,7 @@ describe('URI', () => {
     ['file:///a%20%ED%95%9C%23%3F%25!.md', 'file:///a%20%ED%95%9C%23%3F%25%21.md'],
     ['https://[::1]/C:path', 'https://[::1]/C%3Apath'],
     ['test:😀%FF%20', 'test:%F0%9F%98%80%25FF%20'],
-  ])('formats %s with VS Code escaping', (source, formatted) => {
+  ])('formats %s with canonical URI escaping', (source, formatted) => {
     expect(URI.parse(source).toString()).toBe(formatted);
   });
 
@@ -36,6 +36,24 @@ describe('URI', () => {
     expect(relativePath(URI.parse('test:.'), URI.parse('test:child'))).toBe('child');
   });
 
+  test('keeps the original command query and the empty HTTP query marker through revival', () => {
+    const command = URI.parse('command:test.run?["a%22b"]');
+    expect(URI.revive(command.toJSON()).rawQuery).toBe('["a%22b"]');
+    const url = URI.revive(URI.parse('http://example.test/path?').toJSON());
+    expect(url.toHttpURL().href).toBe('http://example.test/path?');
+    expect(url.with({ query: null }).toHttpURL().href).toBe('http://example.test/path');
+  });
+
+  test('distinguishes encoded separators and retains their provenance in derived paths', () => {
+    const ambiguous = URI.parse('vscode-vfs://writing-room/workspace/a%2Fb');
+    const canonical = URI.parse('vscode-vfs://writing-room/workspace/a/b');
+    expect(isEqual(ambiguous, canonical)).toBe(false);
+    expect(isEqualOrParent(ambiguous, URI.joinPath(canonical, '..'))).toBe(false);
+    expect(URI.joinPath(ambiguous, 'child').hasEncodedPathSeparator).toBe(true);
+    expect(normalizePath(ambiguous.with({ query: 'test' })).hasEncodedPathSeparator).toBe(true);
+    expect(ambiguous.with({ path: '/workspace/c' }).hasEncodedPathSeparator).toBe(false);
+  });
+
   test('joins at the root and compares complete path segments', () => {
     const parent = URI.parse('vscode-vfs://writing-room/a/b');
     const file = URI.joinPath(parent, './c/../x.md');
@@ -58,6 +76,14 @@ describe('glob', () => {
     expect(match('a[0-9][!x]?.md', 'a2yz.md')).toBe(true);
     expect(match('a[0-9][!x]?.md', 'a2xz.md')).toBe(false);
     expect(match('{src/{a,b},test}/**/*.ts', 'src/b/file.ts')).toBe(true);
+  });
+
+  test('anchors relative globs and normalizes single-dot segments in patterns', () => {
+    expect(match('*.md', '/x.md')).toBe(false);
+    expect(match('a/*.md', '/a/x.md')).toBe(false);
+    expect(match('**/*.md', '/a/x.md')).toBe(true);
+    expect(match('/a/*.md', 'a/x.md')).toBe(false);
+    expect(match('./a/./*.md', 'a/x.md')).toBe(true);
   });
 
   test('matches relative to a folder and bounds pattern size and brace expansion', () => {

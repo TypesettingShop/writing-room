@@ -2,22 +2,31 @@ import type { IDisposable } from '../common/lifecycle.js';
 
 /** One browser connection. Callbacks may await requests on this transaction. */
 export class IndexedDB implements IDisposable {
+  private closed = false;
+
   private constructor(private readonly database: IDBDatabase) {
     database.addEventListener('versionchange', () => this.dispose());
+    database.addEventListener('close', () => { this.closed = true; });
   }
 
-  static open(name: string, version: number, stores: readonly string[]): Promise<IndexedDB> {
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
+  static open(name: string, version: number, stores: readonly string[], timeoutMs = 5_000): Promise<IndexedDB> {
     return new Promise((resolve, reject) => {
       const request = globalThis.indexedDB.open(name, version);
-      let failure: unknown;
+      let failed = false;
       const fail = (error: unknown) => {
-        failure = error;
+        failed = true;
+        clearTimeout(timeout);
         reject(error);
       };
+      const timeout = setTimeout(() => fail(new Error(`Opening database "${name}" timed out`)), timeoutMs);
       request.onblocked = () => fail(new Error(`Database "${name}" is blocked by another tab`));
       request.onerror = () => fail(request.error);
       request.onupgradeneeded = () => {
-        if (failure) {
+        if (failed) {
           request.transaction?.abort();
           return;
         }
@@ -28,11 +37,16 @@ export class IndexedDB implements IDisposable {
         }
       };
       request.onsuccess = () => {
-        if (failure || stores.some(store => !request.result.objectStoreNames.contains(store))) {
+        if (failed) {
           request.result.close();
-          fail(failure ?? new Error(`Database "${name}" is missing a required object store`));
           return;
         }
+        if (stores.some(store => !request.result.objectStoreNames.contains(store))) {
+          request.result.close();
+          fail(new Error(`Database "${name}" is missing a required object store`));
+          return;
+        }
+        clearTimeout(timeout);
         resolve(new IndexedDB(request.result));
       };
     });
@@ -69,6 +83,7 @@ export class IndexedDB implements IDisposable {
   }
 
   dispose(): void {
+    this.closed = true;
     this.database.close();
   }
 }
@@ -80,8 +95,40 @@ export function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
+function prefixEnd(prefix: string): string {
+  // A directory prefix ends in '/'. The exclusive upper bound ends in '0'.
+  return prefix.slice(0, -1) + '0';
+}
+
 export function idbStringPrefixRange(prefix: string): IDBKeyRange {
-  // Our callers supply a directory prefix ending in '/'. The exclusive upper bound ends in '0'.
-  const upper = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
-  return IDBKeyRange.bound(prefix, upper, true, true);
+  return IDBKeyRange.bound(prefix, prefixEnd(prefix), true, true);
+}
+
+export function idbDirectoryKeys(store: IDBObjectStore, prefix: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const keys: string[] = [];
+    const request = store.openKeyCursor(idbStringPrefixRange(prefix));
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(keys);
+        return;
+      }
+      const key = cursor.key as string;
+      const slash = key.indexOf('/', prefix.length);
+      if (slash !== -1) {
+        const next = prefixEnd(key.slice(0, slash + 1));
+        // Seeking skips the rest of this child's subtree in the backing index.
+        if (next < prefixEnd(prefix)) {
+          cursor.continue(next);
+        } else {
+          resolve(keys);
+        }
+        return;
+      }
+      keys.push(key);
+      cursor.continue();
+    };
+  });
 }

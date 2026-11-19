@@ -183,3 +183,88 @@ test('discards malformed tab messages and emits valid normalized paths', async (
     sender.close();
   }
 });
+
+test('reopens a closed database once and falls back after another tab upgrades it', async () => {
+  const first = setup();
+  const path = resource('/workspace/file');
+  await first.provider.writeFile(path, bytes('original'), write);
+  (await first.database.get())!.dispose();
+  await Promise.all([first.provider.readFile(path), first.provider.stat(path)]);
+  expect(first.open).toHaveBeenCalledTimes(2);
+  expect(first.warn).not.toHaveBeenCalled();
+
+  const newest = setup(2);
+  await newest.provider.writeFile(path, bytes('version two'), write);
+  await first.provider.writeFile(path, bytes('memory'), write);
+  expect(await first.provider.readFile(path)).toEqual(bytes('memory'));
+  expect(await newest.provider.readFile(path)).toEqual(bytes('version two'));
+  expect(first.open).toHaveBeenCalledTimes(3);
+  expect(first.warn).toHaveBeenCalledTimes(1);
+});
+
+test('times out a stalled open and closes any database that arrives late', async () => {
+
+  const factory = Object.getOwnPropertyDescriptor(IDBFactory.prototype, 'open');
+  // Capture the native fake request without connecting it to the factory's queue.
+  const request = {} as IDBOpenDBRequest;
+  Object.defineProperty(IDBFactory.prototype, 'open', {
+    configurable: true, value: () => request,
+  });
+  const warn = vi.fn();
+  const db = disposables.add(new BrowserFileDatabase(() => IndexedDB.open(name, 1, schemes, 10), warn));
+  const provider = disposables.add(new IndexedDBFileSystemProvider(db, Schemas.vscodeVfs));
+  try {
+    await provider.mkdir(resource('/workspace'), { recursive: true });
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('timed out') }));
+    expect(await provider.readdir(resource('/workspace'))).toEqual([]);
+    const close = vi.fn();
+    Object.defineProperty(request, 'result', { value: { close } });
+    request.onsuccess?.call(request, new Event('success'));
+    expect(close).toHaveBeenCalledOnce();
+  } finally {
+    Object.defineProperty(IDBFactory.prototype, 'open', factory!);
+  }
+});
+
+test('lists immediate children by cursor and removes invalid or orphaned records with their tree', async () => {
+  const { database, provider } = setup();
+  const root = resource('/workspace');
+  const empty = URI.joinPath(root, 'empty');
+  const from = URI.joinPath(root, 'from');
+  const to = URI.joinPath(root, 'to');
+  await provider.mkdir(empty, { recursive: true });
+  await provider.writeFile(URI.joinPath(from, 'child/note'), bytes('good'), write);
+  await provider.mkdir(URI.joinPath(root, 'from0'));
+  const db = (await database.get())!;
+  await db.runInTransaction(Schemas.vscodeVfs, 'readwrite', async store => {
+    const orphan = { type: FileType.File, ctime: 1, mtime: 1, size: 1, bytes: new Blob(['x']) };
+    await idbRequest(store.put({ type: FileType.File }, '/workspace/empty/invalid'));
+    await idbRequest(store.put(orphan, '/workspace/empty/orphan/child'));
+    await idbRequest(store.put(orphan, '/workspace/from/orphan/child'));
+  });
+
+  const scan = vi.spyOn(IDBObjectStore.prototype, 'getAllKeys');
+  expect(await provider.readdir(root)).toEqual([
+    ['empty', FileType.Directory], ['from', FileType.Directory], ['from0', FileType.Directory],
+  ]);
+  expect(await provider.readdir(empty)).toEqual([]);
+  expect(scan).not.toHaveBeenCalled();
+  scan.mockRestore();
+  await expect(provider.stat(URI.joinPath(empty, 'orphan/child'))).rejects.toMatchObject({ code: Code.FileNotFound });
+  await provider.delete(empty, { recursive: false });
+  await provider.rename(from, to, { overwrite: false });
+  expect(await provider.readFile(URI.joinPath(to, 'child/note'))).toEqual(bytes('good'));
+  expect(await db.runInTransaction(Schemas.vscodeVfs, 'readonly', store => idbRequest(store.getAllKeys())))
+    .toEqual(['/workspace', '/workspace/from0', '/workspace/to', '/workspace/to/child', '/workspace/to/child/note']);
+});
+
+test('reserves settings.json for the configuration store', async () => {
+  const { database } = setup();
+  const userData = disposables.add(new IndexedDBFileSystemProvider(database, Schemas.vscodeUserData));
+  const settings = URI.parse('vscode-userdata:/User/./settings.json');
+  await expect(userData.stat(settings)).rejects.toMatchObject({ code: Code.NoPermissions });
+  await expect(userData.writeFile(settings, bytes('{}'), write)).rejects.toMatchObject({ code: Code.NoPermissions });
+  await expect(userData.mkdir(URI.joinPath(settings, 'child'), { recursive: true }))
+    .rejects.toMatchObject({ code: Code.NoPermissions });
+  await userData.writeFile(URI.parse('vscode-userdata:/User/globalStorage/test'), bytes('ok'), write);
+});

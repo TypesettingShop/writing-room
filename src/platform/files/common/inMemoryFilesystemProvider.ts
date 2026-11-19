@@ -18,9 +18,10 @@ export class InMemoryFileTree {
       const updates = new Map<string, StoredEntry | undefined>();
       const store: FileTreeStore = {
         get: async path => updates.has(path) ? updates.get(path) : this.entries.get(path),
-        keys: async prefix => {
+        keys: async (prefix, immediate) => {
           const keys = new Set([...this.entries.keys(), ...updates.keys()]);
           return [...keys].filter(key => key !== prefix && key.startsWith(prefix)
+            && (!immediate || !key.includes('/', prefix.length))
             && (!updates.has(key) || updates.get(key) !== undefined));
         },
         set: async (path, entry) => { updates.set(path, entry); },
