@@ -74,7 +74,7 @@ test('registers valid entries, diagnoses individual failures and cleans up dynam
   expect(await service.whenInstalledExtensionsRegistered()).toBe(true);
   expect(service.extensions).toEqual([builtin]);
   expect(MenuRegistry.getCommand('test.ext.duplicate')).toBeUndefined();
-  expect(MenuRegistry.getCommand('test.bad')).toBeUndefined();
+  expect(MenuRegistry.getCommand('test.bad')).toMatchObject({ title: 'bad', icon: undefined });
   expect(MenuRegistry.getMenuItems(MenuId.ViewTitle).filter(item => 'command' in item && item.command.id === 'test.ext.command'))
     .toEqual([expect.objectContaining({ group: 'navigation', order: 2 })]);
   const rules = () => KeybindingsRegistry.getDefaultKeybindings().filter(rule => rule.id === 'test.ext.command');
@@ -83,9 +83,10 @@ test('registers valid entries, diagnoses individual failures and cleans up dynam
   const container = viewContainersRegistry.get('workbench.view.extension.ext-test');
   expect(viewsRegistry.getViewContainer('ext-test.primary')).toBe(container);
   expect(service.getExtensionsStatus()['example.example'].activationEvents).toEqual(
-    ['onCommand:test.ext.command', 'onView:ext-test.primary', 'onView:ext-test.fallback'],
+    ['onCommand:test.ext.command', 'onCommand:test.bad', 'onView:ext-test.primary', 'onView:ext-test.fallback'],
   );
   expect(errors).toHaveBeenCalledWith(expect.stringContaining('[example.example] contributes.commands.0'));
+  expect(errors).toHaveBeenCalledWith(expect.stringContaining('[example.example] contributes.commands.2.icon'));
   expect(warns).toHaveBeenCalledWith(expect.stringContaining('[example.example] contributes.views.missing'));
 
   expect(service.addExtension(installed)).toBe(true);

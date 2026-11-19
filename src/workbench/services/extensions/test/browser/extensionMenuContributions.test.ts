@@ -1,11 +1,11 @@
 import { expect, test, vi } from 'vitest';
-import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { Emitter } from '../../../../../base/common/event.js';
 import { MenuId, MenuRegistry } from '../../../../../platform/actions/common/actions.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ExtensionService } from '../../browser/extensionService.js';
-import { ExtensionsRegistry, ExtensionMessageCollector } from '../../common/extensionsRegistry.js';
-import type { ExtensionPointContext } from '../../common/extensionsRegistry.js';
+import { ColorScheme } from '../../../../../platform/theme/common/themeService.js';
+import type { IColorTheme, IThemeService } from '../../../../../platform/theme/common/themeService.js';
 
 const id = 'writer.test';
 const location = 'https://example.test/extension/';
@@ -59,26 +59,45 @@ test('registers materialized submenus, individual menu placements and single-obj
   }
 });
 
-test('selects only the light icon on a light theme after both paths validate', () => {
-  const icons: URL[] = [];
-  const registrations = new DisposableStore();
-  const context: ExtensionPointContext = {
-    isLightTheme: true,
-    viewHandler: { acceptContainers() {}, acceptViews() {} },
-    setCommandOwner() {}, getCommandOwner: () => undefined, addActivationEvent() {},
+test('selects the current theme icon and refreshes menu entries when the theme changes', () => {
+  const changed = new Emitter<IColorTheme>();
+  let type: ColorScheme = ColorScheme.LIGHT;
+  const themes: IThemeService = {
+    _serviceBrand: undefined,
+    onDidColorThemeChange: changed.event,
+    getColorTheme: () => ({
+      id: type, label: type, type,
+      getColor: () => undefined,
+      defines: () => false,
+      tokenColors: [],
+      semanticHighlighting: false,
+    }),
   };
-  const collector = new ExtensionMessageCollector(id, message => { throw new Error(message.message); });
+  const commands = [
+    { command: 'test.activeTheme', title: 'Active theme', icon: { light: 'light.svg', dark: 'dark.svg' } },
+  ];
+  const extension = { ...description, manifest: { ...description.manifest, contributes: {
+    commands, menus: { 'editor/context': [{ command: 'test.activeTheme' }] },
+  } } };
+  const service = new ExtensionService(() => ({ extensions: [extension], messages: [] }), undefined, undefined, themes);
+  const assertIcon = (file: string) => {
+    const icon = new URL(location + file);
+    expect(MenuRegistry.getCommand('test.activeTheme')?.icon).toEqual(icon);
+    expect(MenuRegistry.getMenuItems(MenuId.EditorContext)).toEqual([
+      expect.objectContaining({ command: expect.objectContaining({ icon }) }),
+    ]);
+  };
   try {
-    const point = ExtensionsRegistry.getExtensionPoints().find(point => point.name === 'commands')!;
-    point.accept([{
-      description, collector, value: [
-        { command: 'test.light', title: 'Light', icon: { light: 'light.svg', dark: 'dark.svg' } },
-      ],
-      resolveIcon: url => (icons.push(url), url),
-    }], registrations, context);
-    expect(icons).toEqual([new URL(location + 'light.svg')]);
-    expect(MenuRegistry.getCommand('test.light')?.icon).toEqual(icons[0]);
+    service.initialize();
+    assertIcon('light.svg');
+    type = ColorScheme.HIGH_CONTRAST_DARK;
+    changed.fire(themes.getColorTheme());
+    assertIcon('dark.svg');
+    type = ColorScheme.HIGH_CONTRAST_LIGHT;
+    changed.fire(themes.getColorTheme());
+    assertIcon('light.svg');
   } finally {
-    registrations.dispose();
+    service.dispose();
+    changed.dispose();
   }
 });

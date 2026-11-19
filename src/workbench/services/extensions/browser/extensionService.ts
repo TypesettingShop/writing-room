@@ -6,6 +6,7 @@ import { TreeViewPane } from '../../../browser/parts/views/treeView.js';
 import { ExtensionTreeViews } from '../../../api/browser/mainThreadTreeViews.js';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ColorScheme, IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { MainThreadExtensionService } from '../../../api/browser/mainThreadExtensionService.js';
 import { ExtHostContext } from '../../../api/common/extHost.protocol.js';
 import type { ExtHostExtensionServiceShape } from '../../../api/common/extHost.protocol.js';
@@ -65,6 +66,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     private readonly scan: ExtensionScan,
     @IInstantiationService private readonly instantiation?: IInstantiationService,
     @IWebExtensionsScannerService private readonly installedScanner?: IWebExtensionsScannerService,
+    @IThemeService private readonly themeService?: IThemeService,
   ) {
     super();
     this.registered = new Promise(resolve => { this.finishRegistration = resolve; });
@@ -79,11 +81,15 @@ export class ExtensionService extends Disposable implements IExtensionService {
         }
       }));
     }
-    this._register(ExtensionsRegistry.onDidChange(() => {
+    const refreshContributions = () => {
       if (this.initialized && !this.applying) {
         this.applyContributions();
       }
-    }));
+    };
+    this._register(ExtensionsRegistry.onDidChange(refreshContributions));
+    if (themeService) {
+      this._register(themeService.onDidColorThemeChange(refreshContributions));
+    }
   }
 
   initialize(): void {
@@ -381,8 +387,10 @@ export class ExtensionService extends Disposable implements IExtensionService {
       }
       return result;
     };
+    const colorScheme = this.themeService?.getColorTheme().type;
     const context: ExtensionPointContext = {
       instantiation: this.instantiation,
+      isLightTheme: colorScheme === ColorScheme.LIGHT || colorScheme === ColorScheme.HIGH_CONTRAST_LIGHT,
       viewHandler: this.viewHandler,
       addActivationEvent: (id, event) => this.extensionEvents.get(id)?.add(event),
       setCommandOwner: (command, id) => this.commandOwners.set(command, id),
