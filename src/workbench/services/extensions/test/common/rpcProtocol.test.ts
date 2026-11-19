@@ -196,3 +196,25 @@ test('rejects a bad payload locally, preserves error codes and ignores malformed
     server.dispose();
   }
 });
+
+test('revives URIs held by class instances and leaves built-in values to structured cloning', async () => {
+  const channel = new MessageChannel();
+  const client = new RPCProtocol(channel.port1);
+  const server = new RPCProtocol(channel.port2);
+  const echo = createProxyIdentifier<{ $echo(value: unknown): Promise<unknown> }>('instances');
+  server.set(echo, { async $echo(value) { return value; } });
+  class Located {
+    constructor(readonly uri: URI, readonly at: Date) {}
+  }
+  try {
+    const uri = URI.from({ scheme: 'sample', path: '/located' });
+    const at = new Date(0);
+    const returned = await client.getProxy(echo).$echo([new Located(uri, at)]) as [{ uri: URI; at: Date }];
+    expect(returned[0].uri).toBeInstanceOf(URI);
+    expect(returned[0].uri.toString()).toBe(uri.toString());
+    expect(returned[0].at).toEqual(at);
+  } finally {
+    client.dispose();
+    server.dispose();
+  }
+});

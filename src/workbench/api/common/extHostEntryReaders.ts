@@ -4,7 +4,8 @@ import type { ExtensionEntryReader } from '../../services/extensions/common/exte
 
 const boundFetch = globalThis.fetch?.bind(globalThis);
 const fetchEntry: ExtensionEntryReader = async (entry, signal) => {
-  const { bytes } = await fetchBoundedResource(entry.toString(), {
+  // toString() re-encodes the decoded path (`%2F` becomes `/`, `@` becomes `%40`); keep the HTTP spelling.
+  const { bytes } = await fetchBoundedResource(entry.toHttpURL().href, {
     limit: extensionResourceLimits.entry, signal, request: boundFetch,
   });
   return bytes;

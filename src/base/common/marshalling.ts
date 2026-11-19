@@ -9,7 +9,13 @@ export class TransferableBuffer {
   constructor(readonly bytes: Uint8Array) {}
 }
 
-function transform(value: unknown, replace: (value: object) => object): unknown {
+/**
+ * Copies the records along the way, applying `replace` first. With `copyInstances`, an instance of a
+ * class that structured cloning would flatten to its own enumerable fields (a `Location` holding a
+ * `Uri`, say) is flattened here instead, so the values inside it are replaced too. Built-in types,
+ * such as dates, maps and typed arrays, are left to structured cloning.
+ */
+function transform(value: unknown, replace: (value: object) => object, copyInstances = false): unknown {
   const seen = new WeakMap<object, object>();
 
   function visit(value: unknown, depth: number): unknown {
@@ -31,7 +37,8 @@ function transform(value: unknown, replace: (value: object) => object): unknown 
 
     const array = Array.isArray(value);
     const prototype = Object.getPrototypeOf(value);
-    if (!array && prototype !== Object.prototype && prototype !== null) {
+    if (!array && prototype !== Object.prototype && prototype !== null
+      && !(copyInstances && Object.prototype.toString.call(value) === '[object Object]')) {
       return value;
     }
     const result = array ? new Array(value.length) : {};
@@ -63,7 +70,7 @@ export function marshal(value: unknown): { value: unknown; transfer: ArrayBuffer
       return bytes;
     }
     return object;
-  });
+  }, true);
   return { value: data, transfer: [...transfer] };
 }
 

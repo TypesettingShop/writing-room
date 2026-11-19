@@ -46,6 +46,8 @@ function fingerprint(node: ts.Node, source: ts.SourceFile): string {
 
 function collectApi(sources: readonly Source[]): Api {
   const api = new Map<string, Signature[]>();
+  // Merged class and interface declarations share one set of extends and implements clauses.
+  const heritage = new Map<string, { readonly location: string; readonly clauses: Set<string> }>();
   for (const { file, text } of sources) {
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
     function add(name: string, node: ts.Node, value: string, scope?: string, runtime?: RuntimeKind): void {
@@ -71,6 +73,13 @@ function collectApi(sources: readonly Source[]): Api {
           const name = scope + '.' + statement.name?.text;
           const parameters = statement.typeParameters?.map(parameter => fingerprint(parameter, source)).join(',') ?? '';
           add(name, statement, parameters, scope, ts.isClassDeclaration(statement) ? 'function' : undefined);
+          const { line } = source.getLineAndCharacterOfPosition(statement.getStart(source));
+          const clauses = heritage.get(name) ?? { location: file + ':' + (line + 1), clauses: new Set<string>() };
+          heritage.set(name, clauses);
+          for (const clause of statement.heritageClauses ?? []) {
+            const keyword = clause.token === ts.SyntaxKind.ExtendsKeyword ? 'extends ' : 'implements ';
+            clause.types.forEach(type => clauses.clauses.add(keyword + fingerprint(type, source)));
+          }
           for (const member of statement.members) {
             const memberName = member.name?.getText(source) ?? (ts.isConstructorDeclaration(member) ? 'constructor'
               : ts.isIndexSignatureDeclaration(member) ? '[index]' : '(call)');
@@ -108,6 +117,9 @@ function collectApi(sources: readonly Source[]): Api {
       }
     }
     read(source.statements, 'global');
+  }
+  for (const [name, { location, clauses }] of heritage) {
+    api.set(name + '#(heritage)', [{ name: name + '#(heritage)', kind: 'Heritage', value: [...clauses].sort().join(', '), location }]);
   }
   return api;
 }
@@ -269,6 +281,31 @@ test('detects planted signature mismatches across module and interface fragments
   ]);
   expect(checkDeviations(problems, [{ name: 'vscode.mix', kind: 'signature', issue: '', reason: 'Test' }]))
     .toContain('Invalid API deviation vscode.mix:signature: a decision issue and reason are required');
+});
+
+test('detects planted base type changes and accepts heritage split across merged declarations', () => {
+  const upstream = collectApi([{ file: 'upstream.d.ts', text: [
+    "declare module 'vscode' {",
+    '  class Range {}',
+    '  class Position {}',
+    '  class Selection extends Range {}',
+    '  interface View<T> extends Disposable, Iterable<T> {}',
+    '  interface Disposable {}',
+    '}',
+  ].join('\n') }]);
+  const local = collectApi([
+    { file: 'first.d.ts', text: [
+      "declare module 'vscode' {",
+      '  class Selection extends Position {}',
+      '  interface View<T> extends Disposable {}',
+      '  interface Disposable {}',
+      '}',
+    ].join('\n') },
+    { file: 'second.d.ts', text: "declare module 'vscode' { interface View<T> extends Iterable<T> {} }" },
+  ]);
+  expect(compareDeclarations(local, upstream).map(({ message }) => message)).toEqual([
+    expect.stringContaining('first.d.ts:2 vscode.Selection#(heritage) has a different signature: extends Position'),
+  ]);
 });
 
 test('accepts reformatting and class-interface and namespace merges across files', () => {

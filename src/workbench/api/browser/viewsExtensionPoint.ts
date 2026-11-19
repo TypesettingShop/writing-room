@@ -48,7 +48,11 @@ export function registerExtensionViewBody(type: string, renderer: ViewBodyRender
 
 export class ViewsExtensionHandler extends Disposable {
   private readonly containers = new Map<string, { owner: string; container: ViewContainer }>();
-  private readonly views = new Map<string, { owner: string; view: IViewDescriptor; container: ViewContainer; renderer: ViewBodyRenderer }>();
+  private readonly views = new Map<string, {
+    owner: string; view: IViewDescriptor; container: ViewContainer; renderer: ViewBodyRenderer;
+    /** What the descriptor was made from: an updated manifest with other values replaces it. */
+    source: { readonly name: string; readonly when?: string; readonly extension: IExtensionDescription };
+  }>();
 
   constructor(private readonly renderTree: (parent: HTMLElement, viewId: string) => ReturnType<IViewDescriptor['renderBody']>) {
     super();
@@ -153,7 +157,9 @@ export class ViewsExtensionHandler extends Disposable {
             user.collector.error(path + '.id', `View '${entry.id}' already exists.`);
             continue;
           }
-          if (current?.owner !== owner || current.container !== destination || current.renderer !== renderer) {
+          if (current?.owner !== owner || current.container !== destination || current.renderer !== renderer
+            || current.source.name !== entry.name || current.source.when !== entry.when
+            || current.source.extension !== user.description) {
             if (current) {
               viewsRegistry.deregisterViews([current.view], current.container);
             }
@@ -164,7 +170,10 @@ export class ViewsExtensionHandler extends Disposable {
               }),
             };
             viewsRegistry.registerViews([view], destination);
-            this.views.set(entry.id, { owner, view, container: destination, renderer });
+            this.views.set(entry.id, {
+              owner, view, container: destination, renderer,
+              source: { name: entry.name, when: entry.when, extension: user.description },
+            });
           }
           keep.add(entry.id);
           addActivationEvent(owner, 'onView:' + entry.id);

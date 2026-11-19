@@ -1,6 +1,8 @@
 import { runMenuAction } from '../../../../base/browser/ui/menu/menu.js';
+import type { MenuAction, MenuGroup } from '../../../../base/browser/ui/menu/menu.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IMenuService, MenuId, MenuItemAction } from '../../../../platform/actions/common/actions.js';
+import type { MenuActionGroup } from '../../../../platform/actions/common/actions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
@@ -189,11 +191,13 @@ export class TreeViewPane extends Disposable {
   private showContext(row: VisibleTreeItem, source: TreeDataSource, anchor: HTMLElement | { x: number; y: number }): void {
     const context = this.context.getScopedContextKeyService(this.content).createScoped();
     context.createKey('viewItem', row.item.contextValue);
-    const groups = this.menus.getMenuActions(MenuId.ViewItemContext, context).map(([group, actions]) => [
-      group, actions.map(action => action instanceof MenuItemAction
+    // Items inside a submenu get the tree item too, as the top-level items do.
+    const withItem = (groups: readonly MenuActionGroup[]): MenuGroup[] => groups.map(([group, actions]) => [
+      group, actions.map((action): MenuAction => action instanceof MenuItemAction
         ? { ...action, run: () => action.run(source.reference(row.item.handle)) }
-        : action),
+        : { ...action, groups: withItem(action.groups) }),
     ] as const);
+    const groups = withItem(this.menus.getMenuActions(MenuId.ViewItemContext, context));
     context.dispose();
     this.contextMenus.showContextMenu({ getAnchor: () => anchor, getActions: () => groups });
   }

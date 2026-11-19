@@ -60,7 +60,11 @@ function compareVersions(a: Version, b: Version): number {
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
-/** Checks the engines.vscode range against a stable API version. */
+/**
+ * Checks the engines.vscode range against a stable API version by VS Code's rules: a part may be
+ * `x`, a prerelease suffix such as `-insider` is allowed, `^0.y.z` frees only the patch, and a range
+ * below 1.0.0 that is not an exact version accepts every 1.x release.
+ */
 export function isValidExtensionVersion(version: string, range: string): boolean {
   const current = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/.exec(version);
   if (!current) {
@@ -71,26 +75,27 @@ export function isValidExtensionVersion(version: string, range: string): boolean
   if (requested === '*') {
     return true;
   }
-  const match = /^(\^|>=)?(\d+)\.(\d+|x)\.(\d+|x)$/i.exec(requested);
+  const match = /^(\^|>=)?(\d+|x)\.(\d+|x)\.(\d+|x)(?:-.*)?$/i.exec(requested);
   if (!match) {
     return false;
   }
-  const [, operator, major, minor, patch] = match;
-  const matchesMajor = actual[0] === Number(major);
-  const matchesMinor = actual[1] === Number(minor);
-  if (minor.toLowerCase() === 'x') {
-    return !operator && patch.toLowerCase() === 'x' && matchesMajor;
-  }
-  if (patch.toLowerCase() === 'x') {
-    return !operator && matchesMajor && matchesMinor;
-  }
-  const minimum: Version = [Number(major), Number(minor), Number(patch)];
-  const comparison = compareVersions(actual, minimum);
+  const [, operator, ...parts] = match;
+  let desired = parts.map(part => part.toLowerCase() === 'x' ? 0 : Number(part)) as unknown as Version;
   if (operator === '>=') {
-    return comparison >= 0;
+    return compareVersions(actual, desired) >= 0;
   }
+  let mustEqual = parts.map(part => part.toLowerCase() !== 'x');
   if (operator === '^') {
-    return comparison >= 0 && matchesMajor && (minimum[0] !== 0 || (matchesMinor && (minimum[1] !== 0 || comparison === 0)));
+    mustEqual = desired[0] === 0 ? [mustEqual[0], mustEqual[1], false] : [mustEqual[0], false, false];
   }
-  return comparison === 0;
+  if (actual[0] === 1 && desired[0] === 0 && mustEqual.includes(false)) {
+    desired = [1, 0, 0];
+    mustEqual = [true, false, false];
+  }
+  for (let index = 0; index < 3; index++) {
+    if (actual[index] !== desired[index]) {
+      return actual[index] > desired[index] && !mustEqual[index];
+    }
+  }
+  return true;
 }

@@ -1,6 +1,7 @@
 import { URI } from '../../../base/common/uri.js';
 import { MenuCommandContext, MenuId, menuContextHandlers } from '../../../platform/actions/common/actions.js';
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
+import { isEditorCommandsContext } from '../../common/editor.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 import { MainThreadCommandsProxy, ExtHostCommandsProxy } from '../common/extHost.protocol.commands.js';
@@ -32,10 +33,11 @@ function resolveCommandArguments(accessor: ServicesAccessor, args: unknown[]): u
     return forwarded;
   }
   const editors = accessor.get(IEditorGroupsService);
-  if (target && typeof target === 'object' && 'groupId' in target && 'editorIndex' in target
-    && typeof target.groupId === 'number' && typeof target.editorIndex === 'number') {
-    const resource = editors.getGroup(target.groupId)?.getEditorByIndex(target.editorIndex)?.resource;
-    return resource ? [resource, ...rest] : forwarded;
+  if (isEditorCommandsContext(target)) {
+    // The workbench's own tab context names the editor; the extension gets its resource, not the context.
+    const group = editors.getGroup(target.groupId);
+    const editor = target.editorIndex === undefined ? group?.activeEditor : group?.getEditorByIndex(target.editorIndex);
+    return editor?.resource ? [editor.resource, ...rest] : rest;
   }
   const group = editors.groups.find(group => group.scopedContextKeyService === context.scope) ?? editors.activeGroup;
   const resource = group.activeEditor?.resource;

@@ -47,7 +47,8 @@ export function resolveExtensionPath(location: string, path: string): URL | unde
 
 
 export function resolveExtensionResource(location: URI, path: string): URI | undefined {
-  const url = resolveExtensionPath(location.toString(), path);
+  const base = /^https?$/i.test(location.scheme) && location.authority ? location.toHttpURL().href : location.toString();
+  const url = resolveExtensionPath(base, path);
   return url && URI.parse(url.href);
 }
 
