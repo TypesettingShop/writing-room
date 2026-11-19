@@ -2,10 +2,18 @@ import { StoredFileSystemProvider } from './storedFileSystemProvider.js';
 import type { FileTreeStore, FileTreeTransactionMode, StoredEntry } from './storedFileSystemProvider.js';
 
 export class InMemoryFileSystemProvider extends StoredFileSystemProvider {
+  private readonly tree = new InMemoryFileTree();
+
+  protected override transaction<T>(mode: FileTreeTransactionMode, run: (store: FileTreeStore) => Promise<T>): Promise<T> {
+    return this.tree.transaction(mode, run);
+  }
+}
+
+export class InMemoryFileTree {
   private readonly entries = new Map<string, StoredEntry>();
   private pending: Promise<unknown> = Promise.resolve();
 
-  protected override transaction<T>(mode: FileTreeTransactionMode, run: (store: FileTreeStore) => Promise<T>): Promise<T> {
+  transaction<T>(mode: FileTreeTransactionMode, run: (store: FileTreeStore) => Promise<T>): Promise<T> {
     const operation = this.pending.then(async () => {
       const updates = new Map<string, StoredEntry | undefined>();
       const store: FileTreeStore = {
