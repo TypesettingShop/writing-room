@@ -221,12 +221,11 @@ export class RPCProtocol {
     }
   }
 
-  dispose(reason = new Error('The extension host is not running.')): void {
+  stop(reason: Error): void {
     if (this.stopped) {
       return;
     }
     this.stopped = reason;
-    this.close();
     for (const call of this.pending.values()) {
       call.cancellation?.dispose();
       call.reject(reason);
@@ -237,5 +236,10 @@ export class RPCProtocol {
     this.incoming.clear();
     this.pending.clear();
     this.handlers.clear();
+  }
+
+  dispose(reason = new Error('The extension host is not running.')): void {
+    this.stop(reason);
+    this.close();
   }
 }

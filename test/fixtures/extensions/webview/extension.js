@@ -3,6 +3,7 @@ const vscode = require('vscode');
 exports.activate = function (context) {
   const panels = new Map();
   const transitions = new Map();
+  let iconStep = 0;
   function register(name, callback) {
     context.subscriptions.push(vscode.commands.registerCommand('fixture.webview.' + name, callback));
   }
@@ -51,6 +52,16 @@ exports.activate = function (context) {
     const transient = panels.get('transient');
     transient?.dispose();
     transient?.dispose();
+  });
+  register('tabIcon', () => {
+    const panel = panels.get('retained');
+    const light = vscode.Uri.joinPath(context.extensionUri, 'icon-light.png');
+    const dark = vscode.Uri.joinPath(context.extensionUri, 'icon-dark.png');
+    const foreign = vscode.Uri.joinPath(context.extensionUri, '..', 'remote', 'icon.png');
+    const icons = [new vscode.ThemeIcon('beaker'), light, { light, dark }, foreign, dark];
+    if (panel) {
+      panel.iconPath = icons[iconStep++];
+    }
   });
   register('context', () => panels.get('retained')?.webview.postMessage({ text: 'Context action ran' }));
   register('active', () => panels.get('retained')?.webview.postMessage({ text: 'Active action ran' }));
