@@ -1,0 +1,24 @@
+// The configuration of the fixture language. Comments and trailing commas are allowed, as in VS Code.
+{
+  "comments": {
+    "lineComment": "%%",
+    "blockComment": ["/~", "~/"],
+  },
+  "brackets": [["(", ")"], ["[", "]"]],
+  "autoClosingPairs": [
+    ["(", ")"],
+    { "open": "[", "close": "]", "notIn": ["string"] },
+    { "open": "\"", "close": "\"" },
+  ],
+  "surroundingPairs": [["(", ")"], ["\"", "\""]],
+  // A word is letters, digits and marks of any script, and joins with a hyphen.
+  "wordPattern": { "pattern": "[\\p{L}\\p{N}\\p{M}]+(?:-[\\p{L}\\p{N}\\p{M}]+)*", "flags": "u" },
+  // The increase pattern does not compile: only the indentation rules are left out.
+  "indentationRules": {
+    "increaseIndentPattern": "(",
+    "decreaseIndentPattern": "^\\s*\\)"
+  },
+  "folding": {
+    "markers": { "start": "^\\s*%%\\s*region\\b", "end": "^\\s*%%\\s*endregion\\b" }
+  }
+}
