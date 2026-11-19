@@ -89,7 +89,72 @@ Decided in: wr-efqx.n9k
 
 ## 기여한 색과 테마 API
 
+### `contributes.colors`
+
+```json
+{
+  "contributes": {
+    "colors": [
+      {
+        "id": "myExtension.accent",
+        "description": "The accent of my views.",
+        "defaults": { "dark": "#336699", "light": "#cc6633", "highContrast": "#ffff00", "highContrastLight": "#0000aa" }
+      },
+      {
+        "id": "myExtension.follow",
+        "description": "Follows the status bar.",
+        "defaults": { "dark": "statusBar.background", "light": "myExtension.accent" }
+      }
+    ]
+  }
+}
+```
+
+- 항목은 `id`, `description`, `defaults`다. `defaults`에는 `dark`와 `light`가 꼭 있어야 하고, `highContrast`가 없으면 `dark`, `highContrastLight`가 없으면 `light`를 쓴다(VS Code와 같다).
+- `id`는 VS Code의 패턴(`^\w+[.\w+]*$`)을 지켜야 한다: 글자, 숫자, 밑줄, 점. `my-extension.accent`처럼 줄표가 있으면 받지 않는다.
+- 기본값은 16진 색(`#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`)이거나 다른 색의 id다. id는 같은 테마에서 그 색의 값을 따른다(`"dark": "statusBar.background"`). 그 밖의 값(`red; } body{…}`, `url(…)`)은 그 색 전체를 버린다. VS Code처럼 `red` 같은 낱말은 색 id로 읽히므로 그런 색이 없으면 값이 없다.
+- 틀린 항목은 그 항목만 버리고 확장 메시지(오류)를 남긴다. 워크벤치가 이미 등록한 id나 앞선 확장이 등록한 id는 받지 않는다.
+- 기여한 색은 레지스트리에 들어가 모든 테마에서 CSS 변수(`--vscode-myExtension-accent`)가 된다. 테마 파일이 그 id를 정하면 테마의 값이 이긴다. 확장을 제거하면 색과 변수가 빠진다.
+- 확장 서비스가 테마가 바뀔 때마다 기여를 다시 적용해도, 내용이 같으면 레지스트리는 바뀌지 않는다.
+
+### `ThemeColor`
+
+- `new vscode.ThemeColor('myExtension.accent')`는 색 id를 가리킨다. 상태 표시줄 항목처럼 색을 받는 자리에 주면 워크벤치는 그 색의 CSS 변수(`var(--vscode-myExtension-accent)`)를 건다. 그래서 테마가 바뀌면 다시 풀린다. id가 색 id 패턴이 아니면 무시한다.
+
+### `window.activeColorTheme`과 `onDidChangeActiveColorTheme`
+
+```js
+const kindName = { 1: 'light', 2: 'dark', 3: 'high contrast', 4: 'high contrast light' };
+item.text = 'Theme: ' + kindName[vscode.window.activeColorTheme.kind];
+context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(theme => {
+  item.text = 'Theme: ' + kindName[theme.kind];
+}));
+```
+
+- `ColorThemeKind`는 `Light` 1, `Dark` 2, `HighContrast` 3, `HighContrastLight` 4다. 종류는 테마의 `uiTheme`(`vs`, `vs-dark`, `hc-black`, `hc-light`)에서 온다. 내장 테마는 `Writing Room Dark`가 Dark, `Writing Room Light`가 Light다.
+- `activeColorTheme`은 `kind` 하나를 가진 얼린 객체이고, 확장이 활성화되기 전에 이미 맞는 값이다(확장 호스트가 시작할 때 묻는다).
+- `onDidChangeActiveColorTheme`은 종류가 바뀔 때가 아니라 **테마가 바뀔 때마다 한 번** 난다(VS Code와 같다). 같은 종류의 다른 테마로 바꿔도 난다. 같은 테마를 다시 고르면 나지 않는다.
+- 비활성화되거나 제거된 확장의 리스너는 더 불리지 않는다.
+
 ## 상태 표시줄 색
+
+```js
+const item = vscode.window.createStatusBarItem('build', vscode.StatusBarAlignment.Left, 90);
+item.text = '$(error) Build';
+item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+item.accessibilityInformation = { label: 'Build failed with 3 errors', role: 'link' };
+item.tooltip = new vscode.MarkdownString('**3 errors**');
+item.command = 'myExtension.showErrors';
+item.show();
+```
+
+- `createStatusBarItem(id, alignment?, priority?)`: id를 주면 `item.id`가 그 값이고 워크벤치의 항목 요소는 `<확장 식별자>.<id>`(`data-entry-id`)다. 같은 id로 둘을 만들어도 두 항목이다. id 없이 만든 항목의 `item.id`는 v0.1.0처럼 호스트 안의 번호다(VS Code는 확장 식별자를 준다).
+- `color`: 16진 색 문자열(네 표기만) 또는 `ThemeColor`. 문자열이 16진 색이 아니면(`red`, `rgb(…)`, `red; background: url(…)`) 색을 걸지 않는다. 확장 호스트와 메인 스레드가 모양을 거르고, 스타일에 넣기 직전에 상태 표시줄이 `isHexColor`·`isColorIdentifier`로 값을 검사한다.
+- `backgroundColor`: `ThemeColor`이고 `statusBarItem.errorBackground`와 `statusBarItem.warningBackground`만 적용한다. 그 밖의 id는 설정하는 순간 버려져 `item.backgroundColor`가 `undefined`가 된다(VS Code와 같다). 배경이 걸리면 글자색은 `color`와 상관없이 짝 전경색(`statusBarItem.errorForeground`, `statusBarItem.warningForeground`)이다.
+- `accessibilityInformation`: `label`이 접근 가능한 이름(`aria-label`)이 된다. 없으면 v0.1.0처럼 `name`, 그것도 없으면 확장 이름이다. `role`은 소문자 낱말(`link`, `checkbox`, `menu-item` 꼴)일 때만 건다.
+- `tooltip`의 `MarkdownString`은 원문 텍스트로 `title`에 들어간다. 마크다운을 렌더하지 않고 HTML로 넣지 않는다.
+- 갱신은 v0.1.0처럼 한 마이크로태스크에 모여 한 번 건너간다. 상태 표시줄 항목의 색 id(`statusBarItem.*`)는 모두 레지스트리에 있어 테마가 정할 수 있다.
+- 범위 밖: 항목의 커맨드 인자 확장, 항목 숨기기 메뉴.
 
 ## 트리 뷰
 
@@ -233,6 +298,7 @@ vscode.window.createTreeView('notes.list', {
 - 색 테마 데이터를 새로고침 사이에 캐시하지 않는다. 확장 테마를 고른 채 새로고침하면 기본 어두운 테마로 그렸다가, 확장 기여가 올라오고 파일을 읽은 뒤 바뀐다(wr-mk2j.2j5).
 - 테마와 확장이 주는 색은 16진 표기 넷만 받는다. `.tmTheme`, 문자열 `tokenColors`, `semanticTokenColors`, `workbench.colorCustomizations`, 파일·제품 아이콘 테마는 지원하지 않는다(wr-mk2j.2j5).
 - Monaco에는 `tokenColors`의 단순 범위만 규칙으로 간다. 기본 어두운 테마의 Monaco는 v0.1.0처럼 `vs-dark` 그대로라 에디터 배경(`#1e1e1e`)이 워크벤치의 `editor.background`(`#171b24`)와 다르다(wr-mk2j.2j5).
+- `contributes.colors`가 이미 등록된 색 id(워크벤치의 것이나 앞선 확장의 것)를 다시 등록하면 VS Code는 덮어쓰지만 여기서는 받지 않고 오류를 남긴다. 확장을 제거할 때 다른 쪽의 색이 함께 빠지지 않게 하려는 것이다(wr-mk2j.2xb).
 - 트리 아이콘은 그 확장의 설치 폴더와 워크스페이스 폴더 안의 `svg`·`png`·`jpg`·`jpeg`·`gif`·`webp`만, 256 KiB까지 `<img>`로 그린다. 문자열 `iconPath`(파일 경로)는 무시하고 `resourceUri`는 레이블에만 쓴다(파일 아이콘 테마, `description: true` 없음). VS Code는 아무 URI나 받는다. 브라우저에서 확장이 읽을 수 있는 범위를 지키기 위해서다(wr-mk2j.uak).
 - `viewsWelcome`의 `command:` 링크는 그 확장이 선언한 커맨드만 인자 없이 실행하고, 인자가 붙은 링크와 `http(s)`가 아닌 링크는 글로 남긴다. `group`은 무시한다. 뷰 배지는 뷰 머리에만 그리고 액티비티 바의 컨테이너 아이콘에 모으지 않는다(wr-mk2j.uak).
 - `resolveTreeItem`은 툴팁만 채운다(VS Code는 커맨드도 늦게 채운다). `accessibilityInformation.role`은 트리의 역할 구조를 지키려고 쓰지 않는다. `reveal`이 실패하면 VS Code처럼 로그에 남기지 않고 약속을 거절한다(wr-mk2j.uak).

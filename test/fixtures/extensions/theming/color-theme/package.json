@@ -8,6 +8,7 @@
       { "label": "Fixture Paper", "uiTheme": "vs", "path": "./themes/paper.json" },
       { "id": "fixture-night", "label": "Fixture Night", "uiTheme": "vs-dark", "path": "./themes/night.json" },
       { "label": "Fixture Contrast", "uiTheme": "hc-black", "path": "./themes/contrast.json" },
+      { "label": "Fixture Contrast Light", "uiTheme": "hc-light", "path": "./themes/contrast-light.json" },
       { "label": "Fixture Hostile", "uiTheme": "vs-dark", "path": "./themes/hostile.json" },
       { "label": "Fixture Cycle", "uiTheme": "vs-dark", "path": "./themes/cycle.json" },
       { "label": "Fixture Escape", "uiTheme": "vs-dark", "path": "../outside-theme.json" },

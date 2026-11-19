@@ -101,6 +101,28 @@ class ColorRegistry {
     }
   }
 
+  /**
+   * Removes the colors `remove` names, then registers `add`, with one change event at the end. Ids and
+   * defaults are checked as `registerColor` checks them, before anything changes.
+   */
+  changeColors(remove: readonly ColorIdentifier[], add: readonly ColorContribution[]): void {
+    const checked = new ColorRegistry();
+    for (const { id, defaults, description, extensionId } of add) {
+      checked.registerColor(id, defaults, description, extensionId);
+    }
+    let changed = false;
+    for (const id of remove) {
+      changed = this.colors.delete(id) || changed;
+    }
+    for (const color of checked.colors.values()) {
+      this.colors.set(color.id, color);
+      changed = true;
+    }
+    if (changed) {
+      this.changed.fire();
+    }
+  }
+
   getColor(id: ColorIdentifier): ColorContribution | undefined {
     return this.colors.get(id);
   }

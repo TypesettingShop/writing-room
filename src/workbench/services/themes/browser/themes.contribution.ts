@@ -5,11 +5,12 @@ import type { ServicesAccessor } from '../../../../platform/instantiation/common
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import type { IQuickPickItem, IQuickPickSeparator } from '../../../../platform/quickinput/common/quickInput.js';
 import { ColorScheme, IThemeService } from '../../../../platform/theme/common/themeService.js';
+import '../common/colorExtensionPoint.js';
 import { COLOR_THEME_SETTING, isWorkbenchThemeService, WorkbenchThemeService } from './workbenchThemeService.js';
 import type { IColorThemeOption } from './workbenchThemeService.js';
 
-// Color themes: the `themes` contribution point, the theme service that applies the chosen theme, and the
-// command that chooses one. This module is imported after the editor part, so its theme service replaces
+// Color themes: the `themes` and `colors` contribution points, the theme service that applies the chosen
+// theme, and the command that chooses one. This module is imported after the editor part, so its theme service replaces
 // the one that has only the dark palette.
 registerSingleton(IThemeService, WorkbenchThemeService);
 

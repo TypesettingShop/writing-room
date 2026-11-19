@@ -5,6 +5,29 @@ declare module 'vscode' {
     readonly label: string;
     readonly role?: string;
   }
+
+  enum ColorThemeKind {
+    Light = 1,
+    Dark = 2,
+    HighContrast = 3,
+    HighContrastLight = 4
+  }
+
+  interface ColorTheme {
+    readonly kind: ColorThemeKind;
+  }
+
+  interface StatusBarItem {
+    color: string | ThemeColor | undefined;
+    backgroundColor: ThemeColor | undefined;
+    accessibilityInformation: AccessibilityInformation | undefined;
+  }
+
+  namespace window {
+    let activeColorTheme: ColorTheme;
+    const onDidChangeActiveColorTheme: Event<ColorTheme>;
+    function createStatusBarItem(id: string, alignment?: StatusBarAlignment, priority?: number): StatusBarItem;
+  }
 }
 
 declare module 'vscode' {
