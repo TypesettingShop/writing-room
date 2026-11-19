@@ -23,6 +23,18 @@
       {
         "command": "fixture.fileSystem.writePeer",
         "title": "Write File From Other Tab"
+      },
+      {
+        "command": "fixture.fileSystem.provider",
+        "title": "Check File System Provider"
+      },
+      {
+        "command": "fixture.fileSystem.providerRemoved",
+        "title": "Check Removed File System Provider"
+      },
+      {
+        "command": "fixture.fileSystem.providerOpen",
+        "title": "Open File System Provider Document"
       }
     ]
   }

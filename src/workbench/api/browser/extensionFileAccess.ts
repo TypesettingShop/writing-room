@@ -6,6 +6,7 @@ import { normalizeFileResource } from '../../../platform/files/common/fileResour
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../platform/files/common/files.js';
 import type { IWorkspace } from '../../../platform/workspace/common/workspace.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
+import { isExtensionFileSystemScheme } from '../common/extHostFileSystemSchemes.js';
 import { extensionGlobalStorageUri, extensionWorkspaceStorageUri } from '../../services/extensions/common/extensionStoragePaths.js';
 
 const unsafePath = /[\\\x00-\x1f\x7f-\x9f]|%(?:25)*(?:2f|5c|0[\da-f]|1[\da-f]|7f|8[\da-f]|9[\da-f])/i;
@@ -17,6 +18,7 @@ function deny(): never {
 
 export function normalizeExtensionFileResource(resource: URI): URI {
   if (!URI.isUri(resource) || resource.hasEncodedPathSeparator || unsafePath.test(resource.path)
+    || /[\x00-\x1f\x7f-\x9f]/.test(resource.authority + resource.query + resource.fragment)
     || !resource.path.startsWith('/')) {
     return deny();
   }
@@ -28,7 +30,8 @@ export function normalizeExtensionFileResource(resource: URI): URI {
   if (resource.scheme === Schemas.vscodeVfs || resource.scheme === Schemas.vscodeUserData) {
     return normalizeFileResource(resource);
   }
-  return resource.with({ path });
+  const lower = resource.scheme.toLowerCase();
+  return resource.with({ path, scheme: isExtensionFileSystemScheme(lower) ? lower : resource.scheme });
 }
 
 const packageRoot = URI.parse('vscode-userdata:/extensions');

@@ -1,6 +1,6 @@
 import { raceCancellation } from '../../../base/common/async.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
-import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
 import type { URI } from '../../../base/common/uri.js';
@@ -76,11 +76,10 @@ export class MainThreadFileSystemEventService extends Disposable {
     }));
   }
 
-  watch(extension: HostExtensionDescription, handle: number, base?: URI): void {
+  async watch(extension: HostExtensionDescription, handle: number, resolveBase?: () => Promise<URI>): Promise<void> {
     if (!Number.isSafeInteger(handle) || handle < 0) {
       throw new TypeError('Invalid file watcher handle.');
     }
-    const roots = base === undefined ? this.workspaceRoots : [this.access.require(extension, base, false)];
     let entry = this.watches.get(extension.key);
     if (!entry) {
       entry = { handles: new Map(), pending: [] };
@@ -89,12 +88,24 @@ export class MainThreadFileSystemEventService extends Disposable {
     if (entry.handles.has(handle)) {
       throw new Error('File watcher handle is already registered.');
     }
-    const registrations = roots.map(root => this.files.watch(root, { recursive: true }));
-    entry.handles.set(handle, { roots, registration: toDisposable(() => {
-      for (const registration of registrations) {
-        registration.dispose();
+    const registration = new DisposableStore();
+    const roots: URI[] = [];
+    entry.handles.set(handle, { roots, registration });
+    try {
+      const resolved = resolveBase ? [await resolveBase()] : this.workspaceRoots;
+      if (registration.isDisposed) {
+        return;
       }
-    }) });
+      roots.push(...resolved);
+      for (const root of roots) {
+        registration.add(this.files.watch(root, { recursive: true }));
+      }
+    } catch (error) {
+      if (entry.handles.get(handle)?.registration === registration) {
+        this.unwatch(extension.key, handle);
+      }
+      throw error;
+    }
   }
 
   unwatch(extension: string, handle: number): void {
@@ -181,11 +192,15 @@ export class MainThreadFileSystemEventService extends Disposable {
     this.pendingCount = 0;
     const batches: FileWatcherBatch[] = [];
     for (const [extension, entry] of this.watches) {
-      if (this.getExtension(extension)) {
+      const owner = this.getExtension(extension);
+      if (owner) {
         for (const group of entry.pending) {
           const handles = group.handles.filter(handle => entry.handles.has(handle));
           if (handles.length) {
-            batches.push({ extension, handles, changes: group.changes });
+            const changes = group.changes.filter(change => this.access.isAllowed(owner, change.resource, false));
+            if (changes.length) {
+              batches.push({ extension, handles, changes });
+            }
           }
         }
       }

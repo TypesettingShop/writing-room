@@ -45,15 +45,13 @@ export class ExtHostWorkspace {
       get workspaceFolders() { return workspace.folders; },
       get name() { return workspace.folders[0]?.name; },
       workspaceFile: undefined,
-      isTrusted: true,
-      onDidGrantWorkspaceTrust: Event.None,
       onDidChangeWorkspaceFolders: Event.None,
       getWorkspaceFolder: (uri: vscode.Uri) => this.getWorkspaceFolder(uri),
       asRelativePath: (pathOrUri: string | vscode.Uri, includeWorkspaceFolder?: boolean) =>
         this.asRelativePath(pathOrUri, includeWorkspaceFolder),
       updateWorkspaceFolders: () => false,
-    } satisfies Pick<typeof vscode.workspace, 'workspaceFolders' | 'name' | 'workspaceFile' | 'isTrusted'
-      | 'onDidGrantWorkspaceTrust' | 'onDidChangeWorkspaceFolders' | 'getWorkspaceFolder' | 'asRelativePath'
+    } satisfies Pick<typeof vscode.workspace, 'workspaceFolders' | 'name' | 'workspaceFile'
+      | 'onDidChangeWorkspaceFolders' | 'getWorkspaceFolder' | 'asRelativePath'
       | 'updateWorkspaceFolders'>;
   }
 }

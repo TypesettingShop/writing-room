@@ -3,6 +3,7 @@ import { parse } from '../../../base/common/glob.js';
 import { normalize } from '../../../base/common/path.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
+import { isExtensionFileSystemScheme } from './extHostFileSystemSchemes.js';
 import type { FileGlobDto, WorkspaceFolderDto } from './extHost.protocol.fileSystem.js';
 
 export function toFileGlob(pattern: vscode.GlobPattern, folders: readonly WorkspaceFolderDto[]): FileGlobDto {
@@ -16,7 +17,9 @@ export function toFileGlob(pattern: vscode.GlobPattern, folders: readonly Worksp
     const folder = folders.find(folder => base.scheme === 'file' && !base.authority && !base.hasEncodedPathSeparator
       && isEqualOrParent(folder.uri.with({ path: normalize(base.path) }), folder.uri));
     if (folder) {
-      base = folder.uri.with({ path: base.path });
+      base = URI.from({ ...folder.uri.toJSON(), path: base.path });
+    } else if (isExtensionFileSystemScheme(base.scheme.toLowerCase())) {
+      base = base.with({ scheme: base.scheme.toLowerCase() });
     }
     return { base, pattern: pattern.pattern };
   }

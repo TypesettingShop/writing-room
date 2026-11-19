@@ -1,7 +1,7 @@
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import type { TransferableBuffer } from '../../../base/common/marshalling.js';
 import type { URI } from '../../../base/common/uri.js';
-import type { FileSystemProviderCapabilities, FileType, IFileChange, IStat } from '../../../platform/files/common/files.js';
+import type { FileSystemProviderCapabilities, FileType, IFileChange, IFileDeleteOptions, IFileOverwriteOptions, IFileWriteOptions, IStat, IWatchOptions } from '../../../platform/files/common/files.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
 
 export interface WorkspaceFolderDto {
@@ -32,6 +32,9 @@ export interface MainThreadFileSystemShape {
     readonly folders: readonly WorkspaceFolderDto[];
     readonly capabilities: readonly FileSystemCapabilityDto[];
   }>;
+  $registerFileSystemProvider(extension: string, handle: number, scheme: string, capabilities: FileSystemProviderCapabilities): Promise<void>;
+  $unregisterFileSystemProvider(extension: string, handle: number): Promise<void>;
+  $onProviderFileChanges(extension: string, handle: number, changes: readonly IFileChange[]): Promise<void>;
   $watch(extension: string, handle: number, base?: URI): Promise<void>;
   $unwatch(extension: string, handle: number): Promise<void>;
   $subscribeFileOperation(extension: string, event: FileOperationSubscription, enabled: boolean): Promise<void>;
@@ -47,6 +50,24 @@ export interface MainThreadFileSystemShape {
   $copy(extension: string, source: URI, target: URI, options?: { overwrite?: boolean }): Promise<void>;
 }
 
+export interface ExtHostFileSystemProviderShape {
+  $providerStat(extension: string, handle: number, resource: URI, token: CancellationToken): Promise<FileStatDto>;
+  $providerReadDirectory(extension: string, handle: number, resource: URI, token: CancellationToken): Promise<readonly [string, FileType][]>;
+  $providerCreateDirectory(extension: string, handle: number, resource: URI, token: CancellationToken): Promise<void>;
+  $providerReadFile(extension: string, handle: number, resource: URI, limit: number | undefined,
+    token: CancellationToken): Promise<TransferableBuffer | Uint8Array>;
+  $providerWriteFile(extension: string, handle: number, resource: URI, content: TransferableBuffer | Uint8Array,
+    options: IFileWriteOptions, token: CancellationToken): Promise<void>;
+  $providerDelete(extension: string, handle: number, resource: URI, options: IFileDeleteOptions,
+    token: CancellationToken): Promise<void>;
+  $providerRename(extension: string, handle: number, source: URI, target: URI, options: IFileOverwriteOptions,
+    token: CancellationToken): Promise<void>;
+  $providerCopy(extension: string, handle: number, source: URI, target: URI, options: IFileOverwriteOptions,
+    token: CancellationToken): Promise<void>;
+  $providerWatch(extension: string, handle: number, watch: number, resource: URI, options: IWatchOptions): Promise<void>;
+  $providerUnwatch(extension: string, handle: number, watch: number): Promise<void>;
+}
+
 export interface ExtHostFileSystemShape {
   $acceptFileChanges(batches: readonly FileWatcherBatch[]): Promise<void>;
   $acceptFileOperation(extensions: readonly string[], event: FileOperationDto): Promise<void>;
@@ -56,3 +77,4 @@ export interface ExtHostFileSystemShape {
 
 export const MainThreadFileSystemProxy = createProxyIdentifier<MainThreadFileSystemShape>('MainThreadFileSystem');
 export const ExtHostFileSystemProxy = createProxyIdentifier<ExtHostFileSystemShape>('ExtHostFileSystem');
+export const ExtHostFileSystemProviderProxy = createProxyIdentifier<ExtHostFileSystemProviderShape>('ExtHostFileSystemProvider');

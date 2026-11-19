@@ -75,6 +75,9 @@ exports.activate = context => {
     vscode.commands.registerCommand('fixture.fileSystem.events', checkEventsAndSearch),
     vscode.commands.registerCommand('fixture.fileSystem.watchPeer', watchPeer),
     vscode.commands.registerCommand('fixture.fileSystem.writePeer', writePeer),
+    vscode.commands.registerCommand('fixture.fileSystem.provider', checkProvider),
+    vscode.commands.registerCommand('fixture.fileSystem.providerRemoved', checkProviderRemoved),
+    vscode.commands.registerCommand('fixture.fileSystem.providerOpen', openProviderDocument),
   );
 };
 
@@ -179,4 +182,73 @@ async function writePeer() {
   const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, 'peer-file.txt');
   await vscode.workspace.fs.writeFile(uri, Uint8Array.of(1));
   await vscode.window.showInformationMessage('Other tab write verified');
+}
+
+const providerText = 'memfs says hello';
+
+async function checkProvider() {
+  const { workspace, Uri, RelativePattern } = vscode;
+  const { fs } = workspace;
+  const root = Uri.parse('memfs:/');
+  const welcome = Uri.joinPath(root, 'welcome.txt');
+  const bytes = await fs.readFile(welcome);
+  check(new TextDecoder().decode(bytes) === providerText, 'Provider activation and read');
+  bytes.fill(0);
+  check(new TextDecoder().decode(await fs.readFile(welcome)) === providerText, 'Read does not detach provider storage');
+  check(fs.isWritableFileSystem('memfs') && fs.isWritableFileSystem('memfs-readonly') === false, 'Provider capabilities');
+
+  for (const [scheme, expected] of [['VSCODE-VFS', 'reserved'], ['data', 'reserved'],
+    ['vscode-webview', 'reserved'], ['MemFs', 'already registered'], ['aa b', 'Invalid URI scheme']]) {
+    try {
+      workspace.registerFileSystemProvider(scheme, {});
+      throw new Error('Provider registration unexpectedly succeeded');
+    } catch (error) {
+      check(error.message.includes(expected), 'Provider scheme validation: ' + error.message);
+    }
+  }
+  const readonly = Uri.parse('memfs-readonly:/welcome.txt');
+  check((await fs.stat(readonly)).permissions === vscode.FilePermission.Readonly, 'Readonly stat');
+  await rejects(() => fs.writeFile(readonly, bytes), 'NoPermissions');
+
+  const created = [];
+  const count = Uri.joinPath(root, 'watch-count');
+  const watch = workspace.createFileSystemWatcher(new RelativePattern(root, '*.txt'));
+  const listener = watch.onDidCreate(uri => created.push(uri.path));
+  const path = Uri.joinPath(root, 'provider.txt');
+  const renamed = Uri.joinPath(root, 'provider-renamed.txt');
+  try {
+    check((await fs.readFile(count))[0] === 1, 'Provider watch registered');
+    await fs.writeFile(path, Uint8Array.of(0, 255));
+    await fs.rename(path, renamed);
+    await waitFor(() => created.includes(renamed.path));
+    check((await fs.readFile(renamed)).join() === '0,255', 'Provider write and rename');
+    check((await fs.readDirectory(root)).some(([name]) => name === 'provider-renamed.txt'), 'Provider listing');
+    await rejects(() => fs.stat(path), 'FileNotFound');
+    await fs.delete(renamed);
+    await rejects(() => fs.stat(renamed), 'FileNotFound');
+  } finally {
+    listener.dispose();
+    watch.dispose();
+  }
+  check((await fs.readFile(count))[0] === 0, 'Provider watch disposed');
+  await vscode.window.showInformationMessage('File System Provider verified');
+}
+
+async function checkProviderRemoved() {
+  let rejected = false;
+  try {
+    await vscode.workspace.fs.readFile(vscode.Uri.parse('memfs:/welcome.txt'));
+  } catch (error) {
+    rejected = error instanceof vscode.FileSystemError && ['Unavailable', 'NoPermissions'].includes(error.code);
+  }
+  check(rejected && vscode.workspace.fs.isWritableFileSystem('memfs') === undefined, 'Removed provider is unavailable');
+  await vscode.window.showInformationMessage('Removed File System Provider verified');
+}
+
+async function openProviderDocument() {
+  const uri = vscode.Uri.parse('memfs:/welcome.txt');
+  await vscode.workspace.fs.stat(uri);
+  const document = await vscode.workspace.openTextDocument(uri);
+  check(document.getText() === providerText, 'Provider document text');
+  await vscode.commands.executeCommand('vscode.open', uri);
 }

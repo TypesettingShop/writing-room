@@ -50,8 +50,8 @@ test('batches change bursts, checks reader access and removes disposed watchers'
   await vi.runAllTimersAsync();
   expect(send).not.toHaveBeenCalled();
 
-  events.watch(owner, 0);
-  events.watch(owner, 1, URI.joinPath(workspaceUri, 'nested'));
+  await events.watch(owner, 0);
+  await events.watch(owner, 1, async () => URI.joinPath(workspaceUri, 'nested'));
   const expected = Array.from({ length: 1000 }, (_, index) => file((index % 2 === 0 ? 'nested/' : '') + index));
   for (const entry of expected) {
     changed.fire([entry]);
@@ -72,4 +72,56 @@ test('batches change bursts, checks reader access and removes disposed watchers'
   events.remove(owner.key);
   await vi.runAllTimersAsync();
   expect(send).toHaveBeenCalledTimes(1);
+});
+
+test('a slow participant receives cancellation and the underlying operation completes', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const files = disposables.add(new FileService());
+  const workspace = disposables.add(new InMemoryFileSystemProvider());
+  files.registerProvider(workspaceUri.scheme, workspace);
+  const access = new ExtensionFileAccess({
+    id: 'writing-room', folders: [{ uri: workspaceUri, name: 'workspace', index: 0, toResource: path => URI.joinPath(workspaceUri, path) }],
+  }, () => [], () => false);
+  let started!: () => void;
+  const began = new Promise<void>(resolve => { started = resolve; });
+  let cancelled = false;
+  const events = disposables.add(new MainThreadFileSystemEventService(files, {
+    async $acceptFileChanges() {}, async $acceptFileOperation() {}, async $acceptFileSystemCapability() {},
+    $participateInFileOperation(_extensions, _event, token) {
+      token.onCancellationRequested(() => { cancelled = true; });
+      started();
+      return new Promise(() => {});
+    },
+  }, access, key => key === owner.key ? owner : undefined, [workspaceUri]));
+  events.subscribe(owner.key, 'will:create', true);
+  const uri = URI.joinPath(workspaceUri, 'waited');
+  const creating = files.createFolder(uri);
+  await began;
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(cancelled).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(cancelled).toBe(true);
+  await expect(creating).resolves.toMatchObject({ resource: uri });
+});
+
+test('dropping access before a queued batch is sent prevents delivery', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const files = disposables.add(new FileService());
+  const provider = disposables.add(new InMemoryFileSystemProvider());
+  const changes = disposables.add(new Emitter<readonly IFileChange[]>());
+  Object.defineProperty(provider, 'onDidChangeFile', { value: changes.event });
+  files.registerProvider('memory', provider);
+  const root = URI.parse('memory:/');
+  let allowed = true;
+  const access = new ExtensionFileAccess({ id: 'writing-room', folders: [] }, () => [], scheme => allowed && scheme === root.scheme);
+  const send = vi.fn<ExtHostFileSystemShape['$acceptFileChanges']>().mockResolvedValue(undefined);
+  const events = disposables.add(new MainThreadFileSystemEventService(files, {
+    $acceptFileChanges: send, async $acceptFileOperation() {}, async $participateInFileOperation() {}, async $acceptFileSystemCapability() {},
+  }, access, () => owner, []));
+  await events.watch(owner, 0, async () => access.require(owner, root, false));
+  changes.fire([{ type: FileChangeType.ADDED, resource: URI.joinPath(root, 'queued') }]);
+  await Promise.resolve();
+  allowed = false;
+  await vi.runAllTimersAsync();
+  expect(send).not.toHaveBeenCalled();
 });

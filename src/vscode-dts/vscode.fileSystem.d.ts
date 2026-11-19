@@ -52,6 +52,30 @@ declare module 'vscode' {
     readonly removed: readonly WorkspaceFolder[];
   }
 
+  export enum FileChangeType {
+    Changed = 1,
+    Created = 2,
+    Deleted = 3,
+  }
+
+  export interface FileChangeEvent {
+    readonly type: FileChangeType;
+    readonly uri: Uri;
+  }
+
+  export interface FileSystemProvider {
+    readonly onDidChangeFile: Event<FileChangeEvent[]>;
+    watch(uri: Uri, options: { readonly recursive: boolean; readonly excludes: readonly string[] }): Disposable;
+    stat(uri: Uri): FileStat | Thenable<FileStat>;
+    readDirectory(uri: Uri): [string, FileType][] | Thenable<[string, FileType][]>;
+    createDirectory(uri: Uri): void | Thenable<void>;
+    readFile(uri: Uri): Uint8Array | Thenable<Uint8Array>;
+    writeFile(uri: Uri, content: Uint8Array, options: { readonly create: boolean; readonly overwrite: boolean }): void | Thenable<void>;
+    delete(uri: Uri, options: { readonly recursive: boolean }): void | Thenable<void>;
+    rename(oldUri: Uri, newUri: Uri, options: { readonly overwrite: boolean }): void | Thenable<void>;
+    copy?(source: Uri, destination: Uri, options: { readonly overwrite: boolean }): void | Thenable<void>;
+  }
+
   export type GlobPattern = string | RelativePattern;
 
   export interface FileSystemWatcher extends Disposable {
@@ -106,13 +130,15 @@ declare module 'vscode' {
     export const onDidRenameFiles: Event<FileRenameEvent>;
     export function createFileSystemWatcher(globPattern: GlobPattern, ignoreCreateEvents?: boolean,
       ignoreChangeEvents?: boolean, ignoreDeleteEvents?: boolean): FileSystemWatcher;
+    export function registerFileSystemProvider(scheme: string, provider: FileSystemProvider, options?: {
+      readonly isCaseSensitive?: boolean;
+      readonly isReadonly?: boolean | MarkdownString;
+    }): Disposable;
     export function findFiles(include: GlobPattern, exclude?: GlobPattern | null, maxResults?: number,
       token?: CancellationToken): Thenable<Uri[]>;
     export const workspaceFolders: readonly WorkspaceFolder[] | undefined;
     export const name: string | undefined;
     export const workspaceFile: Uri | undefined;
-    export const isTrusted: boolean;
-    export const onDidGrantWorkspaceTrust: Event<void>;
     export const onDidChangeWorkspaceFolders: Event<WorkspaceFoldersChangeEvent>;
     export function getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
     export function asRelativePath(pathOrUri: string | Uri, includeWorkspaceFolder?: boolean): string;

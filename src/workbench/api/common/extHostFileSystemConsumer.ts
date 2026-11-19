@@ -65,9 +65,11 @@ function fileUri(value: vscode.Uri): URI {
 }
 
 export class ExtHostFileSystemConsumer {
-  readonly capabilities = new Map<string, FileSystemProviderCapabilities>();
-
-  constructor(private readonly proxy: MainThreadFileSystemShape, private readonly isLive: (key: string) => boolean) {}
+  constructor(
+    private readonly proxy: MainThreadFileSystemShape,
+    private readonly isLive: (key: string) => boolean,
+    private readonly getCapabilities: (scheme: string) => FileSystemProviderCapabilities | undefined,
+  ) {}
 
   createApi(key: string): vscode.FileSystem {
     const checkLive = () => {
@@ -106,7 +108,8 @@ export class ExtHostFileSystemConsumer {
       rename: call((source, target, options) => this.proxy.$rename(key, fileUri(source), fileUri(target), options)),
       copy: call((source, target, options) => this.proxy.$copy(key, fileUri(source), fileUri(target), options)),
       isWritableFileSystem: guardApiMethod((scheme: string) => {
-        const capabilities = this.capabilities.get(scheme);
+        const name = typeof scheme === 'string' ? scheme.toLowerCase() : '';
+        const capabilities = this.getCapabilities(name);
         return capabilities === undefined ? undefined : !(capabilities & FileSystemProviderCapabilities.Readonly);
       }, checkLive),
     });
