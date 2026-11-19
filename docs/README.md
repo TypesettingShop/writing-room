@@ -16,6 +16,7 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 | --- | --- |
 | [getting-started.md](getting-started.md) | 설치, 조작, 설정, 확장 설치와 테스트 실행 |
 | [extension-api.md](extension-api.md) | Writing Room 확장 작성과 실행, 지원되는 매니페스트와 API |
+| [maintainability.md](maintainability.md) | 유지보수와 확장 가이드: 레이어 규칙, DI, 레지스트리와 기여, 에디터·확장 확장법, 저장, 테스트, 기술 부채 |
 | [architecture.md](architecture.md) | VS Code 경로와 이 저장소 경로의 대응표, VS Code와 달라진 점 목록 |
 | [vscode-workbench-layout.md](vscode-workbench-layout.md) | 파트, 워크벤치 조립, 그리드·스플릿뷰·새시, 뷰 컨테이너 위치, 크기 제약 |
 | [vscode-editor-groups.md](vscode-editor-groups.md) | 에디터 그룹과 탭, 에디터 입력과 페인, Monaco, 드래그 앤 드롭 |
@@ -28,4 +29,4 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 
 - VS Code의 채팅, 세션, 노트북, 터미널, 디버그, 설정 에디터 UI, 원격, 데스크톱 빌드는 v0.1.0에서 다루지 않는다.
 
-Decided in: wr-e8v6, wr-ggyb, wr-cla6
+Decided in: wr-e8v6, wr-ggyb, wr-cla6, wr-510x
