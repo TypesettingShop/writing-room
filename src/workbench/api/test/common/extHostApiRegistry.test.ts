@@ -62,7 +62,7 @@ test('joins an area’s window, type and context, guards methods and isolates cl
     await proxy.$deltaExtensions([extension], []);
     await proxy.$activateByEvent('test');
     await proxy.$deltaExtensions([], [extension.key]);
-    expect(events).toEqual(['first', 'second', 'subscription']);
+    expect(events).toEqual(['subscription', 'first', 'second']);
     expect(() => windowApi.sync()).toThrow('no longer active');
     expect(() => windowApi.current).toThrow('no longer active');
     await expect(windowApi.async()).rejects.toThrow('no longer active');

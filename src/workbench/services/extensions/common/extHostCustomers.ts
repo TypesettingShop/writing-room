@@ -9,7 +9,7 @@ export interface ExtensionCustomerServices {
   readonly instantiation: IInstantiationService;
   getExtension(key: string): HostExtensionDescription | undefined;
   commandOwner(id: string): string | undefined;
-  activate(event: string, origin: string): Promise<void>;
+  activate(event: string, origin: string, probeUnadvertised?: boolean): Promise<void>;
 }
 
 export interface ExtHostCustomer extends Partial<IDisposable> {

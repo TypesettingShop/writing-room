@@ -40,3 +40,22 @@ test('resolves the menu group and strips workbench tab contexts for missing reso
     commands.dispose();
   }
 });
+
+test('probes unadvertised handlers only for commands registered by the extension host', async () => {
+  const activate = vi.fn(async () => {});
+  const commands = new MainThreadCommands({ $executeContributedCommand: async () => 'extension' }, {
+    extensionId: () => 'test.extension', commandOwner: () => undefined, activate,
+  }, new InstantiationService(new ServiceCollection()));
+  const builtin = CommandsRegistry.registerCommand('test.runtimeBuiltin', () => 'workbench');
+  try {
+    await expect(commands.$executeCommand('1', 'test.runtimeBuiltin', [])).resolves.toBe('workbench');
+    expect(activate).toHaveBeenCalledExactlyOnceWith('onCommand:test.runtimeBuiltin', '1', false);
+    activate.mockClear();
+    await commands.$registerCommand('1', 'test.runtimeContributed');
+    await expect(commands.$executeCommand('1', 'test.runtimeContributed', [])).resolves.toBe('extension');
+    expect(activate).toHaveBeenCalledExactlyOnceWith('onCommand:test.runtimeContributed', '1', true);
+  } finally {
+    builtin.dispose();
+    commands.dispose();
+  }
+});

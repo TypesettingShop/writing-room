@@ -1,6 +1,7 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { fetchBoundedResource, ResourceRequestError } from '../../../../base/parts/request/common/boundedFetch.js';
 import { readVsix, vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { readManifestNls } from '../../../../platform/extensionManagement/common/extensionNls.js';
 import { isRecord, isValidExtensionVersion, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription, IExtensionManifest } from '../../../../platform/extensions/common/extensions.js';
@@ -117,14 +118,7 @@ function readNlsBundle(bytes: Uint8Array, path: string): Record<string, string> 
   if (!isRecord(value)) {
     throw new Error(path + ' must contain a JSON object.');
   }
-  const result: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const message = isRecord(entry) ? entry.message : entry;
-    if (typeof message === 'string') {
-      result[key] = message;
-    }
-  }
-  return result;
+  return readManifestNls(value);
 }
 
 /** The folder that holds every package folder, as a location string. */
@@ -441,6 +435,8 @@ export class ExtensionManagementService {
   ): Promise<IExtensionDescription> {
     const { identifier, location } = record;
     const staged = await this.packages.stage(pkg, signal, preloaded);
+    const replaced = this.installed.find(extension => extension.identifier.value === identifier);
+    let stoppedPrevious = false;
     let committed = false;
     try {
       await this.scanner.locked(async (read, write) => {
@@ -448,6 +444,11 @@ export class ExtensionManagementService {
         const current = installed.find(entry => entry.identifier === identifier);
         if (current?.location !== previous?.location || current?.installedAt !== previous?.installedAt) {
           throw new Error(`'${identifier}' changed in another window during the install. Try again.`);
+        }
+        // The old generation can still save state/read package resources during deactivate.
+        if (replaced && this.active.removeExtension?.(identifier)) {
+          stoppedPrevious = true;
+          await this.active.whenExtensionRemoved?.(identifier);
         }
         // Only `current` can name this identifier and version. A folder there that it does not use is left
         // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
@@ -464,14 +465,13 @@ export class ExtensionManagementService {
       if (!committed) {
         await this.packages.discard(staged).catch(cleanup => console.warn('Could not remove a staged extension package.', cleanup));
       }
+      if (stoppedPrevious && replaced) {
+        this.registerAgain(replaced);
+      }
       throw error;
     }
 
     const description = toExtensionDescription(record);
-    const replaced = this.installed.find(extension => extension.identifier.value === identifier);
-    if (replaced) {
-      this.active.removeExtension?.(identifier);
-    }
     try {
       if (!this.active.addExtension?.(description)) {
         throw new Error(`Could not register extension '${identifier}'.`);
@@ -604,8 +604,9 @@ export class ExtensionManagementService {
   }
 
   /**
-   * Removes the extension from this tab, then its record, then its package folder. A failed record write
-   * registers the extension again; a failed folder removal is left to the startup cleanup.
+   * Removes the extension from this tab and waits for its deactivation, then removes its record, its package
+   * folder and its state. A failed record write registers the extension again; a failed folder removal is left
+   * to the startup cleanup; a failed state removal is reported without registering the extension again.
    */
   uninstall(identifier: string): Promise<boolean> {
     return this.serialize(() => this.remove(identifier));
@@ -617,18 +618,24 @@ export class ExtensionManagementService {
     if (!description || !this.active.removeExtension?.(id)) {
       return false;
     }
+    await this.active.whenExtensionRemoved?.(id);
+    let removedRecord = false;
     try {
       await this.scanner.locked(async (read, write) => {
         const installed = read();
         const record = installed.find(extension => extension.identifier === id);
         const remaining = installed.filter(extension => extension.identifier !== id);
         await write(remaining);
+        removedRecord = true;
         if (record) {
           await this.removeUnreferenced(record.location, remaining);
         }
+        await this.active.clearExtensionStorage?.(id);
       });
     } catch (error) {
-      this.registerAgain(description);
+      if (!removedRecord) {
+        this.registerAgain(description);
+      }
       throw error;
     }
     return true;
