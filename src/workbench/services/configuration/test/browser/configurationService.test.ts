@@ -6,14 +6,32 @@ import { ConfigurationRegistry } from '../../../../../platform/configuration/com
 import { InMemoryStorageService, StorageScope, StorageTarget, storageKey } from '../../../../../platform/storage/common/storage.js';
 import { ConfigurationService, userSettingsKey } from '../../browser/configurationService.js';
 
+/** Opens like the browser backend: `getItems` opens it, and a closed backend drops writes. */
 class TestDatabase extends InMemoryStorageDatabase {
   fail = false;
+  open = false;
+
+  override getItems(): Map<string, string> {
+    this.open = true;
+    return super.getItems();
+  }
 
   override updateItems(update: IStorageUpdate): void {
     if (this.fail) {
       throw new Error('quota exceeded');
     }
-    super.updateItems(update);
+    if (this.open) {
+      super.updateItems(update);
+    }
+  }
+
+  override close(): void {
+    this.open = false;
+  }
+
+  /** Reads a persisted value without opening the backend. */
+  peek(key: string): string | undefined {
+    return super.getItems().get(key);
   }
 }
 
@@ -160,12 +178,16 @@ test('an explicit settings write can retry the persistent backend after a backgr
     storage.store('session-state', 'unrelated', StorageScope.PROFILE, StorageTarget.USER);
     await storage.flush();
     expect(warn).toHaveBeenCalledOnce();
+    expect(database.open).toBe(false);
     expect(() => service.saveUserSettings('{"editor.fontSize":21}')).toThrow('quota exceeded');
+    expect(database.open).toBe(false);
     expect(service.getValue('editor.fontSize')).toBe(18);
     database.fail = false;
     service.saveUserSettings('{"editor.fontSize":21}');
     expect(service.getValue('editor.fontSize')).toBe(21);
-    expect(database.getItems().get(storageKey(StorageScope.PROFILE, userSettingsKey))).toBe('{"editor.fontSize":21}');
+    expect(database.peek(storageKey(StorageScope.PROFILE, userSettingsKey))).toBe('{"editor.fontSize":21}');
+    // The tab's other state lives only in memory, so the backend stays closed to other tabs' writes.
+    expect(database.open).toBe(false);
   } finally {
     warn.mockRestore();
   }

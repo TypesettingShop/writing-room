@@ -106,8 +106,9 @@ export class SettingsEditorInput extends EditorInput implements ITextEditorModel
   }
 
   save(): void {
-    if (this.model && this.dirty) {
-      const value = this.model.getValue();
+    // The draft is the model's text, or a restored draft while the model is still being created.
+    const value = this.draft;
+    if (value !== undefined) {
       this.configuration.saveUserSettings(this.saved.charCodeAt(0) === 0xfeff ? '\ufeff' + value : value);
     }
   }

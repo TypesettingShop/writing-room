@@ -85,7 +85,9 @@ registerAction2(class SaveFile extends Action2 {
     const quickInput = accessor.get(IQuickInputService);
     try {
       editor.save();
-    } catch {
+    } catch (error) {
+      // A warning, not an error: the dialog below already tells the user, and the draft stays open.
+      console.warn('Could not save settings.json.', error);
       await quickInput.pick([{ label: 'OK', detail: 'Your changes are still open. Free browser storage or allow this site to store data, then try again.' }],
         { title: 'Could not save settings.json' });
     }
