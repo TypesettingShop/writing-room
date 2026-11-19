@@ -29,6 +29,10 @@ interface Probe {
   readonly activeTab: string;
   readonly foreign: string;
   readonly second: string;
+  readonly documentsOpened: string[];
+  readonly documentsDisposed: string[];
+  readonly saves: number;
+  readonly reverts: number;
 }
 
 /** What the fixture extension saw, as it reports it in a notification. */
@@ -187,4 +191,88 @@ test('shows why a provider failed, and drops a resolution that ends after its ed
   expect(seen.disposed).toContain('y.slow');
   await expect(content(page).locator('#text')).toHaveText('z');
   await expect(content(page).getByText('Late result')).toHaveCount(0);
+});
+
+test('opens a file the text editor refuses in a read-only custom editor, one document for its editors', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'b.bin', { bytes: [0, 1, 2, 255] });
+  await treeItem(page, 'b.bin').click();
+  const [left, right] = [groups(page).first(), groups(page).nth(1)];
+  await expect(content(page).locator('#binary')).toHaveText('Binary b.bin');
+
+  await command(page, 'View: Reopen Editor With...');
+  await chooseOption(page, 'Text Editor');
+  await expect(left.getByRole('alert')).toContainText('binary');
+  await command(page, 'View: Reopen Editor With...');
+  await chooseOption(page, 'Binary View');
+  await expect(content(page).locator('#binary')).toHaveText('Binary b.bin');
+
+  // The provider allows more editors per document: a second one shares the document.
+  await left.getByRole('tab', { name: 'Welcome' }).click();
+  await command(page, 'View: Split Editor Right');
+  await expect(groups(page)).toHaveCount(2);
+  await treeItem(page, 'b.bin').click();
+  await expect(selectedTab(right)).toHaveText('b.bin');
+  await expect(content(page).locator('#binary')).toHaveText('Binary b.bin');
+  expect((await probe(page)).documentsOpened).toEqual(['b.bin', 'b.bin']);
+
+  await right.getByRole('button', { name: 'Close b.bin' }).click();
+  expect((await probe(page)).documentsDisposed).toEqual(['b.bin']);
+  await left.getByRole('button', { name: 'Close b.bin' }).click();
+  await expect.poll(async () => (await probe(page)).documentsDisposed).toEqual(['b.bin', 'b.bin']);
+});
+
+test('an editable custom document undoes in order, saves through its provider and asks before the page goes', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'c.count', 'x');
+  await treeItem(page, 'c.count').click();
+  const group = groups(page).first();
+  const counter = content(page);
+  await expect(counter.locator('#text')).toHaveText('0');
+  const tab = selectedTab(group);
+  await expect(tab).not.toHaveAccessibleDescription('Modified');
+
+  await counter.getByRole('button', { name: 'Increment' }).click();
+  await counter.getByRole('button', { name: 'Increment' }).click();
+  await expect(counter.locator('#text')).toHaveText('2');
+  await expect(tab).toHaveAccessibleDescription('Modified');
+  // A key pressed in the Webview reaches the workbench's Undo.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(counter.locator('#text')).toHaveText('1');
+  await command(page, 'Edit: Undo');
+  await expect(counter.locator('#text')).toHaveText('0');
+  await expect(tab).not.toHaveAccessibleDescription('Modified');
+  await command(page, 'Edit: Redo');
+  await expect(counter.locator('#text')).toHaveText('1');
+  await expect(tab).toHaveAccessibleDescription('Modified');
+
+  await counter.getByRole('button', { name: 'Fail Next Save' }).click();
+  await command(page, 'File: Save');
+  await expect(page.getByText("Failed to save 'c.count': Fixture save failure")).toBeVisible();
+  await expect(tab).toHaveAccessibleDescription('Modified');
+  await command(page, 'File: Save');
+  await expect(tab).not.toHaveAccessibleDescription('Modified');
+  expect((await probe(page)).saves).toBe(1);
+
+  // Back at the save point by undo: clean again.
+  await counter.getByRole('button', { name: 'Increment' }).click();
+  await expect(tab).toHaveAccessibleDescription('Modified');
+  await command(page, 'Edit: Undo');
+  await expect(counter.locator('#text')).toHaveText('1');
+  await expect(tab).not.toHaveAccessibleDescription('Modified');
+
+  await counter.getByRole('button', { name: 'Increment' }).click();
+  await expect(tab).toHaveAccessibleDescription('Modified');
+  const dialog = page.waitForEvent('dialog', { timeout: 15_000 });
+  // The reload stays pending once the page stays.
+  void page.reload().catch(() => {});
+  expect((await dialog).type()).toBe('beforeunload');
+  await (await dialog).dismiss();
+  await expect(tab).toHaveAccessibleDescription('Modified');
+
+  await page.getByRole('button', { name: 'Close c.count' }).click();
+  await answerCloseQuestion(page, 'c.count', "Don't Save");
+  await expect(page.getByRole('tab', { name: 'c.count' })).toHaveCount(0);
+  const seen = await probe(page);
+  expect(seen).toMatchObject({ reverts: 1, documentsOpened: ['c.count'], documentsDisposed: ['c.count'] });
 });

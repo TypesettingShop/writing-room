@@ -11,11 +11,15 @@ export const ICustomEditorService = createDecorator<ICustomEditorService>('custo
 export interface ICustomEditorProvider {
   /** The identifier of the extension that registered it, as the extension service knows it. */
   readonly extensionId: string;
-  readonly kind: 'text';
+  /** `text`: a `CustomTextEditorProvider`; `custom`: a provider with its own documents. */
+  readonly kind: 'text' | 'custom';
+  /** A `CustomEditorProvider` (it saves); a `CustomReadonlyEditorProvider` is not. */
+  readonly editable: boolean;
   readonly options: WebviewPanelOptions;
   readonly supportsMultipleEditorsPerDocument: boolean;
   /**
-   * Hands `input` to the extension. The input's model is already held. It settles once the extension
+   * Hands `input` to the extension. A text editor's model is already held; a custom document is
+   * opened here, once for all its editors, and attached to the input. It settles once the extension
    * has resolved the editor, and rejects when it threw; a result after `token` is cancelled is
    * dropped by the caller.
    */

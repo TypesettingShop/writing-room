@@ -2,6 +2,7 @@ import type { Dimension } from '../../../../base/browser/dom.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import type { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { basename, isEqual, relativePath } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
@@ -10,6 +11,7 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import type { IReference, IResolvedTextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import type { IResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import type { WebviewPanelOptions } from '../../../api/common/extHost.protocol.webview.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
@@ -20,6 +22,7 @@ import { IEditorGroupsService } from '../../../services/editor/common/editorGrou
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IUntitledTextEditorService } from '../../../services/untitled/common/untitledTextEditorService.js';
 import { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
+import type { CustomDocumentModel } from './customDocumentModel.js';
 import { ICustomEditorService } from './customEditorService.js';
 
 /** The Webview of a custom editor: it says when a pane shows it, which is when the editor resolves. */
@@ -33,6 +36,10 @@ export class CustomEditorWebview extends WebviewOverlay {
   }
 }
 
+function describe(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
 /** Where a custom editor stands with its provider. */
 export enum CustomEditorResolution {
   /** Not asked yet, or asked again after the extension host restarted. */
@@ -44,11 +51,14 @@ export enum CustomEditorResolution {
 }
 
 /**
- * A custom text editor: a Webview the extension fills, over the text model of `resource`. It shows
- * in the Webview pane (which needs only `webview` of it) and identifies itself to the rest of the
- * workbench by `resource` and `viewType`. Dirty state, save and revert are the text file model's, as
- * for the text editor of the same file; once the custom editor started to resolve, it holds a
- * reference to that model.
+ * A custom editor: a Webview the extension fills. It shows in the Webview pane (which needs only
+ * `webview` of it) and identifies itself to the rest of the workbench by `resource` and `viewType`.
+ *
+ * A `text` editor is over the text model of `resource`: dirty state, save and revert are the text
+ * file model's, as for the text editor of the same file, and once it started to resolve it holds a
+ * reference to that model. A `custom` editor is over a document of the extension's own, which the
+ * main thread attaches when it resolves: dirty state, save, revert, undo and redo are that
+ * document's, shared by the editors of the same `viewType` and resource.
  */
 export class CustomEditorInput extends EditorInput {
   static readonly ID = 'workbench.editors.webviewEditor';
@@ -64,6 +74,7 @@ export class CustomEditorInput extends EditorInput {
   /** Untitled text the editor was made for, kept until it has the model (see `acquireModel`). */
   private untitledSnapshot: { readonly value: string; readonly languageId: string } | undefined;
   private readonly services: IInstantiationService;
+  private document: { readonly model: CustomDocumentModel; readonly release: IDisposable; readonly listener: IDisposable } | undefined;
 
   constructor(
     readonly resource: URI,
@@ -71,12 +82,14 @@ export class CustomEditorInput extends EditorInput {
     readonly extensionId: string,
     readonly options: WebviewPanelOptions,
     readonly supportsMultipleEditorsPerDocument: boolean,
+    readonly kind: 'text' | 'custom',
     @IInstantiationService instantiation: IInstantiationService,
     @ITextFileService private readonly textFiles: ITextFileService,
     @ITextModelService private readonly textModels: ITextModelService,
     @IUntitledTextEditorService private readonly untitled: IUntitledTextEditorService,
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
-    @IFileDialogService fileDialogs: IFileDialogService,
+    @IFileDialogService private readonly fileDialogs: IFileDialogService,
+    @INotificationService private readonly notifications: INotificationService,
   ) {
     super();
     // The editor groups and the custom editor service are looked up when needed: an input restored
@@ -96,8 +109,10 @@ export class CustomEditorInput extends EditorInput {
       showConfirm: () => this.isDirty() && !this.isShownElsewhere(),
       confirm: editors => fileDialogs.showSaveConfirm(editors.map(({ editor }) => editor.getName())),
     };
-    this._register(Event.filter(textFiles.onDidChangeDirty, changed => isEqual(changed, resource))(() => this._onDidChangeDirty.fire()));
-    this._register(Event.filter(textFiles.files.onDidChangeReadonly, model => isEqual(model.resource, resource))(() => this._onDidChangeLabel.fire()));
+    if (kind === 'text') {
+      this._register(Event.filter(textFiles.onDidChangeDirty, changed => isEqual(changed, resource))(() => this._onDidChangeDirty.fire()));
+      this._register(Event.filter(textFiles.files.onDidChangeReadonly, model => isEqual(model.resource, resource))(() => this._onDidChangeLabel.fire()));
+    }
     this._register(webview.onDidShow(() => instantiation.invokeFunction(accessor => accessor.get(ICustomEditorService)).resolve(this)));
   }
 
@@ -116,14 +131,21 @@ export class CustomEditorInput extends EditorInput {
   }
 
   override isDirty(): boolean {
-    return this.textFiles.isDirty(this.resource);
+    return this.kind === 'text' ? this.textFiles.isDirty(this.resource) : this.document?.model.isDirty() ?? false;
   }
 
   override isReadonly(): boolean {
+    if (this.kind === 'custom') {
+      // A `CustomReadonlyEditorProvider` has nothing to save.
+      return this.document ? !this.document.model.editable : false;
+    }
     return this.textFiles.files.get(this.resource)?.isReadonly() ?? false;
   }
 
   override async save(_group: GroupIdentifier, options?: ISaveOptions): Promise<EditorInput | IResourceEditorInput | undefined> {
+    if (this.kind === 'custom') {
+      return await this.saveDocument(model => model.save()) ? this : undefined;
+    }
     const saved = await this.textFiles.save(this.resource, options);
     if (!saved) {
       return undefined;
@@ -133,12 +155,71 @@ export class CustomEditorInput extends EditorInput {
   }
 
   override async saveAs(_group: GroupIdentifier, options?: ISaveOptions): Promise<EditorInput | IResourceEditorInput | undefined> {
+    if (this.kind === 'custom') {
+      const target = this.document?.model.editable ? await this.fileDialogs.pickFileToSave(this.resource) : undefined;
+      return target && await this.saveDocument(model => model.saveAs(target)) ? { resource: target } : undefined;
+    }
     const target = await this.textFiles.saveAs(this.resource, undefined, options);
     return target ? { resource: target } : undefined;
   }
 
   override async revert(_group: GroupIdentifier, options?: IRevertOptions): Promise<void> {
+    if (this.kind === 'custom') {
+      await this.document?.model.revert().catch(error => this.notifications.error(`Failed to revert '${this.getName()}': ${describe(error)}`));
+      return;
+    }
     await this.textFiles.revert(this.resource, options);
+  }
+
+  /** Undoes the last edit of a custom document; nothing for text, whose editors undo themselves. */
+  async undo(): Promise<void> {
+    await this.document?.model.undo();
+  }
+
+  async redo(): Promise<void> {
+    await this.document?.model.redo();
+  }
+
+  /** Saves the custom document; a failure is told and leaves it dirty. */
+  private async saveDocument(save: (model: CustomDocumentModel) => Promise<void>): Promise<boolean> {
+    const model = this.document?.model;
+    if (!model?.editable) {
+      return false;
+    }
+    try {
+      await save(model);
+      return true;
+    } catch (error) {
+      this.notifications.error(`Failed to save '${this.getName()}': ${describe(error)}`);
+      return false;
+    }
+  }
+
+  /** Puts the custom document under this editor; the input lets go of it with `release` when it closes. */
+  attachDocument(model: CustomDocumentModel, release: IDisposable): void {
+    this.detachDocument();
+    if (this.isDisposed()) {
+      release.dispose();
+      return;
+    }
+    const listener = model.onDidChangeDirty(() => this._onDidChangeDirty.fire());
+    this.document = { model, release, listener };
+    if (model.isDirty()) {
+      this._onDidChangeDirty.fire();
+    }
+  }
+
+  /** Lets go of the custom document: it closed, or its extension host stopped. */
+  detachDocument(): void {
+    const document = this.document;
+    if (document) {
+      this.document = undefined;
+      document.listener.dispose();
+      document.release.dispose();
+      if (document.model.isDirty()) {
+        this._onDidChangeDirty.fire();
+      }
+    }
   }
 
   override matches(other: EditorInput): boolean {
@@ -211,13 +292,19 @@ export class CustomEditorInput extends EditorInput {
     this.cancellation = undefined;
     this.generation++;
     this.resolution = CustomEditorResolution.Pending;
+    this.detachDocument();
     this.webview.resetForRestore();
   }
 
+  /**
+   * Whether another editor keeps the changes when this one closes: for text, any other editor of the
+   * resource; for a custom document, another editor of the same document.
+   */
   private isShownElsewhere(): boolean {
     const groups = this.services.invokeFunction(accessor => accessor.get(IEditorGroupsService));
     return groups.groups.some(group => group.editors.some(editor => editor !== this && !editor.matches(this)
-      && isEqual(editor.resource, this.resource)));
+      && isEqual(editor.resource, this.resource)
+      && (this.kind === 'text' || (editor instanceof CustomEditorInput && editor.kind === 'custom' && editor.viewType === this.viewType))));
   }
 
   override dispose(): void {
@@ -226,6 +313,7 @@ export class CustomEditorInput extends EditorInput {
     }
     this.cancellation?.dispose(true);
     this.cancellation = undefined;
+    this.detachDocument();
     const reference = this.reference;
     this.reference = undefined;
     const untitled = this.resource.scheme === Schemas.untitled && reference !== undefined && !this.isShownElsewhere();

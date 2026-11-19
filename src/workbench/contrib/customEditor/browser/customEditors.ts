@@ -106,7 +106,7 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
     const { generation, token } = input.startResolution();
     // Taken now, before anything waits: a text editor of the same file that this editor replaces lets
     // go of the model only after this, so the model (and its unsaved text) stays.
-    if (input.resource.scheme !== Schemas.untitled) {
+    if (input.kind === 'text' && input.resource.scheme !== Schemas.untitled) {
       input.acquireModel().catch(() => {});
     }
     void (async () => {
@@ -123,9 +123,14 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
         await this.reopenInTextEditor(input, info?.displayName ?? input.viewType);
         return;
       }
-      await input.acquireModel();
-      if (!input.isResolving(generation)) {
-        return;
+      if (provider.kind !== input.kind) {
+        throw new Error('the extension provides it differently now; reopen the editor.');
+      }
+      if (input.kind === 'text') {
+        await input.acquireModel();
+        if (!input.isResolving(generation)) {
+          return;
+        }
       }
       await provider.resolve(input, token);
       input.completeResolution(generation);
@@ -250,7 +255,7 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
       }
     }
     const editor = this.instantiation.createInstance(CustomEditorInput, resource, info.id, info.extensionId,
-      provider.options, provider.supportsMultipleEditorsPerDocument);
+      provider.options, provider.supportsMultipleEditorsPerDocument, provider.kind);
     return { editor, options };
   }
 }

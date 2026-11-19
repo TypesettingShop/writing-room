@@ -1,8 +1,12 @@
-import type { CancellationToken } from '../../../base/common/cancellation.js';
-import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
+import { basename } from '../../../base/common/resources.js';
+import { URI } from '../../../base/common/uri.js';
 import { isTooLargeForSyncing } from '../../../editor/common/model.js';
+import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
+import { CustomDocumentModel } from '../../contrib/customEditor/browser/customDocumentModel.js';
 import { CustomEditorInput, CustomEditorResolution } from '../../contrib/customEditor/browser/customEditorInput.js';
 import { ICustomEditorService } from '../../contrib/customEditor/browser/customEditorService.js';
 import { IWebviewOriginService } from '../../contrib/webview/browser/webviewOriginService.js';
@@ -13,7 +17,10 @@ import type { IEditorGroup } from '../../services/editor/common/editorGroupsServ
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../services/editor/common/editorService.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { ExtHostCustomEditorsProxy, MainThreadCustomEditorsProxy } from '../common/extHost.protocol.customEditor.js';
-import type { ExtHostCustomEditorsShape, MainThreadCustomEditorsShape } from '../common/extHost.protocol.customEditor.js';
+import type {
+  CustomEditorResolveData, ExtHostCustomEditorsShape, MainThreadCustomEditorsShape,
+} from '../common/extHost.protocol.customEditor.js';
+import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import type {
   WebviewContentOptions, WebviewPanelOptions, WebviewPanelViewState, WebviewShowOptions,
 } from '../common/extHost.protocol.webview.js';
@@ -27,6 +34,18 @@ interface EditorEntry {
   html: string;
   options: WebviewContentOptions;
   state?: WebviewPanelViewState;
+}
+
+interface DocumentEntry {
+  readonly owner: string;
+  readonly model: Promise<CustomDocumentModel>;
+  /** The editors holding the document; it goes with the last one. */
+  readonly holders: Set<CustomEditorInput>;
+  resolved?: CustomDocumentModel;
+}
+
+function documentKey(viewType: string, resource: URI): string {
+  return JSON.stringify([viewType, resource.toString()]);
 }
 
 function declares(extension: HostExtensionDescription, viewType: string): boolean {
@@ -47,6 +66,8 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
   private readonly providers = new Map<string, { readonly owner: string; readonly registration: IDisposable }>();
   /** Editors this host is resolving: when the host stops, they start over in the next one. */
   private readonly resolving = new Set<CustomEditorInput>();
+  /** The documents of custom (not text) editors, opened by this host's extensions. */
+  private readonly documents = new Map<string, DocumentEntry>();
   private scheduled = false;
   private stopped = false;
 
@@ -58,6 +79,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     @IEditorService editorService: IEditorService,
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
     @IWebviewOriginService private readonly origins: IWebviewOriginService,
+    @INotificationService private readonly notifications: INotificationService,
   ) {
     super();
     for (const event of [
@@ -71,6 +93,18 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
   async $registerTextEditorProvider(
     extension: string, viewType: string, options: WebviewPanelOptions, supportsMultipleEditorsPerDocument: boolean,
   ): Promise<void> {
+    this.register(extension, viewType, options, supportsMultipleEditorsPerDocument, 'text', false);
+  }
+
+  async $registerCustomEditorProvider(
+    extension: string, viewType: string, options: WebviewPanelOptions, supportsMultipleEditorsPerDocument: boolean, editable: boolean,
+  ): Promise<void> {
+    this.register(extension, viewType, options, supportsMultipleEditorsPerDocument, 'custom', editable === true);
+  }
+
+  private register(
+    extension: string, viewType: string, options: WebviewPanelOptions, multiple: boolean, kind: 'text' | 'custom', editable: boolean,
+  ): void {
     const owner = this.getExtension(extension);
     if (!owner || typeof viewType !== 'string' || !viewType || !declares(owner, viewType)) {
       throw new Error(`The custom editor '${String(viewType)}' is not contributed by this extension.`);
@@ -80,15 +114,36 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     }
     const registration = this.customEditors.registerProvider(viewType, {
       extensionId: owner.id,
-      kind: 'text',
+      kind,
+      editable,
       options: {
         retainContextWhenHidden: options?.retainContextWhenHidden === true,
         enableFindWidget: options?.enableFindWidget === true,
       },
-      supportsMultipleEditorsPerDocument: supportsMultipleEditorsPerDocument === true,
-      resolve: (input, token) => this.resolveText(extension, owner, input, token),
+      supportsMultipleEditorsPerDocument: multiple === true,
+      resolve: (input, token) => this.track(input, kind === 'text'
+        ? this.resolveText(extension, owner, input, token)
+        : this.resolveCustom(extension, owner, input, editable, token)),
     });
     this.providers.set(viewType, { owner: extension, registration });
+  }
+
+  async $onDidEdit(extension: string, viewType: string, resource: URI, editId: number): Promise<void> {
+    if (Number.isSafeInteger(editId)) {
+      this.lookupDocument(extension, viewType, resource)?.acceptEdit(editId);
+    }
+  }
+
+  async $onDidChangeContent(extension: string, viewType: string, resource: URI): Promise<void> {
+    this.lookupDocument(extension, viewType, resource)?.acceptContentChange();
+  }
+
+  private lookupDocument(extension: string, viewType: string, resource: unknown): CustomDocumentModel | undefined {
+    if (typeof viewType !== 'string' || !URI.isUri(resource)) {
+      return undefined;
+    }
+    const entry = this.documents.get(documentKey(viewType, resource));
+    return entry?.owner === extension ? entry.resolved : undefined;
   }
 
   async $unregisterProvider(extension: string, viewType: string): Promise<void> {
@@ -142,6 +197,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
 
   /** The extension is going: its editors resolve again (in the text editor if nothing provides them any more). */
   remove(extension: string): void {
+    this.dropDocuments(entry => entry.owner === extension);
     for (const [viewType, entry] of this.providers) {
       if (entry.owner === extension) {
         void this.$unregisterProvider(extension, viewType);
@@ -157,6 +213,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
   /** The extension host stops: every editor waits and resolves again in the next host. */
   override dispose(): void {
     this.stopped = true;
+    this.dropDocuments(() => true);
     for (const [handle, entry] of this.editors) {
       this.release(handle, entry);
     }
@@ -187,21 +244,113 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     }
   }
 
-  private async resolveText(extension: string, owner: HostExtensionDescription, input: CustomEditorInput, token: CancellationToken): Promise<void> {
+  /** Documents of an extension that went: their editors let go of them; unsaved changes are lost, and said so. */
+  private dropDocuments(which: (entry: DocumentEntry) => boolean): void {
+    for (const [key, entry] of this.documents) {
+      if (!which(entry)) {
+        continue;
+      }
+      this.documents.delete(key);
+      const model = entry.resolved;
+      if (model?.isDirty()) {
+        this.notifications.warn(`The unsaved changes of '${basename(model.resource)}' were lost: the extension that edits it stopped.`);
+      }
+      for (const holder of entry.holders) {
+        holder.detachDocument();
+      }
+      model?.dispose();
+    }
+  }
+
+  private async track(input: CustomEditorInput, resolution: Promise<void>): Promise<void> {
     this.resolving.add(input);
     try {
-      await this.doResolveText(extension, owner, input, token);
+      await resolution;
     } finally {
       this.resolving.delete(input);
     }
   }
 
-  private async doResolveText(extension: string, owner: HostExtensionDescription, input: CustomEditorInput, token: CancellationToken): Promise<void> {
-    const live = () => !this.stopped && !token.isCancellationRequested && this.getExtension(extension) === owner;
+  private async resolveText(extension: string, owner: HostExtensionDescription, input: CustomEditorInput, token: CancellationToken): Promise<void> {
     const model = await input.acquireModel();
     if (isTooLargeForSyncing(model)) {
       throw new Error('The document is too large for extensions (more than 50 MiB).');
     }
+    await this.bind(extension, owner, input, token, (handle, data, origin) =>
+      this.proxy.$resolveTextEditor(extension, handle, { ...data, documentId: model.id }, origin, token));
+  }
+
+  /**
+   * Opens the document (once for all its editors, with `openCustomDocument`) and resolves the editor
+   * over it. The editor holds the document until it closes.
+   */
+  private async resolveCustom(
+    extension: string, owner: HostExtensionDescription, input: CustomEditorInput, editable: boolean, token: CancellationToken,
+  ): Promise<void> {
+    const key = documentKey(input.viewType, input.resource);
+    let entry = this.documents.get(key);
+    if (!entry) {
+      const created: DocumentEntry = {
+        owner: extension, holders: new Set(),
+        model: this.proxy.$createCustomDocument(extension, input.viewType, input.resource, CancellationToken.None).then(() => {
+          const model = new CustomDocumentModel(input.viewType, input.resource, editable, {
+            undo: editId => this.proxy.$undo(extension, input.viewType, input.resource, editId),
+            redo: editId => this.proxy.$redo(extension, input.viewType, input.resource, editId),
+            save: () => this.proxy.$save(extension, input.viewType, input.resource, CancellationToken.None),
+            saveAs: target => this.proxy.$saveAs(extension, input.viewType, input.resource, target, CancellationToken.None),
+            revert: () => this.proxy.$revert(extension, input.viewType, input.resource, CancellationToken.None),
+          });
+          if (this.documents.get(key) !== created) {
+            // Nobody holds it any more, or the host went meanwhile.
+            model.dispose();
+            void this.proxy.$disposeCustomDocument(extension, input.viewType, input.resource).catch(() => {});
+            throw new Error('The custom document was closed.');
+          }
+          created.resolved = model;
+          return model;
+        }, error => {
+          if (this.documents.get(key) === created) {
+            this.documents.delete(key);
+          }
+          throw error;
+        }),
+      };
+      entry = created;
+      this.documents.set(key, created);
+    }
+    const held = entry;
+    held.holders.add(input);
+    const release = toDisposable(() => {
+      if (held.holders.delete(input) && held.holders.size === 0 && this.documents.get(key) === held) {
+        this.documents.delete(key);
+        held.resolved?.dispose();
+        if (held.resolved) {
+          void this.proxy.$disposeCustomDocument(extension, input.viewType, input.resource).catch(() => {});
+        }
+      }
+    });
+    let model: CustomDocumentModel;
+    try {
+      model = await held.model;
+    } catch (error) {
+      release.dispose();
+      throw error;
+    }
+    if (token.isCancellationRequested || input.isDisposed()) {
+      release.dispose();
+      return;
+    }
+    input.attachDocument(model, release);
+    await this.bind(extension, owner, input, token, (handle, data, origin) =>
+      this.proxy.$resolveCustomEditor(extension, handle, data, origin, token));
+  }
+
+  /** Binds `input`'s Webview to a new handle of `extension` and asks the extension host with `request`. */
+  private async bind(
+    extension: string, owner: HostExtensionDescription, input: CustomEditorInput, token: CancellationToken,
+    request: (handle: string, data: CustomEditorResolveData, origin: WebviewOrigin) => Promise<void>,
+  ): Promise<void> {
+    const live = () => !this.stopped && !token.isCancellationRequested && this.getExtension(extension) === owner;
     const handle = crypto.randomUUID();
     const origin = await this.origins.resolve(input.id);
     // An origin that cannot be set up is shown by the Webview itself, with what to configure.
@@ -222,10 +371,10 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     input.webview.setOrigin(origin);
     const state = entry.state = this.viewState(input);
     try {
-      await this.proxy.$resolveTextEditor(extension, handle, {
-        viewType: input.viewType, resource: input.resource, documentId: model.id, title: input.getName(),
+      await request(handle, {
+        viewType: input.viewType, resource: input.resource, title: input.getName(),
         options: input.options, contentOptions: entry.options, viewState: state,
-      }, origin, token);
+      }, origin);
     } catch (error) {
       if (this.drop(handle, entry)) {
         void this.proxy.$onDisposed(extension, handle).catch(() => {});

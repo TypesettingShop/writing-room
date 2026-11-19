@@ -1,12 +1,15 @@
 import '../common/extensionPoint.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { normalizeFileResource } from '../../../../platform/files/common/fileResource.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import type { IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
@@ -25,6 +28,7 @@ import {
 } from '../../../services/editor/common/editorResolverService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { WebviewEditor } from '../../webviewPanel/browser/webviewEditor.js';
+import { CONTEXT_ACTIVE_CUSTOM_EDITOR_ID } from '../common/customEditor.js';
 import { CustomEditorInput } from './customEditorInput.js';
 import { CustomEditorInputSerializer } from './customEditorInputSerializer.js';
 import { ICustomEditorService } from './customEditorService.js';
@@ -142,3 +146,35 @@ CommandsRegistry.registerCommand(OPEN_WITH_COMMAND_ID, async (accessor, ...args:
     options: { override: viewType, preserveFocus: settings.preserveFocus === true },
   }, extensionEditorGroup(accessor.get(IEditorGroupsService), column));
 });
+
+/**
+ * Undo and redo for the documents of custom editors (`CustomEditorProvider`): the extension's edits,
+ * in order. They apply while a custom editor is the active editor and no text input has the focus;
+ * keys pressed in the Webview reach the workbench too.
+ */
+const customEditorKeys = ContextKeyExpr.and(ContextKeyExpr.has(CONTEXT_ACTIVE_CUSTOM_EDITOR_ID.key),
+  ContextKeyExpr.not('editorTextFocus'), ContextKeyExpr.not('textInputFocus'));
+
+for (const [id, title, keys] of [
+  ['undo', 'Undo', { primary: KeyMod.CtrlCmd | KeyCode.KeyZ }],
+  ['redo', 'Redo', {
+    primary: KeyMod.CtrlCmd | KeyCode.KeyY, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ],
+    mac: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ },
+  }],
+] as const) {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({
+        id, title, category: 'Edit', f1: true, precondition: ContextKeyExpr.has(CONTEXT_ACTIVE_CUSTOM_EDITOR_ID.key),
+        keybinding: { ...keys, weight: KeybindingWeight.WorkbenchContrib, when: customEditorKeys },
+      });
+    }
+
+    override async run(accessor: ServicesAccessor): Promise<void> {
+      const editor = accessor.get(IEditorGroupsService).activeGroup.activeEditor;
+      if (editor instanceof CustomEditorInput) {
+        await (id === 'undo' ? editor.undo() : editor.redo());
+      }
+    }
+  });
+}

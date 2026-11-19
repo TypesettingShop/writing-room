@@ -10,7 +10,7 @@ import { CustomEditorInput } from './customEditorInput.js';
 const extensionFormat = /^[\w-]+\.[\w-]+$/;
 
 /**
- * Writes a custom editor as its resource, `viewType`, extension and Webview options. The tab comes
+ * Writes a custom editor as its resource, `viewType`, extension, Webview options and kind. The tab comes
  * back empty and resolves when it is shown, waking the extension with `onCustomEditor:<viewType>`.
  * Untitled text is not written: its text lives with the untitled editor.
  */
@@ -26,7 +26,7 @@ export class CustomEditorInputSerializer implements IEditorSerializer {
     return JSON.stringify({
       version: 1, resource: editor.resource.toString(), viewType: editor.viewType, extension: editor.extensionId,
       options: { retainContextWhenHidden: editor.options.retainContextWhenHidden === true, enableFindWidget: editor.options.enableFindWidget === true },
-      multiple: editor.supportsMultipleEditorsPerDocument,
+      multiple: editor.supportsMultipleEditorsPerDocument, kind: editor.kind,
     });
   }
 
@@ -39,7 +39,7 @@ export class CustomEditorInputSerializer implements IEditorSerializer {
     }
     if (!isRecord(value) || value.version !== 1 || typeof value.resource !== 'string' || typeof value.viewType !== 'string'
       || !value.viewType || typeof value.extension !== 'string' || !extensionFormat.test(value.extension)
-      || !isRecord(value.options) || typeof value.multiple !== 'boolean') {
+      || !isRecord(value.options) || typeof value.multiple !== 'boolean' || (value.kind !== 'text' && value.kind !== 'custom')) {
       return undefined;
     }
     let resource: URI;
@@ -55,6 +55,6 @@ export class CustomEditorInputSerializer implements IEditorSerializer {
     return instantiation.createInstance(CustomEditorInput, resource, value.viewType, value.extension, {
       retainContextWhenHidden: value.options.retainContextWhenHidden === true,
       enableFindWidget: value.options.enableFindWidget === true,
-    }, value.multiple);
+    }, value.multiple, value.kind);
   }
 }

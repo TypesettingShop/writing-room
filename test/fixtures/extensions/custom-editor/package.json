@@ -3,19 +3,81 @@
   "displayName": "Custom Editor Fixture",
   "publisher": "writing-room-tests",
   "version": "1.0.0",
-  "engines": { "vscode": "^1.95.0" },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
   "browser": "./extension.js",
   "contributes": {
     "customEditors": [
-      { "viewType": "fixture.noteView", "displayName": "Note View", "selector": [{ "filenamePattern": "*.note" }] },
-      { "viewType": "fixture.mdPreview", "displayName": "Fixture Preview", "selector": [{ "filenamePattern": "*.md" }], "priority": "option" },
-      { "viewType": "fixture.broken", "displayName": "Broken View", "selector": [{ "filenamePattern": "*.broken" }] },
-      { "viewType": "fixture.slow", "displayName": "Slow View", "selector": [{ "filenamePattern": "*.slow" }] }
+      {
+        "viewType": "fixture.noteView",
+        "displayName": "Note View",
+        "selector": [
+          {
+            "filenamePattern": "*.note"
+          }
+        ]
+      },
+      {
+        "viewType": "fixture.mdPreview",
+        "displayName": "Fixture Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "fixture.broken",
+        "displayName": "Broken View",
+        "selector": [
+          {
+            "filenamePattern": "*.broken"
+          }
+        ]
+      },
+      {
+        "viewType": "fixture.slow",
+        "displayName": "Slow View",
+        "selector": [
+          {
+            "filenamePattern": "*.slow"
+          }
+        ]
+      },
+      {
+        "viewType": "fixture.binary",
+        "displayName": "Binary View",
+        "selector": [
+          {
+            "filenamePattern": "*.bin"
+          }
+        ]
+      },
+      {
+        "viewType": "fixture.counter",
+        "displayName": "Counter",
+        "selector": [
+          {
+            "filenamePattern": "*.count"
+          }
+        ]
+      }
     ],
     "commands": [
-      { "command": "fixture.customEditor.probe", "title": "Fixture: Probe Custom Editor" },
-      { "command": "fixture.customEditor.release", "title": "Fixture: Release Slow Editor" },
-      { "command": "fixture.customEditor.openBeside", "title": "Fixture: Open Preview Beside" }
+      {
+        "command": "fixture.customEditor.probe",
+        "title": "Fixture: Probe Custom Editor"
+      },
+      {
+        "command": "fixture.customEditor.release",
+        "title": "Fixture: Release Slow Editor"
+      },
+      {
+        "command": "fixture.customEditor.openBeside",
+        "title": "Fixture: Open Preview Beside"
+      }
     ]
   }
 }

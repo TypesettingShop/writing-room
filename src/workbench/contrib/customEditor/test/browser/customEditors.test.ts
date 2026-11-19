@@ -109,7 +109,7 @@ function contribute(...extensions: IExtensionDescription[]) {
 
 function provide(viewType: string, overrides: Partial<ICustomEditorProvider> = {}) {
   const provider: ICustomEditorProvider = {
-    extensionId: 'test.ext', kind: 'text', options: {}, supportsMultipleEditorsPerDocument: false,
+    extensionId: 'test.ext', kind: 'text', editable: false, options: {}, supportsMultipleEditorsPerDocument: false,
     resolve: vi.fn(async () => {}), ...overrides,
   };
   return { provider, registration: disposables.add(customEditors.registerProvider(viewType, provider)) };
