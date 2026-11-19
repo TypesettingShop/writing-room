@@ -2,6 +2,8 @@ const api = acquireVsCodeApi();
 function forbidden(read) {
   try { read(); return false; } catch { return true; }
 }
+// A workspace navigation attempted by its nested content must stay inside the sandbox.
+try { top.location = 'about:blank'; } catch { /* navigation blocked */ }
 api.postMessage({
   resource: true,
   documentBlocked: forbidden(() => top.document),

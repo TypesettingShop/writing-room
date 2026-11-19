@@ -1,7 +1,7 @@
 import { request } from 'node:http';
 import { createServer } from 'node:https';
 
-export async function openForwardingProxy(appPort, webviewPort, tls) {
+export async function openForwardingProxy(appPort, webviewPort, tls, fixturesPort) {
   const server = createServer(tls, (incoming, outgoing) => {
     const marker = /^(\d+)--/.exec(incoming.headers.host ?? '');
     const port = marker && Number(marker[1]);
@@ -9,12 +9,15 @@ export async function openForwardingProxy(appPort, webviewPort, tls) {
       outgoing.writeHead(404).end();
       return;
     }
+    const fixturePrefix = '/__extension-fixtures';
+    const fixture = fixturesPort && port === appPort && incoming.url?.startsWith(fixturePrefix + '/');
+    const targetPort = fixture ? fixturesPort : port;
     const upstream = request({
       host: '127.0.0.1',
-      port,
-      path: incoming.url,
+      port: targetPort,
+      path: fixture ? incoming.url.slice(fixturePrefix.length) : incoming.url,
       method: incoming.method,
-      headers: { ...incoming.headers, host: '127.0.0.1:' + port },
+      headers: { ...incoming.headers, host: '127.0.0.1:' + targetPort },
     }, response => {
       outgoing.writeHead(response.statusCode, response.headers);
       response.pipe(outgoing);

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
 import { createServer as devServer, preview } from 'vite';
 import { openForwardingProxy } from '../fixtures/forwarding-proxy.mjs';
+import { seedInstalledExtensions } from './extensionFixture.js';
+import manifest from '../fixtures/extensions/webview/package.json' with { type: 'json' };
 import { bundleWebviewHarness, openWebviewHarness } from './webview-harness.helpers.js';
 
 async function availablePort(): Promise<number> {
@@ -65,7 +67,8 @@ test('serves and reaches the shell on the forwarded port without exposing the ap
     expect(await (await fetch('http://127.0.0.1:' + appPort + '/webview/config.json')).json())
       .toEqual({ appPort, webviewPort });
 
-    const proxy = await openForwardingProxy(appPort, webviewPort, { key: readFileSync(key), cert: readFileSync(cert) });
+    const proxy = await openForwardingProxy(appPort, webviewPort,
+      { key: readFileSync(key), cert: readFileSync(cert) }, Number(process.env.E2E_EXTENSIONS_PORT));
     cleanup.unshift(() => proxy.close());
     const browser = await chromium.launch({ args: ['--ignore-certificate-errors'] });
     cleanup.unshift(() => browser.close());
@@ -87,6 +90,26 @@ test('serves and reaches the shell on the forwarded port without exposing the ap
     await expect.poll(() => page.evaluate(() => (window as any).harness.messages.length)).toBe(1);
     expect(await page.evaluate(() => (window as any).harness.send('round trip'))).toBe(true);
     await expect.poll(() => page.evaluate(() => (window as any).harness.messages.at(-1))).toBe('round trip');
+
+    const workbench = await browser.newPage();
+    const configs: string[] = [];
+    workbench.context().on('request', request => {
+      if (request.url() === appOrigin + '/webview/config.json') {
+        configs.push(request.url());
+      }
+    });
+    const extensionLocation = new URL('/__extension-fixtures/webview/', appOrigin).href;
+    await seedInstalledExtensions(workbench, [{ location: extensionLocation, manifest }]);
+    await workbench.goto(appOrigin);
+    await workbench.keyboard.press('F1');
+    await workbench.getByRole('combobox').fill('Fixture: Open Retained Webview');
+    await workbench.getByRole('option', { name: 'Fixture: Open Retained Webview' }).click();
+    const actualShell = workbench.locator('iframe[title="Webview"]');
+    await expect(actualShell).toHaveAttribute('src', new RegExp('^' + viewOrigin.replaceAll('.', '\\.') + '/'), { timeout: 10_000 });
+    const actualContent = workbench.frameLocator('iframe[title="Webview"]').frameLocator('iframe[title="Webview content"]');
+    await expect(actualContent.locator('#output')).toHaveText(Array.from({ length: 100 }, (_, index) => index).join(','));
+    expect(configs).toHaveLength(1);
+    await workbench.close();
 
     await page.route('**/webview/config.json', route => route.fulfill({ status: 404, body: '' }));
     await openWebviewHarness(page, appOrigin, code);

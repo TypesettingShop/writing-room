@@ -41,6 +41,22 @@ test('renders extension HTML, evaluates the context menu and preserves a retaine
   await command(page, 'Fixture: Reveal Webview Beside');
   await expect(page.locator('.editor-group-container')).toHaveCount(2);
   await expect(frame.locator('#count')).toHaveText('1');
+  const destination = page.locator('.editor-group-container').filter({ has: page.getByRole('tab', { name: 'Fixture retained' }) });
+  const editorBody = destination.locator('.editor-container');
+  const bounds = (await editorBody.boundingBox())!;
+  const source = (await page.getByRole('tab', { name: 'Welcome' }).boundingBox())!;
+  const from = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
+  const to = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 8, from.y + 3, { steps: 3 });
+  await expect(page.locator('.webview-element')).toHaveCSS('pointer-events', 'none');
+  await page.mouse.move(to.x - 1, to.y);
+  await page.mouse.move(to.x, to.y);
+  await page.mouse.up();
+  await expect(destination.getByRole('tab', { name: 'Welcome' })).toBeVisible();
+  await destination.getByRole('tab', { name: 'Fixture retained' }).click();
+  await expect(frame.locator('#count')).toHaveText('1');
   await page.getByRole('button', { name: 'Close Fixture retained' }).click();
   await expect(page.locator('iframe[title="Webview"]')).toHaveCount(0);
 });
@@ -52,6 +68,7 @@ test('discards hidden transient content, rejects its messages and emits one disp
 
   await command(page, 'Fixture: Open Retained Webview');
   await expect(page.locator('iframe[title="Webview"]')).toHaveCount(1);
+  await expect(content(page).getByRole('button', { name: 'Count' })).toBeVisible();
   await command(page, 'Fixture: Probe Webview State');
   await expect(content(page).locator('#output')).toHaveText('{"delivered":false,"transient":[[false,false,1]],"retained":[]}');
 

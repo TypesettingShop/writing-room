@@ -24,7 +24,6 @@ Object.assign(window, {
   harness: {
     messages, links, dispose: () => element.dispose(),
     send: (value: unknown) => element.postMessage(value),
-    state: element.onDidChangeState,
     set: (html: string, scripts: boolean, root?: string) => element.setContent(html, {
       enableScripts: scripts, localResourceRoots: root ? [URI.parse(root)] : undefined,
     }),
