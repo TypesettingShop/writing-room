@@ -131,7 +131,10 @@ async function checkEventsAndSearch() {
     await fs.writeFile(dotfile, Uint8Array.of(1));
     await fs.writeFile(dotfile, Uint8Array.of(2));
     await fs.writeFile(Uri.joinPath(dir, 'unrelated.txt'), new Uint8Array());
-    await fs.rename(dotfile, renamed);
+    // As in VS Code, operation events come from the Explorer and workspace edits, not from workspace.fs.
+    const rename = new WorkspaceEdit();
+    rename.renameFile(dotfile, renamed);
+    check(await workspace.applyEdit(rename), 'Rename edit');
     await waitFor(() => changes.length >= 4 && operations.length >= 2);
     check(JSON.stringify(changes) === JSON.stringify([
       ['create', dotfile.path], ['change', dotfile.path], ['create', renamed.path], ['delete', dotfile.path],
@@ -142,6 +145,15 @@ async function checkEventsAndSearch() {
     check(doc.getText() === 'after before', 'WorkspaceEdit was applied before rename');
     check(ignored.length === 0, 'Ignore flags');
     watcher.dispose();
+    // The workspace.fs rename fires nothing. Events of the edit after it arrive after any it would send.
+    await fs.rename(renamed, dotfile);
+    const back = new WorkspaceEdit();
+    back.renameFile(dotfile, renamed);
+    check(await workspace.applyEdit(back), 'Second rename edit');
+    await waitFor(() => operations.length >= 4);
+    check(JSON.stringify(operations.slice(2)) === JSON.stringify([
+      ['will', dotfile.path, renamed.path], ['did', dotfile.path, renamed.path],
+    ]), 'workspace.fs rename fires no operation events: ' + JSON.stringify(operations));
     await fs.delete(renamed);
 
     await fs.writeFile(Uri.joinPath(dir, 'top.md'), new Uint8Array());
@@ -235,13 +247,21 @@ async function checkProvider() {
 }
 
 async function checkProviderRemoved() {
-  let rejected = false;
-  try {
-    await vscode.workspace.fs.readFile(vscode.Uri.parse('memfs:/welcome.txt'));
-  } catch (error) {
-    rejected = error instanceof vscode.FileSystemError && ['Unavailable', 'NoPermissions'].includes(error.code);
+  // The uninstall keeps running after its quick pick closes, so wait for the provider to go away.
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    let rejected = false;
+    try {
+      await vscode.workspace.fs.readFile(vscode.Uri.parse('memfs:/welcome.txt'));
+    } catch (error) {
+      rejected = error instanceof vscode.FileSystemError && ['Unavailable', 'NoPermissions'].includes(error.code);
+    }
+    if (rejected && vscode.workspace.fs.isWritableFileSystem('memfs') === undefined) {
+      break;
+    }
+    check(Date.now() < deadline, 'Removed provider is unavailable');
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
-  check(rejected && vscode.workspace.fs.isWritableFileSystem('memfs') === undefined, 'Removed provider is unavailable');
   await vscode.window.showInformationMessage('Removed File System Provider verified');
 }
 

@@ -42,7 +42,8 @@ export class ExtHostWorkspace {
   createApi() {
     const workspace = this;
     return {
-      get workspaceFolders() { return workspace.folders; },
+      // As in VS Code, a window without a folder reports undefined rather than an empty list.
+      get workspaceFolders() { return workspace.folders.length ? workspace.folders : undefined; },
       get name() { return workspace.folders[0]?.name; },
       workspaceFile: undefined,
       onDidChangeWorkspaceFolders: Event.None,

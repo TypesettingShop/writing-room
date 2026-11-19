@@ -39,10 +39,16 @@ function isSubscription(value: string): boolean {
   return /^(?:did|will):(?:create|delete|rename)$/.test(value);
 }
 
+function operationKey(operation: FileOperation, resource: URI, target: URI | undefined): string {
+  const transfer = operation === FileOperation.MOVE || operation === FileOperation.COPY;
+  return operation + '\n' + resource.toString() + (transfer ? '\n' + target?.toString() : '');
+}
+
 export class MainThreadFileSystemEventService extends Disposable {
   private readonly watches = new Map<string, ExtensionWatches>();
   private readonly subscriptions = new Map<FileOperationSubscription, Set<string>>();
   private readonly participants = new Set<CancellationTokenSource>();
+  private readonly quietOperations = new Map<string, number>();
   private pendingCount = 0;
   private timer?: ReturnType<typeof setTimeout>;
 
@@ -56,6 +62,9 @@ export class MainThreadFileSystemEventService extends Disposable {
     super();
     this._register(files.onDidFilesChange(({ changes }) => this.queueChanges(changes)));
     this._register(files.onWillRunOperation(event => {
+      if (this.quietOperations.has(operationKey(event.operation, event.resource, event.target))) {
+        return;
+      }
       const change = operationDto(event.operation, event.resource, event.target);
       if (!change) {
         return;
@@ -66,6 +75,9 @@ export class MainThreadFileSystemEventService extends Disposable {
       }
     }));
     this._register(files.onDidRunOperation(event => {
+      if (this.quietOperations.has(operationKey(event.operation, event.resource, event.target?.resource))) {
+        return;
+      }
       const change = operationDto(event.operation, event.resource, event.target?.resource);
       if (change) {
         const recipients = this.recipients(`did:${change.kind}`, change);
@@ -116,6 +128,25 @@ export class MainThreadFileSystemEventService extends Disposable {
       watch.registration.dispose();
       if (!entry.handles.size) {
         this.watches.delete(extension);
+      }
+    }
+  }
+
+  /**
+   * As in VS Code, a workspace.fs call runs no onWill*Files participants and fires no onDid*Files event.
+   * The file service fires both while the call is pending, with the resources passed here.
+   */
+  async runUnannounced<T>(operation: FileOperation, resource: URI, target: URI | undefined, run: () => Promise<T>): Promise<T> {
+    const key = operationKey(operation, resource, target);
+    this.quietOperations.set(key, (this.quietOperations.get(key) ?? 0) + 1);
+    try {
+      return await run();
+    } finally {
+      const remaining = this.quietOperations.get(key)! - 1;
+      if (remaining) {
+        this.quietOperations.set(key, remaining);
+      } else {
+        this.quietOperations.delete(key);
       }
     }
   }

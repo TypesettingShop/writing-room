@@ -58,9 +58,11 @@ URI를 만든다. 브라우저 워크스페이스는
 `onWillCreateFiles`, `onWillDeleteFiles`, `onWillRenameFiles`의
 콜백에서 `waitUntil`을 바로 호출하면 작업 전에 약속을 기다린다.
 약속이 반환하는 `WorkspaceEdit`는 문서 편집 경로로 적용한다. 작업이
-끝나면 해당 `onDid*Files` 이벤트가 발생한다. 이름 바꾸기는 작업
-이벤트 한 건이고 감시에서는 이전 경로가 삭제되고 새 경로가 생성된
-것으로 전달된다. 일반 `writeFile`의 내용 변경은 파일 감시로 관찰한다.
+끝나면 해당 `onDid*Files` 이벤트가 발생한다. 이 이벤트는 Explorer와
+`workspace.applyEdit`의 파일 작업에서 발생한다. VS Code와 같이
+`workspace.fs` 호출에서는 발생하지 않으므로, 그 변경은 파일 감시로
+관찰한다. 이름 바꾸기는 작업 이벤트 한 건이고 감시에서는 이전 경로가
+삭제되고 새 경로가 생성된 것으로 전달된다.
 
 `findFiles(include, exclude, maxResults, token)`은 워크스페이스를 너비
 우선으로 걷는다. `exclude`를 생략하면 `.git`과 `node_modules`를
@@ -88,7 +90,7 @@ URI를 만든다. 브라우저 워크스페이스는
 | --- | --- |
 | 워크스페이스 | 고정 폴더 하나다. `workspaceFile`은 `undefined`이며 `updateWorkspaceFolders`는 `false`를 반환한다. 신뢰는 항상 참이고 폴더·신뢰 변경 이벤트는 발생하지 않는다. wr-8a5f.e74 |
 | 파일 접근 | 브라우저 저장소와 설치 패키지, 등록한 제공자로 위의 범위를 제한한다. 읽기는 파일당 50 MiB까지 허용한다. `useTrash`를 받으면 파일을 바로 지운다. wr-8a5f.e74 |
-| 탐색과 참여자 | 최대 20,000개 결과와 100,000개 항목을 검사한다. 파일 작업 참여자는 5초 동안 기다린다. wr-8a5f.7bx |
+| 탐색과 참여자 | 최대 20,000개 결과와 100,000개 항목을 검사한다. `exclude`를 생략하면 `files.exclude` 설정 대신 `.git`과 `node_modules`를 건너뛴다. 진행 중에 취소하면 빈 목록 대신 그때까지 찾은 결과를 돌려준다. 파일 작업 참여자는 5초 동안 기다린다. wr-8a5f.7bx |
 | 제공자 | 자체 스킴을 Explorer의 워크스페이스로 붙이지 않는다. `isReadonly`에 `MarkdownString`을 주면 읽기 전용으로 등록한다. wr-8a5f.1ph |
 | 예약 스킴 | 등록된 스킴과 `file`, `untitled`, `vscode-userdata`, `vscode-vfs`, `http`, `https`, `data`, `blob`, `webview-panel`, `vscode-webview`, `vscode-custom-editor`, `output`을 예약한다. wr-8a5f.1ph |
 

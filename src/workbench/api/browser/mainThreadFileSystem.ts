@@ -6,7 +6,7 @@ import { Schemas } from '../../../base/common/network.js';
 import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import {
-  FileChangeType, FileSystemProviderCapabilities, FileSystemProviderError, FileSystemProviderErrorCode, IFileService,
+  FileChangeType, FileOperation, FileSystemProviderCapabilities, FileSystemProviderError, FileSystemProviderErrorCode, IFileService,
 } from '../../../platform/files/common/files.js';
 import type { IFileChange, IFileSystemProvider } from '../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
@@ -232,7 +232,8 @@ export class MainThreadFileSystem extends Disposable implements MainThreadFileSy
   }
 
   async $createDirectory(extension: string, resource: URI): Promise<void> {
-    await this.files.createFolder(await this.resource(extension, resource, true));
+    const uri = await this.resource(extension, resource, true);
+    await this.events.runUnannounced(FileOperation.CREATE, uri, undefined, () => this.files.createFolder(uri));
   }
 
   async $readFile(extension: string, resource: URI): Promise<TransferableBuffer> {
@@ -249,7 +250,9 @@ export class MainThreadFileSystem extends Disposable implements MainThreadFileSy
   }
 
   async $delete(extension: string, resource: URI, options?: { recursive?: boolean; useTrash?: boolean }): Promise<void> {
-    await this.files.del(await this.resource(extension, resource, true), { recursive: options?.recursive === true });
+    const uri = await this.resource(extension, resource, true);
+    await this.events.runUnannounced(FileOperation.DELETE, uri, undefined,
+      () => this.files.del(uri, { recursive: options?.recursive === true }));
   }
 
   async $rename(extension: string, source: URI, target: URI, options?: { overwrite?: boolean }): Promise<void> {
@@ -258,7 +261,7 @@ export class MainThreadFileSystem extends Disposable implements MainThreadFileSy
     if (from.scheme !== to.scheme) {
       this.access.require(this.extension(extension), dirname(to), true);
     }
-    await this.files.move(from, to, options?.overwrite === true);
+    await this.events.runUnannounced(FileOperation.MOVE, from, to, () => this.files.move(from, to, options?.overwrite === true));
   }
 
   async $copy(extension: string, source: URI, target: URI, options?: { overwrite?: boolean }): Promise<void> {
@@ -268,7 +271,7 @@ export class MainThreadFileSystem extends Disposable implements MainThreadFileSy
     if (from.scheme !== to.scheme || !this.provider(from).copy) {
       this.access.require(this.extension(extension), dirname(to), true);
     }
-    await this.files.copy(from, to, options?.overwrite === true);
+    await this.events.runUnannounced(FileOperation.COPY, from, to, () => this.files.copy(from, to, options?.overwrite === true));
   }
 }
 

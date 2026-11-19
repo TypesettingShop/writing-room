@@ -100,7 +100,8 @@ export class ExtHostFileSystemEventService {
   private watch(key: string, pattern: vscode.GlobPattern, ignoreCreate: boolean, ignoreChange: boolean, ignoreDelete: boolean) {
     const folders = this.workspaceFolders();
     const raw = toFileGlob(pattern, folders);
-    const glob = typeof raw === 'string' ? raw : { ...raw, base: raw.base.with({ path: normalize(raw.base.path) }) };
+    // An empty base path names the root. normalize('') is '.', which a URI with an authority rejects.
+    const glob = typeof raw === 'string' ? raw : { ...raw, base: raw.base.with({ path: normalize(raw.base.path || '/') }) };
     const matchers = typeof glob === 'string' ? folders.map(folder => compileFileGlob(glob, folder.uri))
       : [compileFileGlob(glob, glob.base)];
     const handle = this.nextHandle++;
@@ -171,8 +172,12 @@ export class ExtHostFileSystemEventService {
     extensions: readonly string[], event: FileOperationDto, token = CancellationToken.None,
   ): Promise<void> {
     const data = didEvent(event);
+    const subscription: FileOperationSubscription = `will:${event.kind}`;
+    // Listeners of different extensions run together, but their edits apply one at a time. Two edits of
+    // one document would otherwise both be checked against the version it had before either applied.
+    let applied: Promise<unknown> = Promise.resolve();
     await Promise.all(extensions.map(async key => {
-      const emitter = this.listeners.get(key)?.get(`will:${event.kind}`)?.emitter;
+      const emitter = this.listeners.get(key)?.get(subscription)?.emitter;
       // Applying a listener's WorkspaceEdit can perform file operations of its own.
       if (!emitter || token.isCancellationRequested || this.applying.has(key)) {
         return;
@@ -188,24 +193,34 @@ export class ExtHostFileSystemEventService {
       accepting = false;
       const results = await raceCancellation(Promise.allSettled(pending), token);
       for (const result of results ?? []) {
-        if (token.isCancellationRequested || this.listeners.get(key)?.get(`will:${event.kind}`)?.emitter !== emitter) {
-          break;
-        }
         if (result.status === 'fulfilled' && result.value instanceof WorkspaceEdit) {
-          this.applying.set(key, (this.applying.get(key) ?? 0) + 1);
-          try {
-            await this.applyEdit(key, result.value);
-          } finally {
-            const remaining = this.applying.get(key)! - 1;
-            if (remaining) {
-              this.applying.set(key, remaining);
-            } else {
-              this.applying.delete(key);
-            }
-          }
+          const edit = result.value;
+          const turn = applied.then(() => this.applyParticipantEdit(key, emitter, subscription, edit, token));
+          applied = turn.catch(() => {});
+          await turn;
         }
       }
     }));
+  }
+
+  private async applyParticipantEdit(
+    key: string, emitter: Emitter<OperationEvent>, subscription: FileOperationSubscription, edit: WorkspaceEdit,
+    token: CancellationToken,
+  ): Promise<void> {
+    if (token.isCancellationRequested || this.listeners.get(key)?.get(subscription)?.emitter !== emitter) {
+      return;
+    }
+    this.applying.set(key, (this.applying.get(key) ?? 0) + 1);
+    try {
+      await this.applyEdit(key, edit);
+    } finally {
+      const remaining = this.applying.get(key)! - 1;
+      if (remaining) {
+        this.applying.set(key, remaining);
+      } else {
+        this.applying.delete(key);
+      }
+    }
   }
 
   release(key: string): void {

@@ -43,17 +43,28 @@ function packagePath(resource: URI): boolean {
 
 /** All extension file requests and event visibility use the same normalized resource. */
 export class ExtensionFileAccess {
+  // Watcher batches check every change for every watching extension, so build each storage root once.
+  private readonly storageRoots = new Map<string, readonly URI[]>();
+
   constructor(
     private readonly workspace: IWorkspace,
     private readonly packageLocations: () => readonly string[],
     private readonly isExtensionFileSystem: (scheme: string) => boolean,
   ) {}
 
+  private storage({ id }: HostExtensionDescription): readonly URI[] {
+    let roots = this.storageRoots.get(id);
+    if (!roots) {
+      roots = [extensionGlobalStorageUri(id), extensionWorkspaceStorageUri(this.workspace.id, id)];
+      this.storageRoots.set(id, roots);
+    }
+    return roots;
+  }
+
   isAllowed(extension: HostExtensionDescription, normalized: URI, write: boolean): boolean {
     if (this.workspace.folders.some(folder => isEqualOrParent(normalized, folder.uri))
       || this.isExtensionFileSystem(normalized.scheme)
-      || isEqualOrParent(normalized, extensionGlobalStorageUri(extension.id))
-      || isEqualOrParent(normalized, extensionWorkspaceStorageUri(this.workspace.id, extension.id))) {
+      || this.storage(extension).some(root => isEqualOrParent(normalized, root))) {
       return true;
     }
     if (write || !packagePath(normalized)) {
