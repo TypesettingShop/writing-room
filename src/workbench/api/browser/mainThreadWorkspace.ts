@@ -11,6 +11,7 @@ import { normalizeExtensionFileResource } from './extensionFileAccess.js';
 
 const resultLimit = 20_000;
 const visitLimit = 100_000;
+const searchTimeSliceMs = 8;
 const defaultExclude = '{**/.git/**,**/node_modules/**}';
 
 function checkedGlob(glob: FileGlobDto): FileGlobDto {
@@ -42,6 +43,7 @@ export class MainThreadWorkspace {
     const exclusion = exclude === null ? undefined : checkedGlob(exclude ?? defaultExclude);
     const result: URI[] = [];
     let visited = 0;
+    let nextYield = performance.now() + searchTimeSliceMs;
     for (const { uri: root } of this.context.getWorkspace().folders) {
       if (token.isCancellationRequested || result.length === limit || visited >= visitLimit) {
         break;
@@ -75,8 +77,9 @@ export class MainThreadWorkspace {
             if (token.isCancellationRequested || result.length === limit || visited >= visitLimit) {
               break;
             }
-            if (++visited % 128 === 0) {
+            if (++visited % 128 === 0 && performance.now() >= nextYield) {
               await new Promise<void>(resolve => setTimeout(resolve, 0));
+              nextYield = performance.now() + searchTimeSliceMs;
               if (token.isCancellationRequested) {
                 break;
               }

@@ -24,6 +24,7 @@ import type { ITextFileWillSaveEvent } from '../../services/textfile/common/text
 import { IUntitledTextEditorService } from '../../services/untitled/common/untitledTextEditorService.js';
 import { documentSaveTimeout } from '../common/extHost.protocol.documents.js';
 import type { DocumentEdit, ExtHostDocumentsShape, MainThreadDocumentsShape, OpenDocumentOptions } from '../common/extHost.protocol.documents.js';
+import { isExtensionFileSystemScheme } from '../common/extHostFileSystemSchemes.js';
 import { applyDocumentEdit, validateDocumentEdit } from './mainThreadDocumentEdits.js';
 
 const referenceMaxAge = 3 * 60 * 1000;
@@ -268,6 +269,10 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
   async $openDocument(extension: string, target: URI | OpenDocumentOptions): Promise<string> {
     this.requireExtension(extension);
     if (URI.isUri(target)) {
+      if (isExtensionFileSystemScheme(target.scheme) && !target.hasEncodedPathSeparator
+        && !forbiddenResourcePath.test(target.path) && !this.fileService.hasProvider(target)) {
+        await this.fileService.activateProvider(target.scheme);
+      }
       const resource = this.authorizeResource(extension, target, false);
       const existing = this.models.getModel(resource);
       if (existing) {

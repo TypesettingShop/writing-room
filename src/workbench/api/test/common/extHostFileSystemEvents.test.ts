@@ -49,3 +49,12 @@ test('workspaceFolders is undefined without a folder, as in VS Code', () => {
   workspace.initialize([{ uri: root, name: 'workspace', index: 0 }]);
   expect(workspace.createApi().workspaceFolders?.map(folder => folder.name)).toEqual(['workspace']);
 });
+
+test('asRelativePath preserves the workspace root and makes its descendants relative', () => {
+  const workspace = new ExtHostWorkspace();
+  workspace.initialize([{ uri: root, name: 'workspace', index: 0 }]);
+  const api = workspace.createApi();
+  expect(api.asRelativePath(root)).toBe(root.fsPath);
+  expect(api.asRelativePath(root.fsPath, true)).toBe(root.fsPath);
+  expect(api.asRelativePath(URI.joinPath(root, 'file.md'), true)).toBe('workspace/file.md');
+});

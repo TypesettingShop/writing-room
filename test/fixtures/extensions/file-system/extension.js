@@ -267,7 +267,7 @@ async function checkProviderRemoved() {
 
 async function openProviderDocument() {
   const uri = vscode.Uri.parse('memfs:/welcome.txt');
-  await vscode.workspace.fs.stat(uri);
+  check(vscode.workspace.fs.isWritableFileSystem(uri.scheme) === undefined, 'Provider is inactive before opening');
   const document = await vscode.workspace.openTextDocument(uri);
   check(document.getText() === providerText, 'Provider document text');
   await vscode.commands.executeCommand('vscode.open', uri);

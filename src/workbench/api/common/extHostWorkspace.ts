@@ -36,7 +36,10 @@ export class ExtHostWorkspace {
       return path;
     }
     const localPath = relative(folder.uri.path, resource.path);
-    return includeWorkspaceFolder ? (localPath ? folder.name + '/' + localPath : folder.name) : localPath;
+    if (!localPath) {
+      return path;
+    }
+    return includeWorkspaceFolder ? folder.name + '/' + localPath : localPath;
   }
 
   createApi() {

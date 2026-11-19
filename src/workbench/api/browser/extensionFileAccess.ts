@@ -44,7 +44,8 @@ function packagePath(resource: URI): boolean {
 /** All extension file requests and event visibility use the same normalized resource. */
 export class ExtensionFileAccess {
   // Watcher batches check every change for every watching extension, so build each storage root once.
-  private readonly storageRoots = new Map<string, readonly URI[]>();
+  private readonly storageRoots = new WeakMap<HostExtensionDescription, readonly URI[]>();
+  private packageRoots?: { readonly locations: readonly string[]; readonly roots: readonly URI[] };
 
   constructor(
     private readonly workspace: IWorkspace,
@@ -52,32 +53,46 @@ export class ExtensionFileAccess {
     private readonly isExtensionFileSystem: (scheme: string) => boolean,
   ) {}
 
-  private storage({ id }: HostExtensionDescription): readonly URI[] {
-    let roots = this.storageRoots.get(id);
+  private storage(extension: HostExtensionDescription): readonly URI[] {
+    let roots = this.storageRoots.get(extension);
     if (!roots) {
+      const { id } = extension;
       roots = [extensionGlobalStorageUri(id), extensionWorkspaceStorageUri(this.workspace.id, id)];
-      this.storageRoots.set(id, roots);
+      this.storageRoots.set(extension, roots);
     }
+    return roots;
+  }
+
+  private installedPackageRoots(): readonly URI[] {
+    const locations = this.packageLocations();
+    const previous = this.packageRoots;
+    if (previous && locations.length === previous.locations.length
+      && locations.every((location, index) => location === previous.locations[index])) {
+      return previous.roots;
+    }
+    const roots = locations.flatMap(location => {
+      try {
+        const base = normalizeExtensionFileResource(URI.parse(location, true));
+        return packagePath(base) ? [base] : [];
+      } catch {
+        return [];
+      }
+    });
+    this.packageRoots = { locations: [...locations], roots };
     return roots;
   }
 
   isAllowed(extension: HostExtensionDescription, normalized: URI, write: boolean): boolean {
     if (this.workspace.folders.some(folder => isEqualOrParent(normalized, folder.uri))
       || this.isExtensionFileSystem(normalized.scheme)
-      || this.storage(extension).some(root => isEqualOrParent(normalized, root))) {
+      || (normalized.scheme === Schemas.vscodeUserData
+        && this.storage(extension).some(root => isEqualOrParent(normalized, root)))) {
       return true;
     }
     if (write || !packagePath(normalized)) {
       return false;
     }
-    return this.packageLocations().some(location => {
-      try {
-        const base = normalizeExtensionFileResource(URI.parse(location, true));
-        return packagePath(base) && isEqualOrParent(normalized, base);
-      } catch {
-        return false;
-      }
-    });
+    return this.installedPackageRoots().some(root => isEqualOrParent(normalized, root));
   }
 
   require(extension: HostExtensionDescription, resource: URI, write: boolean): URI {

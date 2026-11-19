@@ -58,3 +58,14 @@ describe('extension file access', () => {
     expect(() => access.require(owner, URI.parse(input), false)).toThrow(expect.objectContaining({ code: 'NoPermissions' }));
   });
 });
+
+test('reads only current installed roots after the package list changes', () => {
+  const locations = ['vscode-userdata:/extensions/fixture.peer-1.0.0/'];
+  const access = new ExtensionFileAccess({ id: 'writing-room', folders: [] }, () => locations, () => false);
+  const oldResource = URI.parse(locations[0] + 'package.json');
+  expect(access.isAllowed(owner, oldResource, false)).toBe(true);
+
+  locations[0] = 'vscode-userdata:/extensions/fixture.peer-1.1.0/';
+  expect(access.isAllowed(owner, oldResource, false)).toBe(false);
+  expect(access.isAllowed(owner, URI.parse(locations[0] + 'package.json'), false)).toBe(true);
+});

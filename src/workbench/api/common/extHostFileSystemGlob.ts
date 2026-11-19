@@ -29,11 +29,6 @@ export function toFileGlob(pattern: vscode.GlobPattern, folders: readonly Worksp
 export function compileFileGlob(glob: FileGlobDto, root: URI): (resource: URI) => boolean {
   const base = typeof glob === 'string' ? root : glob.base;
   const pattern = typeof glob === 'string' ? glob : glob.pattern;
-  const matcher = parse(pattern);
-  return candidate => {
-    if (!isEqualOrParent(candidate, base)) {
-      return false;
-    }
-    return matcher(candidate.path.slice(base.path.length).replace(/^\//, ''));
-  };
+  const matcher = parse({ base: base.path, pattern });
+  return candidate => isEqualOrParent(candidate, base) && matcher(candidate.path);
 }

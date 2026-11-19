@@ -82,3 +82,25 @@ test('search stops at the result and visit limits even for one large directory',
   await vi.runAllTimersAsync();
   expect(await search).toEqual([]);
 });
+
+test('search yields when the time slice expires instead of stalling on every 128 entries', async () => {
+  vi.useFakeTimers();
+  const now = vi.spyOn(performance, 'now')
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0)
+    .mockReturnValue(8);
+  const timer = vi.spyOn(globalThis, 'setTimeout');
+  const { provider, workspace } = setup();
+  vi.spyOn(provider, 'readdir').mockResolvedValueOnce(
+    Array.from({ length: 384 }, (_, index): [string, FileType] => [index + '.md', FileType.File]),
+  );
+  try {
+    const results = workspace.findFiles('*.md');
+    await vi.runAllTimersAsync();
+    expect(await results).toHaveLength(384);
+    expect(timer.mock.calls.filter(([, delay]) => delay === 0)).toHaveLength(1);
+  } finally {
+    now.mockRestore();
+    timer.mockRestore();
+  }
+});
