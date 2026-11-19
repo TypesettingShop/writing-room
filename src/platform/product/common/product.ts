@@ -5,17 +5,31 @@ export interface ProductConfiguration {
   readonly extensionsGallery: {
     readonly serviceUrl: string;
     readonly allowedDownloadHosts: readonly string[];
-  };
+  } | null;
   readonly webviewContentExternalBaseUrlTemplate?: string;
 }
 
-const defaults: ProductConfiguration = {
-  version: '1.148.0',
-  extensionsGallery: {
-    serviceUrl: 'https://open-vsx.org',
-    allowedDownloadHosts: ['open-vsx.org', 'openvsx.eclipsecontent.org'],
-  },
+const defaultGallery: NonNullable<ProductConfiguration['extensionsGallery']> = {
+  serviceUrl: 'https://open-vsx.org',
+  allowedDownloadHosts: ['open-vsx.org', 'openvsx.eclipsecontent.org'],
 };
+
+const defaults: ProductConfiguration = { version: '1.148.0', extensionsGallery: defaultGallery };
+
+export function parseExtensionGalleryUrl(value: unknown): URL | undefined {
+  if (typeof value !== 'string' || !URL.canParse(value)) {
+    return undefined;
+  }
+  const url = new URL(value);
+  if (url.username || url.password || url.search || url.hash) {
+    return undefined;
+  }
+  if (url.protocol === 'https:'
+    || (url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1'))) {
+    return url;
+  }
+  return undefined;
+}
 
 function isHttpsUrl(value: unknown): value is string {
   try {
@@ -44,14 +58,14 @@ export function readProductConfiguration(json: string | undefined): ProductConfi
         || !isHttpsUrl(webviewContentExternalBaseUrlTemplate.replace(/\{[^}]+\}/g, 'placeholder')))) {
       return defaults;
     }
-    const gallery = { ...defaults.extensionsGallery };
-    if (extensionsGallery !== undefined) {
+    const gallery = { ...defaultGallery };
+    if (extensionsGallery !== undefined && extensionsGallery !== null) {
       if (!isRecord(extensionsGallery)) {
         return defaults;
       }
       const { serviceUrl, allowedDownloadHosts } = extensionsGallery;
       if (serviceUrl !== undefined) {
-        if (!isHttpsUrl(serviceUrl)) {
+        if (typeof serviceUrl !== 'string' || !parseExtensionGalleryUrl(serviceUrl)) {
           return defaults;
         }
         gallery.serviceUrl = serviceUrl;
@@ -66,7 +80,7 @@ export function readProductConfiguration(json: string | undefined): ProductConfi
     }
     return {
       version: version ?? defaults.version,
-      extensionsGallery: gallery,
+      extensionsGallery: extensionsGallery === null ? null : gallery,
       webviewContentExternalBaseUrlTemplate,
     };
   } catch {

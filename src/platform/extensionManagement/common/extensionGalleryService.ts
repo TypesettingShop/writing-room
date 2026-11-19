@@ -1,6 +1,7 @@
 import { fetchBoundedResource, ResourceRequestError, ResourceResponseError } from '../../../base/parts/request/common/boundedFetch.js';
 import { isRecord } from '../../extensions/common/extensionValidator.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
+import { parseExtensionGalleryUrl } from '../../product/common/product.js';
 import type { ProductConfiguration } from '../../product/common/product.js';
 import { vsixLimits } from './extensionManagementUtil.js';
 import { sha256Hex, signatureBundleLimit, verifyExtensionSignature } from './extensionSignature.js';
@@ -102,13 +103,10 @@ export class ExtensionGalleryService {
     configuration: ProductConfiguration['extensionsGallery'] | undefined,
     private readonly request: typeof fetch = (input, init) => fetch(input, init),
   ) {
-    if (configuration?.serviceUrl && URL.canParse(configuration.serviceUrl)) {
-      const base = new URL(configuration.serviceUrl);
-      if (!base.username && !base.password && !base.search && !base.hash
-        && (base.protocol === 'https:' || (base.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(base.hostname)))) {
-        base.pathname = base.pathname.replace(/\/+$/, '') + '/';
-        this.base = base;
-      }
+    const base = parseExtensionGalleryUrl(configuration?.serviceUrl);
+    if (base) {
+      base.pathname = base.pathname.replace(/\/+$/, '') + '/';
+      this.base = base;
     }
     this.hosts = configuration?.allowedDownloadHosts ?? [];
   }
