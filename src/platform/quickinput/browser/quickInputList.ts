@@ -134,6 +134,7 @@ export class QuickInputList<T extends IQuickPickItem> extends Disposable {
    * one. `alwaysShow` items are shown whatever the query is.
    */
   filter(query: string, options: IFilterOptions, preferred: T | undefined): void {
+    const previous = this.activeItem;
     const match = createWordMatcher(query);
     const empty = !query.trim();
     this.results = [];
@@ -153,8 +154,12 @@ export class QuickInputList<T extends IQuickPickItem> extends Disposable {
       }
     }
     const kept = preferred === undefined ? -1 : this.results.findIndex(result => result.item === preferred);
+    if (previous !== undefined) {
+      this.rows.get(previous)?.element.setAttribute('aria-selected', 'false');
+    }
+    this.activeIndex = -1;
     this.rerender();
-    this.setActive(kept !== -1 ? kept : this.results.length ? 0 : -1, false);
+    this.setActive(kept !== -1 ? kept : this.results.length ? 0 : -1, false, previous);
   }
 
   /** Highlights `item` if it is shown. */
@@ -265,8 +270,7 @@ export class QuickInputList<T extends IQuickPickItem> extends Disposable {
     }
   }
 
-  private setActive(index: number, reveal: boolean): void {
-    const previous = this.results[this.activeIndex]?.item;
+  private setActive(index: number, reveal: boolean, previous = this.activeItem): void {
     if (previous !== undefined) {
       this.rows.get(previous)?.element.setAttribute('aria-selected', 'false');
     }

@@ -156,3 +156,18 @@ test('a quick pick reports the selection before the acceptance and ignores input
   expect(events).toEqual(['selection Two', 'accept', 'hide']);
   expect(document.activeElement).toBe(previous);
 });
+
+test('filtering away the highlighted item and back leaves one highlighted row', async () => {
+  const pick = service.pick([{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }]);
+  press('ArrowDown');
+  press('ArrowDown');
+  const type = (value: string) => {
+    field().value = value;
+    field().dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  type('al');
+  type('');
+  expect([...document.querySelectorAll('[role=option][aria-selected=true]')].map(option => option.textContent)).toEqual(['Alpha ']);
+  press('Escape');
+  await expect(pick).resolves.toBeUndefined();
+});
