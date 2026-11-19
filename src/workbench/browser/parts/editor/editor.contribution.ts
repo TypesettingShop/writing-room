@@ -19,6 +19,7 @@ import { EditorExtensions, EditorPaneDescriptor } from '../../editor.js';
 import type { IEditorPaneRegistry } from '../../editor.js';
 import { ErrorEditorInput } from '../../../common/editor/errorEditorInput.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import { WorkbenchContextKeysHandler } from '../../contextkeys.js';
 import { EditorOpenerContribution } from './editorOpener.js';
 import { ErrorPlaceholderEditorPane } from './editorPlaceholder.js';
 import { TextEditorPane } from './textEditor.js';
@@ -46,3 +47,4 @@ paneRegistry.registerEditorPane(
 );
 
 registerWorkbenchContribution2(EditorOpenerContribution.ID, EditorOpenerContribution);
+registerWorkbenchContribution2(WorkbenchContextKeysHandler.ID, WorkbenchContextKeysHandler);

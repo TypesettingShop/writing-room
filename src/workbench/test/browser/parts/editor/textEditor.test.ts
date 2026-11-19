@@ -36,6 +36,12 @@ const fake = vi.hoisted(() => {
     onDidBlurEditorText = this.on(this.blurText);
     onDidFocusEditorWidget = this.on(this.focusWidget);
     onDidBlurEditorWidget = this.on(this.blurWidget);
+    readonly selectionChanged = new Set<(event: { selection: { isEmpty(): boolean } }) => void>();
+    onDidChangeCursorSelection = (listener: (event: { selection: { isEmpty(): boolean } }) => void) => {
+      this.selectionChanged.add(listener);
+      return { dispose: () => this.selectionChanged.delete(listener) };
+    };
+    getSelection() { return { isEmpty: () => true }; }
     setModel(model: unknown) {
       this.setModelCalls.push(model);
       this.model = model;

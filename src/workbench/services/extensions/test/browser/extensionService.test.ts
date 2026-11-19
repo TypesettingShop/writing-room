@@ -49,14 +49,14 @@ test('registers valid entries, diagnoses individual failures and cleans up dynam
     menus: {
       'view/title': [
         { command: 'test.undeclared' },
-        { command: 'test.ext.command', when: 'foo =~ /bar/' },
+        { command: 'test.ext.command', when: 'foo =~ /(/' },
         { command: 'test.ext.command', group: 'navigation@2' },
       ],
       bad: [{ command: 'test.ext.command' }],
     },
     keybindings: [
       { command: 'test.ext.command', key: 'bad' },
-      { command: 'test.ext.command', key: 'F8', when: 'foo =~ /bar/' },
+      { command: 'test.ext.command', key: 'F8', when: 'foo =~ /(/' },
       { command: 'test.ext.command', key: 'F8', mac: 'F9' },
     ],
     viewsContainers: { activitybar: [{ id: 'ext-test', title: 'Test', icon: '$(beaker)' }] },

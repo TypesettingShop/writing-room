@@ -1,9 +1,10 @@
 import { $, addDisposableListener, append, Dimension } from '../../../../base/browser/dom.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import type { IViewSize } from '../../../../base/browser/ui/grid/grid.js';
-import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import type { IMenuContext } from '../../../../platform/actions/common/actions.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import type { IContextKey, IContextKeyChangeEvent } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
@@ -50,6 +51,17 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private readonly _onWillDispose = this._register(new Emitter<void>());
   readonly onWillDispose = this._onWillDispose.event;
 
+  private readonly _onDidChangeTitleContext = this._register(new Emitter<IContextKeyChangeEvent>());
+  private readonly titleContextListener = this._register(new MutableDisposable());
+  /**
+   * The title menu's context follows the active pane, as VS Code's `createEditorActions` evaluates
+   * in the pane's scope: `editorLangId == markdown` shows a button over a markdown editor only.
+   */
+  readonly titleMenuContext: IMenuContext = {
+    contextMatchesRules: rules => this.titleContextKeyService().contextMatchesRules(rules),
+    onDidChangeContext: this._onDidChangeTitleContext.event,
+  };
+
   private readonly model: EditorGroupModel;
   readonly titleContainer: HTMLElement;
   private readonly editorContainer: HTMLElement;
@@ -78,6 +90,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     this.scopedContextKeyService = this._register(contextKeyService.createScoped(this.element));
     this.editorsCount = EditorGroupEditorsCountContext.bindTo(this.scopedContextKeyService);
     this.updateContextKeys();
+    this.listenToTitleContext();
 
     this.titleContainer = append(this.element, $('.title'));
     this.titleContainer.style.height = `${this.titleHeight}px`;
@@ -386,6 +399,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       entry.container.hidden = false;
       this.activePaneEntry = entry;
       this.layoutPane();
+      this.listenToTitleContext();
     }
     // The pane gets what it shows the editor with, not where the group put it.
     const shown = entry.pane.setInput(editor, {
@@ -396,6 +410,17 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     }
     await shown;
     return entry.pane;
+  }
+
+  private titleContextKeyService(): IContextKeyService {
+    return this.activePaneEntry?.pane.scopedContextKeyService ?? this.scopedContextKeyService;
+  }
+
+  /** Forwards the changes of the scope the title menu reads; a switch to another scope changes every key. */
+  private listenToTitleContext(): void {
+    const scope = this.titleContextKeyService();
+    this.titleContextListener.value = scope.onDidChangeContext(event => this._onDidChangeTitleContext.fire(event));
+    this._onDidChangeTitleContext.fire({ affectsSome: () => true });
   }
 
   private getPane(editor: EditorInput): IPaneEntry | undefined {
@@ -421,6 +446,9 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       this.activePaneEntry = undefined;
       entry.pane.clearInput();
       entry.container.hidden = true;
+      if (!this._disposed) {
+        this.listenToTitleContext();
+      }
     }
   }
 

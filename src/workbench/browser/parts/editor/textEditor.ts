@@ -90,6 +90,11 @@ export class TextEditorPane extends EditorPane {
   private request = 0;
   private readonly inputListener = this._register(new MutableDisposable());
   private readonly viewStates = new Map<EditorInput, { state: object; listener: IDisposable }>();
+  private scoped: IContextKeyService | undefined;
+  private readonly modelListener = this._register(new MutableDisposable());
+  private editorLanguage!: IContextKey<string>;
+  private editorReadonly!: IContextKey<boolean>;
+  private editorHasSelection!: IContextKey<boolean>;
   private editorTextFocus!: IContextKey<boolean>;
   private editorFocus!: IContextKey<boolean>;
   private textInputFocus!: IContextKey<boolean>;
@@ -112,8 +117,13 @@ export class TextEditorPane extends EditorPane {
     parent.classList.add('text-editor');
     this.editorContainer = append(parent, $('.text-editor-container'));
     this.messageElement = append(parent, $('.text-editor-message', { role: 'alert', hidden: '' }));
-    // The keys live in the pane's own scope, so they hold for what has focus inside it.
-    const scoped = this._register(this.contextKeyService.createScoped(parent));
+    // The keys live in the pane's own scope, so they hold for what has focus inside it. The scope is
+    // a child of the group's (the nearest scope around the pane), as in VS Code, so the group's keys
+    // hold inside it too.
+    const scoped = this.scoped = this._register(this.contextKeyService.getScopedContextKeyService(parent).createScoped(parent));
+    this.editorLanguage = EditorContextKeys.languageId.bindTo(scoped);
+    this.editorReadonly = EditorContextKeys.readOnly.bindTo(scoped);
+    this.editorHasSelection = EditorContextKeys.hasNonEmptySelection.bindTo(scoped);
     this.editorTextFocus = EditorContextKeys.editorTextFocus.bindTo(scoped);
     this.editorFocus = EditorContextKeys.focus.bindTo(scoped);
     this.textInputFocus = EditorContextKeys.textInputFocus.bindTo(scoped);
@@ -214,6 +224,10 @@ export class TextEditorPane extends EditorPane {
     return input && (this.currentViewState(input) ?? this.viewStates.get(input)?.state);
   }
 
+  override get scopedContextKeyService(): IContextKeyService | undefined {
+    return this.scoped;
+  }
+
   /** The Monaco editor, once the pane has had a real size and the package has loaded. */
   getControl(): IStandaloneCodeEditor | undefined {
     return this.editor;
@@ -252,6 +266,7 @@ export class TextEditorPane extends EditorPane {
       this.editorTextFocus.set(false);
       this.textInputFocus.set(false);
     }));
+    this._register(editor.onDidChangeCursorSelection(({ selection }) => this.editorHasSelection.set(!selection.isEmpty())));
     this._register(this.editor.onDidFocusEditorWidget(() => this.editorFocus.set(true)));
     this._register(this.editor.onDidBlurEditorWidget(() => this.editorFocus.set(false)));
   }
@@ -265,6 +280,15 @@ export class TextEditorPane extends EditorPane {
     if (this.editor.getModel() !== shown.model) {
       this.updateTabSize();
       this.editor.setModel(shown.model);
+      this.editorLanguage.set(shown.model.getLanguageId());
+      this.editorReadonly.set(shown.input.isReadonly());
+      this.editorHasSelection.set(!(this.editor.getSelection()?.isEmpty() ?? true));
+      const model = shown.model;
+      this.modelListener.value = model.onDidChangeLanguage(({ newLanguage }) => {
+        if (this.shown?.model === model) {
+          this.editorLanguage.set(newLanguage);
+        }
+      });
     }
     if (shown.viewState) {
       this.editor.restoreViewState(shown.viewState as ICodeEditorViewState);
@@ -304,6 +328,11 @@ export class TextEditorPane extends EditorPane {
     this.shown = undefined;
     this.hideMessage();
     this.editor?.setModel(null);
+    // The pane is reused: what described the last model must not stay for the next one.
+    this.modelListener.clear();
+    this.editorLanguage?.reset();
+    this.editorReadonly?.reset();
+    this.editorHasSelection?.reset();
   }
 
   /** The view state `input` has in this pane right now: shown, waiting for the editor, or loading. */

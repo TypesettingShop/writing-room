@@ -25,6 +25,9 @@ export class FakeCodeEditor {
   readonly onDidBlurEditorText = this.blurText.event;
   readonly onDidFocusEditorWidget = this.focusWidget.event;
   readonly onDidBlurEditorWidget = this.blurWidget.event;
+  private selection = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
+  private readonly selectionChanged = new Emitter<{ selection: { isEmpty(): boolean } }>();
+  readonly onDidChangeCursorSelection = this.selectionChanged.event;
 
   constructor(readonly container: HTMLElement, readonly options: Record<string, unknown>) {}
 
@@ -34,6 +37,8 @@ export class FakeCodeEditor {
     const old = this.model;
     if (old !== model) {
       this.model = model;
+      // Monaco puts the cursor at the start of a model it attaches.
+      this.selection = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
       this.modelChanged.fire({ oldModelUrl: old?.uri ?? null, newModelUrl: model?.uri ?? null });
     }
   }
@@ -53,7 +58,16 @@ export class FakeCodeEditor {
   saveViewState(): object | null { return this.model ? { of: this.model.uri.toString() } : null; }
   restoreViewState(): void {}
   readonly selections: unknown[] = [];
-  setSelection(selection: unknown): void { this.selections.push(selection); }
+  setSelection(selection: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }): void {
+    this.selections.push(selection);
+    this.selection = selection;
+    this.selectionChanged.fire({ selection: this.getSelection() });
+  }
+
+  getSelection(): { isEmpty(): boolean } {
+    const { startLineNumber, startColumn, endLineNumber, endColumn } = this.selection;
+    return { isEmpty: () => startLineNumber === endLineNumber && startColumn === endColumn };
+  }
   revealRangeInCenter(): void {}
   layout(): void {}
   updateOptions(): void {}
