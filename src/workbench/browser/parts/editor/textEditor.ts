@@ -1,12 +1,13 @@
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Event } from '../../../../base/common/event.js';
-import { MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { loadMonaco } from '../../../../editor/browser/monaco.js';
 import type {
   ICodeEditorViewState, IMonacoTextModel, IStandaloneCodeEditor, IStandaloneEditorConstructionOptions, MonacoNamespace,
 } from '../../../../editor/browser/monaco.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 import { isTextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -94,6 +95,7 @@ export class TextEditorPane extends EditorPane {
   constructor(
     @IContextKeyService private readonly contextKeyService: IContextKeyService,
     @IConfigurationService private readonly configuration: IConfigurationService,
+    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
   ) {
     super(TextEditorPane.ID);
     this._register(configuration.onDidChangeConfiguration(event => {
@@ -227,12 +229,16 @@ export class TextEditorPane extends EditorPane {
     }
     const { width, height } = this.dimension;
     // Without `model: null` Monaco creates an empty model of its own that nothing would dispose.
-    this.editor = this.monaco.editor.create(this.editorContainer, {
+    const editor = this.editor = this.monaco.editor.create(this.editorContainer, {
       ...getTextEditorOptions(this.configuration),
       model: null,
       dimension: { width, height },
     });
-    this._register(this.editor);
+    // The editor stays registered while the pane lives, whatever model it shows; it leaves the
+    // service before it is disposed.
+    this.codeEditorService.addCodeEditor(editor);
+    this._register(toDisposable(() => this.codeEditorService.removeCodeEditor(editor)));
+    this._register(editor);
     this._register(this.editor.onDidFocusEditorText(() => {
       this.editorTextFocus.set(true);
       this.textInputFocus.set(true);

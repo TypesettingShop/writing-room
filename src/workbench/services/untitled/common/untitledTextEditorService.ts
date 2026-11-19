@@ -10,6 +10,8 @@ export const IUntitledTextEditorService = createDecorator<IUntitledTextEditorSer
 
 export interface INewUntitledTextEditorOptions {
   readonly initialValue?: string;
+  /** The language of the text; by default the model service guesses it, which gives `plaintext`. */
+  readonly languageId?: string;
 }
 
 export interface IUntitledTextEditorService extends BrandedService {
@@ -39,7 +41,7 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     do {
       resource = URI.from({ scheme: Schemas.untitled, path: `Untitled-${counter++}` });
     } while (this.models.has(resource.toString()) || this.releasing.has(resource.toString()) || this.restored.has(resource.toString()));
-    return this.createModel(resource, options.initialValue ?? '');
+    return this.createModel(resource, options.initialValue ?? '', options.languageId);
   }
 
   restore(resource: URI, initialValue: string): UntitledTextEditorModel {
@@ -47,9 +49,9 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     return this.get(resource) ?? this.createModel(resource, initialValue);
   }
 
-  private createModel(resource: URI, initialValue: string): UntitledTextEditorModel {
+  private createModel(resource: URI, initialValue: string, languageId?: string): UntitledTextEditorModel {
     const key = resource.toString();
-    const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, initialValue);
+    const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, initialValue, languageId);
     this.models.set(key, model);
     // Disposing the model gives its number back, unless it was restored — once a text model still
     // on its way for the resource is gone too, or the next model with that number could not get one.
