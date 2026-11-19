@@ -2,6 +2,8 @@ import { $, addDisposableListener, append, Dimension } from '../../../../base/br
 import { Emitter, Event } from '../../../../base/common/event.js';
 import type { IViewSize } from '../../../../base/browser/ui/grid/grid.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
 import type { IMenuContext } from '../../../../platform/actions/common/actions.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey, IContextKeyChangeEvent } from '../../../../platform/contextkey/common/contextkey.js';
@@ -9,7 +11,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
-import { EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
+import { ActiveEditorContextKeys, EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
 import { EditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { EditorInputWriter, IGroupModelChangeEvent, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import { ConfirmResult } from '../../../common/editor/editorInput.js';
@@ -70,6 +72,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private activePaneEntry: IPaneEntry | undefined;
   private dimension: Dimension | undefined;
   private readonly editorsCount: IContextKey<number>;
+  private readonly activeEditorContext: ActiveEditorContextKeys;
   private _disposed = false;
   /** The open close questions, by editor; a second close of one waits for the same answer. */
   private readonly pendingConfirmations = new Map<EditorInput, Promise<boolean>>();
@@ -89,6 +92,11 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     this._register(toDisposable(() => this.element.remove()));
     this.scopedContextKeyService = this._register(contextKeyService.createScoped(this.element));
     this.editorsCount = EditorGroupEditorsCountContext.bindTo(this.scopedContextKeyService);
+    // The group's own active editor, as VS Code's group binds them: the title menu of a group that is
+    // not the active one reads these, not the workbench's keys for the active group's editor.
+    const scoped = this.scopedContextKeyService;
+    this.activeEditorContext = this._register(instantiationService.invokeFunction(accessor =>
+      new ActiveEditorContextKeys(scoped, true, accessor.get(IModelService), accessor.get(ILanguageService))));
     this.updateContextKeys();
     this.listenToTitleContext();
 
@@ -289,8 +297,10 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     try {
       switch (await editor.closeHandler!.confirm([{ groupId: this.id, editor }])) {
         case ConfirmResult.SAVE:
-          // A save that fails or is cancelled keeps the editor open; the input told the user why.
-          return !editor.isDisposed() && await editor.save(this.id, { reason: 'explicit' }) !== undefined;
+          // A save that fails or is cancelled keeps the editor open; the input told the user why. An
+          // input disposed while the question was open has already left, as after `DONT_SAVE`, and
+          // does not hold back the other editors of the close.
+          return editor.isDisposed() || await editor.save(this.id, { reason: 'explicit' }) !== undefined;
         case ConfirmResult.DONT_SAVE:
           if (!editor.isDisposed()) {
             await editor.revert(this.id, { soft: true });
@@ -395,7 +405,8 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       return undefined;
     }
     if (this.activePaneEntry !== entry) {
-      this.clearPane();
+      // The title menu moves to the new pane's scope below, once.
+      this.clearPane(false);
       entry.container.hidden = false;
       this.activePaneEntry = entry;
       this.layoutPane();
@@ -440,13 +451,13 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     return entry;
   }
 
-  private clearPane(): void {
+  private clearPane(followTitleContext = true): void {
     const entry = this.activePaneEntry;
     if (entry) {
       this.activePaneEntry = undefined;
       entry.pane.clearInput();
       entry.container.hidden = true;
-      if (!this._disposed) {
+      if (followTitleContext && !this._disposed) {
         this.listenToTitleContext();
       }
     }
@@ -464,6 +475,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
 
   private updateContextKeys(): void {
     this.editorsCount.set(this.model.count);
+    this.activeEditorContext.set(this.model.activeEditor ?? undefined);
   }
 
   // --- grid view

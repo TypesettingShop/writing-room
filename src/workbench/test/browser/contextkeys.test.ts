@@ -15,6 +15,7 @@ import { ServiceCollection } from '../../../platform/instantiation/common/servic
 import { InMemoryStorageService, IStorageService } from '../../../platform/storage/common/storage.js';
 import { WorkbenchContextKeysHandler } from '../../browser/contextkeys.js';
 import { EditorPart } from '../../browser/parts/editor/editorPart.js';
+import { WelcomeEditorInput } from '../../browser/parts/editor/welcomeEditor.js';
 import { GroupDirection, IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { UntitledTextEditorInput } from '../../services/untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService } from '../../services/untitled/common/untitledTextEditorService.js';
@@ -147,6 +148,22 @@ test('a title button for markdown shows over a markdown editor only, per group',
   await vi.waitFor(() => expect(button()).toBeNull());
 });
 
+test('a group\'s title menu reads its own editor\'s resource keys, not the active group\'s', async () => {
+  CommandsRegistry.registerCommand('test.markdownResourceTitle', () => {});
+  disposables.add(MenuRegistry.appendMenuItem(MenuId.EditorTitle, {
+    command: { id: 'test.markdownResourceTitle', title: 'Markdown Resource' }, group: 'navigation',
+    when: ContextKeyExpr.deserialize('resourceLangId == markdown'),
+  }));
+  const left = part.activeGroup;
+  const button = (group = left) => group.element.querySelector('[aria-label="Markdown Resource"]');
+  await left.openEditor(untitled('markdown'));
+  const right = part.addGroup(left, GroupDirection.RIGHT);
+  await right.openEditor(untitled());
+  expect(root().getContextKeyValue('resourceLangId')).toBe('plaintext');
+  await vi.waitFor(() => expect(button()).not.toBeNull());
+  expect(button(right)).toBeNull();
+});
+
 test('a tab context menu reads the pressed tab\'s resource, not the active one', async () => {
   CommandsRegistry.registerCommand('test.markdownTab', () => {});
   disposables.add(MenuRegistry.appendMenuItem(MenuId.EditorTitleContext, {
@@ -170,6 +187,14 @@ test('a tab context menu reads the pressed tab\'s resource, not the active one',
   expect(labels()).not.toContain('Markdown Tab');
   // The active editor's own keys are untouched by the menu.
   expect(root().getContextKeyValue('resourceLangId')).toBe('plaintext');
+
+  // A tab without a resource does not show the active markdown editor's keys.
+  await group.openEditor(new WelcomeEditorInput(), { inactive: true });
+  await group.openEditor(group.editors[0]);
+  expect(root().getContextKeyValue('resourceLangId')).toBe('markdown');
+  expect(group.editors[2]).toBeInstanceOf(WelcomeEditorInput);
+  group.element.querySelectorAll('.tab')[2].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+  expect(labels()).not.toContain('Markdown Tab');
 });
 
 test('setContext sets a key a when clause reads, and refuses what is not plain data', async () => {

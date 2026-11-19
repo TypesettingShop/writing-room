@@ -328,13 +328,13 @@ export class MultiEditorTabsControl extends Disposable {
       const context: IEditorCommandsContext = { groupId: this.group.id, editorIndex: editorIndex() };
       // The menu is about the tab pressed, not the active one: its resource keys stand in for a moment.
       const scoped = this.group.scopedContextKeyService.createScoped();
+      const resource = new ResourceContextKey(scoped, this.modelService, this.languageService);
       let actions: MenuActionGroup[];
       try {
-        const resource = new ResourceContextKey(scoped, this.modelService, this.languageService);
         resource.set(editor.resource);
         actions = this.menuService.getMenuActions(MenuId.EditorTitleContext, scoped);
-        resource.dispose();
       } finally {
+        resource.dispose();
         scoped.dispose();
       }
       this.contextMenuService.showContextMenu({

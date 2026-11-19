@@ -107,3 +107,24 @@ test('asks the latest provider first and falls back to older ones', async () => 
   const reference = await resolver.createModelReference(URI.parse('virtual:/fallback'));
   expect(reference.object.textEditorModel.getValue()).toBe('text of /fallback');
 });
+
+test('letting go of a long-lived model stops watching it, so taking and dropping references adds no listeners', async () => {
+  let watching = 0;
+  const removed = models.onModelRemoved;
+  Object.assign(models, {
+    onModelRemoved: ((listener, thisArgs, disposables) => {
+      watching++;
+      const subscription = removed(listener, thisArgs, disposables);
+      return { dispose: () => { watching--; subscription.dispose(); } };
+    }) satisfies typeof removed,
+  });
+  const input = new UntitledTextEditorInput(untitled.create({ initialValue: 'draft' }));
+  const before = watching;
+  for (let cycle = 0; cycle < 3; cycle++) {
+    const reference = await resolver.createModelReference(input.resource);
+    reference.dispose();
+    await new Promise(resolve => setTimeout(resolve));
+  }
+  expect(watching).toBe(before);
+  input.dispose();
+});

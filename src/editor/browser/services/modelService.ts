@@ -60,8 +60,10 @@ export class ModelService extends Disposable implements IModelService {
   }
 
   setModelLanguage(model: ITextModel, languageId: string): void {
-    const entry = this.models.get(model.uri.toString());
-    if (!this.monaco || entry?.model !== model) {
+    // Found by identity: Monaco prints `model.uri` percent-encoded (`my%20notes.md`), unlike the
+    // workbench URI the map is keyed by.
+    const entry = [...this.models.values()].find(candidate => candidate.model === model);
+    if (!this.monaco || !entry) {
       throw new Error(`${model.uri} is not a model of the model service.`);
     }
     this.monaco.editor.setModelLanguage(entry.model, languageId);

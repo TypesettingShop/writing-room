@@ -20,6 +20,8 @@ interface IResolved {
 interface IEntry {
   count: number;
   readonly resolved: Promise<IResolved>;
+  /** Drops the entry when its model is disposed from elsewhere; let go of with the entry. */
+  removal?: IDisposable;
 }
 
 /** A model someone else owns, lent out under a reference. */
@@ -52,18 +54,16 @@ export class TextModelResolverService implements ITextModelService {
       entry = created;
       this.entries.set(key, created);
       created.resolved.then(({ object }) => {
+        if (this.entries.get(key) !== created) {
+          return;
+        }
         // A model disposed from elsewhere (its untitled editor closed, say) is no longer the
         // resource's: the next reference starts over.
-        Event.once(Event.filter(this.modelService.onModelRemoved, model => model === object.textEditorModel))(() => {
-          if (this.entries.get(key) === created) {
-            this.entries.delete(key);
-          }
-        });
+        created.removal = Event.once(Event.filter(this.modelService.onModelRemoved, model => model === object.textEditorModel))(
+          () => this.drop(key, created));
       }, () => {
         // A failed resolve is not kept: the next reference tries again.
-        if (this.entries.get(key) === created) {
-          this.entries.delete(key);
-        }
+        this.drop(key, created);
       });
     }
     const held = entry;
@@ -91,12 +91,20 @@ export class TextModelResolverService implements ITextModelService {
     // A reference taken before this settles keeps the model.
     void entry.resolved.then(({ object, owned }) => {
       if (entry.count === 0 && this.entries.get(key) === entry) {
-        this.entries.delete(key);
+        this.drop(key, entry);
         if (owned) {
           object.dispose();
         }
       }
     }, () => {});
+  }
+
+  /** Forgets `entry`, if it is still the resource's, and stops watching its model. */
+  private drop(key: string, entry: IEntry): void {
+    if (this.entries.get(key) === entry) {
+      this.entries.delete(key);
+      entry.removal?.dispose();
+    }
   }
 
   private async resolve(resource: URI): Promise<IResolved> {

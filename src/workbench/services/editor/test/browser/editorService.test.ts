@@ -27,6 +27,7 @@ import { ErrorEditorInput } from '../../../../common/editor/errorEditorInput.js'
 import { SettingsEditorResolver } from '../../../../contrib/preferences/browser/preferences.contribution.js';
 import { SettingsEditorInput } from '../../../../contrib/preferences/browser/settingsEditorInput.js';
 import { UntitledTextEditorInput } from '../../../untitled/common/untitledTextEditorInput.js';
+import { IUntitledTextEditorService } from '../../../untitled/common/untitledTextEditorService.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../common/editorGroupColumn.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../common/editorGroupsService.js';
 import type { IEditorGroup } from '../../common/editorGroupsService.js';
@@ -156,6 +157,9 @@ describe('glob matching', () => {
     ['vscode-userdata:/User/settings.json', 'vscode-userdata:/User/settings.json', true],
     ['vscode-userdata:/User/settings.json', 'vscode-userdata:/User/settingsXjson', false],
     ['*', 'untitled:Untitled-1', true],
+    // A character outside the BMP is one character of the name and one of the pattern.
+    ['*\u{1F600}.md', 'test:/a\u{1F600}.md', true],
+    ['?.md', 'test:/\u{1F600}.md', false],
   ])('%s matches %s: %s', (glob, resource, expected) => {
     expect(globMatchesResource(glob, URI.parse(resource))).toBe(expected);
   });
@@ -247,6 +251,21 @@ describe('opening by resource', () => {
     expect(part.activeGroup.activeEditor?.resource?.toString()).toBe('untitled:Untitled-7');
     await editors.openEditor({ resource: SettingsEditorInput.resource });
     expect(part.activeGroup.activeEditor).toBeInstanceOf(SettingsEditorInput);
+  });
+
+  test('an open untitled resource opened again elsewhere keeps its one input, so closing a tab keeps the text', async () => {
+    const editors = service(IEditorService);
+    const left = part.activeGroup;
+    const input = new UntitledTextEditorInput(service(IUntitledTextEditorService).create({ initialValue: 'draft' }));
+    await left.openEditor(input);
+    await editors.openEditor({ resource: input.resource }, SIDE_GROUP);
+    const right = part.activeGroup;
+    expect(right).not.toBe(left);
+    expect(right.activeEditor).toBe(input);
+    await right.closeEditor(input);
+    expect(left.editors).toEqual([input]);
+    expect(input.isDisposed()).toBe(false);
+    expect(input.model.getValue()).toBe('draft');
   });
 
   test('finds the editors of a resource in every group, or in one', async () => {
@@ -385,6 +404,25 @@ describe('closing with a question', () => {
     expect(group.editors).toEqual([]);
   });
 
+  test('an editor disposed while the Save question is open lets the rest of the close go on', async () => {
+    const group = part.activeGroup;
+    const gone = new TestInput(URI.parse('test:/gone'));
+    const other = new TestInput(URI.parse('test:/other'));
+    await group.openEditor(other);
+    await group.openEditor(gone);
+    gone.wantsConfirm = true;
+    gone.answer = ConfirmResult.SAVE;
+    const gate = deferred();
+    gone.gate = gate.promise;
+
+    const closing = group.closeAllEditors();
+    gone.dispose();
+    gate.resolve();
+    expect(await closing).toBe(true);
+    expect(group.editors).toEqual([]);
+    expect(gone.saves).toEqual([]);
+  });
+
   test('no question while another group still shows the editor', async () => {
     const left = part.activeGroup;
     const input = new TestInput(URI.parse('test:/split'));
@@ -474,6 +512,16 @@ describe('the opener', () => {
     expect(run).not.toHaveBeenCalled();
     expect(await opener.open(link, { allowCommands: ['test.run'] })).toBe(true);
     expect(run).toHaveBeenCalledWith('test.run', 'x', 2);
+
+    // Text that decodes to broken JSON is read again as written, as VS Code does.
+    expect(await opener.open('command:test.run?["a%22b"]', { allowCommands: ['test.run'] })).toBe(true);
+    expect(run).toHaveBeenLastCalledWith('test.run', 'a%22b');
+  });
+
+  test('passes on a resource that only an option editor takes, which is never picked by default', async () => {
+    registerTestEditor('*.optonly', 'test.optionOnly', RegisteredEditorPriority.option);
+    expect(await service(IOpenerService).open('test:/a.optonly')).toBe(false);
+    expect(part.activeGroup.editors).toEqual([]);
   });
 
   test('opens a resource an editor takes, beside the active group when asked', async () => {

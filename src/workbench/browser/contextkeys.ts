@@ -1,10 +1,10 @@
 import { getKeybindingPlatform } from '../../base/common/keybindings.js';
-import { Disposable, MutableDisposable } from '../../base/common/lifecycle.js';
+import { Disposable } from '../../base/common/lifecycle.js';
 import { IContextKeyService } from '../../platform/contextkey/common/contextkey.js';
 import { IsLinuxContext, IsMacContext, IsWebContext, IsWindowsContext } from '../../platform/contextkey/common/contextkeys.js';
 import { ILanguageService } from '../../editor/common/languages/language.js';
 import { IModelService } from '../../editor/common/services/model.js';
-import { ActiveEditorDirtyContext, ActiveEditorReadonlyContext, ResourceContextKey } from '../common/contextkeys.js';
+import { ActiveEditorContextKeys } from '../common/contextkeys.js';
 import { IEditorService } from '../services/editor/common/editorService.js';
 
 /**
@@ -14,8 +14,6 @@ import { IEditorService } from '../services/editor/common/editorService.js';
  */
 export class WorkbenchContextKeysHandler extends Disposable {
   static readonly ID = 'workbench.contrib.contextKeys';
-
-  private readonly activeEditorListener = this._register(new MutableDisposable());
 
   constructor(
     @IContextKeyService contextKeyService: IContextKeyService,
@@ -30,16 +28,9 @@ export class WorkbenchContextKeysHandler extends Disposable {
     IsLinuxContext.bindTo(contextKeyService).set(platform === 'linux');
     IsWindowsContext.bindTo(contextKeyService).set(platform === 'win');
 
-    const readonly = ActiveEditorReadonlyContext.bindTo(contextKeyService);
-    const dirty = ActiveEditorDirtyContext.bindTo(contextKeyService);
-    const resource = this._register(new ResourceContextKey(contextKeyService, modelService, languageService));
-    const update = () => {
-      const editor = this.editorService.activeEditor;
-      readonly.set(editor?.isReadonly() ?? false);
-      dirty.set(editor?.isDirty() ?? false);
-      resource.set(editor?.resource);
-      this.activeEditorListener.value = editor?.onDidChangeDirty(() => dirty.set(editor.isDirty()));
-    };
+    // The workbench scope has no parent to hide, so no resource leaves the keys unset.
+    const activeEditor = this._register(new ActiveEditorContextKeys(contextKeyService, false, modelService, languageService));
+    const update = () => activeEditor.set(this.editorService.activeEditor);
     update();
     this._register(editorService.onDidActiveEditorChange(update));
   }

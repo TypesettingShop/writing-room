@@ -23,18 +23,22 @@ function commandArguments(query: string): unknown[] | undefined {
   if (!query) {
     return [];
   }
-  let text = query;
+  // Decoded first; then, as VS Code retries, as written, for JSON whose text holds a `%` sequence.
+  const candidates = [query];
   try {
-    text = decodeURIComponent(query);
+    candidates.unshift(decodeURIComponent(query));
   } catch {
     // Not percent-encoded: read as written.
   }
-  try {
-    const value: unknown = JSON.parse(text);
-    return Array.isArray(value) ? value : [value];
-  } catch {
-    return undefined;
+  for (const text of candidates) {
+    try {
+      const value: unknown = JSON.parse(text);
+      return Array.isArray(value) ? value : [value];
+    } catch {
+      // Try the next reading.
+    }
   }
+  return undefined;
 }
 
 export class OpenerService implements IOpenerService {

@@ -177,7 +177,10 @@ function matchTokens(tokens: readonly GlobToken[], text: string): boolean {
     return states;
   };
   let states = close(new Set([0]));
-  for (const char of text.toLowerCase()) {
+  const lower = text.toLowerCase();
+  // By UTF-16 code unit, as `tokenize` reads the pattern: a character outside the BMP is two units in both.
+  for (let at = 0; at < lower.length; at++) {
+    const char = lower[at];
     const next = new Set<number>();
     for (const state of states) {
       const token = tokens[state];

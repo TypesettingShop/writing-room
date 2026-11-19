@@ -1,6 +1,6 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
-import { IEditorResolverService } from '../../../services/editor/common/editorResolverService.js';
+import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
 
 /**
@@ -18,7 +18,9 @@ export class EditorOpenerContribution extends Disposable {
     super();
     this._register(opener.registerOpener({
       open: async (resource, options) => {
-        if (resolver.getEditors(resource).length === 0) {
+        // An `option` editor is never picked by default, so a resource only such editors take is
+        // not this opener's either: opening it would show an error editor.
+        if (!resolver.getEditors(resource).some(editor => editor.priority !== RegisteredEditorPriority.option)) {
           return false;
         }
         await editorService.openEditor(
