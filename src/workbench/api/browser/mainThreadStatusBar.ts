@@ -1,6 +1,8 @@
+import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { MainThreadStatusBarProxy } from '../common/extHost.protocol.statusBar.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
-import { StatusbarAlignment } from '../../services/statusbar/browser/statusbar.js';
-import type { IStatusbarEntryAccessor, IStatusbarService } from '../../services/statusbar/browser/statusbar.js';
+import { IStatusbarService, StatusbarAlignment } from '../../services/statusbar/browser/statusbar.js';
+import type { IStatusbarEntryAccessor } from '../../services/statusbar/browser/statusbar.js';
 import type { MainThreadStatusBarShape, StatusBarEntryDto } from '../common/extHost.protocol.js';
 
 export class MainThreadStatusBar implements MainThreadStatusBarShape, IDisposable {
@@ -54,3 +56,10 @@ export class MainThreadStatusBar implements MainThreadStatusBarShape, IDisposabl
     }
   }
 }
+
+mainThreadCustomers.register('statusBar', ({ rpc, instantiation, getExtension }) => {
+  const statusbar = instantiation.invokeFunction(accessor => accessor.get(IStatusbarService));
+  const status = new MainThreadStatusBar(statusbar, key => getExtension(key)?.id);
+  rpc.set(MainThreadStatusBarProxy, status);
+  return status;
+});

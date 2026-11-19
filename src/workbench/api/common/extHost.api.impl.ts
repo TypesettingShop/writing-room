@@ -1,61 +1,76 @@
 import type * as vscode from 'vscode';
-import type { ExtHostCommands } from './extHostCommands.js';
-import type { ExtHostTreeViews } from './extHostTreeViews.js';
-import type { ExtHostStatusBar } from './extHostStatusBar.js';
-import type { ExtHostMessageService } from './extHostMessageService.js';
-import type { MessageSeverity } from './extHost.protocol.js';
-import { Disposable, EventEmitter, TreeItem, TreeItemCollapsibleState, StatusBarAlignment } from './extHostTypes.js';
+import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
+import { guardApiMethod } from './extHostApiRegistry.js';
+import type { ExtHostApiContribution } from './extHostApiRegistry.js';
 
-export function createApiFactory(
-  commands: ExtHostCommands, trees: ExtHostTreeViews, status: ExtHostStatusBar, messages: ExtHostMessageService,
-): (id: string, isLive: () => boolean) => typeof vscode {
-  return (id, isLive) => {
-    const checkLive = () => {
-      if (!isLive()) {
-        throw new Error(`Extension '${id}' is no longer active.`);
+interface Property {
+  readonly area: string;
+  readonly descriptor: PropertyDescriptor;
+}
+
+function add(
+  properties: Map<string, Property>, name: string, area: string, descriptor: PropertyDescriptor, path = name,
+): void {
+  const existing = properties.get(name);
+  if (existing) {
+    throw new Error("Duplicate extension API property '" + path + "' from '" + existing.area + "' and '" + area + "'.");
+  }
+  properties.set(name, { area, descriptor });
+}
+
+function asObject(properties: ReadonlyMap<string, Property>): Record<string, unknown> {
+  const descriptors = Object.fromEntries([...properties].map(([name, { descriptor }]) => [name, descriptor]));
+  return Object.defineProperties({}, descriptors);
+}
+
+function guardProperty(property: PropertyDescriptor, checkLive: () => void): PropertyDescriptor {
+  return 'value' in property
+    ? { ...property, value: guardApiMethod(property.value, checkLive) }
+    : { ...property, get: guardApiMethod(property.get, checkLive), set: guardApiMethod(property.set, checkLive) };
+}
+
+export function createExtensionApi(
+  contributions: ReadonlyMap<string, ExtHostApiContribution>,
+  extension: HostExtensionDescription,
+  isLive: () => boolean,
+  baseContext: object,
+): { api: typeof vscode; context: vscode.ExtensionContext } {
+  const top = new Map<string, Property>();
+  const namespaces = new Map<string, Map<string, Property>>();
+  const context = new Map<string, Property>();
+  const checkLive = () => {
+    if (!isLive()) {
+      throw new Error("Extension '" + extension.key + "' is no longer active.");
+    }
+  };
+  for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(baseContext))) {
+    add(context, name, 'extension context', descriptor);
+  }
+  for (const [area, contribution] of contributions) {
+    const fragments = contribution.create?.(extension);
+    for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(fragments?.types ?? {}))) {
+      add(top, name, area, descriptor);
+    }
+    for (const [namespace, properties] of Object.entries(fragments?.namespaces ?? {})) {
+      let values = namespaces.get(namespace);
+      if (!values) {
+        values = new Map();
+        namespaces.set(namespace, values);
+        add(top, namespace, area, { enumerable: true });
       }
-    };
-    const show = (severity: MessageSeverity) =>
-      <T extends string | vscode.MessageItem>(message: string, ...items: T[]) => {
-        checkLive();
-        return messages.showMessage(id, severity, message, items);
-      };
-    const api = {
-      Disposable,
-      EventEmitter,
-      TreeItem,
-      TreeItemCollapsibleState,
-      StatusBarAlignment,
-      window: Object.freeze({
-        registerTreeDataProvider: (view, provider) => {
-          checkLive();
-          return trees.createTreeView(id, view, provider);
-        },
-        createTreeView: (view, options) => {
-          checkLive();
-          return trees.createTreeView(id, view, options.treeDataProvider);
-        },
-        createStatusBarItem: (alignment, priority) => {
-          checkLive();
-          return status.createStatusBarItem(id, alignment, priority);
-        },
-        showInformationMessage: show('info'),
-        showWarningMessage: show('warning'),
-        showErrorMessage: show('error'),
-      } satisfies typeof vscode.window),
-      commands: Object.freeze({
-        registerCommand: (command, callback, thisArg) => {
-          checkLive();
-          return commands.registerCommand(id, command, callback, thisArg);
-        },
-        executeCommand: <T>(command: string, ...args: unknown[]) => {
-          if (!isLive()) {
-            return Promise.reject(new Error(`Extension '${id}' is no longer active.`));
-          }
-          return commands.executeCommand<T>(id, command, args);
-        },
-      } satisfies typeof vscode.commands),
-    } satisfies typeof vscode;
-    return Object.freeze(api);
+      for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(properties))) {
+        add(values, name, area, guardProperty(descriptor, checkLive), namespace + '.' + name);
+      }
+    }
+    for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(fragments?.context ?? {}))) {
+      add(context, name, area, guardProperty(descriptor, checkLive));
+    }
+  }
+  for (const [name, values] of namespaces) {
+    top.get(name)!.descriptor.value = Object.freeze(asObject(values));
+  }
+  return {
+    api: Object.freeze(asObject(top)) as typeof vscode,
+    context: asObject(context) as unknown as vscode.ExtensionContext,
   };
 }

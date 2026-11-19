@@ -1,0 +1,66 @@
+{
+  "name": "foundation",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "browser": "./browser/extension",
+  "contributes": {
+    "commands": [
+      {
+        "command": "foundation.reportResource",
+        "title": "Report Fixture Resource",
+        "icon": {
+          "light": "./icons/light.svg",
+          "dark": "./icons/dark.svg"
+        }
+      },
+      {
+        "command": "foundation.reportKind",
+        "title": "Report Fixture Code Action Kind",
+        "icon": "../outside.svg"
+      },
+      {
+        "command": "foundation.reportTreeItem",
+        "title": "Report Fixture Tree Item"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "foundation.reportResource",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "foundation.reportResource"
+        }
+      ],
+      "view/item/context": [
+        {
+          "submenu": "foundation.treeMenu",
+          "when": "view == foundation.tree"
+        }
+      ],
+      "foundation.treeMenu": [
+        {
+          "command": "foundation.reportTreeItem"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "foundation.tree",
+          "name": "Fixture Tree"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "foundation.treeMenu",
+        "label": "Fixture Tree Actions"
+      }
+    ]
+  },
+  "displayName": "Foundation Fixture"
+}

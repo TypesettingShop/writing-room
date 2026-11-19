@@ -59,9 +59,6 @@ export function validateInstalledManifest(input: unknown, location: string): IEx
       }
     }
   };
-  if (Array.isArray(manifest.contributes?.commands)) {
-    manifest.contributes.commands.forEach((entry, index) => validateIcon(entry, 'contributes.commands.' + index));
-  }
   const containers = manifest.contributes?.viewsContainers;
   if (isRecord(containers)) {
     for (const [key, entries] of Object.entries(containers)) {

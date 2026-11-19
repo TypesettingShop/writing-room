@@ -1,6 +1,6 @@
 import type * as vscode from 'vscode';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
-import { URI } from '../../../base/common/uri.js';
+import { Uri } from './extHostTypes.js';
 import { dispose } from '../../../base/common/lifecycle.js';
 import type { MainThreadExtensionServiceShape } from './extHost.protocol.js';
 
@@ -13,10 +13,14 @@ export type ExtensionLoader = (
   extension: HostExtensionDescription, api: typeof vscode, signal: AbortSignal,
 ) => Promise<IExtensionModule>;
 
+type BaseExtensionContext = Pick<vscode.ExtensionContext, 'subscriptions' | 'extensionUri'> & {
+  readonly extension: Pick<vscode.Extension<unknown>, 'id' | 'packageJSON'>;
+};
+
 class Activation {
   readonly abort = new AbortController();
   readonly subscriptions: vscode.ExtensionContext['subscriptions'] = [];
-  readonly context: vscode.ExtensionContext;
+  readonly context: BaseExtensionContext;
   module?: IExtensionModule;
   operation?: Promise<void>;
   state: 'inactive' | 'activating' | 'active' | 'failed' = 'inactive';
@@ -24,7 +28,7 @@ class Activation {
   constructor(public description: HostExtensionDescription) {
     this.context = {
       subscriptions: this.subscriptions,
-      extensionUri: URI.parse(description.location),
+      extensionUri: Uri.parse(description.location),
       extension: { id: description.id, packageJSON: structuredClone(description.manifest) },
     };
   }
@@ -36,7 +40,9 @@ export class ExtensionsActivator {
   constructor(
     private readonly main: MainThreadExtensionServiceShape,
     private readonly load: ExtensionLoader,
-    private readonly createApi: (id: string, isLive: () => boolean) => typeof vscode,
+    private readonly createApi: (
+      extension: HostExtensionDescription, isLive: () => boolean, context: BaseExtensionContext,
+    ) => { api: typeof vscode; context: vscode.ExtensionContext },
     private readonly flush: (key: string) => Promise<void>,
     private readonly release: (key: string) => void,
   ) {}
@@ -85,10 +91,10 @@ export class ExtensionsActivator {
       extension.state = 'activating';
       void this.main.$setActivationStatus(description.key, { state: 'activating' }).catch(() => {});
       try {
-        const api = this.createApi(description.key, () => this.isLive(description.key));
+        const { api, context } = this.createApi(description, () => this.isLive(description.key), extension.context);
         extension.module = await this.load(description, api, abort.signal);
         abort.signal.throwIfAborted();
-        await extension.module.activate?.(extension.context);
+        await extension.module.activate?.(context);
         abort.signal.throwIfAborted();
         await this.flush(description.key);
         abort.signal.throwIfAborted();

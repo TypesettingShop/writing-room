@@ -3,7 +3,7 @@ import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import type { ThemeIcon } from '../../../base/common/themables.js';
 import { CommandsRegistry } from '../../commands/common/commands.js';
-import type { ICommandService } from '../../commands/common/commands.js';
+import type { ICommandHandler, ICommandService } from '../../commands/common/commands.js';
 import { ContextKeyExpr } from '../../contextkey/common/contextkey.js';
 import type { ContextKeyExpression, IContextKeyService } from '../../contextkey/common/contextkey.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
@@ -27,6 +27,7 @@ export interface ICommandAction {
   readonly icon?: CommandIcon;
   readonly precondition?: ContextKeyExpression;
   readonly toggled?: ContextKeyExpression;
+  readonly forwardMenuContext?: MenuId;
 }
 
 interface IMenuEntry {
@@ -41,6 +42,7 @@ export interface IMenuItem extends IMenuEntry {
 
 export interface ISubmenuItem extends IMenuEntry {
   readonly submenu: MenuId;
+  readonly forwardMenuContext?: MenuId;
   readonly title: CommandTitle;
   readonly icon?: CommandIcon;
 }
@@ -63,6 +65,9 @@ export class MenuId {
   static readonly MenubarHelpMenu = new MenuId('MenubarHelpMenu');
   static readonly EditorTitle = new MenuId('EditorTitle');
   static readonly EditorTitleContext = new MenuId('EditorTitleContext');
+  static readonly EditorContext = new MenuId('EditorContext');
+  static readonly ExplorerContext = new MenuId('ExplorerContext');
+  static readonly WebviewContext = new MenuId('WebviewContext');
   static readonly ViewTitle = new MenuId('ViewTitle');
   static readonly ViewItemContext = new MenuId('ViewItemContext');
   static readonly ViewContainerTitle = new MenuId('ViewContainerTitle');
@@ -156,6 +161,13 @@ export const MenuRegistry = new MenuRegistryImpl();
 
 export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>;
 
+export class MenuCommandContext {
+  constructor(readonly menu: MenuId, readonly scope: IMenuContext) {}
+}
+
+/** Command handlers that can receive a menu invocation before their positional arguments. */
+export const menuContextHandlers = new WeakSet<ICommandHandler>();
+
 export class MenuItemAction {
   readonly id: string;
   readonly label: string;
@@ -163,10 +175,11 @@ export class MenuItemAction {
   readonly checked: boolean | undefined;
   readonly icon: CommandIcon | undefined;
   readonly keybinding: ResolvedKeybinding | undefined;
+  private menuContext: MenuId | undefined;
 
   constructor(
     readonly item: ICommandAction,
-    context: IMenuContext,
+    private readonly context: IMenuContext,
     keybindings: IKeybindingService,
     private readonly commandService: ICommandService,
   ) {
@@ -176,9 +189,22 @@ export class MenuItemAction {
     this.checked = item.toggled && context.contextMatchesRules(item.toggled);
     this.icon = item.icon;
     this.keybinding = keybindings.lookupKeybinding(item.id);
+    this.menuContext = item.forwardMenuContext;
   }
 
-  run(...args: unknown[]): Promise<unknown> { return this.commandService.executeCommand(this.id, ...args); }
+  setMenuContext(menu: MenuId): void {
+    this.menuContext = menu;
+  }
+
+  run(...args: unknown[]): Promise<unknown> {
+    if (this.menuContext) {
+      const command = CommandsRegistry.getCommand(this.id);
+      if (!command || menuContextHandlers.has(command.handler)) {
+        return this.commandService.executeCommand(this.id, new MenuCommandContext(this.menuContext, this.context), ...args);
+      }
+    }
+    return this.commandService.executeCommand(this.id, ...args);
+  }
 }
 
 export class SubmenuItemAction {
@@ -191,6 +217,17 @@ export class SubmenuItemAction {
     this.id = item.submenu.id;
     this.label = commandTitle(item.title);
     this.icon = item.icon;
+    if (item.forwardMenuContext) {
+      this.setMenuContext(item.forwardMenuContext);
+    }
+  }
+
+  setMenuContext(menu: MenuId): void {
+    for (const [, actions] of this.groups) {
+      for (const action of actions) {
+        action.setMenuContext(menu);
+      }
+    }
   }
 }
 

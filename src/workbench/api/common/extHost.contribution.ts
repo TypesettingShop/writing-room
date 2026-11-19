@@ -1,0 +1,19 @@
+import './extHostCommands.js';
+import './extHostTreeViews.js';
+import './extHostStatusBar.js';
+import './extHostMessageService.js';
+import './extHostEntryReaders.js';
+
+import './extHostDocumentsAndEditors.js';
+import './extHostLanguages.js';
+import './extHostDiagnostics.js';
+import './extHostFileSystem.js';
+import './extHostDialogs.js';
+import './extHostWebview.js';
+import './extHostConfiguration.js';
+import './extHostQuickOpen.js';
+import './extHostTheming.js';
+import './extHostRuntime.js';
+import './extHostExtensionResources.js';
+import './extHostLanguageFeatures.js';
+import './extHostCustomEditors.js';

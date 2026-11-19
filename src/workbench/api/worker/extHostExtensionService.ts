@@ -1,18 +1,16 @@
 import type * as vscode from 'vscode';
-import { fetchBoundedResource } from '../../../base/parts/request/common/boundedFetch.js';
-import { extensionResourceLimits } from '../../services/extensions/common/extensionResources.js';
+import '../common/extHostEntryReaders.js';
+import { URI } from '../../../base/common/uri.js';
+import { readExtensionEntry } from '../../services/extensions/common/extensionResources.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { IExtensionModule } from '../common/extHostExtensionActivator.js';
 
-const fetchEntry = globalThis.fetch.bind(globalThis);
 const evaluate = Function;
 
 export async function loadCommonJSModule(
   extension: HostExtensionDescription, api: typeof vscode, signal: AbortSignal,
 ): Promise<IExtensionModule> {
-  const { bytes } = await fetchBoundedResource(extension.entry, {
-    limit: extensionResourceLimits.entry, signal, request: fetchEntry,
-  });
+  const bytes = await readExtensionEntry(URI.parse(extension.entry), signal);
   const source = new TextDecoder().decode(bytes);
   signal.throwIfAborted();
   const module = { exports: {} as IExtensionModule };
