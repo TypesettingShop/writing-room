@@ -1,3 +1,4 @@
+import './mainThreadOutputService.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { IQuickInputService, Severity } from '../../../platform/quickinput/common/quickInput.js';

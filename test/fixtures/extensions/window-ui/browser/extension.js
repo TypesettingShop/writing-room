@@ -10,6 +10,16 @@ const fruit = [
 const notes = ['Draft', 'Diary', 'Recipe', 'Reading list'].map(label => ({ label }));
 const refresh = { iconPath: new vscode.ThemeIcon('refresh'), tooltip: 'Refresh notes' };
 
+// Created on first use, so the other tests see no channel.
+let output;
+let log;
+let writes = 0;
+
+function outputChannel() {
+  output ??= vscode.window.createOutputChannel('Window UI');
+  return output;
+}
+
 function say(text) {
   void vscode.window.showInformationMessage(text);
 }
@@ -56,5 +66,36 @@ module.exports.activate = context => {
     });
     pick.onDidHide(() => pick.dispose());
     pick.show();
+  }));
+  // Writes 10,000 lines without revealing the channel, then reveals it keeping focus where it is.
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.writeOutput', () => {
+    const channel = outputChannel();
+    const round = ++writes;
+    for (let index = 0; index < 10_000; index++) {
+      channel.append('round ' + round + ' ');
+      channel.appendLine('line ' + index);
+    }
+    say('Wrote round ' + round);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.showOutput', () => {
+    outputChannel().show(true);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.logOutput', () => {
+    log ??= vscode.window.createOutputChannel('Window UI Log', { log: true });
+    log.trace('a trace line');
+    log.info('an info line');
+    log.warn('a warning line');
+    log.show();
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.closeOutput', () => {
+    const channel = outputChannel();
+    channel.dispose();
+    output = undefined;
+    try {
+      channel.appendLine('after dispose');
+      say('Wrote after dispose');
+    } catch (error) {
+      say('Closed output: ' + error.message);
+    }
   }));
 };

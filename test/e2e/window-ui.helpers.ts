@@ -23,3 +23,16 @@ export async function runCommand(page: Page, title: string): Promise<void> {
 }
 
 export const message = (page: Page, text: string): Locator => page.getByRole('status').filter({ hasText: text });
+
+const panelPart = (page: Page): Locator => page.locator('[id="workbench.parts.panel"]');
+
+/** The Output view's parts, in the panel. */
+export function outputView(page: Page) {
+  const panel = panelPart(page);
+  return {
+    panel,
+    tab: panel.getByRole('tab', { name: 'Output' }),
+    channels: panel.getByRole('listbox', { name: 'Output Channels' }),
+    log: panel.getByRole('log', { name: 'Output' }),
+  };
+}

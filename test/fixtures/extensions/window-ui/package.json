@@ -9,7 +9,11 @@
       { "command": "windowUi.pickFruit", "title": "Window UI: Pick Fruit" },
       { "command": "windowUi.pickMany", "title": "Window UI: Pick Many" },
       { "command": "windowUi.askName", "title": "Window UI: Ask Name" },
-      { "command": "windowUi.search", "title": "Window UI: Search Notes" }
+      { "command": "windowUi.search", "title": "Window UI: Search Notes" },
+      { "command": "windowUi.writeOutput", "title": "Window UI: Write Output" },
+      { "command": "windowUi.showOutput", "title": "Window UI: Show Output" },
+      { "command": "windowUi.logOutput", "title": "Window UI: Write Log" },
+      { "command": "windowUi.closeOutput", "title": "Window UI: Close Output" }
     ]
   }
 }

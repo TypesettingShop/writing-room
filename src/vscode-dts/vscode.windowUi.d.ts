@@ -112,4 +112,34 @@ declare module 'vscode' {
     function createQuickPick<T extends QuickPickItem>(): QuickPick<T>;
     function createInputBox(): InputBox;
   }
+
+  // Output channels (wr-x0vf.jgz). The text is kept in memory, 1 MiB per channel; `languageId` is accepted
+  // and not used.
+
+  interface OutputChannel {
+    readonly name: string;
+    append(value: string): void;
+    appendLine(value: string): void;
+    replace(value: string): void;
+    clear(): void;
+    show(preserveFocus?: boolean): void;
+    show(column?: ViewColumn, preserveFocus?: boolean): void;
+    hide(): void;
+    dispose(): void;
+  }
+
+  interface LogOutputChannel extends OutputChannel {
+    readonly logLevel: LogLevel;
+    readonly onDidChangeLogLevel: Event<LogLevel>;
+    trace(message: string, ...args: any[]): void;
+    debug(message: string, ...args: any[]): void;
+    info(message: string, ...args: any[]): void;
+    warn(message: string, ...args: any[]): void;
+    error(error: string | Error, ...args: any[]): void;
+  }
+
+  namespace window {
+    function createOutputChannel(name: string, languageId?: string): OutputChannel;
+    function createOutputChannel(name: string, options: { /** literal-type defines return type */log: true }): LogOutputChannel;
+  }
 }

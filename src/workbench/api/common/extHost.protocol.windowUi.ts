@@ -81,3 +81,19 @@ export interface ExtHostQuickOpenShape {
 
 export const MainThreadQuickOpenProxy = createProxyIdentifier<MainThreadQuickOpenShape>('MainThreadQuickOpen');
 export const ExtHostQuickOpenProxy = createProxyIdentifier<ExtHostQuickOpenShape>('ExtHostQuickOpen');
+
+// Output channels. The extension host numbers its channels; the workbench keys them by extension and
+// number, so one extension cannot reach another's channel.
+
+export interface MainThreadOutputServiceShape {
+  $register(extension: string, handle: number, label: string): Promise<void>;
+  /** Text written since the last call, in order. */
+  $append(extension: string, handle: number, text: string): Promise<void>;
+  $replace(extension: string, handle: number, text: string): Promise<void>;
+  $clear(extension: string, handle: number): Promise<void>;
+  $reveal(extension: string, handle: number, preserveFocus: boolean): Promise<void>;
+  $close(extension: string, handle: number): Promise<void>;
+  $dispose(extension: string, handle: number): Promise<void>;
+}
+
+export const MainThreadOutputServiceProxy = createProxyIdentifier<MainThreadOutputServiceShape>('MainThreadOutputService');
