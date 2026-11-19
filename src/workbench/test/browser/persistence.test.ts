@@ -306,6 +306,22 @@ test('saves untitled text edited after an earlier save', async () => {
   expect((restored.groups.activeGroup.activeEditor as UntitledTextEditorInput).model.getValue()).toBe('after');
 });
 
+test('saves an untitled tab’s language changed after an earlier save, with no edit in between', async () => {
+  const { groups, storage, untitled } = start();
+  const input = new UntitledTextEditorInput(untitled.create({ initialValue: '# notes' }));
+  await groups.activeGroup.openEditor(input);
+  await input.resolve();
+  await storage.flush();
+  // A language switch changes no text, but the saved form holds the language.
+  input.model.setLanguageId('markdown');
+  await storage.flush();
+
+  const restored = start();
+  const restoredInput = restored.groups.activeGroup.activeEditor as UntitledTextEditorInput;
+  await restoredInput.resolve();
+  expect(restoredInput.model.getLanguageId()).toBe('markdown');
+});
+
 test('continues saving the other parts when a component throws', async () => {
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   const { storage, layout } = start();

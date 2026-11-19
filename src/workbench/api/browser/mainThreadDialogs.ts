@@ -3,7 +3,7 @@ import { normalize } from '../../../base/common/path.js';
 import { basename, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
-import { isInsideRoots, validateFileName } from '../../services/dialogs/common/dialogPaths.js';
+import { hasForbiddenPathCharacter, isInsideRoots, validateFileName } from '../../services/dialogs/common/dialogPaths.js';
 import { IFileDialogService } from '../../services/dialogs/common/dialogs.js';
 import type { FileFilter, IOpenDialogOptions, ISaveDialogOptions } from '../../services/dialogs/common/dialogs.js';
 import { MainThreadDialogsProxy } from '../common/extHost.protocol.dialogs.js';
@@ -142,7 +142,7 @@ export class MainThreadDialogs implements MainThreadDialogsShape {
       return false;
     }
     // A path that `.` or `..` would change, or that holds a backslash or a control character, is no workspace path.
-    if (normalize(uri.path) !== uri.path || /[\\\p{Cc}]/u.test(uri.path)) {
+    if (normalize(uri.path) !== uri.path || hasForbiddenPathCharacter(uri.path)) {
       return false;
     }
     return isInsideRoots(uri, this.workspace.getWorkspace().folders.map(folder => folder.uri));

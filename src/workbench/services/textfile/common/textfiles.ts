@@ -10,6 +10,23 @@ import { IUntitledTextEditorService } from '../../untitled/common/untitledTextEd
 
 export const ITextFileService = createDecorator<ITextFileService>('textFileService');
 
+/**
+ * Schemes the file system serves that are not opened as text files: remote extension resources
+ * (read only) and the user data store (extension packages, their storage, the drafts of unsaved
+ * files). The workspace folder and the schemes extensions register are.
+ */
+const NOT_TEXT_FILE_SCHEMES: ReadonlySet<string> = new Set([Schemas.http, Schemas.https, Schemas.vscodeUserData]);
+
+/** Whether resources of `scheme` may open as text files, whether or not a provider serves it yet. */
+export function isTextFileScheme(scheme: string): boolean {
+  return scheme !== Schemas.untitled && !NOT_TEXT_FILE_SCHEMES.has(scheme);
+}
+
+/** Whether `resource` opens as a text file: a scheme the file service serves, other than those above. */
+export function isTextFileResource(resource: URI, fileService: { hasProvider(resource: URI): boolean }): boolean {
+  return isTextFileScheme(resource.scheme) && fileService.hasProvider(resource);
+}
+
 export type SaveReason = 'explicit' | 'auto';
 
 /** Before a text file saves. Listeners may hand in work the save waits for, such as edits to apply first. */

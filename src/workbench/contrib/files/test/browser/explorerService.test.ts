@@ -141,6 +141,22 @@ describe('ExplorerService', () => {
     expect(explorer.isExpanded(explorer.find(file('docs'))!)).toBe(false);
   });
 
+  test('a read that fails for another reason than a missing folder keeps the listing and the expansion', async () => {
+    await files.createFolder(file('docs'));
+    await write('docs/a.md');
+    const explorer = createExplorer();
+    await explorer.setExpanded(explorer.root, true);
+    const docs = explorer.find(file('docs'))!;
+    await explorer.setExpanded(docs, true);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(files, 'resolve').mockRejectedValueOnce(new Error('The storage is busy.'));
+
+    await explorer.resolveFolder(explorer.root);
+    expect(names(explorer.root.children)).toEqual(['docs']);
+    expect(explorer.isExpanded(docs)).toBe(true);
+    expect(JSON.parse(storage.get(EXPLORER_VIEW_STATE_KEY, StorageScope.WORKSPACE)!)).toEqual({ expanded: [file('docs').toString()] });
+  });
+
   test('a deleted folder leaves the stored expansion', async () => {
     await files.createFolder(file('gone'));
     const explorer = createExplorer();

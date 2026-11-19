@@ -15,7 +15,7 @@ import { IFileDialogService } from '../../dialogs/common/dialogs.js';
 import { IUntitledTextEditorService } from '../../untitled/common/untitledTextEditorService.js';
 import { TextFileBackups } from '../common/textFileBackup.js';
 import { TextFileEditorModelManager } from '../common/textFileEditorModelManager.js';
-import { ITextFileService, UntitledTextFileService } from '../common/textfiles.js';
+import { isTextFileResource, ITextFileService, UntitledTextFileService } from '../common/textfiles.js';
 import type { ITextFileRevertOptions, ITextFileSaveOptions, SaveReason } from '../common/textfiles.js';
 
 /**
@@ -103,8 +103,13 @@ export class BrowserTextFileService extends UntitledTextFileService {
     if (isEqual(source, target)) {
       return source.scheme === Schemas.untitled ? undefined : this.save(source, options);
     }
+    if (source.scheme !== Schemas.untitled && !this.files.get(source)?.isResolved()) {
+      // A file with no text read (binary, too large, never opened) goes over byte for byte, as VS
+      // Code copies it: decoding it as UTF-8 and encoding it again would change what it holds.
+      return await this.copyFile(source, target) ? target : undefined;
+    }
     // Read once the dialog is done: nothing could be typed while it was open, but a reload could happen.
-    const text = await this.readText(source);
+    const text = this.readText(source);
     if (text === undefined || !await this.writeText(target, text, options)) {
       return undefined;
     }
@@ -118,20 +123,21 @@ export class BrowserTextFileService extends UntitledTextFileService {
     return resource.scheme === Schemas.untitled ? this.untitledService.get(resource) !== undefined : this.fileService.hasProvider(resource);
   }
 
-  private async readText(resource: URI): Promise<string | undefined> {
-    if (resource.scheme === Schemas.untitled) {
-      return this.untitledService.get(resource)?.getValue();
-    }
-    const model = this.files.get(resource)?.textEditorModel;
-    if (model) {
-      return model.getValue();
-    }
+  /** The text of untitled text or of a file model that has read its file. */
+  private readText(resource: URI): string | undefined {
+    return resource.scheme === Schemas.untitled
+      ? this.untitledService.get(resource)?.getValue()
+      : this.files.get(resource)?.textEditorModel?.getValue();
+  }
+
+  /** Copies a file as it is stored; a failure is told as a failed save. */
+  private async copyFile(source: URI, target: URI): Promise<boolean> {
     try {
-      const content = await this.fileService.readFile(resource);
-      return new TextDecoder('utf-8').decode(content.value);
+      await this.fileService.copy(source, target, true);
+      return true;
     } catch (error) {
-      console.warn(`Could not read ${resource} for Save As.`, error);
-      return undefined;
+      this.files.saveErrorHandler.onSaveError(error, { resource: target });
+      return false;
     }
   }
 
@@ -193,14 +199,14 @@ export class BrowserTextFileService extends UntitledTextFileService {
   }
 
   /**
-   * Untitled text, and any resource a file system provider serves — unless someone else already made
+   * Untitled text, and any text file resource (`isTextFileResource`) — unless someone else already made
    * its text model (the settings editor's `settings.json`, say), which is lent as it is.
    */
   override canHandleResource(resource: URI): boolean {
     if (resource.scheme === Schemas.untitled || this.files.get(resource)) {
       return true;
     }
-    return this.fileService.hasProvider(resource) && this.modelService.getModel(resource) === null;
+    return isTextFileResource(resource, this.fileService) && this.modelService.getModel(resource) === null;
   }
 
   override async resolve(resource: URI): Promise<IResolvedTextEditorModel> {

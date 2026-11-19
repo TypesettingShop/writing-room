@@ -20,7 +20,8 @@ import type { IWorkspaceContextService as IWorkspace } from '../../../../../plat
 import { TextModelResolverService } from '../../../textmodelResolver/common/textModelResolverService.js';
 import { IUntitledTextEditorService, UntitledTextEditorService } from '../../../untitled/common/untitledTextEditorService.js';
 import { BrowserTextFileService } from '../../browser/textFileService.js';
-import { hashResource } from '../../common/textFileBackup.js';
+import { hashResource, TextFileBackups } from '../../common/textFileBackup.js';
+import type { IBackupLocks } from '../../common/textFileBackup.js';
 import { BACKUP_DELAY } from '../../common/textFileEditorModel.js';
 import type { TextFileEditorModel } from '../../common/textFileEditorModel.js';
 import { ITextFileService, TEXT_FILE_SIZE_LIMIT, TextFileOperationError, TextFileOperationResult } from '../../common/textfiles.js';
@@ -276,6 +277,33 @@ describe('text file models', () => {
     expect(dirty.model.isDirty()).toBe(true);
   });
 
+  test('text typed while an outside change is read stays, dirty', async () => {
+    await files.writeFile(file('/typing.txt'), bytes('before'));
+    const { service } = createService();
+    const { model, textModel } = await resolve(service, '/typing.txt');
+    const read = new DeferredPromise<void>();
+    const readFileOf = provider.readFileWithStat.bind(provider);
+    let held = false;
+    provider.readFileWithStat = async (resource, options) => {
+      const content = await readFileOf(resource, options);
+      if (!held && resource.path === '/typing.txt') {
+        held = true;
+        await read.p;
+      }
+      return content;
+    };
+
+    await files.writeFile(file('/typing.txt'), bytes('outside'));
+    await vi.waitFor(() => expect(held).toBe(true));
+    append(textModel, ' typed');
+    read.complete();
+    await settle();
+    await settle();
+
+    expect(textModel.getValue()).toBe('before typed');
+    expect(model.isDirty()).toBe(true);
+  });
+
   test('a file deleted while open keeps its text, orphaned, and a save writes it again', async () => {
     await files.writeFile(file('/gone.txt'), bytes('keep me'));
     const { service } = createService();
@@ -315,6 +343,16 @@ describe('text file models', () => {
     append(textModel, '!');
     await model.save();
     expect([...(await files.readFile(file('/bom.txt'))).value]).toEqual([0xef, 0xbb, 0xbf, ...bytes('text!')]);
+  });
+
+  test('Save As of a file it has no text of copies the bytes as they are', async () => {
+    const stored = new Uint8Array([0xef, 0xbb, 0xbf, 0, 0xff, 0x80, 10]);
+    await files.writeFile(file('/data.bin'), stored);
+    const { service } = createService();
+    await expect(service.files.resolve(file('/data.bin'))).rejects.toBeInstanceOf(TextFileOperationError);
+
+    expect((await service.saveAs(file('/data.bin'), file('/copy.bin')))?.toString()).toBe(file('/copy.bin').toString());
+    expect([...(await files.readFile(file('/copy.bin'))).value]).toEqual([...stored]);
   });
 
   test('does not open a binary file, a file over 20 MiB, a missing file or a folder as text', async () => {
@@ -456,6 +494,27 @@ describe('draft backups', () => {
     conflicts.push('cancel');
     expect(await restored.model.save()).toBe(false);
     expect(await readFile('/a.txt')).toBe('changed meanwhile');
+  });
+
+  test('a draft written after a discard that was still waiting keeps its lock', async () => {
+    const own = new Set<string>();
+    const locks: IBackupLocks = {
+      own,
+      hold: name => { own.add(name); },
+      release: name => { own.delete(name); },
+      held: async () => new Set(own),
+    };
+    const backups = new TextFileBackups(files, 'locks', locks);
+    const resource = file('/a.txt');
+    await backups.write(resource, 'first', { etag: undefined, bom: false });
+    // The save that made the text clean discards; typing again writes before that discard has run.
+    const discarded = backups.discard(resource);
+    const written = backups.write(resource, 'second', { etag: undefined, bom: false });
+    await Promise.all([discarded, written]);
+
+    expect(await files.exists(backups.backupResource(resource))).toBe(true);
+    // Other tabs see the draft as kept, so their startup leaves it alone.
+    expect(own.size).toBe(1);
   });
 
   test('startup deletes the drafts no open editor owns and keeps the others', async () => {

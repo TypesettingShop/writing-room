@@ -38,11 +38,13 @@ function decodeText(encoded: string): string | undefined {
   return text;
 }
 
+const MAX_LANGUAGE_ID_LENGTH = 256;
+
 /**
  * A language id as it may stand in a saved editor: no whitespace or control characters, and not
- * longer than this. Anything else is dropped and the text opens in the language guessed for it.
+ * longer than `MAX_LANGUAGE_ID_LENGTH`. Anything else is dropped and the text opens in the language
+ * guessed for it.
  */
-const MAX_LANGUAGE_ID_LENGTH = 256;
 function readLanguageId(value: string): string | undefined {
   return value.length <= MAX_LANGUAGE_ID_LENGTH && /^[^\s\p{Cc}]+$/u.test(value) ? value : undefined;
 }

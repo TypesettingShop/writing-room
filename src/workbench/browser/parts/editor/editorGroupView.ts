@@ -444,9 +444,10 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       this.layoutPane();
       this.listenToTitleContext();
     }
-    // The pane gets what it shows the editor with, not where the group put it.
+    // A background replacement shows for the first time with the view state it took over.
     const viewState = options.viewState ?? this.pendingViewStates.get(editor);
     this.pendingViewStates.delete(editor);
+    // The pane gets what it shows the editor with, not where the group put it.
     const shown = entry.pane.setInput(editor, {
       preserveFocus: options.preserveFocus, viewState, selection: options.selection,
     } as IEditorOpenOptions);
@@ -498,6 +499,11 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   }
 
   private getViewState(editor: EditorInput): object | undefined {
+    // A replacement not shown yet has only the state it was handed.
+    const pending = this.pendingViewStates.get(editor);
+    if (pending) {
+      return pending;
+    }
     for (const { pane } of this.panes.values()) {
       const state = pane.getViewState(editor);
       if (state) {

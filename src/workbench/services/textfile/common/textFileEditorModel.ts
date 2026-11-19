@@ -264,8 +264,9 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
   /**
    * Reads the file again into the text, which keeps the parts that did not change, and with them
    * the cursor and scroll of an editor that shows it. A missing file orphans the model instead.
+   * With `ifClean`, text that became dirty while the file was read is kept, as VS Code does.
    */
-  private async reload(): Promise<void> {
+  private async reload(options: { readonly ifClean?: boolean } = {}): Promise<void> {
     let file: IReadFile;
     try {
       file = await this.readFile();
@@ -277,6 +278,10 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       throw error;
     }
     if (this.disposed || !this.model) {
+      return;
+    }
+    if (options.ifClean && this.dirty) {
+      // Typed while the file was read: the text stays, and the old etag makes the save ask.
       return;
     }
     this.etag = file.etag;
@@ -418,7 +423,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       this.setOrphaned(false);
       return;
     }
-    await this.reload();
+    await this.reload({ ifClean: true });
   }
 
   // --- save

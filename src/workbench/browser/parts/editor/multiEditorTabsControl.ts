@@ -357,29 +357,40 @@ export class MultiEditorTabsControl extends Disposable {
   }
 
   private updateTabs(): void {
+    const descriptions = this.descriptionsByName();
     for (const editor of this.tabs.keys()) {
-      this.updateTab(editor);
+      this.updateTab(editor, descriptions);
     }
+  }
+
+  /** The descriptions the tabs of each name have, read once for all the tabs rather than once per pair. */
+  private descriptionsByName(): Map<string, Set<string | undefined>> {
+    const byName = new Map<string, Set<string | undefined>>();
+    for (const editor of this.tabs.keys()) {
+      const name = editor.getName();
+      let descriptions = byName.get(name);
+      if (!descriptions) {
+        descriptions = new Set();
+        byName.set(name, descriptions);
+      }
+      descriptions.add(editor.getDescription());
+    }
+    return byName;
   }
 
   /**
    * The editor's description when another tab of the group has the same name and a different
    * description, as VS Code tells two `index.md` apart by their folders.
    */
-  private getDuplicateDescription(editor: EditorInput, name: string): string | undefined {
+  private getDuplicateDescription(
+    editor: EditorInput, name: string, descriptions: Map<string, Set<string | undefined>>,
+  ): string | undefined {
     const description = editor.getDescription();
-    if (!description) {
-      return undefined;
-    }
-    for (const other of this.tabs.keys()) {
-      if (other !== editor && other.getName() === name && other.getDescription() !== description) {
-        return description;
-      }
-    }
-    return undefined;
+    // The editor's own description is in the set: a second one means another tab differs.
+    return description && (descriptions.get(name)?.size ?? 0) > 1 ? description : undefined;
   }
 
-  private updateTab(editor: EditorInput): void {
+  private updateTab(editor: EditorInput, descriptions = this.descriptionsByName()): void {
     const tab = this.tabs.get(editor);
     if (!tab) {
       return;
@@ -387,7 +398,7 @@ export class MultiEditorTabsControl extends Disposable {
     const name = editor.getName();
     const dirty = editor.isDirty();
     const readonly = editor.isReadonly();
-    const description = this.getDuplicateDescription(editor, name);
+    const description = this.getDuplicateDescription(editor, name, descriptions);
     tab.name.textContent = name;
     tab.description.textContent = description ?? '';
     tab.description.hidden = description === undefined;

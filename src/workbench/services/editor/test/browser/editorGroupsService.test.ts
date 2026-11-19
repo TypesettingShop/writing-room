@@ -392,6 +392,22 @@ describe('editors in groups', () => {
     expect(group.editors).toEqual([a, forB, forC]);
   });
 
+  test('a background replacement moved to another group before it shows takes its handed view state along', async () => {
+    const group = part.activeGroup;
+    const [a, c] = await open(group, 'a', 'c');
+    await group.openEditor(a);
+    (group.activeEditorPane as BaseTestPane).viewStates.set(c, { cursor: 7 });
+    const forC = new TestInput('c2');
+    await group.replaceEditors([{ editor: c, replacement: forC }]);
+    expect(group.isActive(forC)).toBe(false);
+
+    const other = part.addGroup(group, GroupDirection.RIGHT);
+    group.moveEditor(forC, other);
+    await vi.waitFor(() => expect(other.activeEditor).toBe(forC));
+    expect((other.activeEditorPane as BaseTestPane).opened.at(-1))
+      .toEqual({ input: forC, options: expect.objectContaining({ viewState: { cursor: 7 } }) });
+  });
+
   test('moving the focused active editor out leaves focus with it, not with the editor behind it', async () => {
     const first = part.activeGroup;
     const [a, b] = await open(first, 'a', 'b');

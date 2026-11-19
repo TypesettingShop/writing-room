@@ -15,7 +15,7 @@ import type { IWorkspaceContextService as IWorkspace, IWorkspaceFolder } from '.
 import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
 import type { IFileDialogService as IFileDialogs } from '../../../../services/dialogs/common/dialogs.js';
 import { BrowserTextFileService } from '../../../../services/textfile/browser/textFileService.js';
-import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../../services/textfile/common/textfiles.js';
+import { isTextFileResource, ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../../services/textfile/common/textfiles.js';
 import type { ITextFileEditorModel } from '../../../../services/textfile/common/textfiles.js';
 import { TextModelResolverService } from '../../../../services/textmodelResolver/common/textModelResolverService.js';
 import { IUntitledTextEditorService, UntitledTextEditorService } from '../../../../services/untitled/common/untitledTextEditorService.js';
@@ -166,9 +166,22 @@ describe('file editor serializer', () => {
   });
 
   test('ignores damaged or foreign values', () => {
-    for (const value of ['', 'nope', '{}', '{"resource":1}', '{"resource":"untitled:Untitled-1"}', '{"resource":"x","backup":"yes"}']) {
+    for (const value of ['', 'nope', '{}', '{"resource":1}', '{"resource":"untitled:Untitled-1"}', '{"resource":"x","backup":"yes"}',
+      // The user data store (drafts, extension packages) and remote extension resources are not text files.
+      '{"resource":"vscode-userdata:/User/workspaceStorage/test/backups/0"}', '{"resource":"https://example.com/a.md"}']) {
       expect(serializer.deserialize(instantiation, value)).toBeUndefined();
     }
+  });
+});
+
+describe('which resources are text files', () => {
+  test('the workspace folder is; the user data store and remote resources are not, so no text model is made for them', () => {
+    expect(textFiles.canHandleResource(file('a.md'))).toBe(true);
+    expect(textFiles.canHandleResource(URI.parse('vscode-userdata:/User/workspaceStorage/test/backups/0'))).toBe(false);
+    expect(textFiles.canHandleResource(URI.parse('https://example.com/a.md'))).toBe(false);
+    expect(isTextFileResource(file('a.md'), files)).toBe(true);
+    expect(isTextFileResource(URI.parse('vscode-userdata:/extensions/a/package.json'), files)).toBe(false);
+    expect(isTextFileResource(URI.parse('other:/a.md'), files)).toBe(false);
   });
 });
 

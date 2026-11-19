@@ -1,5 +1,4 @@
 import { Disposable } from '../../../../../base/common/lifecycle.js';
-import { Schemas } from '../../../../../base/common/network.js';
 import { isEqual } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
@@ -7,6 +6,7 @@ import { IInstantiationService } from '../../../../../platform/instantiation/com
 import type { IEditorSerializer } from '../../../../common/editor.js';
 import type { EditorInput } from '../../../../common/editor/editorInput.js';
 import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
+import { isTextFileResource, isTextFileScheme } from '../../../../services/textfile/common/textfiles.js';
 import {
   DEFAULT_EDITOR_ID, IEditorResolverService, RegisteredEditorPriority,
 } from '../../../../services/editor/common/editorResolverService.js';
@@ -58,7 +58,8 @@ export class FileEditorInputSerializer implements IEditorSerializer {
     } catch {
       return undefined;
     }
-    if (uri.scheme === Schemas.untitled) {
+    // A saved state may name anything; only what opens as a text file comes back.
+    if (!isTextFileScheme(uri.scheme)) {
       return undefined;
     }
     return instantiationService.createInstance(FileEditorInput, uri, { restoredDirty: backup === true });
@@ -83,7 +84,7 @@ export class FileEditorResolverContribution extends Disposable {
     this._register(resolver.registerEditor(
       '*',
       { id: DEFAULT_EDITOR_ID, label: 'Text Editor', priority: RegisteredEditorPriority.builtin },
-      { canSupportResource: resource => resource.scheme !== Schemas.untitled && fileService.hasProvider(resource) },
+      { canSupportResource: resource => isTextFileResource(resource, fileService) },
       ({ resource, options }) => {
         const open = groups.groups.flatMap(group => group.editors)
           .find((editor): editor is FileEditorInput => editor instanceof FileEditorInput && isEqual(editor.resource, resource));

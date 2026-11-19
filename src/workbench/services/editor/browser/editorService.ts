@@ -140,7 +140,8 @@ export class EditorService extends Disposable implements IEditorService {
 
   /** Puts what a save gave in the saved editor's place, unless it is the same editor. */
   private async replaceSaved(groupId: GroupIdentifier, editor: EditorInput, result: EditorInput | IResourceEditorInput): Promise<void> {
-    if (result === editor || (result instanceof EditorInput && result.matches(editor))) {
+    // A save that stayed where it was (Save As onto the file itself) has nothing to put in its place.
+    if (result === editor || (result instanceof EditorInput ? result.matches(editor) : isEqual(result.resource, editor.resource))) {
       return;
     }
     // Untitled text is one input wherever it shows, and it goes: every group gets the file.

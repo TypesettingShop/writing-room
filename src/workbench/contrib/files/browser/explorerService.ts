@@ -321,6 +321,11 @@ export class ExplorerService extends Disposable implements IExplorerService {
     } catch (error) {
       if (!isNotFound(error)) {
         console.warn(`Explorer could not read ${item.resource}.`, error);
+        // A read that failed for another reason says nothing about what is there: a folder already
+        // read keeps its listing, and with it the expanded folders below it.
+        if (item.isResolved) {
+          return;
+        }
       }
       // A folder that is gone (or not made yet: the workspace folder at the first start) is empty.
       children = [];

@@ -207,6 +207,12 @@ async function rename(services: IOperationServices, item: ExplorerItem, name: st
     if (groups.getGroup(group.id) === group && replacements.length) {
       await group.replaceEditors(replacements);
     }
+    // A replacement made for a group or editor that went meanwhile is held by nothing.
+    for (const { replacement } of replacements) {
+      if (!replacement.isDisposed() && !groups.groups.some(other => other.contains(replacement))) {
+        replacement.dispose();
+      }
+    }
   }
   if (parent) {
     await explorer.resolveFolder(parent);

@@ -84,10 +84,15 @@ export class TextFileBackups implements ITextFileBackups {
 
   /** Writes the draft of `resource`; the lock tells other tabs it is in use. */
   write(resource: URI, value: string, meta: ITextFileBackupMeta): Promise<void> {
-    this.locks?.hold(this.lockName(resource));
+    const name = this.lockName(resource);
     const header = JSON.stringify({ version: BACKUP_FORMAT, resource: resource.toString(), etag: meta.etag ?? null, bom: meta.bom });
     const bytes = new TextEncoder().encode(header + '\n' + value);
-    return this.queue(resource, () => this.fileService.writeFile(this.backupResource(resource), bytes).then(() => undefined));
+    // Held in turn with the writes and discards: a discard queued before this write releases the
+    // lock when it runs, so taking it now would leave this write's backup without one.
+    return this.queue(resource, async () => {
+      this.locks?.hold(name);
+      await this.fileService.writeFile(this.backupResource(resource), bytes);
+    });
   }
 
   /** Forgets the draft of `resource`. */

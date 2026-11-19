@@ -8,6 +8,11 @@ export const MAX_FILE_NAME_LENGTH = 255;
 /** A backslash or a control character: no name or path here may hold one. */
 const FORBIDDEN_IN_PATH = /[\\\p{Cc}]/u;
 
+/** Whether `path` holds a backslash or a control character, which no workspace path may. */
+export function hasForbiddenPathCharacter(path: string): boolean {
+  return FORBIDDEN_IN_PATH.test(path);
+}
+
 /** Why `name` cannot name a file or folder, or `undefined` when it can. */
 export function validateFileName(name: string): string | undefined {
   if (!name) {
