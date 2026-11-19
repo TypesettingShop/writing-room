@@ -90,6 +90,7 @@ export function compatibilityFragments(noEvent: () => vscode.Disposable) {
       TaskPanelKind: Object.freeze({ Shared: 1, Dedicated: 2, New: 3 }),
       ShellQuoting: Object.freeze({ Escape: 1, Strong: 2, Weak: 3 }),
       NotebookCellKind: Object.freeze({ Markup: 1, Code: 2 }),
+      ExternalUriOpenerPriority: Object.freeze({ None: 0, Option: 1, Default: 2, Preferred: 3 }),
     },
     tasks: {
       registerTaskProvider: () => new Disposable(() => {}),
@@ -98,6 +99,11 @@ export function compatibilityFragments(noEvent: () => vscode.Disposable) {
       taskExecutions: Object.freeze([]),
       onDidStartTask: noEvent, onDidEndTask: noEvent, onDidStartTaskProcess: noEvent, onDidEndTaskProcess: noEvent,
     } satisfies typeof vscode.tasks,
+    window: {
+      // The proposed API externalUriOpener. The opener is accepted and never asked: env.openExternal does not offer
+      // contributed openers.
+      registerExternalUriOpener: () => new Disposable(() => {}),
+    } satisfies Pick<typeof vscode.window, 'registerExternalUriOpener'>,
     workspace: {
       notebookDocuments: Object.freeze([]),
       onDidChangeNotebookDocument: noEvent, onDidSaveNotebookDocument: noEvent,

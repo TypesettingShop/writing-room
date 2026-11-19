@@ -325,6 +325,33 @@ declare module 'vscode' {
     const onDidEndTaskProcess: Event<TaskProcessEndEvent>;
   }
 
+  // The proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts upstream), accepted and never asked.
+  enum ExternalUriOpenerPriority {
+    None = 0,
+    Option = 1,
+    Default = 2,
+    Preferred = 3,
+  }
+
+  interface ExternalUriOpener {
+    canOpenExternalUri(uri: Uri, token: CancellationToken): ExternalUriOpenerPriority | Thenable<ExternalUriOpenerPriority>;
+    openExternalUri(resolvedUri: Uri, ctx: OpenExternalUriContext, token: CancellationToken): Thenable<void> | void;
+  }
+
+  interface OpenExternalUriContext {
+    readonly sourceUri: Uri;
+    readonly viewColumn?: ViewColumn;
+  }
+
+  interface ExternalUriOpenerMetadata {
+    readonly schemes: readonly string[];
+    readonly label: string;
+  }
+
+  namespace window {
+    function registerExternalUriOpener(id: string, opener: ExternalUriOpener, metadata: ExternalUriOpenerMetadata): Disposable;
+  }
+
   enum NotebookCellKind { Markup = 1, Code = 2 }
 
   interface NotebookDocument {

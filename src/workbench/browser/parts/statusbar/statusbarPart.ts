@@ -4,7 +4,8 @@ import { runMenuAction } from '../../../../base/browser/ui/menu/menu.js';
 import { DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { Parts } from '../../../services/layout/browser/layoutService.js';
-import { StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
+import { asCssVariableName, isColorIdentifier, isHexColor } from '../../../../platform/theme/common/colorRegistry.js';
+import { STATUS_BAR_ITEM_BACKGROUNDS, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import type { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
 import { Part } from '../../part.js';
 
@@ -12,6 +13,27 @@ interface Entry {
   readonly element: HTMLElement;
   readonly priority: number;
 }
+
+/**
+ * The CSS colors of an entry, from validated values only: a hex color as it is, a theme color as its
+ * variable, so it follows the theme. A background other than the allowed ones is ignored, and with an
+ * allowed one the text takes the foreground that goes with it.
+ */
+export function statusbarEntryColors(entry: Pick<IStatusbarEntry, 'color' | 'backgroundColor'>): { color: string; background: string } {
+  const themeColor = (id: string) => `var(${asCssVariableName(id)})`;
+  const backgroundId = entry.backgroundColor?.id;
+  const foreground = typeof backgroundId === 'string' ? STATUS_BAR_ITEM_BACKGROUNDS.get(backgroundId) : undefined;
+  if (backgroundId !== undefined && foreground !== undefined) {
+    return { color: themeColor(foreground), background: themeColor(backgroundId) };
+  }
+  const color = entry.color;
+  if (typeof color === 'string') {
+    return { color: isHexColor(color) ? color : '', background: '' };
+  }
+  return { color: color && isColorIdentifier(color.id) ? themeColor(color.id) : '', background: '' };
+}
+
+const ROLE = /^[a-z]+(?:-[a-z]+)*$/;
 
 export class StatusbarPart extends Part implements IStatusbarService {
   declare readonly _serviceBrand: undefined;
@@ -62,6 +84,14 @@ export class StatusbarPart extends Part implements IStatusbarService {
         element.replaceChildren(label);
       }
       label.setAttribute('aria-label', current.ariaLabel ?? current.name);
+      if (current.role !== undefined && ROLE.test(current.role) && current.role.length <= 64) {
+        label.setAttribute('role', current.role);
+      } else {
+        label.removeAttribute('role');
+      }
+      const { color, background } = statusbarEntryColors(current);
+      label.style.color = color;
+      label.style.backgroundColor = background;
       label.title = current.tooltip ?? '';
       label.replaceChildren(...renderLabelWithIcons(current.text));
     };

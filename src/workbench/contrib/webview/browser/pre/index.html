@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-1xYNu4MR9zCexjchP7+YsqdXckCMeVRpq7tpQVyYXrs='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-By0zkfWIMCrClPfk6O9quHViHZ9gnAwBnO/IOxVluMM='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="writing-room-webview-parent-origin" content="">
 <title>Webview</title>
@@ -155,10 +155,36 @@
       if (!content || !event.isTrusted || event.defaultPrevented || event.isComposing) {
         return;
       }
+      // An editable element undoes its own typing: the workbench's Undo would undo the document too.
+      if (isUndoRedo(event) && isEditable(event.composedPath()[0])) {
+        return;
+      }
       const { key, code, ctrlKey, altKey, shiftKey, metaKey } = event;
       send({ type: 'key', revision: content.revision, key, code, ctrlKey, altKey, shiftKey, metaKey });
     }
     document.addEventListener('keydown', forwardKey);
+
+    // The field undoes by the character the key types, the workbench's Undo and Redo by the physical
+    // key (`code`): either one is the field's on any keyboard layout. Shift+Y is neither.
+    function isUndoRedo(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+        return false;
+      }
+      const key = event.key.toLowerCase();
+      return key === 'z' || event.code === 'KeyZ' || (!event.shiftKey && (key === 'y' || event.code === 'KeyY'));
+    }
+
+    function isEditable(element) {
+      if (!element || element.disabled || element.readOnly) {
+        return false;
+      }
+      if (element.isContentEditable || element.localName === 'textarea') {
+        return true;
+      }
+      return element.localName === 'input'
+        && !['button', 'checkbox', 'color', 'date', 'datetime-local', 'file', 'hidden', 'image', 'month', 'radio', 'range', 'reset',
+          'submit', 'time', 'week'].includes(element.type);
+    }
 
     function followLink(event) {
       const xlink = 'http://www.w3.org/1999/xlink';

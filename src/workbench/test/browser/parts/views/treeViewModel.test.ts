@@ -58,3 +58,87 @@ test('asks for a collapsed subtree again after a full refresh', async () => {
   model.dispose();
   refresh.dispose();
 });
+
+function source(children: (parent?: string) => Promise<TreeItemDto[]>) {
+  const refresh = new Emitter<readonly string[] | undefined>();
+  const model = new TreeViewModel({
+    getChildren: vi.fn(children), getItem: async () => undefined, onDidRefresh: refresh.event,
+    reference: handle => ({ handle, view: 'tree', extension: 'e', kind: 'extensionTreeItem' }),
+  });
+  return { model, refresh };
+}
+
+test('reveal loads and expands the ancestors and then the asked levels below', async () => {
+  const folder = (handle: string): TreeItemDto => ({ handle, label: handle, collapsible: 1 });
+  const { model, refresh } = source(async parent => {
+    switch (parent) {
+      case undefined: return [folder('a'), folder('b')];
+      case 'b': return [folder('b1')];
+      case 'b1': return [folder('b2')];
+      case 'b2': return [{ handle: 'leaf', label: 'leaf', collapsible: 0 }];
+      default: return [];
+    }
+  });
+  const expansions: unknown[] = [];
+  model.onDidChangeExpansion(change => expansions.push(change));
+  expect(await model.reveal(['b', 'b1'], 2)).toBe(true);
+  expect(model.rows.map(({ item, expanded }) => item.handle + (expanded ? '+' : ''))).toEqual(['a', 'b+', 'b1+', 'b2+', 'leaf']);
+  expect(expansions).toEqual([
+    { handle: 'b', expanded: true }, { handle: 'b1', expanded: true }, { handle: 'b2', expanded: true },
+  ]);
+  expect(await model.reveal(['a', 'missing'], 0)).toBe(false);
+  model.dispose();
+  refresh.dispose();
+});
+
+test('reveal of an item added since the children were loaded asks for them again', async () => {
+  const roots: TreeItemDto[] = [{ handle: 'a', label: 'a', collapsible: 0 }];
+  const { model, refresh } = source(async parent => parent === undefined ? [...roots] : []);
+  await vi.waitFor(() => expect(model.loaded).toBe(true));
+  // The extension added `b` and revealed it; the refresh it fired has not landed yet.
+  roots.push({ handle: 'b', label: 'b', collapsible: 0 });
+  expect(await model.reveal(['b'], 0)).toBe(true);
+  expect(model.rows.map(({ item }) => item.handle)).toEqual(['a', 'b']);
+  model.dispose();
+  refresh.dispose();
+});
+
+test('a full refresh shows a node that moved to another parent once, whichever parent loads first (wr-5r5z)', async () => {
+  for (const first of ['old', 'new']) {
+    let moved = false;
+    const release = new Map<string, () => void>();
+    const { model, refresh } = source(async parent => {
+      const node = (handle: string, collapsible: 0 | 1 = 0): TreeItemDto => ({ handle, label: handle, collapsible });
+      if (parent === undefined) {
+        return [node('old', 1), node('new', 1)];
+      }
+      if (parent === 'id:moving') {
+        return [node('grandchild')];
+      }
+      if (moved) {
+        // Hold each parent's answer so the test picks which one lands first.
+        await new Promise<void>(resolve => release.set(parent, resolve));
+      }
+      return (parent === 'old') !== moved ? [node('id:moving', 1), node(parent + '-child')] : [node(parent + '-child')];
+    });
+    const labels = () => model.rows.map(({ item }) => item.label);
+    await vi.waitFor(() => expect(labels()).toEqual(['old', 'new']));
+    model.setExpanded('old', true);
+    model.setExpanded('new', true);
+    await vi.waitFor(() => expect(labels()).toEqual(['old', 'id:moving', 'old-child', 'new', 'new-child']));
+    model.setExpanded('id:moving', true);
+    await vi.waitFor(() => expect(labels()).toEqual(['old', 'id:moving', 'grandchild', 'old-child', 'new', 'new-child']));
+    moved = true;
+    refresh.fire(undefined);
+    await vi.waitFor(() => expect(release.size).toBe(2));
+    release.get(first)!();
+    await vi.waitFor(() => expect(labels()).not.toEqual(['old', 'id:moving', 'grandchild', 'old-child', 'new', 'new-child']));
+    expect(labels().filter(label => label === 'id:moving').length).toBeLessThanOrEqual(1);
+    release.get(first === 'old' ? 'new' : 'old')!();
+    // Listed in its new place first, the node keeps its expanded state there.
+    const kept = first === 'new' ? ['grandchild'] : [];
+    await vi.waitFor(() => expect(labels()).toEqual(['old', 'old-child', 'new', 'id:moving', ...kept, 'new-child']));
+    model.dispose();
+    refresh.dispose();
+  }
+});

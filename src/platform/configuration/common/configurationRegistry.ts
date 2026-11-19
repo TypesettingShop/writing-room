@@ -126,6 +126,14 @@ export function validateConfigurationValue(schema: IConfigurationPropertySchema,
   return true;
 }
 
+/**
+ * A value the setting takes: one that passes `validateConfigurationValue`, or the property's own declared default,
+ * which VS Code registers without checking it (`type: "string"`, `default: null` takes null).
+ */
+export function acceptsConfigurationValue(schema: IConfigurationPropertySchema, value: unknown): boolean {
+  return validateConfigurationValue(schema, value) || (value !== undefined && schema.default !== undefined && equals(schema.default, value));
+}
+
 interface IRegisteredProperty {
   readonly schema: IConfigurationPropertySchema;
   readonly node: IConfigurationNode;
@@ -262,9 +270,7 @@ export class ConfigurationRegistry {
     if (existing) {
       return `Cannot register '${key}'. This property is already registered by '${nodeSource(existing.node)}'.`;
     }
-    if (schema.default !== undefined && !validateConfigurationValue(schema, schema.default)) {
-      return `The default value of '${key}' does not match its schema.`;
-    }
+    // As in VS Code, the declared default is not checked against the schema: `type: "string", default: null` stands.
     return undefined;
   }
 
@@ -285,7 +291,7 @@ export class ConfigurationRegistry {
         const identifiers = overrideIdentifiersFromKey(key);
         if (!identifiers.length) {
           const property = this.properties.get(key);
-          if (property && !validateConfigurationValue(property.schema, value)) {
+          if (property && !acceptsConfigurationValue(property.schema, value)) {
             refuse(key, `The default value of '${key}' does not match its schema.`);
           } else {
             base.set(key, value);
@@ -298,7 +304,7 @@ export class ConfigurationRegistry {
         }
         for (const [name, overridden] of Object.entries(value)) {
           const property = this.properties.get(name);
-          if (property && !validateConfigurationValue(property.schema, overridden)) {
+          if (property && !acceptsConfigurationValue(property.schema, overridden)) {
             refuse(key + '.' + name, `The default value of '${name}' for ${key} does not match its schema.`);
             continue;
           }
@@ -319,7 +325,7 @@ export class ConfigurationRegistry {
     const effective = new Map<string, IConfigurationPropertySchema>();
     for (const [key, { schema }] of this.properties) {
       const overridden = base.get(key);
-      const value = overridden !== undefined && validateConfigurationValue(schema, overridden) ? overridden
+      const value = overridden !== undefined && acceptsConfigurationValue(schema, overridden) ? overridden
         : schema.default !== undefined ? schema.default : getDefaultValue(schema.type);
       effective.set(key, Object.freeze({ ...schema, default: value }));
     }
@@ -327,7 +333,7 @@ export class ConfigurationRegistry {
     for (const [language, values] of languages) {
       const valid = new Map([...values].filter(([key, value]) => {
         const property = this.properties.get(key);
-        return property && validateConfigurationValue(property.schema, value);
+        return property && acceptsConfigurationValue(property.schema, value);
       }));
       if (valid.size) {
         languageDefaults.set(language, valid);

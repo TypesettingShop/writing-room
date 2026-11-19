@@ -1,0 +1,35 @@
+{
+  "name": "theme-api",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Theming API Fixture",
+  "browser": "./browser/extension",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "colors": [
+      {
+        "id": "themeApi.accent",
+        "description": "The fixture's accent.",
+        "defaults": { "dark": "#336699", "light": "#cc6633", "highContrast": "#ffff00", "highContrastLight": "#0000aa" }
+      },
+      {
+        "id": "themeApi.follow",
+        "description": "Follows the status bar in dark themes and the accent in light ones.",
+        "defaults": { "dark": "statusBar.background", "light": "themeApi.accent" }
+      },
+      {
+        "id": "theme-api.dashed",
+        "description": "Not a color id: it has a dash.",
+        "defaults": { "dark": "#000000", "light": "#ffffff" }
+      },
+      {
+        "id": "themeApi.injected",
+        "description": "A default that is not a color.",
+        "defaults": { "dark": "red; } body { display: none", "light": "#ffffff" }
+      }
+    ],
+    "commands": [
+      { "command": "themeApi.report", "title": "Theme API: Report" }
+    ]
+  }
+}

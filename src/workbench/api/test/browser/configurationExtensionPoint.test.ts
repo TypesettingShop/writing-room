@@ -133,7 +133,6 @@ test('names the core as the owner of a key an extension tries to take', () => {
 test('registers the other properties when one is wrong, and says which one', () => {
   host.apply([{ id: 'a.first', configuration: [{ properties: {
     'good.one': { type: 'boolean', default: true },
-    'bad.default': { type: 'number', default: 'zero' },
     'bad.type': { type: 'strange' },
     'bad.__proto__.part': { type: 'string' },
     '[markdown]': { type: 'string' },
@@ -142,16 +141,46 @@ test('registers the other properties when one is wrong, and says which one', () 
   expect(service.getValue('good.one')).toBe(true);
   expect(service.getValue('good.two')).toBe('two');
   const keys = configurationRegistry.getConfigurationProperties();
-  expect(['bad.default', 'bad.type', 'bad.__proto__.part', '[markdown]'].filter(key => keys.has(key))).toEqual([]);
+  expect(['bad.type', 'bad.__proto__.part', '[markdown]'].filter(key => keys.has(key))).toEqual([]);
   expect(host.messages.map(message => [message.severity, message.path]).sort()).toEqual([
     ['error', 'contributes.configuration[1]'],
     ['error', 'contributes.configuration[2].title'],
     ['warn', 'contributes.configuration.properties.bad.__proto__.part'],
-    ['warn', 'contributes.configuration.properties.bad.default'],
     ['warn', 'contributes.configuration.properties.bad.type'],
     ['warn', 'contributes.configuration[0].properties.[markdown]'],
   ].sort());
   expect(host.messages.find(message => message.path.endsWith('[markdown]'))!.message).toContain('configurationDefaults');
+});
+
+test('registers a property whose default does not match its type, as VS Code does', () => {
+  // markdownlint 0.62.1 declares `markdownlint.configFile` and `markdownlint.configPointer` this way.
+  host.apply([{ id: 'a.first', configuration: { properties: {
+    'nullable.path': { type: 'string', default: null },
+    'odd.count': { type: 'number', default: 'zero' },
+  } } }]);
+  expect(host.messages).toEqual([]);
+  expect(configurationRegistry.getConfigurationProperties().get('nullable.path')?.default).toBeNull();
+  expect(service.getValue('nullable.path')).toBeNull();
+  expect(service.getValue('odd.count')).toBe('zero');
+  storeSettings('{"nullable.path": "lint.json", "odd.count": 2}');
+  expect(service.getValue('nullable.path')).toBe('lint.json');
+  expect(service.getValue('odd.count')).toBe(2);
+  storeSettings('{"nullable.path": 3}');
+  expect(service.getValue('nullable.path')).toBeNull();
+});
+
+test('takes a property’s own declared default wherever a value is checked', async () => {
+  host.apply([{
+    id: 'a.first', configuration: { properties: { 'nullable.path': { type: 'string', default: null } } },
+    configurationDefaults: { 'nullable.path': null, '[markdown]': { 'nullable.path': null } },
+  }]);
+  expect(host.messages).toEqual([]);
+  storeSettings('{"nullable.path": "lint.json", "[markdown]": {"nullable.path": null}}');
+  expect(service.getValue('nullable.path')).toBe('lint.json');
+  expect(service.getValue('nullable.path', { overrideIdentifier: 'markdown' })).toBeNull();
+  await service.updateValue('nullable.path', null);
+  expect(service.getValue('nullable.path')).toBeNull();
+  await expect(service.updateValue('nullable.path', 3)).rejects.toThrow("Unsupported value for configuration 'nullable.path'.");
 });
 
 test('warns about a "__proto__" property from a parsed manifest instead of dropping it silently', () => {
