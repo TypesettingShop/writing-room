@@ -1,0 +1,8 @@
+{
+  "name": "memfs",
+  "publisher": "fixture",
+  "version": "1.0.0",
+  "engines": { "vscode": "*" },
+  "browser": "./extension.js",
+  "activationEvents": ["onFileSystem:memfs", "onFileSystem:memfs-readonly"]
+}
