@@ -29,6 +29,17 @@ export function handleKey(event: KeyboardEvent, handler: (key: string) => boolea
   event.stopPropagation();
 }
 
+/** Selects `selection` of the field's text, clamped to it, or the whole text without one. */
+function applySelection(input: HTMLInputElement, selection: readonly [number, number] | undefined): void {
+  if (selection) {
+    const length = input.value.length;
+    const start = Math.max(0, Math.min(length, selection[0]));
+    input.setSelectionRange(start, Math.max(start, Math.min(length, selection[1])));
+  } else {
+    input.select();
+  }
+}
+
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }
@@ -127,6 +138,8 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 
 export class QuickPick<T extends IQuickPickItem> extends QuickInput implements IQuickPick<T> {
   private _value = '';
+  private _valueSelection: readonly [number, number] | undefined;
+  private _filterValue = (value: string) => value;
   private _placeholder: string | undefined;
   private _prompt: string | undefined;
   private _items: readonly (T | IQuickPickSeparator)[] = [];
@@ -157,6 +170,21 @@ export class QuickPick<T extends IQuickPickItem> extends QuickInput implements I
       this.update();
       this.didChangeValue.fire(value);
     }
+  }
+
+  get valueSelection() { return this._valueSelection; }
+  set valueSelection(value) {
+    this._valueSelection = value && [value[0], value[1]];
+    if (value && this.widget) {
+      applySelection(this.widget.box.input, this._valueSelection);
+    }
+  }
+
+  get filterValue() { return this._filterValue; }
+  set filterValue(value) {
+    this._filterValue = value;
+    this.dirty.filter = true;
+    this.update();
   }
 
   get placeholder() { return this._placeholder; }
@@ -287,12 +315,12 @@ export class QuickPick<T extends IQuickPickItem> extends QuickInput implements I
       }
     })));
     return {
-      element, field: box.input, focused: () => box.input.select(),
+      element, field: box.input, focused: () => applySelection(box.input, this._valueSelection),
     };
   }
 
   private filter(preferred: T | undefined): void {
-    this.widget?.list.filter(this._value, { matchOnDescription: this._matchOnDescription, matchOnDetail: this._matchOnDetail },
+    this.widget?.list.filter(this._filterValue(this._value), { matchOnDescription: this._matchOnDescription, matchOnDetail: this._matchOnDetail },
       preferred);
   }
 
@@ -424,17 +452,8 @@ export class InputBox extends QuickInput implements IInputBox {
   }
 
   private applySelection(): void {
-    const input = this.widget?.input;
-    if (!input) {
-      return;
-    }
-    const selection = this._valueSelection;
-    if (selection) {
-      const length = input.value.length;
-      const start = Math.max(0, Math.min(length, selection[0]));
-      input.setSelectionRange(start, Math.max(start, Math.min(length, selection[1])));
-    } else {
-      input.select();
+    if (this.widget) {
+      applySelection(this.widget.input, this._valueSelection);
     }
   }
 
