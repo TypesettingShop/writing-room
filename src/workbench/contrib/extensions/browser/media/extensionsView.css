@@ -54,7 +54,7 @@
 .extensions-action {
   font: inherit;
   margin: 3px 0;
-  border: 1px solid var(--vscode-button-border, transparent);
+  border: 1px solid var(--vscode-panel-border);
   border-radius: 2px;
   padding: 3px 7px;
   background: var(--vscode-button-background, #0e639c);
