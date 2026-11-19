@@ -386,3 +386,19 @@ test('unpacks each file once even when the confirmation read its localized strin
   expect(paths.filter(path => path === 'extension/package.nls.json')).toHaveLength(1);
   expect(paths.filter(path => path === 'extension/dist/web.js')).toHaveLength(1);
 });
+
+test.each(['1.0.0', '1.1.0'])('waits for the old generation before writing replacement %s', async version => {
+  const { files, service, confirm, records, active } = setup();
+  await service.installPackage(createVsix(), source, confirm);
+  const previous = records()[0];
+  const deactivate = vi.fn(async () => {
+    expect(records()[0]?.packageSha256).toBe(previous.packageSha256);
+    expect(new TextDecoder().decode((await files.readFile(URI.parse(location + 'dist/web.js'))).value))
+      .toBe('exports.activate = () => {};\n');
+  });
+  Object.assign(active, { whenExtensionRemoved: deactivate });
+  const replacement = createVsix({ manifest: { ...sampleManifest, version }, files: { 'dist/web.js': 'replacement' } });
+  await service.installPackage(replacement, source, confirm);
+  expect(deactivate).toHaveBeenCalledOnce();
+  expect(records()[0]?.packageSha256).toBe(await sha256Hex(replacement));
+});
