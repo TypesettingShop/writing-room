@@ -1,2 +1,9 @@
-// 이 영역의 기능은 배정된 에픽에서 이 파일에 등록한다.
-export {};
+import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { MainThreadDocuments } from './mainThreadDocuments.js';
+import { ExtHostDocumentsProxy, MainThreadDocumentsProxy } from '../common/extHost.protocol.documents.js';
+
+mainThreadCustomers.register('documents', ({ rpc, instantiation, getExtension }) => {
+  const documents = instantiation.createInstance(MainThreadDocuments, rpc.getProxy(ExtHostDocumentsProxy), getExtension);
+  rpc.set(MainThreadDocumentsProxy, documents);
+  return documents;
+});
