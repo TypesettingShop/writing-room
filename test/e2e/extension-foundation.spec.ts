@@ -45,6 +45,7 @@ test('URL installation keeps commands with icon pairs and commands whose icons f
   await page.getByRole('option', { name: /Install Foundation Fixture/ }).click();
 
   await expect(page.getByRole('button', { name: 'Report Fixture Resource' })).toBeVisible();
+  requested.length = 0;
   await page.reload();
   await page.keyboard.press('F1');
   await page.getByRole('combobox').fill('Report Fixture Code Action Kind');
@@ -52,4 +53,14 @@ test('URL installation keeps commands with icon pairs and commands whose icons f
   await expect(page.getByText('Fixture code action kind: quickfix', { exact: true })).toBeVisible();
   await expect.poll(() => requested.some(path => path === '/foundation/icons/dark.svg')).toBe(true);
   expect(requested).not.toContain('/outside.svg');
+});
+
+test('forwards the original tree item through a nested context menu', async ({ page }) => {
+  await seedInstalledExtensions(page, [{ location: extensionFixtureLocation('foundation'), manifest }]);
+  await page.goto('/');
+  const item = page.getByRole('region', { name: 'Fixture Tree' }).getByRole('treeitem', { name: 'Fixture Item' });
+  await item.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Fixture Tree Actions' }).press('ArrowRight');
+  await page.getByRole('menuitem', { name: 'Report Fixture Tree Item' }).click();
+  await expect(page.getByText('Fixture tree item received', { exact: true })).toBeVisible();
 });

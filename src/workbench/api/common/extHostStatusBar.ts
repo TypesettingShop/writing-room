@@ -109,6 +109,7 @@ export class ExtHostStatusBar {
 extHostApiRegistry.register('statusBar', ({ rpc }) => {
   const status = new ExtHostStatusBar(rpc.getProxy(MainThreadStatusBarProxy));
   return {
+    service: status,
     create: ({ key }) => ({
       types: { StatusBarAlignment },
       namespaces: {

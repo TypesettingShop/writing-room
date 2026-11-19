@@ -1,5 +1,5 @@
 import type * as vscode from 'vscode';
-import { Position, Range, Selection, TextEdit } from './extHostEditorTypes.js';
+import { EndOfLine, Position, Range, Selection, TextEdit } from './extHostEditorTypes.js';
 import type { WorkspaceEdit } from './extHostEditorTypes.js';
 
 export interface EditorPosition { readonly lineNumber: number; readonly column: number }
@@ -21,7 +21,7 @@ export interface EditorSelection extends EditorRange {
 export interface EditorTextEdit {
   readonly range: EditorRange;
   readonly text: string;
-  readonly eol?: 1 | 2;
+  readonly eol?: 0 | 1;
 }
 
 export function positionToEditor(position: vscode.Position): EditorPosition {
@@ -59,12 +59,13 @@ export function selectionFromEditor(selection: EditorSelection): Selection {
 }
 
 export function textEditToEditor(edit: vscode.TextEdit): EditorTextEdit {
-  return { range: rangeToEditor(edit.range), text: edit.newText, eol: edit.newEol };
+  const eol = edit.newEol === undefined ? undefined : edit.newEol === EndOfLine.LF ? 0 : 1;
+  return { range: rangeToEditor(edit.range), text: edit.newText, eol };
 }
 
 export function textEditFromEditor(edit: EditorTextEdit): TextEdit {
   const result = new TextEdit(rangeFromEditor(edit.range), edit.text);
-  result.newEol = edit.eol;
+  result.newEol = edit.eol === undefined ? undefined : edit.eol === 0 ? EndOfLine.LF : EndOfLine.CRLF;
   return result;
 }
 

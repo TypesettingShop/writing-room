@@ -1,3 +1,4 @@
+import { MenuCommandContext, menuContextHandlers } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -17,7 +18,10 @@ export class CommandService implements ICommandService {
     if (!command) {
       throw new Error(`command '${id}' not found`);
     }
-    return this.instantiationService.invokeFunction(command.handler, ...args) as T;
+    // The activation above can have registered a handler since the menu action was made.
+    const forwarded = args[0] instanceof MenuCommandContext && !menuContextHandlers.has(command.handler)
+      ? args.slice(1) : args;
+    return this.instantiationService.invokeFunction(command.handler, ...forwarded) as T;
   }
 }
 

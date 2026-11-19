@@ -1,3 +1,4 @@
+import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import type { HostExtensionDescription } from './extensionHostProtocol.js';
@@ -18,11 +19,16 @@ export interface ExtHostCustomer extends Partial<IDisposable> {
 export class ExtHostCustomers<T extends ExtensionCustomerServices = ExtensionCustomerServices> {
   private readonly factories = new Map<string, (services: T) => ExtHostCustomer>();
 
-  register(area: string, factory: (services: T) => ExtHostCustomer): void {
+  register(area: string, factory: (services: T) => ExtHostCustomer): IDisposable {
     if (this.factories.has(area)) {
       throw new Error(`Extension customer '${area}' already exists.`);
     }
     this.factories.set(area, factory);
+    return toDisposable(() => {
+      if (this.factories.get(area) === factory) {
+        this.factories.delete(area);
+      }
+    });
   }
 
   create(services: T): readonly ExtHostCustomer[] {

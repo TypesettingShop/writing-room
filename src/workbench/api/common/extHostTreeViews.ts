@@ -247,6 +247,7 @@ extHostApiRegistry.register('treeViews', services => {
   const trees = new ExtHostTreeViews(services.rpc.getProxy(MainThreadTreeViewsProxy), services.getViews);
   services.rpc.set(ExtHostTreeViewsProxy, trees);
   return {
+    service: trees,
     create: ({ key }) => ({
       types: { TreeItem, TreeItemCollapsibleState },
       namespaces: {

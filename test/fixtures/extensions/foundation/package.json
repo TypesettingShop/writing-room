@@ -17,6 +17,10 @@
         "command": "foundation.reportKind",
         "title": "Report Fixture Code Action Kind",
         "icon": "../outside.svg"
+      },
+      {
+        "command": "foundation.reportTreeItem",
+        "title": "Report Fixture Tree Item"
       }
     ],
     "menus": {
@@ -30,8 +34,33 @@
         {
           "command": "foundation.reportResource"
         }
+      ],
+      "view/item/context": [
+        {
+          "submenu": "foundation.treeMenu",
+          "when": "view == foundation.tree"
+        }
+      ],
+      "foundation.treeMenu": [
+        {
+          "command": "foundation.reportTreeItem"
+        }
       ]
-    }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "foundation.tree",
+          "name": "Fixture Tree"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "foundation.treeMenu",
+        "label": "Fixture Tree Actions"
+      }
+    ]
   },
   "displayName": "Foundation Fixture"
 }

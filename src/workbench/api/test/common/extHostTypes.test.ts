@@ -46,9 +46,11 @@ test('round trips selections, line ends, ranges over lines and end-of-line edits
   }
   const selection = new Selection(end, new Position(0, 0));
   expect(selectionFromEditor(selectionToEditor(selection))).toEqual(selection);
-  const eol = TextEdit.setEndOfLine(EndOfLine.CRLF);
-  expect(textEditToEditor(eol).eol).toBe(2);
-  expect(textEditFromEditor(textEditToEditor(eol))).toEqual(eol);
+  for (const [source, expected] of [[EndOfLine.LF, 0], [EndOfLine.CRLF, 1]] as const) {
+    const edit = TextEdit.setEndOfLine(source);
+    expect(textEditToEditor(edit).eol).toBe(expected);
+    expect(textEditFromEditor(textEditToEditor(edit))).toEqual(edit);
+  }
 });
 
 test('groups only text edits for entries while retaining ordered snippets and file operations for conversion', () => {
@@ -145,4 +147,24 @@ test('uses the pinned code action kind values and matches complete path segments
   expect(kind.Refactor.intersects(kind.RefactorExtract)).toBe(true);
   expect(kind.RefactorExtract.intersects(kind.RefactorInline)).toBe(false);
   expect(kind.RefactorExtract.contains(kind.Refactor.append('extraction'))).toBe(false);
+});
+
+test('keeps the relative pattern base and URI across an RPC call', async () => {
+  const channel = new MessageChannel();
+  const caller = new RPCProtocol(channel.port1);
+  const callee = new RPCProtocol(channel.port2);
+  const proxy = createProxyIdentifier<{ $echo(pattern: vscode.RelativePattern): Promise<vscode.RelativePattern> }>('pattern.echo');
+  callee.set(proxy, { async $echo(pattern) { return pattern; } });
+  try {
+    const pattern = new RelativePattern('/workspace', '*.md');
+    pattern.baseUri = Uri.parse('vscode-vfs://writing-room/workspace/docs');
+    const received = await caller.getProxy(proxy).$echo(pattern);
+    expect(received.base).toBe(pattern.base);
+    expect(received.baseUri).toBeInstanceOf(Uri);
+    expect(received.baseUri.toString()).toBe(pattern.baseUri.toString());
+    expect(received.pattern).toBe('*.md');
+  } finally {
+    caller.dispose();
+    callee.dispose();
+  }
 });

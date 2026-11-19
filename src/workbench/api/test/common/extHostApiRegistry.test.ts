@@ -4,8 +4,9 @@ import type * as vscode from 'vscode';
 import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js';
 import { createExtensionApi } from '../../common/extHost.api.impl.js';
 import { ExtHostContext, MainContext } from '../../common/extHost.protocol.js';
-import { extHostApiRegistry, promiseApiMethod } from '../../common/extHostApiRegistry.js';
+import { ExtHostApiRegistry, extHostApiRegistry, promiseApiMethod } from '../../common/extHostApiRegistry.js';
 import { ExtHostExtensionService } from '../../common/extHostExtensionService.js';
+import { createTestRpcPair } from './testExtensionHost.js';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
 
 const extension: HostExtensionDescription = {
@@ -82,4 +83,44 @@ test('reports both areas when contributions claim the same API property', () => 
   const contributions = new Map([['test.left', { create }], ['test.right', { create }]]);
   expect(() => createExtensionApi(contributions, extension, () => true, {} as vscode.ExtensionContext))
     .toThrow(/window\.duplicate.*test\.left.*test\.right/);
+});
+
+test('resolves area services even for later registrations and gives each host its own instance', () => {
+  const registry = new ExtHostApiRegistry();
+  const pair = createTestRpcPair();
+  const create = (rpc: RPCProtocol) => registry.create({
+    rpc, isLive: () => true, getViews: () => [], resolveCommandArgument: (_key, argument) => argument,
+  });
+  const provider = vi.fn(() => ({ service: { documentCount: 1 } }));
+  registry.register('languageFeatures', services => ({
+    service: { documents: services.getService<{ documentCount: number }>('documents') },
+  }));
+  registry.register('documents', provider);
+  try {
+    const worker = create(pair.worker);
+    const second = create(pair.main);
+    expect([...worker.keys()]).toEqual(['languageFeatures', 'documents']);
+    expect(worker.get('languageFeatures')?.service).toEqual({ documents: worker.get('documents')?.service });
+    expect(second.get('documents')?.service).not.toBe(worker.get('documents')?.service);
+    expect(provider).toHaveBeenCalledTimes(2);
+  } finally {
+    pair.dispose();
+  }
+});
+
+test('reports a dependency cycle and disposes initialized contributions on failure', () => {
+  const registry = new ExtHostApiRegistry();
+  const pair = createTestRpcPair();
+  const dispose = vi.fn();
+  registry.register('created', () => ({ dispose }));
+  registry.register('documents', services => ({ service: services.getService('diagnostics') }));
+  registry.register('diagnostics', services => ({ service: services.getService('documents') }));
+  try {
+    expect(() => registry.create({
+      rpc: pair.worker, isLive: () => true, getViews: () => [], resolveCommandArgument: (_key, argument) => argument,
+    })).toThrow('documents -> diagnostics -> documents');
+    expect(dispose).toHaveBeenCalledOnce();
+  } finally {
+    pair.dispose();
+  }
 });

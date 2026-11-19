@@ -53,8 +53,8 @@ export class ThemeIcon implements vscode.ThemeIcon {
 }
 
 export class RelativePattern implements vscode.RelativePattern {
-  #base!: string;
-  #baseUri!: vscode.Uri;
+  declare base: string;
+  declare baseUri: vscode.Uri;
 
   constructor(base: vscode.WorkspaceFolder | vscode.Uri | string, public pattern: string) {
     if (typeof base !== 'string' && !URI.isUri(base) && !URI.isUri((base as vscode.WorkspaceFolder | undefined)?.uri)) {
@@ -63,23 +63,30 @@ export class RelativePattern implements vscode.RelativePattern {
     if (typeof pattern !== 'string') {
       throw new Error('Illegal argument: pattern');
     }
-    if (typeof base === 'string') {
-      this.baseUri = Uri.file(base);
-    } else {
-      this.baseUri = base instanceof URI ? base as unknown as vscode.Uri : (base as vscode.WorkspaceFolder).uri;
-    }
-  }
-
-  get base(): string { return this.#base; }
-  set base(path: string) {
-    this.#base = path;
-    this.#baseUri = Uri.file(path);
-  }
-
-  get baseUri(): vscode.Uri { return this.#baseUri; }
-  set baseUri(resource: vscode.Uri) {
-    this.#baseUri = resource;
-    this.#base = resource.fsPath;
+    let baseUri: vscode.Uri;
+    let basePath: string;
+    // RPC copies own enumerable fields and revives URI values in those fields.
+    Object.defineProperties(this, {
+      base: {
+        enumerable: true,
+        get: () => basePath,
+        set: (path: string) => {
+          baseUri = Uri.file(path);
+          basePath = path;
+        },
+      },
+      baseUri: {
+        enumerable: true,
+        get: () => baseUri,
+        set: (resource: vscode.Uri) => {
+          baseUri = resource;
+          basePath = resource.fsPath;
+        },
+      },
+    });
+    const initialUri = typeof base === 'string' ? Uri.file(base)
+      : URI.isUri(base) ? base as unknown as vscode.Uri : (base as vscode.WorkspaceFolder).uri;
+    this.baseUri = initialUri;
   }
 }
 

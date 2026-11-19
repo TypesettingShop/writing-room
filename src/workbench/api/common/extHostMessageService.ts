@@ -18,6 +18,7 @@ export class ExtHostMessageService {
 extHostApiRegistry.register('messages', ({ rpc }) => {
   const messages = new ExtHostMessageService(rpc.getProxy(MainThreadMessageServiceProxy));
   return {
+    service: messages,
     create: ({ key }) => {
       const show = (severity: MessageSeverity) => promiseApiMethod(
         <T extends string | vscode.MessageItem>(message: string, ...items: T[]) =>

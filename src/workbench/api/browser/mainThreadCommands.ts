@@ -39,7 +39,8 @@ function resolveCommandArguments(accessor: ServicesAccessor, args: unknown[]): u
     const editor = target.editorIndex === undefined ? group?.activeEditor : group?.getEditorByIndex(target.editorIndex);
     return editor?.resource ? [editor.resource, ...rest] : rest;
   }
-  const group = editors.groups.find(group => group.scopedContextKeyService === context.scope) ?? editors.activeGroup;
+  const group = editors.groups.find(group =>
+    group.titleMenuContext === context.scope || group.scopedContextKeyService === context.scope) ?? editors.activeGroup;
   const resource = group.activeEditor?.resource;
   return resource ? [resource, ...forwarded] : forwarded;
 }

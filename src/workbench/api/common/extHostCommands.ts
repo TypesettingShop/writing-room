@@ -109,6 +109,7 @@ extHostApiRegistry.register('commands', services => {
   );
   services.rpc.set(ExtHostCommandsProxy, commands);
   return {
+    service: commands,
     create: ({ key }) => ({
       types: { Disposable, EventEmitter },
       namespaces: {

@@ -3,6 +3,9 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { MenuId, MenuRegistry } from '../../../../../platform/actions/common/actions.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { registerExtensionViewBody, ViewsExtensionHandler } from '../../../../api/browser/viewsExtensionPoint.js';
+import { viewContainersRegistry, viewsRegistry } from '../../../../common/views.js';
+import { ExtensionMessageCollector } from '../../common/extensionsRegistry.js';
 import { ExtensionService } from '../../browser/extensionService.js';
 import { ColorScheme } from '../../../../../platform/theme/common/themeService.js';
 import type { IColorTheme, IThemeService } from '../../../../../platform/theme/common/themeService.js';
@@ -99,5 +102,38 @@ test('selects the current theme icon and refreshes menu entries when the theme c
   } finally {
     service.dispose();
     changed.dispose();
+  }
+});
+
+test('updates a view descriptor when its source, title or condition changes', () => {
+  const handler = new ViewsExtensionHandler(() => undefined);
+  const render = vi.fn(() => undefined);
+  const renderer = registerExtensionViewBody('testView', render);
+  const collector = new ExtensionMessageCollector(id, message => { throw new Error(message.message); });
+  const changedDescription = { ...description, manifest: { ...description.manifest, version: '2.0.0' } };
+  const acceptView = (source: typeof description, name: string, when: string) =>
+    handler.acceptViews([{
+      description: source, collector, value: { testContainer: [{ id: 'test.view', name, when, type: 'testView' }] },
+    }], () => {});
+  try {
+    handler.acceptContainers([{
+      description, collector, value: { activitybar: [{ id: 'testContainer', title: 'Fixture', icon: '$(beaker)' }] },
+    }]);
+    const container = viewContainersRegistry.get('workbench.view.extension.testContainer')!;
+    const view = () => viewsRegistry.getViews(container).find(view => view.id === 'test.view')!;
+    acceptView(description, 'First title', 'firstCondition');
+    const first = view();
+    acceptView(description, 'First title', 'firstCondition');
+    expect(view()).toBe(first);
+    acceptView(description, 'New title', 'firstCondition');
+    expect(view().name).toBe('New title');
+    acceptView(description, 'New title', 'secondCondition');
+    expect(view().when?.serialize()).toBe('secondCondition');
+    acceptView(changedDescription, 'New title', 'secondCondition');
+    view().renderBody(document.createElement('div'));
+    expect(render).toHaveBeenCalledWith(expect.objectContaining({ extension: changedDescription }));
+  } finally {
+    handler.dispose();
+    renderer.dispose();
   }
 });

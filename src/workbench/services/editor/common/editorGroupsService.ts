@@ -1,3 +1,4 @@
+import type { IMenuContext } from '../../../../platform/actions/common/actions.js';
 import type { Event } from '../../../../base/common/event.js';
 import type { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -73,6 +74,8 @@ export interface IEditorGroup {
   readonly element: HTMLElement;
   /** The group's own context key scope, on its element. */
   readonly scopedContextKeyService: IContextKeyService;
+  /** Context used to construct the group's title menu. */
+  readonly titleMenuContext: IMenuContext;
 
   readonly onDidModelChange: Event<IGroupModelChangeEvent>;
   readonly onDidActiveEditorChange: Event<void>;
