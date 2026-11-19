@@ -1,14 +1,23 @@
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures.js';
+import { expect as baseExpect, test } from './fixtures.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { treeItem } from './explorer.helpers.js';
 import {
-  answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, readWorkspaceText, selectedTab, waitForStorage,
-  writeWorkspaceFile,
+  answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, listBackups, readWorkspaceText, selectedTab,
+  waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
 import manifest from '../fixtures/extensions/custom-editor/package.json' with { type: 'json' };
 
 const editorStateKey = 'writing-room:storage:1:memento/workbench.parts.editor';
+
+// The first custom text editor of a page waits for Monaco, as the first text editor does: its text
+// model is a Monaco model, and Monaco loads with the first one (in the dev server, as hundreds of
+// modules). Until then the pane says "Restoring Webview…". Measured: 1-4 seconds on a loaded machine
+// before the provider is even asked, on top of waking the extension and loading the Webview's two
+// frames, so expect's default 5 seconds ran out (wr-epmc, wr-9i4l). The text editor's helpers give
+// the same wait 20 seconds (`expectEditorText`); so does every wait here, and each test more room.
+const expect = baseExpect.configure({ timeout: 20_000 });
+test.describe.configure({ timeout: 120_000 });
 
 const content = (page: Page) =>
   page.frameLocator('iframe[title="Webview"]:visible').frameLocator('iframe[title="Webview content"]');
@@ -33,6 +42,7 @@ interface Probe {
   readonly documentsDisposed: string[];
   readonly saves: number;
   readonly reverts: number;
+  readonly undos: number;
 }
 
 /** What the fixture extension saw, as it reports it in a notification. */
@@ -171,6 +181,34 @@ test('comes back after a reload and after a host restart, resolving when shown',
   expect(await probe(page)).toMatchObject({ activations: 1, activeTab: 'custom fixture.noteView' });
 });
 
+test('keeps the draft of a file edited only in a custom text editor across a reload, its tab modified before it shows', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'a.note', 'kept');
+  await writeWorkspaceFile(page, 'b.txt', 'b');
+  await treeItem(page, 'a.note').click();
+  await expect(content(page).locator('#text')).toHaveText('kept');
+  await content(page).getByRole('button', { name: 'Append' }).click();
+  await expect(content(page).locator('#text')).toHaveText('kept!');
+  await treeItem(page, 'b.txt').click();
+  await expect.poll(() => listBackups(page)).toHaveLength(1);
+
+  await page.reload();
+  const group = groups(page).first();
+  await expect(group.getByRole('tab')).toHaveText(['Welcome', 'a.note', 'b.txt']);
+  await expect(selectedTab(group)).toHaveText('b.txt');
+  // The draft survives startup's cleanup, and the tab behind says so before it is shown.
+  await expect(group.getByRole('tab', { name: 'a.note' })).toHaveAccessibleDescription('Modified');
+  expect(await listBackups(page)).toHaveLength(1);
+  await group.getByRole('tab', { name: 'a.note' }).click();
+  await expect(content(page).locator('#text')).toHaveText('kept!');
+  expect(await readWorkspaceText(page, 'a.note')).toBe('kept');
+
+  await command(page, 'File: Save');
+  await expect.poll(() => readWorkspaceText(page, 'a.note')).toBe('kept!');
+  await expect(selectedTab(group)).not.toHaveAccessibleDescription('Modified');
+  await expect.poll(() => listBackups(page)).toEqual([]);
+});
+
 test('shows why a provider failed, and drops a resolution that ends after its editor closed', async ({ appPage: page }) => {
   await waitForStorage(page);
   await writeWorkspaceFile(page, 'x.broken', 'x');
@@ -238,6 +276,29 @@ test('an editable custom document undoes in order, saves through its provider an
   await expect(tab).toHaveAccessibleDescription('Modified');
   // A key pressed in the Webview reaches the workbench's Undo.
   await page.keyboard.press('ControlOrMeta+z');
+  await expect(counter.locator('#text')).toHaveText('1');
+  // In an input of the Webview the key is the input's own: the document is not undone with it.
+  const { undos } = await probe(page);
+  const field = counter.getByRole('textbox', { name: 'Field' });
+  await field.pressSequentially('ab');
+  await expect(field).toHaveValue('ab');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(field).not.toHaveValue('ab');
+  // So is the Z key of a layout where it types another letter: the workbench matches the physical key.
+  const cdp = await page.context().newCDPSession(page);
+  const modifiers = process.platform === 'darwin' ? 4 : 2;
+  for (const type of ['rawKeyDown', 'keyUp'] as const) {
+    await cdp.send('Input.dispatchKeyEvent', { type, modifiers, key: 'я', code: 'KeyZ', windowsVirtualKeyCode: 90 });
+  }
+  await cdp.detach();
+  // The probe runs after any undo the key would have sent to the extension host.
+  expect((await probe(page)).undos).toBe(undos);
+  // Three toasts show at once: the probes make room for the ones below.
+  const probes = page.locator('section.extension-toast').filter({ hasText: /^Probe \{/ });
+  for (let left = await probes.count(); left > 0; left--) {
+    await probes.first().getByRole('button', { name: 'Dismiss message' }).click();
+    await expect(probes).toHaveCount(left - 1);
+  }
   await expect(counter.locator('#text')).toHaveText('1');
   await command(page, 'Edit: Undo');
   await expect(counter.locator('#text')).toHaveText('0');

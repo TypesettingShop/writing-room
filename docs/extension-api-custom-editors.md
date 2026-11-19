@@ -70,6 +70,7 @@ vscode.window.registerCustomEditorProvider('example.preview', {
 - `document`는 텍스트 에디터가 보는 것과 같은 `TextDocument` 객체다. 확장이 이 함수를 받을 때 그 문서는 이미 `workspace.textDocuments`에 있다.
 - 고칠 때는 `workspace.applyEdit`을 쓴다. 같은 파일을 연 텍스트 에디터에 바로 보이고, 텍스트 에디터의 실행 취소로 되돌릴 수 있다.
 - 탭의 점, `Ctrl+S`(macOS `Cmd+S`), 다른 이름으로 저장, 닫기 전 확인이 텍스트 에디터와 같다. 같은 파일을 보이는 다른 에디터가 남아 있으면 닫을 때 묻지 않는다(글은 그 에디터에 남는다).
+- 초안도 텍스트 에디터와 같다. 텍스트 에디터 없이 Custom Editor로만 고친 파일도 새로고침 뒤 초안이 돌아오고, 뒤에 있는 탭도 시작할 때 초안을 읽어 점을 보인다([초안 백업과 새로고침](files-and-explorer.md#초안-백업과-새로고침), wr-dbo2).
 - Custom Editor가 열려 있는 동안 문서는 열려 있다. 텍스트 에디터를 닫아도 `onDidCloseTextDocument`가 나지 않고, 둘 다 닫히면 난다.
 - Custom Editor가 활성일 때 `window.activeTextEditor`는 `undefined`이고 `window.tabGroups`에는 `TabInputCustom`으로 나온다.
 - 제목 없는 문서(`untitled:`)도 열 수 있다. 저장은 다른 이름으로 저장이다.
@@ -80,7 +81,7 @@ vscode.window.registerCustomEditorProvider('example.preview', {
 
 - `openCustomDocument(uri, openContext, token)`이 돌려준 `CustomDocument`를 `resolveCustomEditor(document, webviewPanel, token)`이 그린다. 문서는 `viewType`과 파일마다 하나라 에디터 둘이 함께 열려도 `openCustomDocument`는 한 번 불린다. 마지막 에디터가 닫히면 문서의 `dispose`가 불린다.
 - 파일 내용은 확장이 `workspace.fs`로 읽고, Webview에는 `asWebviewUri`로 준다.
-- `onDidChangeCustomDocument`에 `CustomDocumentEditEvent`(`undo`, `redo`가 있다)를 내면 탭이 dirty가 되고 편집이 순서대로 기록된다. 에디터가 활성일 때 **Edit: Undo**, **Edit: Redo**(`Ctrl+Z`, `Ctrl+Y`/`Ctrl+Shift+Z`, Webview 안에서 누른 키 포함)가 확장의 `undo`, `redo`를 그 순서로 부른다. 저장한 지점으로 돌아오면 dirty가 풀린다. `CustomDocumentContentChangeEvent`는 실행 취소 없이 dirty만 만든다.
+- `onDidChangeCustomDocument`에 `CustomDocumentEditEvent`(`undo`, `redo`가 있다)를 내면 탭이 dirty가 되고 편집이 순서대로 기록된다. 에디터가 활성일 때 **Edit: Undo**, **Edit: Redo**(`Ctrl+Z`, `Ctrl+Y`/`Ctrl+Shift+Z`, Webview 안에서 누른 키 포함)가 확장의 `undo`, `redo`를 그 순서로 부른다. Webview 안의 입력 칸, `textarea`, `contenteditable`에서 누른 이 키들은 그 칸의 실행 취소라 확장으로 가지 않는다(wr-wxe1). 저장한 지점으로 돌아오면 dirty가 풀린다. `CustomDocumentContentChangeEvent`는 실행 취소 없이 dirty만 만든다.
 - 저장, 다른 이름으로 저장, 되돌리기는 `saveCustomDocument`, `saveCustomDocumentAs`, `revertCustomDocument`를 부른다. 저장이 실패하면 오른쪽 아래에 `Failed to save '<이름>': <이유>`가 뜨고 dirty가 남는다. 되돌리기는 편집 기록을 비운다.
 - 백업이 없으므로 dirty한 문서가 있으면 페이지를 떠날 때 브라우저가 묻는다.
 
@@ -102,7 +103,6 @@ vscode.window.registerCustomEditorProvider('example.preview', {
 - 처음 열 때 확장을 깨워 제공자의 옵션을 안 뒤에 탭을 연다. VS Code는 탭을 먼저 열고 해결을 나중에 한다 (wr-ibv9.7gr).
 - 제공자가 패널에 준 `title`과 `iconPath`는 탭에 보이지 않는다. 탭 이름은 파일 이름이다. `webviewOptions.enableFindWidget`은 받지만 찾기가 없다 (wr-ibv9.nl3).
 - Custom Editor의 Webview 상태(`getState`/`setState`)는 새로고침 뒤에 남지 않는다. 제목 없는 문서의 Custom Editor 탭은 새로고침 뒤 돌아오지 않는다 (wr-ibv9.nl3).
-- 텍스트 에디터 없이 Custom Text Editor로만 고친 파일의 초안은 새로고침 뒤 남지 않는다. wr-dbo2가 고친다 (wr-ibv9.nl3).
 - 백업이 없다: `backupCustomDocument`는 불리지 않고 `openContext.backupId`와 `untitledDocumentData`는 늘 `undefined`다. 자기 문서를 가진 에디터의 dirty한 변경은 새로고침 뒤 남지 않는다. 그래서 페이지를 떠날 때 묻는다 (wr-ibv9.f1u).
 - **Edit: Undo**와 **Edit: Redo**는 Custom Editor가 활성일 때만 있는 커맨드다. VS Code의 실행 취소는 모든 에디터에 걸친 하나의 기록이다 (wr-ibv9.f1u).
 
