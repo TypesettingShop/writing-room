@@ -1,6 +1,7 @@
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import type { URI } from '../../../base/common/uri.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
-import type { WebviewForwardingPorts } from '../../contrib/webview/browser/webviewOrigin.js';
+import type { WebviewForwardingPorts } from '../../contrib/webview/common/webviewOrigin.js';
 
 export interface WebviewContentOptions {
   readonly enableScripts?: boolean;
@@ -32,6 +33,17 @@ export type WebviewIcon = URI | {
   readonly color?: { readonly id: string };
 };
 
+export interface WebviewPanelRestoreData {
+  readonly id: string;
+  readonly viewType: string;
+  readonly title: string;
+  readonly options: WebviewPanelOptions;
+  readonly contentOptions: WebviewContentOptions;
+  readonly viewState: WebviewPanelViewState;
+  readonly icon?: WebviewIcon;
+  readonly state: unknown;
+}
+
 export interface MainThreadWebviewsShape {
   $createPanel(extension: string, handle: string, viewType: string, title: string, show: WebviewShowOptions,
     panelOptions: WebviewPanelOptions, contentOptions: WebviewContentOptions): Promise<void>;
@@ -41,6 +53,8 @@ export interface MainThreadWebviewsShape {
   $setTitle(extension: string, handle: string, title: string): Promise<void>;
   $setIcon(extension: string, handle: string, icon?: WebviewIcon): Promise<void>;
   $revealPanel(extension: string, handle: string, show: WebviewShowOptions): Promise<void>;
+  $registerPanelSerializer(extension: string, viewType: string): Promise<void>;
+  $unregisterPanelSerializer(extension: string, viewType: string): Promise<void>;
   $disposePanel(extension: string, handle: string): Promise<void>;
 }
 
@@ -48,6 +62,7 @@ export interface ExtHostWebviewsShape {
   $getForwardingPorts(): Promise<WebviewForwardingPorts | undefined>;
   $onMessage(extension: string, handle: string, message: unknown): Promise<void>;
   $onPanelViewState(extension: string, handle: string, state: WebviewPanelViewState): Promise<void>;
+  $deserializePanel(extension: string, handle: string, data: WebviewPanelRestoreData, token: CancellationToken): Promise<void>;
   $onPanelDisposed(extension: string, handle: string): Promise<void>;
 }
 

@@ -1,7 +1,8 @@
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
-import type { WebviewIcon, WebviewPanelOptions } from '../../../api/common/extHost.protocol.webview.js';
+import type { WebviewContentOptions, WebviewIcon, WebviewPanelOptions } from '../../../api/common/extHost.protocol.webview.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
+import { IWebviewStateStore } from '../../webview/browser/webviewStateStore.js';
 import type { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
 
 export class WebviewEditorInput extends EditorInput {
@@ -9,6 +10,9 @@ export class WebviewEditorInput extends EditorInput {
   readonly typeId = WebviewEditorInput.typeId;
   readonly resource: URI;
   private icon: WebviewIcon | undefined;
+  private generation = 0;
+  private restorePending = false;
+  contentOptions: WebviewContentOptions = {};
 
   constructor(
     readonly id: string,
@@ -17,10 +21,34 @@ export class WebviewEditorInput extends EditorInput {
     private title: string,
     readonly options: WebviewPanelOptions,
     readonly webview: WebviewOverlay,
+    readonly persistent: boolean,
+    @IWebviewStateStore states: IWebviewStateStore,
   ) {
     super();
     this.resource = URI.from({ scheme: Schemas.webviewPanel, path: id });
     this._register(webview);
+    if (persistent) {
+      this._register(this.onWillDispose(() => states.delete(id, extensionId)));
+    }
+  }
+
+  get restoreGeneration(): number | undefined {
+    return this.restorePending ? this.generation : undefined;
+  }
+
+  markForRestore(): void {
+    this.generation++;
+    this.restorePending = true;
+    this.webview.resetForRestore();
+  }
+
+  completeRestore(generation: number, error?: string): void {
+    if (this.restoreGeneration === generation && !this.isDisposed()) {
+      this.restorePending = false;
+      if (error) {
+        this.webview.setError(error);
+      }
+    }
   }
 
   override getName(): string {

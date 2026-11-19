@@ -3,13 +3,19 @@ import { IContextKeyService, RawContextKey } from '../../../../platform/contextk
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../browser/editor.js';
+import type { IEditorFactoryRegistry } from '../../../common/editor.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { WebviewEditor } from './webviewEditor.js';
 import { WebviewEditorInput } from './webviewEditorInput.js';
+import { WebviewEditorInputSerializer } from './webviewEditorInputSerializer.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)?.registerEditorPane(
   EditorPaneDescriptor.create(WebviewEditor, WebviewEditor.id, 'Webview'), [WebviewEditorInput.typeId],
+);
+
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)?.registerEditorSerializer(
+  WebviewEditorInput.typeId, WebviewEditorInputSerializer,
 );
 
 const activeWebviewPanelId = new RawContextKey<string | undefined>('activeWebviewPanelId', undefined);

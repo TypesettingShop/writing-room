@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../browser/webviewOrigin.js';
+import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../common/webviewOrigin.js';
 
 describe('Webview origin', () => {
   it.each([

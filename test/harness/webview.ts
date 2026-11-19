@@ -2,9 +2,9 @@ import { URI } from '../../src/base/common/uri.js';
 import { FileService } from '../../src/platform/files/common/fileService.js';
 import { DefaultThemeService } from '../../src/platform/theme/common/themeService.js';
 import { FetchFileSystemProvider } from '../../src/workbench/services/extensions/browser/webWorkerFileSystemProvider.js';
-import { asWebviewUri } from '../../src/workbench/contrib/webview/browser/resourceLoading.js';
+import { asWebviewUri } from '../../src/workbench/contrib/webview/common/webviewUri.js';
 import { WebviewElement } from '../../src/workbench/contrib/webview/browser/webviewElement.js';
-import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../src/workbench/contrib/webview/browser/webviewOrigin.js';
+import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../src/workbench/contrib/webview/common/webviewOrigin.js';
 
 const page = new URL(location.href);
 const template = page.searchParams.get('template') ?? undefined;

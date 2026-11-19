@@ -1,15 +1,17 @@
 import type * as vscode from 'vscode';
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
 import type { URI } from '../../../base/common/uri.js';
 import { product } from '../../../platform/product/common/product.js';
-import { asWebviewUri } from '../../contrib/webview/browser/resourceLoading.js';
-import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../contrib/webview/browser/webviewOrigin.js';
-import type { WebviewOrigin } from '../../contrib/webview/browser/webviewOrigin.js';
+import { asWebviewUri } from '../../contrib/webview/common/webviewUri.js';
+import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
+import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import { ExtHostWebviewsProxy, MainThreadWebviewsProxy } from './extHost.protocol.webview.js';
 import type {
-  ExtHostWebviewsShape, MainThreadWebviewsShape, WebviewContentOptions, WebviewIcon, WebviewPanelViewState, WebviewShowOptions,
+  ExtHostWebviewsShape, MainThreadWebviewsShape, WebviewContentOptions, WebviewIcon, WebviewPanelRestoreData, WebviewPanelViewState, WebviewShowOptions,
 } from './extHost.protocol.webview.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
+import { Disposable } from './extHostTypes.js';
 
 const page = typeof location === 'undefined' ? undefined : new URL(location.href);
 const template = product.webviewContentExternalBaseUrlTemplate;
@@ -120,8 +122,10 @@ class ExtHostWebviewPanel implements vscode.WebviewPanel {
     readonly viewType: string, title: string, readonly webview: ExtHostWebview,
     readonly options: vscode.WebviewPanelOptions, state: WebviewPanelViewState,
     send: SendWebviewCall, close: () => void, proxy: MainThreadWebviewsShape, extension: string, handle: string,
+    icon?: vscode.IconPath,
   ) {
     this.#title = title;
+    this.#icon = icon;
     this.#state = state;
     this.#close = close;
     this.#updateTitle = value => send(() => proxy.$setTitle(extension, handle, value), undefined);
@@ -192,8 +196,14 @@ interface PanelEntry {
   readonly ready: Promise<void>;
 }
 
+interface SerializerRegistration {
+  readonly serializer: vscode.WebviewPanelSerializer;
+  readonly ready: Promise<void>;
+}
+
 class ExtHostWebviews implements ExtHostWebviewsShape {
   private readonly panels = new Map<string, PanelEntry>();
+  private readonly serializers = new Map<string, Map<string, SerializerRegistration>>();
 
   constructor(private readonly proxy: MainThreadWebviewsShape) {}
 
@@ -213,20 +223,89 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
     const panelOptions = Object.freeze({
       enableFindWidget: options.enableFindWidget, retainContextWhenHidden: options.retainContextWhenHidden,
     });
-    const origin = page ? resolveWebviewOrigin(page, template, id, forwarding) : { error: 'No Webview origin' };
     const ready = this.proxy.$createPanel(extension, id, viewType, title, show, panelOptions, toContentOptions(options));
-    const send: SendWebviewCall = (call, fallback) => ready.then(() => this.panels.has(id) ? call() : fallback);
-    const webview = new ExtHostWebview(origin, options, send, this.proxy, extension, id);
-    const panel = new ExtHostWebviewPanel(viewType, title, webview, panelOptions, {
-      active: !show.preserveFocus, visible: true,
-      viewColumn: show.viewColumn !== undefined && show.viewColumn > 0 ? show.viewColumn : undefined,
-    }, send, () => this.disposePanel(extension, id), this.proxy, extension, id);
-    this.panels.set(id, { extension, panel, ready });
+    const panel = this.attachPanel(extension, id, {
+      id, viewType, title, options: panelOptions, contentOptions: options, state: undefined, viewState: {
+        active: !show.preserveFocus, visible: true,
+        viewColumn: show.viewColumn !== undefined && show.viewColumn > 0 ? show.viewColumn : undefined,
+      },
+    }, ready);
     void ready.catch(error => {
       this.drop(extension, id);
       console.error('Could not open Webview panel:', error);
     });
     return panel;
+  }
+
+  private attachPanel(
+    extension: string, handle: string, data: Omit<WebviewPanelRestoreData, 'contentOptions'> & {
+      readonly contentOptions: vscode.WebviewOptions;
+    }, ready: Promise<void>,
+  ): ExtHostWebviewPanel {
+    const origin = page ? resolveWebviewOrigin(page, template, data.id, forwarding) : { error: 'No Webview origin' };
+    const send: SendWebviewCall = (call, fallback) => ready.then(() => this.panels.has(handle) ? call() : fallback);
+    const webview = new ExtHostWebview(origin, data.contentOptions, send, this.proxy, extension, handle);
+    const panel = new ExtHostWebviewPanel(data.viewType, data.title, webview, data.options, data.viewState, send,
+      () => this.disposePanel(extension, handle), this.proxy, extension, handle, data.icon as vscode.IconPath | undefined);
+    this.panels.set(handle, { extension, panel, ready });
+    return panel;
+  }
+
+  registerSerializer(extension: string, viewType: string, serializer: vscode.WebviewPanelSerializer): Disposable {
+    let owned = this.serializers.get(extension);
+    if (!owned) {
+      owned = new Map();
+      this.serializers.set(extension, owned);
+    }
+    if (owned.has(viewType)) {
+      throw new Error('A Webview panel serializer is already registered for ' + viewType);
+    }
+    const registration = { serializer, ready: this.proxy.$registerPanelSerializer(extension, viewType) };
+    owned.set(viewType, registration);
+    void registration.ready.catch(console.error);
+    return new Disposable(() => {
+      if (owned.get(viewType) === registration) {
+        owned.delete(viewType);
+        if (owned.size === 0) {
+          this.serializers.delete(extension);
+        }
+        void registration.ready.then(() => this.proxy.$unregisterPanelSerializer(extension, viewType)).catch(() => {});
+      }
+    });
+  }
+
+  async flush(extension: string): Promise<void> {
+    await Promise.all([...this.serializers.get(extension)?.values() ?? []].map(({ ready }) => ready));
+  }
+
+  async $deserializePanel(
+    extension: string, handle: string, data: WebviewPanelRestoreData, token: CancellationToken,
+  ): Promise<void> {
+    if (token.isCancellationRequested) {
+      return;
+    }
+    const serializer = this.serializers.get(extension)?.get(data.viewType)?.serializer;
+    if (!serializer || this.panels.has(handle)) {
+      throw new Error('The Webview panel serializer is unavailable.');
+    }
+    const panel = this.attachPanel(extension, handle, {
+      ...data, contentOptions: data.contentOptions as vscode.WebviewOptions,
+    }, Promise.resolve());
+    let listener: vscode.Disposable | undefined;
+    const cancelled = new Promise<void>(resolve => {
+      listener = token.onCancellationRequested(() => {
+        this.drop(extension, handle);
+        resolve();
+      });
+    });
+    try {
+      await Promise.race([serializer.deserializeWebviewPanel(panel, data.state), cancelled]);
+    } catch (error) {
+      this.drop(extension, handle);
+      throw error;
+    } finally {
+      listener?.dispose();
+    }
   }
 
   async $onMessage(extension: string, handle: string, message: unknown): Promise<void> {
@@ -242,6 +321,12 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   }
 
   remove(extension: string): void {
+    const owned = this.serializers.get(extension);
+    this.serializers.delete(extension);
+    for (const [type, { ready }] of owned ?? []) {
+      void ready.then(() => this.proxy.$unregisterPanelSerializer(extension, type)).catch(() => {});
+    }
+    owned?.clear();
     for (const [id, entry] of this.panels) {
       if (entry.extension === extension) {
         this.disposePanel(extension, id);
@@ -250,6 +335,7 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   }
 
   dispose(): void {
+    this.serializers.clear();
     for (const [id, { extension }] of this.panels) {
       this.drop(extension, id);
     }
@@ -284,9 +370,11 @@ extHostApiRegistry.register('webviews', ({ rpc }) => {
       namespaces: {
         window: {
           createWebviewPanel: (viewType, title, show, options) => webviews.createPanel(key, viewType, title, show, options),
-        } satisfies Pick<typeof vscode.window, 'createWebviewPanel'>,
+          registerWebviewPanelSerializer: (type, serializer) => webviews.registerSerializer(key, type, serializer),
+        } satisfies Pick<typeof vscode.window, 'createWebviewPanel' | 'registerWebviewPanelSerializer'>,
       },
     }),
+    flush: key => webviews.flush(key),
     release: key => webviews.remove(key),
     dispose: () => webviews.dispose(),
   };

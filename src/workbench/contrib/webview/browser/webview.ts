@@ -5,7 +5,7 @@ import type { BrandedService } from '../../../../platform/instantiation/common/i
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { WebviewElement } from './webviewElement.js';
-import type { WebviewOrigin } from './webviewOrigin.js';
+import type { WebviewOrigin } from '../common/webviewOrigin.js';
 
 export const IWebviewService = createDecorator<IWebviewService>('webviewService');
 

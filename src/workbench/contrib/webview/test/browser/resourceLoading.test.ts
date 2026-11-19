@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../../platform/files/common/files.js';
 import type { IFileService } from '../../../../../platform/files/common/files.js';
-import { asWebviewUri, loadWebviewResource } from '../../browser/resourceLoading.js';
+import { loadWebviewResource } from '../../browser/resourceLoading.js';
+import { asWebviewUri } from '../../common/webviewUri.js';
 
 const root = URI.parse('https://example.test:5173/extension/media');
 const origin = 'https://webview.example.net';
@@ -49,4 +50,18 @@ describe('Webview resource authorization', () => {
   it('rejects encoded path separators before reconstructing a resource URL', () => {
     expect(() => asWebviewUri(origin, URI.parse('https://example.test/a%2fb'))).toThrow('encoded path separator');
   });
+});
+
+it('allows resources in the installed package but refuses user storage and private paths', async () => {
+  const root = URI.parse('vscode-userdata:/extensions/fixture.extension-1.0.0/');
+  const resource = URI.joinPath(root, 'panel.js');
+  const readFile = vi.fn(async () => ({ value: new Uint8Array([1]) }));
+  const files = { readFile } as unknown as IFileService;
+  const result = await loadWebviewResource(files, new URL(asWebviewUri(origin, resource).toString()).pathname, [root], signal);
+  expect(result).toEqual({ status: 200, mime: 'text/javascript', bytes: new Uint8Array([1]) });
+  const privateRoot = URI.parse('vscode-userdata:/User/globalStorage/fixture.extension');
+  const privateResource = URI.joinPath(privateRoot, 'state.json');
+  expect(await loadWebviewResource(files, new URL(asWebviewUri(origin, privateResource).toString()).pathname,
+    [privateRoot, root], signal)).toEqual({ status: 401 });
+  expect(readFile).toHaveBeenCalledOnce();
 });

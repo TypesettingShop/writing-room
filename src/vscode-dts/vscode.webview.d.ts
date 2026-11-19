@@ -45,10 +45,15 @@ declare module 'vscode' {
     readonly webviewPanel: WebviewPanel;
   }
 
+  interface WebviewPanelSerializer<T = unknown> {
+    deserializeWebviewPanel(webviewPanel: WebviewPanel, state: T): Thenable<void>;
+  }
+
   namespace window {
     export function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn | {
       readonly viewColumn: ViewColumn;
       readonly preserveFocus?: boolean;
     }, options?: WebviewPanelOptions & WebviewOptions): WebviewPanel;
+    export function registerWebviewPanelSerializer(viewType: string, serializer: WebviewPanelSerializer): Disposable;
   }
 }

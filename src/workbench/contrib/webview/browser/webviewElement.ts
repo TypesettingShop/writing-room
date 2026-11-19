@@ -5,7 +5,8 @@ import type { IFileService } from '../../../../platform/files/common/files.js';
 import type { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { asCssVariableName, ColorScheme, IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { loadWebviewResource } from './resourceLoading.js';
-import type { WebviewOrigin } from './webviewOrigin.js';
+import { isWebviewState } from './webviewStateStore.js';
+import type { WebviewOrigin } from '../common/webviewOrigin.js';
 
 export interface WebviewElementOptions {
   readonly enableScripts?: boolean;
@@ -109,6 +110,10 @@ export class WebviewElement extends Disposable {
     }
   }
 
+  get savedState(): string | undefined {
+    return this.state;
+  }
+
   setState(state: string | undefined): void {
     this.state = state;
   }
@@ -207,7 +212,9 @@ export class WebviewElement extends Disposable {
           break;
         case 'state':
           if (typeof data.value === 'string') {
-            this.state = data.value;
+            if (isWebviewState(data.value)) {
+              this.state = data.value;
+            }
             this.stateChanges.fire(data.value);
           }
           break;

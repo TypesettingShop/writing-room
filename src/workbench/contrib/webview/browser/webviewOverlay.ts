@@ -8,7 +8,7 @@ import { EditorDragAndDropObserver } from '../../../browser/dnd.js';
 import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
 import { IWebviewService } from './webview.js';
 import type { WebviewElement, WebviewElementOptions } from './webviewElement.js';
-import type { WebviewOrigin } from './webviewOrigin.js';
+import type { WebviewOrigin } from '../common/webviewOrigin.js';
 
 export class WebviewOverlay extends Disposable {
   private readonly messages = this._register(new Emitter<unknown>());
@@ -32,7 +32,7 @@ export class WebviewOverlay extends Disposable {
   private focusPending = false;
 
   constructor(
-    private readonly viewType: string, private readonly origin: WebviewOrigin, private readonly retain: boolean,
+    private readonly viewType: string, private origin: WebviewOrigin | undefined, private readonly retain: boolean,
     @IWebviewService private readonly webviews: IWebviewService,
     @IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
     @IContextKeyService private readonly contextKeys: IContextKeyService,
@@ -68,10 +68,6 @@ export class WebviewOverlay extends Disposable {
     return this.anchor !== undefined;
   }
 
-  get savedState(): string | undefined {
-    return this.state;
-  }
-
   setState(state: string | undefined): void {
     this.state = state;
     this.element?.setState(state);
@@ -88,12 +84,19 @@ export class WebviewOverlay extends Disposable {
     this.createDisplay();
   }
 
-  reset(): void {
+  resetForRestore(): void {
+    this.origin = undefined;
     this.alert = undefined;
     this.html = '';
     this.elementListeners.clear();
     this.element = undefined;
     this.createDisplay();
+  }
+
+  setOrigin(origin: WebviewOrigin): void {
+    this.origin = origin;
+    this.createDisplay();
+    this.scheduleLayout();
   }
 
   show(anchor: HTMLElement, dimension?: Dimension): void {
@@ -156,11 +159,11 @@ export class WebviewOverlay extends Disposable {
     if (!anchor) {
       return;
     }
-    if (this.alert) {
+    if (this.alert || !this.origin) {
       this.elementListeners.clear();
       this.element = undefined;
       const status = anchor.ownerDocument.createElement('p');
-      status.textContent = this.alert;
+      status.textContent = this.alert ?? 'Restoring Webview…';
       status.setAttribute('role', 'status');
       anchor.replaceChildren(status);
       return;
@@ -180,7 +183,7 @@ export class WebviewOverlay extends Disposable {
       }));
       this.elementListeners.add(element.onDidReceiveMessage(value => this.messages.fire(value)));
       this.elementListeners.add(element.onDidChangeState(state => {
-        this.state = state;
+        this.state = element.savedState;
         this.states.fire(state);
       }));
       this.elementListeners.add(element.onDidRequestContextMenu(({ x, y, context }) => this.showContextMenu(x, y, context)));

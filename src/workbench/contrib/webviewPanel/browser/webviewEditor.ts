@@ -4,6 +4,7 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { IWebviewPanelRestoreService } from './webviewPanelRestoreService.js';
 import { WebviewEditorInput } from './webviewEditorInput.js';
 
 export class WebviewEditor extends EditorPane {
@@ -12,7 +13,10 @@ export class WebviewEditor extends EditorPane {
   private anchor!: HTMLElement;
   private dimensions: Dimension | undefined;
 
-  constructor(@IEditorGroupsService private readonly groups: IEditorGroupsService) {
+  constructor(
+    @IEditorGroupsService private readonly groups: IEditorGroupsService,
+    @IWebviewPanelRestoreService private readonly restore: IWebviewPanelRestoreService,
+  ) {
     super(WebviewEditor.id);
   }
 
@@ -31,6 +35,7 @@ export class WebviewEditor extends EditorPane {
     this.clearInput();
     const updated = super.setInput(input, options);
     input.webview.show(this.anchor, this.dimensions);
+    this.restore.show(input);
     this.focusListener.value = input.webview.onDidFocus(() => {
       const group = this.groups.groups.find(group => group.element.contains(this.anchor));
       if (group && group.activeEditor === input) {

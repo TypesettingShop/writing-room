@@ -4,8 +4,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import type { IFileService } from '../../../../platform/files/common/files.js';
 import { extensionResourceLimits } from '../../../services/extensions/common/extensionResources.js';
-
-export const webviewResourcePrefix = '/webview/vscode-resource/';
+import { webviewResourcePrefix } from '../common/webviewUri.js';
 
 const unsafe = /[\\\x00-\x1f\x7f]|%(?:25)*(?:2e|2f|5c)/i;
 const mimeTypes: Readonly<Record<string, string>> = {
@@ -18,20 +17,12 @@ const mimeTypes: Readonly<Record<string, string>> = {
   '.woff': 'font/woff', '.woff2': 'font/woff2',
 };
 
-export function asWebviewUri(origin: string, resource: URI): URI {
-  if (resource.hasEncodedPathSeparator) {
-    throw new Error('A Webview resource URI cannot contain an encoded path separator.');
-  }
-  const path = resource.path.split('/').map(encodeURIComponent).join('/');
-  return URI.parse(origin + webviewResourcePrefix + encodeURIComponent(resource.scheme) + '/'
-    + encodeURIComponent(resource.authority) + path
-    + (resource.query ? '?' + resource.query : '') + (resource.fragment ? '#' + encodeURIComponent(resource.fragment) : ''));
-}
-
 export function normalizeWebviewResource(resource: URI): URI | undefined {
+  const installedPackage = resource.scheme === Schemas.vscodeUserData && !resource.authority
+    && /^\/extensions\/[^/.][^/]*(?:\/|$)/.test(resource.path);
   if (resource.hasEncodedPathSeparator || !resource.path.startsWith('/') || unsafe.test(resource.path)
     || /[@%/?#\\\s]/.test(resource.authority) || resource.path.split('/').includes('..')
-    || (resource.scheme !== Schemas.vscodeVfs && resource.scheme !== Schemas.http && resource.scheme !== Schemas.https)) {
+    || (resource.scheme !== Schemas.vscodeVfs && resource.scheme !== Schemas.http && resource.scheme !== Schemas.https && !installedPackage)) {
     return undefined;
   }
   const normalized = normalizePath(resource.with({ query: '', fragment: '' }));

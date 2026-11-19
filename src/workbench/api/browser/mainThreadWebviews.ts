@@ -1,13 +1,17 @@
-import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
+import { CancellationTokenSource } from '../../../base/common/cancellation.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
+import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { product } from '../../../platform/product/common/product.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { normalizeWebviewResource } from '../../contrib/webview/browser/resourceLoading.js';
+import { IWebviewStateStore } from '../../contrib/webview/browser/webviewStateStore.js';
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
-import { resolveWebviewOrigin } from '../../contrib/webview/browser/webviewOrigin.js';
+import { resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import { WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
+import { IWebviewPanelRestoreService } from '../../contrib/webviewPanel/browser/webviewPanelRestoreService.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import type { IEditorGroup } from '../../services/editor/common/editorGroupsService.js';
@@ -31,6 +35,7 @@ interface PanelEntry {
 
 export class MainThreadWebviews extends Disposable implements MainThreadWebviewsShape {
   private readonly panels = new Map<string, PanelEntry>();
+  private readonly serializers = new Map<string, Map<string, IDisposable>>();
   private scheduled = false;
   private stopped = false;
 
@@ -40,6 +45,8 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     @IEditorGroupsService private readonly groups: IEditorGroupsService,
     @IEditorService editors: IEditorService,
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
+    @IWebviewPanelRestoreService private readonly restore: IWebviewPanelRestoreService,
+    @IWebviewStateStore private readonly states: IWebviewStateStore,
   ) {
     super();
     for (const event of [
@@ -64,17 +71,10 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     }
     const origin = resolveWebviewOrigin(new URL(location.href), product.webviewContentExternalBaseUrlTemplate, handle, forwarding);
     const webview = this.instantiation.createInstance(WebviewOverlay, viewType, origin, panelOptions.retainContextWhenHidden === true);
-    const input = new WebviewEditorInput(handle, owner.id, viewType, title, panelOptions, webview);
-    const entry: PanelEntry = { owner: extension, input, listeners: new DisposableStore(), options: this.scope(owner, options), html: '' };
-    this.panels.set(handle, entry);
-    entry.listeners.add(input.onWillDispose(() => {
-      this.drop(handle, entry);
-      void this.proxy.$onPanelDisposed(extension, handle).catch(() => {});
-    }));
-    entry.listeners.add(webview.onDidReceiveMessage(message => {
-      void this.proxy.$onMessage(extension, handle, message).catch(() => {});
-    }));
-    this.updateContent(entry);
+    const persistent = owner.manifest.activationEvents?.includes('onWebviewPanel:' + viewType) === true;
+    const input = this.instantiation.createInstance(WebviewEditorInput,
+      handle, owner.id, viewType, title, panelOptions, webview, persistent);
+    this.bindPanel(extension, handle, owner, input, options);
     try {
       await this.targetGroup(show.viewColumn).openEditor(input, { preserveFocus: show.preserveFocus });
     } catch (error) {
@@ -97,8 +97,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     const entry = this.lookup(extension, handle);
     const owner = entry && this.getExtension(extension);
     if (entry && owner) {
-      entry.options = this.scope(owner, options);
-      this.updateContent(entry);
+      this.setContentOptions(owner, entry, options);
     }
   }
 
@@ -135,6 +134,33 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     this.scheduleState();
   }
 
+  async $registerPanelSerializer(extension: string, viewType: string): Promise<void> {
+    const owner = this.getExtension(extension);
+    if (!owner || typeof viewType !== 'string' || !viewType) {
+      throw new Error('Invalid Webview panel serializer.');
+    }
+    let registrations = this.serializers.get(extension);
+    if (!registrations) {
+      registrations = new Map();
+      this.serializers.set(extension, registrations);
+    }
+    if (registrations.has(viewType)) {
+      throw new Error('A Webview panel serializer is already registered for ' + viewType);
+    }
+    const registration = this.restore.register(owner.id, viewType, (input, generation) =>
+      this.restorePanel(extension, input, generation));
+    registrations.set(viewType, registration);
+  }
+
+  async $unregisterPanelSerializer(extension: string, viewType: string): Promise<void> {
+    const registrations = this.serializers.get(extension);
+    registrations?.get(viewType)?.dispose();
+    registrations?.delete(viewType);
+    if (registrations?.size === 0) {
+      this.serializers.delete(extension);
+    }
+  }
+
   async $disposePanel(extension: string, handle: string): Promise<void> {
     this.lookup(extension, handle)?.input.dispose();
   }
@@ -145,14 +171,98 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
         entry.input.dispose();
       }
     }
+    this.removeSerializers(extension);
   }
 
   override dispose(): void {
     this.stopped = true;
-    for (const { input } of this.panels.values()) {
-      input.dispose();
+    for (const [handle, entry] of this.panels) {
+      const { owner, input } = entry;
+      if (input.persistent && this.serializers.get(owner)?.has(input.viewType)) {
+        this.drop(handle, entry);
+        void this.proxy.$onPanelDisposed(owner, handle).catch(() => {});
+        input.markForRestore();
+        if (input.webview.isVisible) {
+          this.restore.show(input);
+        }
+      } else {
+        input.dispose();
+      }
+    }
+    for (const extension of this.serializers.keys()) {
+      this.removeSerializers(extension);
     }
     super.dispose();
+  }
+
+  private async restorePanel(extension: string, input: WebviewEditorInput, generation: number): Promise<void> {
+    const owner = this.getExtension(extension);
+    const isCurrent = () => !this.stopped && !input.isDisposed()
+      && input.restoreGeneration === generation && !!owner && this.getExtension(extension) === owner;
+    if (!owner || owner.id !== input.extensionId || !isCurrent()) {
+      return;
+    }
+    const handle = crypto.randomUUID();
+    const forwarding = await this.proxy.$getForwardingPorts();
+    if (!isCurrent()) {
+      return;
+    }
+    const entry = this.bindPanel(extension, handle, owner, input, input.contentOptions);
+    const saved = this.states.get(input.id, owner.id);
+    input.setIconPath(this.validateIcon(owner, input.iconPath));
+    input.webview.setState(saved);
+    input.webview.setOrigin(resolveWebviewOrigin(new URL(location.href),
+      product.webviewContentExternalBaseUrlTemplate, input.id, forwarding));
+    const cancellation = new CancellationTokenSource();
+    entry.listeners.add(toDisposable(() => cancellation.dispose(true)));
+    try {
+      await this.proxy.$deserializePanel(extension, handle, {
+        id: input.id, viewType: input.viewType, title: input.getName(), options: input.options,
+        contentOptions: input.contentOptions, icon: input.iconPath, viewState: this.viewState(input),
+        state: saved === undefined ? undefined : JSON.parse(saved),
+      }, cancellation.token);
+    } catch (error) {
+      if (this.lookup(extension, handle) === entry) {
+        this.drop(handle, entry);
+      }
+      throw error;
+    } finally {
+      cancellation.dispose();
+    }
+  }
+
+  private bindPanel(
+    extension: string, handle: string, owner: HostExtensionDescription, input: WebviewEditorInput, options: WebviewContentOptions,
+  ): PanelEntry {
+    const entry: PanelEntry = { owner: extension, input, listeners: new DisposableStore(), options: {}, html: '' };
+    this.panels.set(handle, entry);
+    entry.listeners.add(input.onWillDispose(() => {
+      this.drop(handle, entry);
+      void this.proxy.$onPanelDisposed(extension, handle).catch(() => {});
+    }));
+    entry.listeners.add(input.webview.onDidReceiveMessage(message => {
+      void this.proxy.$onMessage(extension, handle, message).catch(() => {});
+    }));
+    if (input.persistent) {
+      entry.listeners.add(input.webview.onDidChangeState(state => this.states.set(input.id, owner.id, state)));
+    }
+    this.setContentOptions(owner, entry, options);
+    return entry;
+  }
+
+  private setContentOptions(owner: HostExtensionDescription, entry: PanelEntry, options: WebviewContentOptions): void {
+    entry.options = this.scope(owner, options);
+    entry.input.contentOptions = {
+      ...entry.options, localResourceRoots: options.localResourceRoots === undefined ? undefined : entry.options.localResourceRoots,
+    };
+    this.updateContent(entry);
+  }
+
+  private removeSerializers(extension: string): void {
+    for (const registration of this.serializers.get(extension)?.values() ?? []) {
+      registration.dispose();
+    }
+    this.serializers.delete(extension);
   }
 
   private validateIcon(owner: HostExtensionDescription, icon?: WebviewIcon): WebviewIcon | undefined {
@@ -210,13 +320,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       queueMicrotask(() => {
         this.scheduled = false;
         for (const [handle, entry] of this.panels) {
-          const group = this.containingGroup(entry.input);
-          const column = group && editorGroupToColumn(this.groups, group);
-          const state = {
-            active: this.groups.activeGroup.activeEditor === entry.input,
-            visible: entry.input.webview.isVisible,
-            viewColumn: column === undefined || column < 0 ? undefined : column + 1,
-          };
+          const state = this.viewState(entry.input);
           const before = entry.state;
           if (!before || before.active !== state.active || before.visible !== state.visible || before.viewColumn !== state.viewColumn) {
             entry.state = state;
@@ -225,6 +329,16 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
         }
       });
     }
+  }
+
+  private viewState(input: WebviewEditorInput): WebviewPanelViewState {
+    const group = this.containingGroup(input);
+    const column = group && editorGroupToColumn(this.groups, group);
+    return {
+      active: this.groups.activeGroup.activeEditor === input,
+      visible: input.webview.isVisible,
+      viewColumn: column === undefined || column < 0 ? undefined : column + 1,
+    };
   }
 
   private lookup(extension: string, handle: string): PanelEntry | undefined {
