@@ -27,6 +27,11 @@ function decode(value = ''): string {
   });
 }
 
+/** VS Code's `toString(true)` escapes only the characters that would end the component. */
+function encodeMinimal(value: string): string {
+  return value.replace(/[#?]/g, character => character === '#' ? '%23' : '%3F');
+}
+
 function encode(value: string, allowed = ''): string {
   return value.replace(/[^\w.~\-]/ug, character => {
     if (allowed.includes(character)) {
@@ -40,6 +45,8 @@ function encode(value: string, allowed = ''): string {
 
 export class URI implements Required<UriComponents> {
   #originalQuery: string | undefined;
+  /** The components never change, and equality checks and map keys format the same URI repeatedly. */
+  #formatted: string | undefined;
 
   private constructor(
     readonly scheme: string,
@@ -133,25 +140,31 @@ export class URI implements Required<UriComponents> {
       && resource.query === this.query && resource.fragment === this.fragment ? this : resource;
   }
 
-  toString(): string {
+  /** `skipEncoding` is the `vscode.Uri` option. As in VS Code, only the encoded form is cached. */
+  toString(skipEncoding = false): string {
+    return skipEncoding ? this.format(true) : this.#formatted ??= this.format(false);
+  }
+
+  private format(skipEncoding: boolean): string {
+    const escape: (value: string, allowed?: string) => string = skipEncoding ? encodeMinimal : encode;
     let host = this.authority;
     let userInfo = '';
     const at = host.indexOf('@');
     if (at >= 0) {
       const credentials = host.slice(0, at);
       const colon = credentials.lastIndexOf(':');
-      userInfo = (colon < 0 ? encode(credentials)
-        : encode(credentials.slice(0, colon)) + ':' + encode(credentials.slice(colon + 1), '[]:')) + '@';
+      userInfo = (colon < 0 ? escape(credentials)
+        : escape(credentials.slice(0, colon)) + ':' + escape(credentials.slice(colon + 1), '[]:')) + '@';
       host = host.slice(at + 1);
     }
     const path = /^https?$/i.test(this.scheme) ? this.path
       : this.path.replace(/^(\/?)([A-Z]):/, (_, slash: string, drive: string) => slash + drive.toLowerCase() + ':');
 
     return this.scheme + ':'
-      + (this.authority || this.scheme === Schemas.file ? '//' + userInfo + encode(host.toLowerCase(), '[]:') : '')
-      + encode(path, '/')
-      + (this.query ? '?' + encode(this.query) : '')
-      + (this.fragment ? '#' + encode(this.fragment) : '');
+      + (this.authority || this.scheme === Schemas.file ? '//' + userInfo + escape(host.toLowerCase(), '[]:') : '')
+      + escape(path, '/')
+      + (this.query ? '?' + escape(this.query) : '')
+      + (this.fragment ? '#' + (skipEncoding ? this.fragment : encode(this.fragment)) : '');
   }
 
   toJSON(): UriComponents & { $mid: 1 } {

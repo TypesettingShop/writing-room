@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { Emitter } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileService } from '../../common/fileService.js';
@@ -7,6 +8,7 @@ import {
   FileChangeType, FileOperation, FileOperationResult, FileSystemProviderCapabilities,
   FileSystemProviderError, FileSystemProviderErrorCode, FileType,
 } from '../../common/files.js';
+import type { IFileChange, IFileSystemProvider } from '../../common/files.js';
 import { InMemoryFileSystemProvider } from '../../common/inMemoryFilesystemProvider.js';
 
 const Code = FileSystemProviderErrorCode;
@@ -55,6 +57,14 @@ describe('file service', () => {
     expect((await service.readFile(path)).value).toEqual(bytes('two'));
     await service.del(file('/a'), { recursive: true });
     await expect(service.exists(path)).resolves.toBe(false);
+  });
+
+  test('refuses to copy a folder onto itself through an unnormalized path and reports paths below a file as missing', async () => {
+    const { service, provider } = setup();
+    await service.writeFile(file('/a/dir/child.md'), bytes('keep'));
+    await expect(service.copy(file('/a/./dir'), file('/a/dir'), true)).rejects.toMatchObject({ code: Code.NoPermissions });
+    expect(await provider.readdir(file('/a/dir'))).toEqual([['child.md', FileType.File]]);
+    await expect(service.exists(file('/a/dir/child.md/below'))).resolves.toBe(false);
   });
 
   test('uses stat for conditional writes on a generic provider', async () => {
@@ -107,6 +117,19 @@ describe('file service', () => {
       'will:MOVE', 'changes:ADDED/new,DELETED/folder/new', 'did:MOVE',
       'will:DELETE', 'changes:DELETED/new', 'did:DELETE',
     ]);
+  });
+
+  test('orders a batch by the last report of a repeated change', async () => {
+    const service = disposables.add(new FileService());
+    const changes = disposables.add(new Emitter<readonly IFileChange[]>());
+    service.registerProvider('mem', { capabilities: 0, onDidChangeFile: changes.event } as unknown as IFileSystemProvider);
+    const batches: string[][] = [];
+    service.onDidFilesChange(event => batches.push(event.changes.map(change => FileChangeType[change.type])));
+    for (const type of [FileChangeType.ADDED, FileChangeType.DELETED, FileChangeType.ADDED]) {
+      changes.fire([{ resource: file('/x'), type }]);
+    }
+    await Promise.resolve();
+    expect(batches).toEqual([['DELETED', 'ADDED']]);
   });
 
   test('vetoes failed participants and preserves both trees when a cross-provider move cannot copy', async () => {

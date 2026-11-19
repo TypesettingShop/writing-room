@@ -98,7 +98,8 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
   async writeFile(resource: URI, content: Uint8Array, options: IFileWriteOptions): Promise<IStat> {
     resource = this.normalizeResource(resource);
     const { path } = resource;
-    const bytes = new Blob([content.slice()]);
+    // Blob copies its parts. Only a view of shared memory needs its own buffer first.
+    const bytes = new Blob([content.buffer instanceof ArrayBuffer ? content as Uint8Array<ArrayBuffer> : content.slice()]);
     return this.mutate(resource, async (store, changed) => {
       const existing = await lookup(store, path);
       if (existing?.type === FileType.Directory) {
@@ -158,7 +159,9 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
       if (source === target && move) {
         return;
       }
-      if (source === '/' || target === '/' || target.startsWith(childPrefix(source)) || source.startsWith(childPrefix(target))) {
+      // A copy onto itself would delete the source tree as the overwritten target before reading it.
+      if (source === '/' || target === '/' || source === target
+        || target.startsWith(childPrefix(source)) || source.startsWith(childPrefix(target))) {
         throw new FileSystemProviderError('Cannot transfer overlapping file trees', Code.NoPermissions);
       }
       const existing = await lookup(store, target);
@@ -167,29 +170,26 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
       }
       await makeDirectories(store, dirname(target), changed);
       const overwritten = existing ? await treeEntries(store, target, existing) : [];
-      for (const [key] of overwritten) {
-        await store.delete(key);
-      }
+      await Promise.all(overwritten.map(([key]) => store.delete(key)));
       if (existing) {
         changed(target, FileChangeType.DELETED);
       }
 
       const previous = new Map(overwritten);
       const entries = await treeEntries(store, source, entry);
-      for (const [key, value] of entries) {
+      const now = Date.now();
+      // The trees do not overlap, so the requests can be queued together without awaiting each one.
+      await Promise.all(entries.flatMap(([key, value]) => {
         const destination = target + key.slice(source.length);
-        const now = Date.now();
         const replaced = previous.get(destination);
-        await store.set(destination, {
+        changed(destination, FileChangeType.ADDED);
+        const write = store.set(destination, {
           ...value,
           ctime: move ? value.ctime : now,
           mtime: Math.max(move ? value.mtime : now, replaced ? replaced.mtime + 1 : 0),
         });
-        changed(destination, FileChangeType.ADDED);
-        if (move) {
-          await store.delete(key);
-        }
-      }
+        return move ? [write, store.delete(key)] : [write];
+      }));
       if (move) {
         changed(source, FileChangeType.DELETED);
       }
@@ -208,10 +208,7 @@ export abstract class StoredFileSystemProvider extends Disposable implements IFi
       if (keys.length && !options.recursive) {
         throw new FileSystemProviderError(`Directory is not empty: ${path}`, Code.NoPermissions);
       }
-      for (const key of keys) {
-        await store.delete(key);
-      }
-      await store.delete(path);
+      await Promise.all([...keys, path].map(key => store.delete(key)));
       changed(path, FileChangeType.DELETED);
     });
   }
@@ -297,12 +294,14 @@ async function treeEntries(
 ): Promise<readonly [string, StoredEntry][]> {
   const result: [string, StoredEntry][] = [[path, entry]];
   if (entry.type === FileType.Directory) {
-    for (const key of await store.keys(childPrefix(path))) {
-      const child = await store.get(key);
+    const keys = await store.keys(childPrefix(path));
+    const children = await Promise.all(keys.map(key => store.get(key)));
+    keys.forEach((key, index) => {
+      const child = children[index];
       if (child) {
         result.push([key, child]);
       }
-    }
+    });
   }
   return result;
 }

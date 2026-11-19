@@ -109,7 +109,10 @@ export class FileService extends Disposable implements IFileService {
       // Some providers are registered under more than one scheme.
       if (change.resource.scheme === scheme) {
         const { authority, path, query, fragment } = change.resource;
-        this.pendingChanges.set(JSON.stringify([change.type, scheme, authority, path, query, fragment]), change);
+        const key = JSON.stringify([change.type, scheme, authority, path, query, fragment]);
+        // A repeated change moves to the end, so ADDED, DELETED, ADDED does not end as DELETED.
+        this.pendingChanges.delete(key);
+        this.pendingChanges.set(key, change);
       }
     }
   }
@@ -136,7 +139,15 @@ export class FileService extends Disposable implements IFileService {
 
   async exists(resource: URI): Promise<boolean> {
     const provider = await this.provider(resource);
-    return (await tryStat(provider, resource)) !== undefined;
+    try {
+      return (await tryStat(provider, resource)) !== undefined;
+    } catch (error) {
+      // A path below a file does not exist either.
+      if (toFileSystemProviderErrorCode(error) === Code.FileNotADirectory) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async readFile(resource: URI, options?: IFileReadOptions): Promise<IFileContent> {

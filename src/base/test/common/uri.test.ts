@@ -15,6 +15,15 @@ describe('URI', () => {
     expect(URI.parse(source).toString()).toBe(formatted);
   });
 
+  test('escapes only component delimiters for toString(true) and keeps the cached full form', () => {
+    const uri = URI.parse('https://EXAMPLE.TEST/a%20b/%E2%9C%93?key=a%20b&x=1#f%20g');
+    const encoded = 'https://example.test/a%20b/%E2%9C%93?key%3Da%20b%26x%3D1#f%20g';
+    expect(uri.toString()).toBe(encoded);
+    expect(uri.toString(true)).toBe('https://example.test/a b/✓?key=a b&x=1#f g');
+    expect(uri.toString()).toBe(encoded);
+    expect(URI.file('/C:/a#b?c.md').toString(true)).toBe('file:///c:/a%23b%3Fc.md');
+  });
+
   test('round-trips decoded components through strings and structured cloning', () => {
     const file = URI.file('/a 한#?%😀.md');
     expect(URI.parse(file.toString()).fsPath).toBe(file.fsPath);
