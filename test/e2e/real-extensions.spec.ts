@@ -5,13 +5,15 @@ import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from '@playwright/test';
 import {
   defaultCacheDir, extractVsix, readPins, readZip, repositoryRoot, resolveContained, sha256, verifyPackageSignature,
+  writeVerified,
 } from '../../scripts/lib/real-extensions.mjs';
-import { createFakeCache, createZip, openVsxServiceUrl, requireRealExtensions } from './real-extensions.helpers.js';
+import { createZip, unixModes } from '../../src/base/test/common/zipTestUtils.js';
+import { createFakeCache, openVsxServiceUrl, requireRealExtensions } from './real-extensions.helpers.js';
 import type { FakeCache } from './real-extensions.helpers.js';
 
 const run = promisify(execFile);
@@ -74,6 +76,15 @@ test.describe('real extension cache', () => {
     }
   });
 
+  test('writes over a temporary file a dead run of the same process id left behind', async () => {
+    const path = join(fake.cache, 'written.bin');
+    const bytes = Buffer.from('verified');
+    await writeFile(`${path}.tmp-${process.pid}`, 'left behind');
+    await writeVerified({ path, url: 'https://open-vsx.org/x', sha256: sha256(bytes), limit: 1024 }, bytes);
+    expect(await readFile(path, 'utf8')).toBe('verified');
+    expect(existsSync(`${path}.tmp-${process.pid}`)).toBe(false);
+  });
+
   test('reports a missing cache offline instead of passing', async () => {
     await rm(fake.vsix);
     const result = await script('fetch-real-extensions.mjs', fake, '--offline');
@@ -99,18 +110,16 @@ test.describe('VSIX reader', () => {
     ['an absolute path', [{ name: '/extension/evil.js' }]],
     ['a backslash path', [{ name: 'extension\\..\\evil.js' }]],
     ['a duplicate name', [{ name: 'extension/a.js' }, { name: 'extension/A.js' }]],
-    ['a symbolic link', [{ name: 'extension/link', content: '/etc/passwd', mode: 0o120777 }]],
+    ['a symbolic link', [{ name: 'extension/link', data: '/etc/passwd', unixMode: unixModes.symbolicLink }]],
   ] as const) {
     test(`refuses ${what}`, () => {
-      expect(() => readZip(createZip([{ name: 'extension/package.json', content: '{}' }, ...entries]))).toThrow();
+      expect(() => readZip(createZip([{ name: 'extension/package.json', data: '{}' }, ...entries]))).toThrow();
     });
   }
 
   test('refuses an entry that inflates past its declared size', () => {
-    const zip = createZip([{ name: 'extension/package.json', content: 'x'.repeat(1000) }]);
-    // Declare 10 bytes in the central directory; the reader must not inflate more than that.
-    const central = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
-    zip.writeUInt32LE(10, central + 24);
+    // Declares 10 bytes for 1000; the reader must not inflate more than that.
+    const zip = createZip([{ name: 'extension/package.json', data: 'x'.repeat(1000), size: 10 }]);
     expect(() => readZip(zip).read('extension/package.json')).toThrow();
   });
 
@@ -119,9 +128,9 @@ test.describe('VSIX reader', () => {
     try {
       const destination = join(fake.root, 'unpacked');
       await extractVsix(createZip([
-        { name: 'extension.vsixmanifest', content: '<x/>' },
-        { name: 'extension/package.json', content: '{"name":"fake"}' },
-        { name: 'extension/dist/extension.js', content: 'exports.x = 1;' },
+        { name: 'extension.vsixmanifest', data: '<x/>' },
+        { name: 'extension/package.json', data: '{"name":"fake"}' },
+        { name: 'extension/dist/extension.js', data: 'exports.x = 1;' },
       ]), destination);
       expect(await readFile(join(destination, 'package.json'), 'utf8')).toBe('{"name":"fake"}');
       expect(await readFile(join(destination, 'dist/extension.js'), 'utf8')).toBe('exports.x = 1;');
@@ -194,12 +203,17 @@ test.describe('Open VSX fixture route', () => {
 
   test('refuses to serve a package whose cached bytes changed, and answers 404 without a cache', async () => {
     requireRealExtensions();
+    // The cache playwright.config.ts checked, which E2E_REAL_EXTENSIONS_CACHE may point elsewhere.
+    const cacheDir = process.env.E2E_REAL_EXTENSIONS_CACHE || defaultCacheDir;
     const copy = await mkdtemp(join(tmpdir(), 'writing-room-openvsx-'));
     const empty = await mkdtemp(join(tmpdir(), 'writing-room-openvsx-empty-'));
-    const changed = await startFixtureServer(copy);
-    const missing = await startFixtureServer(empty);
+    let changed: Awaited<ReturnType<typeof startFixtureServer>> | undefined;
+    let missing: Awaited<ReturnType<typeof startFixtureServer>> | undefined;
     try {
-      await cp(defaultCacheDir, copy, { recursive: true, filter: source => !source.includes('unpacked') && !source.includes('probe-results') });
+      changed = await startFixtureServer(copy);
+      missing = await startFixtureServer(empty);
+      // Leaves out the probe's folders by their place in the cache, not by a match anywhere in the absolute path.
+      await cp(cacheDir, copy, { recursive: true, filter: source => !['unpacked', 'probe-results'].includes(relative(cacheDir, source).split(sep)[0]) });
       const vsix = join(copy, 'vscode.markdown-1.95.3.vsix');
       const bytes = await readFile(vsix);
       bytes[100] ^= 1;
@@ -210,11 +224,15 @@ test.describe('Open VSX fixture route', () => {
       expect(await refused.text()).toContain('does not match the pinned');
       expect((await fetch(changed.origin + '/openvsx/api/vscode/markdown/1.95.3')).status).toBe(500);
       expect((await fetch(changed.origin + '/openvsx/api/DavidAnson/vscode-markdownlint/0.62.1')).status).toBe(200);
+      // The key is shared with the changed package and checked on its own.
+      const key = '/openvsx/api/-/public-key/' + Object.keys((await readPins()).publicKeys)[0];
+      expect((await fetch(changed.origin + key)).status).toBe(200);
       expect((await fetch(missing.origin + file)).status).toBe(404);
+      expect((await fetch(missing.origin + key)).status).toBe(404);
       expect(await (await fetch(missing.origin + '/openvsx/api/-/search?query=')).json()).toEqual({ offset: 0, totalSize: 0, extensions: [] });
     } finally {
-      changed.stop();
-      missing.stop();
+      changed?.stop();
+      missing?.stop();
       await rm(copy, { recursive: true, force: true });
       await rm(empty, { recursive: true, force: true });
     }
@@ -249,6 +267,12 @@ test.describe('missing real extension cache', () => {
 
   test('fails the run with E2E_REQUIRE_REAL_EXTENSIONS=1', async () => {
     const result = await list({ E2E_REQUIRE_REAL_EXTENSIONS: '1' });
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('cannot run (E2E_REQUIRE_REAL_EXTENSIONS=1)');
+  });
+
+  test('fails the run with E2E_REQUIRE_REAL_EXTENSIONS=1 when E2E_REAL_EXTENSIONS was set before the run', async () => {
+    const result = await list({ E2E_REAL_EXTENSIONS: 'missing', E2E_REQUIRE_REAL_EXTENSIONS: '1' });
     expect(result.code).not.toBe(0);
     expect(result.output).toContain('cannot run (E2E_REQUIRE_REAL_EXTENSIONS=1)');
   });

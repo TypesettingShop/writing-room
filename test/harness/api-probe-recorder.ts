@@ -107,7 +107,10 @@ function wrap(real: object, path: string, candidates: readonly string[] = []): o
     return cached;
   }
   const name = (key: PropertyKey) => (path ? path + '.' : '') + String(key);
-  const shadow = typeof real === 'function' ? function () { /* shadow */ } : {};
+  // A plain function's `prototype` is non-configurable, so the `has` trap may not deny it. Methods and arrow
+  // functions have none: their shadow is a bound function, which has no `prototype` and stays constructible.
+  const shadow = typeof real !== 'function' ? {}
+    : Object.hasOwn(real, 'prototype') ? function () { /* shadow */ } : function () { /* shadow */ }.bind(undefined);
   const proxy: object = new Proxy(shadow, {
     get(_shadow, key) {
       if (typeof key === 'symbol') {
@@ -127,7 +130,8 @@ function wrap(real: object, path: string, candidates: readonly string[] = []): o
     },
     has(_shadow, key) {
       const present = Reflect.has(real, key);
-      if (!present && typeof key === 'string' && !interop.has(key)) {
+      // A function's `prototype` is not an API member, as in `get` above.
+      if (!present && typeof key === 'string' && !interop.has(key) && !(typeof real === 'function' && key === 'prototype')) {
         record('checked-missing', name(key));
       }
       return present;

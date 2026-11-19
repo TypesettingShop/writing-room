@@ -38,3 +38,10 @@ test('reports no missing members for an extension that uses only existing member
   expect(result.phases.activate.constructed).toEqual(['Disposable']);
   expect(result.phases.activate.accessed).toEqual(expect.arrayContaining(['context.subscriptions', 'commands.registerCommand']));
 });
+
+test('reports a probe error when the extension service refuses the extension', async ({ page }) => {
+  const result = await probe(page, 'refused');
+  // Not a clean, inactive run with no missing members.
+  expect(result.probeError).toContain('did not add the extension');
+  expect(result.messages).toContainEqual(expect.objectContaining({ path: 'engines.vscode' }));
+});

@@ -60,6 +60,10 @@ if (process.env.E2E_REAL_EXTENSIONS === undefined) {
     }
     process.stdout.write(reason + '\n');
   }
+} else if (process.env.E2E_REQUIRE_REAL_EXTENSIONS === '1' && process.env.E2E_REAL_EXTENSIONS !== 'available') {
+  // A value set before this run (exported in the shell, inherited from another run) must not bypass the requirement.
+  throw new Error(`The real extension cache is not usable (E2E_REAL_EXTENSIONS=${process.env.E2E_REAL_EXTENSIONS}), `
+    + 'so the tests that install real extensions cannot run (E2E_REQUIRE_REAL_EXTENSIONS=1).');
 }
 
 const baseURL = 'http://' + host + ':' + port;

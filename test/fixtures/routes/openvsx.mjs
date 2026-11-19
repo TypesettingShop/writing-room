@@ -8,12 +8,13 @@
 //                                                      openvsx.eclipsecontent.org: http://localhost:<port>/openvsx-content/...
 //   /openvsx/api/-/public-key/{id}                     the Ed25519 public key (PEM)
 //
-// The gallery's service URL is http://127.0.0.1:<port>/openvsx. Every response that carries bytes checks the whole
-// cached set of that extension first (each file against pins.json, the .sha256 file and the signature); a file that
-// does not match is never served. Paths are fixed from pins.json, so nothing outside the cache can be named.
+// The gallery's service URL is http://127.0.0.1:<port>/openvsx. Every response that carries bytes of an extension
+// checks the whole cached set of that extension first (each file against pins.json, the .sha256 file and the
+// signature); the shared public key is checked against its own pin. A file that does not match is never served.
+// Paths are fixed from pins.json, so nothing outside the cache can be named.
 // E2E_REAL_EXTENSIONS_CACHE overrides the cache folder (tests of the missing-cache rule).
 import {
-  defaultCacheDir, MissingCacheError, packageBaseName, readPins, readZip, verifyCachedPin,
+  cachedFiles, defaultCacheDir, MissingCacheError, packageBaseName, readPins, readVerified, readZip, verifyCachedPin,
 } from '../../../scripts/lib/real-extensions.mjs';
 
 const cacheDir = process.env.E2E_REAL_EXTENSIONS_CACHE || defaultCacheDir;
@@ -141,12 +142,24 @@ routes[`${api}/-/search`] = async (request, response) => {
   send(response, 200, { offset, totalSize: matches.length, extensions: matches.slice(offset, offset + size) });
 };
 
+// The key is shared by many pins, so it is checked against its own pin only: one missing or changed package must not
+// take the key away from the others.
 for (const id of Object.keys(pins.publicKeys)) {
+  const pin = pins.extensions.find(candidate => candidate.publicKey === id);
+  const file = pin && cachedFiles(pins, pin, cacheDir).publicKey;
   routes[`${api}/-/public-key/${id}`] = async (_request, response) => {
-    const pin = pins.extensions.find(candidate => candidate.publicKey === id);
-    const files = pin && await verified(pin, response);
-    if (files) {
-      send(response, 200, files.publicKey, typeOf('.pem'));
+    let bytes;
+    try {
+      bytes = file && await readVerified(file);
+    } catch (error) {
+      console.error(`openvsx fixture: refusing public key ${id}: ${error.message}`);
+      send(response, 500, { error: error.message });
+      return;
+    }
+    if (bytes) {
+      send(response, 200, bytes, typeOf('.pem'));
+    } else {
+      send(response, 404, { error: `public key ${id} is not in the cache` });
     }
   };
 }

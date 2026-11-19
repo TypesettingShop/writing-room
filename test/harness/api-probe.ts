@@ -98,8 +98,13 @@ async function run(): Promise<void> {
   const identifier = ExtensionIdentifier.fromManifest(manifest);
   result.id = identifier.value;
   result.version = manifest.version;
-  extensions.addExtension({ manifest, identifier, isBuiltin: false, location: extensionLocation });
+  const added = extensions.addExtension({ manifest, identifier, isBuiltin: false, location: extensionLocation });
   const extensionStatus = () => extensions.getExtensionsStatus()[identifier.value];
+  if (!added) {
+    // A refused extension (engines.vscode, duplicate id) would otherwise look like a clean, inactive run.
+    result.messages = [...extensionStatus()?.messages ?? []];
+    throw new Error('The extension service did not add the extension; see messages.');
+  }
   result.activationEvents = [...extensionStatus()?.activationEvents ?? []];
 
   async function settle(phase: Phase): Promise<void> {
@@ -114,23 +119,24 @@ async function run(): Promise<void> {
   }
 
   status.textContent = 'activating';
+  // One budget for all events: a hanging activation must not cost phaseTimeout once per event, or the page
+  // outlives the wait in scripts/probe-extension.mjs.
+  const activationDeadline = performance.now() + phaseTimeout;
   for (const event of result.activationEvents) {
     const activation = extensions.activateByEvent(event).catch(error => {
       result.phases.activate.errors.push({ source: 'activateByEvent ' + event, message: String(error) });
     });
-    await Promise.race([activation, sleep(phaseTimeout)]);
+    await Promise.race([activation, sleep(Math.max(0, activationDeadline - performance.now()))]);
   }
   await settle('activate');
 
   status.textContent = 'document';
   channel.postMessage({ type: 'phase', phase: 'document' });
   await sleep(50);
-  try {
-    await commands.executeCommand('workbench.action.files.newUntitledFile', { languageId: 'markdown' });
-    result.document = { opened: true };
-  } catch (error) {
-    result.document = { opened: false, error: String(error) };
-  }
+  const opened = commands.executeCommand('workbench.action.files.newUntitledFile', { languageId: 'markdown' })
+    .then(() => ({ opened: true }), error => ({ opened: false, error: String(error) }));
+  result.document = await Promise.race([opened,
+    sleep(phaseTimeout).then(() => ({ opened: false, error: `no document after ${phaseTimeout} ms` }))]);
   await Promise.race([extensions.activateByEvent('onLanguage:markdown').catch(() => {}), sleep(phaseTimeout)]);
   await settle('document');
 

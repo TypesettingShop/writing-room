@@ -168,8 +168,10 @@ export async function writeVerified(file, bytes) {
   }
   await mkdir(dirname(file.path), { recursive: true });
   const temporary = `${file.path}.tmp-${process.pid}`;
-  await writeFile(temporary, bytes, { flag: 'wx' });
+  // A run that died between the write and the rename leaves its file behind; the same pid would then hit EEXIST.
+  await rm(temporary, { force: true });
   try {
+    await writeFile(temporary, bytes, { flag: 'wx' });
     await rename(temporary, file.path);
   } catch (error) {
     await rm(temporary, { force: true });
