@@ -95,3 +95,50 @@ test('keeps fallback writes for the current page if the browser denies database 
   await expect(page.getByRole('status')).toHaveText('Ready');
   expect(await page.evaluate(() => window.filesHarness.list(''))).toEqual([]);
 });
+
+test('the workbench prepares its real workspace while the welcome editor mounts', async ({ appPage: page }) => {
+  await expect(page.getByRole('tab', { name: 'Welcome' })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    if (!(await window.indexedDB.databases()).some(database => database.name === 'writing-room-files')) {
+      return;
+    }
+    const connection = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open('writing-room-files', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<unknown>((resolve, reject) => {
+        const request = connection.transaction('vscode-vfs').objectStore('vscode-vfs').get('/workspace');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      connection.close();
+    }
+  })).toMatchObject({ type: 2, size: 0 });
+});
+
+test('mounts the workbench without waiting for file storage to open', async ({ page }) => {
+  await page.addInitScript(() => {
+    IDBFactory.prototype.open = () => new EventTarget() as IDBOpenDBRequest;
+  });
+  expect((await page.goto('/'))?.ok()).toBe(true);
+  await expect(page.getByRole('tab', { name: 'Welcome' })).toBeVisible();
+});
+
+test('opens the workbench and warns once when its file storage is blocked', async ({ page }) => {
+  const warnings: string[] = [];
+  page.on('console', message => {
+    if (message.type() === 'warning' && message.text().includes('Workbench file storage switched to memory')) {
+      warnings.push(message.text());
+    }
+  });
+  await page.addInitScript(() => {
+    IDBFactory.prototype.open = () => { throw new DOMException('Test blocked storage', 'SecurityError'); };
+  });
+  expect((await page.goto('/'))?.ok()).toBe(true);
+  await expect(page.getByRole('tab', { name: 'Welcome' })).toBeVisible();
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]).toContain('Files are kept for this session only');
+});
