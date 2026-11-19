@@ -122,10 +122,11 @@ registerAction2(class CloseAllEditorsAction extends Action2 {
     });
   }
 
-  override run(accessor: ServicesAccessor): void {
-    // Closing a group's last editor removes the group, so walk a copy of the list.
+  override async run(accessor: ServicesAccessor): Promise<void> {
+    // Closing a group's last editor removes the group, so walk a copy of the list. A group whose
+    // close was cancelled keeps its editors; the next group is still closed.
     for (const group of [...accessor.get(IEditorGroupsService).groups]) {
-      group.closeAllEditors();
+      await group.closeAllEditors();
     }
   }
 });

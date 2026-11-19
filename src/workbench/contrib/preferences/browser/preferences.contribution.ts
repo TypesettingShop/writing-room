@@ -1,10 +1,7 @@
-import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import type { ServicesAccessor, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
-import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../browser/editor.js';
@@ -15,6 +12,7 @@ import type { IEditorFactoryRegistry, IEditorSerializer } from '../../../common/
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import '../../../services/configuration/browser/configurationService.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ISettingsEditorInputService, SettingsEditorInput } from './settingsEditorInput.js';
 
@@ -60,6 +58,24 @@ class PreferencesEditorOptions extends Disposable {
 
 registerWorkbenchContribution2('workbench.preferences.editorOptions', PreferencesEditorOptions);
 
+/** Opening `vscode-userdata:/User/settings.json` by resource opens the settings editor. */
+export class SettingsEditorResolver extends Disposable {
+  constructor(
+    @IEditorResolverService resolver: IEditorResolverService,
+    @ISettingsEditorInputService inputs: ISettingsEditorInputService,
+  ) {
+    super();
+    this._register(resolver.registerEditor(
+      SettingsEditorInput.resource.toString(),
+      { id: SettingsEditorInput.ID, label: 'Settings (JSON)', priority: RegisteredEditorPriority.builtin },
+      {},
+      ({ options }) => ({ editor: inputs.getOrCreate(), options }),
+    ));
+  }
+}
+
+registerWorkbenchContribution2('workbench.preferences.settingsEditorResolver', SettingsEditorResolver);
+
 registerAction2(class OpenUserSettingsJson extends Action2 {
   constructor() {
     super({
@@ -74,30 +90,5 @@ registerAction2(class OpenUserSettingsJson extends Action2 {
     const { activeGroup, groups } = accessor.get(IEditorGroupsService);
     const group = activeGroup.contains(input) ? activeGroup : groups.find(candidate => candidate.contains(input));
     await editors.openEditor(input, undefined, group);
-  }
-});
-
-registerAction2(class SaveFile extends Action2 {
-  constructor() {
-    super({
-      id: 'workbench.action.files.save', title: 'Save', f1: true,
-      keybinding: { primary: KeyMod.CtrlCmd | KeyCode.KeyS, weight: KeybindingWeight.WorkbenchContrib },
-    });
-  }
-
-  override async run(accessor: ServicesAccessor): Promise<void> {
-    const editor = accessor.get(IEditorService).activeEditor;
-    if (!(editor instanceof SettingsEditorInput)) {
-      return;
-    }
-    const quickInput = accessor.get(IQuickInputService);
-    try {
-      editor.save();
-    } catch (error) {
-      // A warning, not an error: the dialog below already tells the user, and the draft stays open.
-      console.warn('Could not save settings.json.', error);
-      await quickInput.pick([{ label: 'OK', detail: 'Your changes are still open. Free browser storage or allow this site to store data, then try again.' }],
-        { title: 'Could not save settings.json' });
-    }
   }
 });

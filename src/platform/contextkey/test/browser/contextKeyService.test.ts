@@ -17,6 +17,14 @@ test.each([
   ['!!a', true],
   ['false', false],
   ['true', true],
+  ['k =~ /^two w/', true],
+  ['k =~ /^TWO/', false],
+  ['n > 1', true],
+  ['n <= 1', false],
+  ['a in b', false],
+  ['a not in b', true],
+  ["k === 'two words'", true],
+  ['a !== true', false],
 ])('evaluates %s', (text, expected) => {
   const root = new ContextKeyService();
   try {
@@ -46,7 +54,7 @@ test('accepts the unquoted word characters VS Code accepts', () => {
   }
 });
 
-test.each(['a =~ /x/', 'a in b', 'a not in b', 'n > 1', 'a &&', '(a', "a == 'oops", 'a === b'])(
+test.each(['a &&', '(a', "a == 'oops", 'a =~ /(/', 'a not b'])(
   'reports a syntax error for %s', text => {
     const parser = new Parser();
     expect(parser.parse(text)).toBeUndefined();

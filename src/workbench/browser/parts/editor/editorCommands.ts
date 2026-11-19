@@ -58,11 +58,11 @@ registerAction2(class CloseEditorAction extends Action2 {
     });
   }
 
-  override run(accessor: ServicesAccessor, context?: unknown): void {
+  override async run(accessor: ServicesAccessor, context?: unknown): Promise<void> {
     const resolved = resolveCommandsContext(accessor, context);
     if (resolved?.editor) {
       // A background tab closes without being activated first.
-      resolved.group.closeEditor(resolved.editor);
+      await resolved.group.closeEditor(resolved.editor);
     }
   }
 });
@@ -78,11 +78,11 @@ registerAction2(class CloseOtherEditorsInGroupAction extends Action2 {
     });
   }
 
-  override run(accessor: ServicesAccessor, context?: unknown): void {
+  override async run(accessor: ServicesAccessor, context?: unknown): Promise<void> {
     const resolved = resolveCommandsContext(accessor, context);
     if (resolved?.editor) {
       // The kept editor is the only one left, so the group shows it once the others are gone.
-      resolved.group.closeEditors({ except: resolved.editor });
+      await resolved.group.closeEditors({ except: resolved.editor });
     }
   }
 });
@@ -98,8 +98,8 @@ registerAction2(class CloseEditorsInGroupAction extends Action2 {
     });
   }
 
-  override run(accessor: ServicesAccessor, context?: unknown): void {
-    resolveCommandsContext(accessor, context)?.group.closeAllEditors();
+  override async run(accessor: ServicesAccessor, context?: unknown): Promise<void> {
+    await resolveCommandsContext(accessor, context)?.group.closeAllEditors();
   }
 });
 

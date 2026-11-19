@@ -3,11 +3,10 @@ import type { Event } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { basename } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
+import { PLAINTEXT_LANGUAGE_ID } from '../../../../editor/common/languages/language.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import type { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
-
-export const PLAINTEXT_LANGUAGE_ID = 'plaintext';
 
 /**
  * The text of one untitled editor. It owns the text model; the model outlives every pane that shows
@@ -32,6 +31,8 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
   constructor(
     readonly resource: URI,
     private initialValue: string,
+    /** The language the text model is created with; without one the model service guesses it. */
+    private languageId: string | undefined,
     @IModelService private readonly modelService: IModelService,
   ) {
     super();
@@ -53,6 +54,20 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
 
   getValueLength(): number {
     return this.model?.getValueLength() ?? this.initialValue.length;
+  }
+
+  /** The text model's language, or until it exists, the one it will be created with. */
+  getLanguageId(): string {
+    return this.model?.getLanguageId() ?? this.languageId ?? PLAINTEXT_LANGUAGE_ID;
+  }
+
+  /** Changes the language; before the text model exists, it is created with this one. */
+  setLanguageId(languageId: string): void {
+    if (this.model) {
+      this.modelService.setModelLanguage(this.model, languageId);
+    } else {
+      this.languageId = languageId;
+    }
   }
 
   /** Untitled text is dirty while it is not empty. */
@@ -86,7 +101,7 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
   }
 
   private async doResolve(): Promise<void> {
-    const model = await this.modelService.createModel(this.initialValue, PLAINTEXT_LANGUAGE_ID, this.resource);
+    const model = await this.modelService.createModel(this.initialValue, this.languageId, this.resource);
     if (this.disposed) {
       model.dispose();
       return;

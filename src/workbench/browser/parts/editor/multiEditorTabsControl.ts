@@ -6,8 +6,11 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { IMenuService, MenuId } from '../../../../platform/actions/common/actions.js';
 import type { MenuActionGroup } from '../../../../platform/actions/common/actions.js';
 import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { IEditorCommandsContext } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
@@ -78,6 +81,8 @@ export class MultiEditorTabsControl extends Disposable {
     @IContextMenuService private readonly contextMenuService: IContextMenuService,
     @IMenuService private readonly menuService: IMenuService,
     @IInstantiationService instantiationService: IInstantiationService,
+    @IModelService private readonly modelService: IModelService,
+    @ILanguageService private readonly languageService: ILanguageService,
   ) {
     super();
     const container = append(parent, $('.tabs-and-actions-container'));
@@ -97,7 +102,7 @@ export class MultiEditorTabsControl extends Disposable {
 
     const actions = append(container, $('.editor-actions'));
     this._register(instantiationService.createInstance(
-      MenuWorkbenchToolBar, actions, MenuId.EditorTitle, group.scopedContextKeyService,
+      MenuWorkbenchToolBar, actions, MenuId.EditorTitle, group.titleMenuContext,
     ));
 
     this._register(group.onDidModelChange(event => this.onDidModelChange(event)));
@@ -289,13 +294,13 @@ export class MultiEditorTabsControl extends Disposable {
     disposables.add(addDisposableListener(element, 'auxclick', (event: MouseEvent) => {
       if (event.button === 1) {
         event.preventDefault();
-        this.group.closeEditor(editor);
+        void this.group.closeEditor(editor);
       }
     }));
     disposables.add(addDisposableListener(close, 'mousedown', (event: MouseEvent) => event.preventDefault()));
     disposables.add(addDisposableListener(close, 'click', (event: MouseEvent) => {
       event.stopPropagation();
-      this.group.closeEditor(editor);
+      void this.group.closeEditor(editor);
     }));
     disposables.add(addDisposableListener(label, 'keydown', (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -321,7 +326,17 @@ export class MultiEditorTabsControl extends Disposable {
     disposables.add(addDisposableListener(element, 'contextmenu', (event: MouseEvent) => {
       event.preventDefault();
       const context: IEditorCommandsContext = { groupId: this.group.id, editorIndex: editorIndex() };
-      const actions = this.menuService.getMenuActions(MenuId.EditorTitleContext, this.group.scopedContextKeyService);
+      // The menu is about the tab pressed, not the active one: its resource keys stand in for a moment.
+      const scoped = this.group.scopedContextKeyService.createScoped();
+      const resource = new ResourceContextKey(scoped, this.modelService, this.languageService);
+      let actions: MenuActionGroup[];
+      try {
+        resource.set(editor.resource);
+        actions = this.menuService.getMenuActions(MenuId.EditorTitleContext, scoped);
+      } finally {
+        resource.dispose();
+        scoped.dispose();
+      }
       this.contextMenuService.showContextMenu({
         getAnchor: () => ({ x: event.clientX, y: event.clientY }),
         getActions: () => withContext(actions, context),
