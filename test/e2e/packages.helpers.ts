@@ -48,11 +48,16 @@ export async function packageFolders(page: Page): Promise<string[]> {
   });
 }
 
-/** Opens the folder URL install up to its confirmation. */
-export async function prepareLocationInstall(page: Page, path: string): Promise<void> {
+/** Runs Install Extension from Location with `url`. */
+export async function enterLocation(page: Page, url: string): Promise<void> {
   await runCommand(page, 'Install Extension from Location', /Install Extension from Location/);
   const location = page.getByRole('textbox', { name: 'Install Extension from Location' });
-  await location.fill(fixtureOrigin + '/' + path);
+  await location.fill(url);
   await location.press('Enter');
+}
+
+/** Opens the folder URL install up to its confirmation. */
+export async function prepareLocationInstall(page: Page, path: string): Promise<void> {
+  await enterLocation(page, fixtureOrigin + '/' + path);
   await expect(page.getByRole('option', { name: 'Cancel' })).toBeVisible();
 }

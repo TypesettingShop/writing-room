@@ -66,6 +66,33 @@ test('skips records whose location is not their own package folder or a folder U
   expect(warn).toHaveBeenCalledTimes(7);
 });
 
+test('lower-cases the identifiers of schema 1 records, which were compared without case', () => {
+  const v1 = { identifier: 'Tester.Old', location: 'http://127.0.0.1:5000/old/', manifest: manifest('old'), installedAt: 5 };
+  area.setItem(STORAGE_VERSION_KEY, '1');
+  area.setItem(physicalKey, JSON.stringify([v1]));
+  const storage = disposables.add(new BrowserStorageService());
+  expect(new WebExtensionsScannerService(null, storage).scanUserExtensions().map(record => record.identifier)).toEqual(['tester.old']);
+});
+
+test('names the locations of invalid records too, and none for an unreadable list', async () => {
+  const storage = new InMemoryStorageService();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const scanner = new WebExtensionsScannerService(null, storage);
+  storage.store(userExtensionsKey, [packageRecord('good'), { ...packageRecord('bad'), packageSha256: undefined }, 'junk'],
+    StorageScope.PROFILE, StorageTarget.USER);
+  await scanner.locked(async (read, _write, locations) => {
+    expect(read().map(record => record.identifier)).toEqual(['tester.good']);
+    expect(locations()).toEqual(new Set([packageRecord('good').location, packageRecord('bad').location]));
+  });
+  storage.store(userExtensionsKey, 'corrupt', StorageScope.PROFILE, StorageTarget.USER);
+  await scanner.locked(async (read, _write, locations) => {
+    expect(read()).toEqual([]);
+    expect(locations()).toBeUndefined();
+  });
+  storage.remove(userExtensionsKey, StorageScope.PROFILE);
+  await scanner.locked(async (_read, _write, locations) => expect(locations()).toEqual(new Set()));
+});
+
 function serializingLocks(): InstalledListLocks & { readonly requests: string[] } {
   let tail = Promise.resolve();
   const requests: string[] = [];

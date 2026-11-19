@@ -35,7 +35,16 @@ class ExtensionPackagesContribution extends Disposable {
     this._register(toDisposable(registerExtensionIconReader(Schemas.vscodeUserData,
       (url, limit, signal) => readPackageIcon(files, url, limit, signal)).dispose));
     void extensions.whenInstalledExtensionsRegistered()
-      .then(() => scanner.locked(async read => packages.cleanup(new Set(read().map(extension => extension.location)))))
+      .then(() => scanner.locked(async (_read, _write, locations) => {
+        // Folders named by a record that fails validation stay, and an unreadable list skips the cleanup,
+        // so a damaged list never takes an installed package's files with it.
+        const recorded = locations();
+        if (recorded) {
+          await packages.cleanup(recorded);
+        } else {
+          console.warn('Skipped the extension package cleanup: the installed extensions list cannot be read.');
+        }
+      }))
       .catch(error => console.warn('Could not clean up extension package folders.', error));
   }
 }
@@ -63,7 +72,7 @@ async function confirmPackage(quickInput: IQuickInputService, confirmation: Pack
     `Source: ${source.label}`,
     `Size: ${confirmation.size} bytes`,
     `SHA-256: ${confirmation.sha256}`,
-    `Signature: ${confirmation.signature === 'unsigned' ? 'unsigned' : confirmation.signature}`,
+    `Signature: ${confirmation.signature}`,
     `engines.vscode ${confirmation.engine} is compatible with ${product.version}`,
     ...confirmation.persistent ? [] : ['Browser storage is unavailable: the extension stays for this session only.'],
     ...confirmation.warnings,
@@ -95,10 +104,22 @@ function chooseVsixFile(): Promise<File | undefined> {
       input.remove();
       resolve(file);
     };
-    input.addEventListener('change', () => done(input.files?.[0]), { once: true });
-    input.addEventListener('cancel', () => done(undefined), { once: true });
+    let settled = false;
+    const finish = (file: File | undefined) => {
+      if (!settled) {
+        settled = true;
+        window.removeEventListener('focus', refocused);
+        done(file);
+      }
+    };
+    // A browser without the `cancel` event gives the window focus back when its chooser closes. A chosen
+    // file's `change` follows the focus, so wait a moment before taking the focus as a cancellation.
+    const refocused = () => setTimeout(() => finish(input.files?.[0]), 1000);
+    input.addEventListener('change', () => finish(input.files?.[0]), { once: true });
+    input.addEventListener('cancel', () => finish(undefined), { once: true });
     document.body.append(input);
     input.click();
+    window.addEventListener('focus', refocused, { once: true });
   });
 }
 

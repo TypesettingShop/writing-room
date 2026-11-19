@@ -4,7 +4,7 @@ import { readVsix, vsixLimits } from '../../../../platform/extensionManagement/c
 import { isRecord, isValidExtensionVersion, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription, IExtensionManifest } from '../../../../platform/extensions/common/extensions.js';
-import type { VsixPackage } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import type { VsixFile, VsixPackage } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
 import { product } from '../../../../platform/product/common/product.js';
@@ -40,9 +40,12 @@ export interface IWebExtensionsScannerService extends BrandedService {
   scanUserExtensions(): readonly StoredWebExtension[];
   /**
    * Runs `task` while this tab and every other tab of the origin are kept out of the installed list.
-   * `read` returns the persisted list, not this tab's cache. The lock is not reentrant.
+   * `read` returns the persisted list, not this tab's cache. `locations` returns every location a persisted
+   * record names, invalid records included, or undefined when the list cannot be parsed. The lock is not reentrant.
    */
-  locked<T>(task: (read: () => readonly StoredWebExtension[], write: InstalledListWriter) => Promise<T>): Promise<T>;
+  locked<T>(task: (
+    read: () => readonly StoredWebExtension[], write: InstalledListWriter, locations: () => ReadonlySet<string> | undefined,
+  ) => Promise<T>): Promise<T>;
 }
 
 /** Extracted package files waiting under a temporary folder of the package store. */
@@ -57,7 +60,7 @@ export interface IExtensionPackageStore extends BrandedService {
   /** False when the browser storage fell back to memory for this session. */
   isPersistent(): Promise<boolean>;
   /** Writes the package's files under a new temporary folder and checks that they all arrived. */
-  stage(pkg: VsixPackage, signal?: AbortSignal): Promise<StagedExtensionPackage>;
+  stage(pkg: VsixPackage, signal?: AbortSignal, preloaded?: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>): Promise<StagedExtensionPackage>;
   /** Moves the staged files to their package folder in one storage transaction and returns its location. */
   commit(staged: StagedExtensionPackage, overwrite: boolean): Promise<string>;
   discard(staged: StagedExtensionPackage): Promise<void>;
@@ -124,15 +127,16 @@ function readNlsBundle(bytes: Uint8Array, path: string): Record<string, string> 
   return result;
 }
 
-const packageRoot = 'vscode-userdata:/extensions/';
+/** The folder that holds every package folder, as a location string. */
+export const extensionPackageRoot = 'vscode-userdata:/extensions/';
 
 /** The only place a package of this identifier and version may run from. */
 export function extensionPackageLocation(identifier: string, version: string): string {
-  return packageRoot + identifier.toLowerCase() + '-' + version + '/';
+  return extensionPackageRoot + identifier.toLowerCase() + '-' + version + '/';
 }
 
 export function isExtensionPackageLocation(location: string): boolean {
-  return location.startsWith(packageRoot);
+  return location.startsWith(extensionPackageRoot);
 }
 
 export function normalizeExtensionLocation(value: string): URL {
@@ -175,10 +179,10 @@ export function isPackageUrl(value: string): boolean {
 
 /** The folder URL rules, for a `.vsix` file: the query stays, as a download link may need it. */
 export function normalizePackageUrl(value: string): URL {
-  const url = normalizeExtensionLocation(value);
+  normalizeExtensionLocation(value);
   const original = new URL(value.trim());
   original.hash = '';
-  if (!original.pathname.toLowerCase().endsWith('.vsix') || url.origin !== original.origin) {
+  if (!original.pathname.toLowerCase().endsWith('.vsix')) {
     throw new Error('Enter the URL of a .vsix file.');
   }
   return original;
@@ -278,6 +282,7 @@ export class ExtensionManagementService {
   declare readonly _serviceBrand: undefined;
   private readonly pendingLocations = new Map<string, Promise<IExtensionDescription | undefined>>();
   private readonly pendingPackages = new Map<string, Promise<IExtensionDescription | undefined>>();
+  private changes: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly fetchManifest: typeof fetch,
@@ -321,20 +326,32 @@ export class ExtensionManagementService {
       identifier, location: location.href, manifest, installedAt: Date.now(), source: 'location', version: manifest.version,
       ...(nls ? { nls } : {}),
     };
-    await this.scanner.locked(async (read, write) => {
-      const installed = read();
-      this.ensureAvailable(identifier, installed);
-      await write([...installed, record]);
-    });
-    try {
-      if (!this.active.addExtension?.(description)) {
-        throw new Error(`Could not register extension '${identifier}'.`);
+    return this.serialize(async () => {
+      await this.scanner.locked(async (read, write) => {
+        const installed = read();
+        this.ensureAvailable(identifier, installed);
+        await write([...installed, record]);
+      });
+      try {
+        if (!this.active.addExtension?.(description)) {
+          throw new Error(`Could not register extension '${identifier}'.`);
+        }
+      } catch (error) {
+        await this.restore(record, undefined).catch(cleanup => console.error(`Could not remove the record of '${identifier}'.`, cleanup));
+        throw error;
       }
-    } catch (error) {
-      await this.restore(record, undefined).catch(cleanup => console.error(`Could not remove the record of '${identifier}'.`, cleanup));
-      throw error;
-    }
-    return description;
+      return description;
+    });
+  }
+
+  /**
+   * Runs the part of an install or removal that changes records, folders and registrations, one at a time in
+   * this tab. Without it a removal could run between an install's record write and its registration.
+   */
+  private serialize<T>(change: () => Promise<T>): Promise<T> {
+    const result = this.changes.then(change);
+    this.changes = result.catch(() => {});
+    return result;
   }
 
   /**
@@ -392,7 +409,9 @@ export class ExtensionManagementService {
       throw new Error(`'${identifier}' is a built-in extension.`);
     }
     const warnings = [...pkg.warnings];
-    const nls = usesNlsPlaceholders(manifest) ? await this.readPackageNls(pkg, language, warnings, signal) : undefined;
+    // Files read before the confirmation are handed to the store, so no file is unpacked twice.
+    const preloaded = new Map<VsixFile, Uint8Array<ArrayBuffer>>();
+    const nls = usesNlsPlaceholders(manifest) ? await this.readPackageNls(pkg, language, warnings, preloaded, signal) : undefined;
     const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
     const confirmed = await confirm({
       identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature: 'unsigned', engine,
@@ -408,7 +427,15 @@ export class ExtensionManagementService {
       identifier, location, manifest, installedAt: Date.now(), source: 'vsix', version,
       packageSha256: sha256, signature: 'unsigned', ...(nls ? { nls } : {}),
     };
-    const staged = await this.packages.stage(pkg, signal);
+    return this.serialize(() => this.commitPackage(pkg, record, previous, preloaded, signal));
+  }
+
+  private async commitPackage(
+    pkg: VsixPackage, record: StoredWebExtension, previous: StoredWebExtension | undefined,
+    preloaded: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>, signal: AbortSignal | undefined,
+  ): Promise<IExtensionDescription> {
+    const { identifier, location } = record;
+    const staged = await this.packages.stage(pkg, signal, preloaded);
     let committed = false;
     try {
       await this.scanner.locked(async (read, write) => {
@@ -417,15 +444,14 @@ export class ExtensionManagementService {
         if (current?.location !== previous?.location || current?.installedAt !== previous?.installedAt) {
           throw new Error(`'${identifier}' changed in another window during the install. Try again.`);
         }
-        const overwrite = current?.location === location;
-        await this.packages.commit(staged, overwrite);
+        // Only `current` can name this identifier and version. A folder there that it does not use is left
+        // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
+        await this.packages.commit(staged, true);
         committed = true;
         try {
           await write([...installed.filter(entry => entry.identifier !== identifier), record]);
         } catch (error) {
-          if (!overwrite) {
-            await this.removeUnreferenced(location, installed);
-          }
+          await this.removeUnreferenced(location, installed);
           throw error;
         }
       });
@@ -446,9 +472,14 @@ export class ExtensionManagementService {
         throw new Error(`Could not register extension '${identifier}'.`);
       }
     } catch (error) {
+      if (previous?.location === location) {
+        // A reinstall already replaced the files that the previous record described. The new record matches them,
+        // so it stays, and the extension registers from it when the workbench starts again.
+        throw new Error(`${describe(error)} The reinstalled package is kept and loads after a reload.`, { cause: error });
+      }
       await this.restore(record, previous).catch(cleanup => console.error(`Could not restore the record of '${identifier}'.`, cleanup));
       if (replaced) {
-        this.active.addExtension?.(replaced);
+        this.registerAgain(replaced);
       }
       throw error;
     }
@@ -460,7 +491,7 @@ export class ExtensionManagementService {
   }
 
   private async readPackageNls(
-    pkg: VsixPackage, language: string, warnings: string[], signal?: AbortSignal,
+    pkg: VsixPackage, language: string, warnings: string[], preloaded: Map<VsixFile, Uint8Array<ArrayBuffer>>, signal?: AbortSignal,
   ): Promise<Record<string, string> | undefined> {
     let result: Record<string, string> | undefined;
     const paths = ['package.nls.json'];
@@ -477,7 +508,9 @@ export class ExtensionManagementService {
         continue;
       }
       try {
-        result = { ...result, ...readNlsBundle(await pkg.read(file, signal), file.path) };
+        const bytes = await pkg.read(file, signal);
+        preloaded.set(file, bytes);
+        result = { ...result, ...readNlsBundle(bytes, file.path) };
       } catch (error) {
         warnings.push(`Ignored ${file.path}: ${describe(error)}`);
       }
@@ -569,7 +602,11 @@ export class ExtensionManagementService {
    * Removes the extension from this tab, then its record, then its package folder. A failed record write
    * registers the extension again; a failed folder removal is left to the startup cleanup.
    */
-  async uninstall(identifier: string): Promise<boolean> {
+  uninstall(identifier: string): Promise<boolean> {
+    return this.serialize(() => this.remove(identifier));
+  }
+
+  private async remove(identifier: string): Promise<boolean> {
     const id = identifier.toLowerCase();
     const description = this.installed.find(extension => extension.identifier.value === id);
     if (!description || !this.active.removeExtension?.(id)) {
@@ -586,10 +623,21 @@ export class ExtensionManagementService {
         }
       });
     } catch (error) {
-      this.active.addExtension?.(description);
+      this.registerAgain(description);
       throw error;
     }
     return true;
+  }
+
+  /** Registers an extension again after a failed change. A failure here is logged so the change's error is the one reported. */
+  private registerAgain(description: IExtensionDescription): void {
+    try {
+      if (!this.active.addExtension?.(description)) {
+        console.error(`Could not register '${description.identifier.value}' again.`);
+      }
+    } catch (error) {
+      console.error(`Could not register '${description.identifier.value}' again.`, error);
+    }
   }
 
   /** Call while holding the installed-list lock, with the list just written. */

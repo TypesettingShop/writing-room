@@ -2,14 +2,14 @@ import { Schemas } from '../../../../base/common/network.js';
 import { extname } from '../../../../base/common/path.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import type { VsixPackage } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import type { VsixFile, VsixPackage } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { isRecord } from '../../../../platform/extensions/common/extensionValidator.js';
 import { normalizeFileResource } from '../../../../platform/files/common/fileResource.js';
 import { FileSystemProviderErrorCode, IFileService, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import type { IFileStat } from '../../../../platform/files/common/files.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { extensionPackageLocation, IExtensionPackageStore, isExtensionPackageLocation } from '../common/extensionManagementService.js';
+import { extensionPackageLocation, extensionPackageRoot, IExtensionPackageStore, isExtensionPackageLocation } from '../common/extensionManagementService.js';
 import type { StagedExtensionPackage } from '../common/extensionManagementService.js';
 
 export const extensionPackagesRoot = URI.from({ scheme: Schemas.vscodeUserData, path: '/extensions' });
@@ -23,7 +23,7 @@ interface StagedFolder extends StagedExtensionPackage {
 
 function packageFolder(location: string): URI {
   const name = isExtensionPackageLocation(location) && location.endsWith('/')
-    ? location.slice('vscode-userdata:/extensions/'.length, -1) : '';
+    ? location.slice(extensionPackageRoot.length, -1) : '';
   if (!/^[\da-z][\da-z.+-]*$/i.test(name)) {
     throw new Error(`'${location}' is not an extension package folder.`);
   }
@@ -74,14 +74,16 @@ export class ExtensionPackageStore implements IExtensionPackageStore {
   }
 
   /** Writes the package's files under a new temporary folder and checks that they all arrived. */
-  async stage(pkg: VsixPackage, signal?: AbortSignal): Promise<StagedExtensionPackage> {
+  async stage(
+    pkg: VsixPackage, signal?: AbortSignal, preloaded?: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>,
+  ): Promise<StagedExtensionPackage> {
     const folder = joinPath(extensionPackagesRoot, temporaryPrefix + crypto.randomUUID());
     const staged: StagedFolder = { identifier: pkg.identifier, version: pkg.manifest.version, folder };
     try {
       await this.files.createFolder(folder);
       for (const file of pkg.files) {
         signal?.throwIfAborted();
-        const bytes = await pkg.read(file, signal);
+        const bytes = preloaded?.get(file) ?? await pkg.read(file, signal);
         await this.files.writeFile(joinPath(folder, ...file.path.split('/')), bytes);
       }
       await this.verify(folder, pkg);
@@ -139,7 +141,7 @@ export class ExtensionPackageStore implements IExtensionPackageStore {
     const now = this.now();
     for (const child of root.children ?? []) {
       const age = now - Math.max(child.ctime, child.mtime);
-      const location = 'vscode-userdata:/extensions/' + child.name + '/';
+      const location = extensionPackageRoot + child.name + '/';
       const leftover = child.name.startsWith(temporaryPrefix) || !child.isDirectory || !recorded.has(location);
       if (leftover && age > extensionPackageCleanupAge) {
         try {

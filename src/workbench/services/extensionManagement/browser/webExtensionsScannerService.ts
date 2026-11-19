@@ -32,6 +32,8 @@ registerStorageMigration(1, draft => {
   if (Array.isArray(entries)) {
     draft.set(key, JSON.stringify(entries.map(entry => isRecord(entry) ? {
       ...entry,
+      // Schema 1 compared identifiers without case; schema 2 records hold the lower-case identifier.
+      ...(typeof entry.identifier === 'string' ? { identifier: entry.identifier.toLowerCase() } : {}),
       source: 'location',
       ...(isRecord(entry.manifest) && typeof entry.manifest.version === 'string' ? { version: entry.manifest.version } : {}),
     } : entry)));
@@ -54,22 +56,26 @@ export class WebExtensionsScannerService implements IWebExtensionsScannerService
     return parseInstalled(this.storage.get(userExtensionsKey, scope));
   }
 
-  locked<T>(task: (read: () => readonly StoredWebExtension[], write: InstalledListWriter) => Promise<T>): Promise<T> {
+  locked<T>(task: (
+    read: () => readonly StoredWebExtension[], write: InstalledListWriter, locations: () => ReadonlySet<string> | undefined,
+  ) => Promise<T>): Promise<T> {
     const run = () => {
       let active = true;
-      const read = () => {
+      const persisted = () => {
         if (!active) {
           throw new Error('The installed extensions lock was released.');
         }
-        return parseInstalled(this.readPersisted());
+        return this.readPersisted();
       };
+      const read = () => parseInstalled(persisted());
+      const locations = () => recordedLocations(persisted());
       const write: InstalledListWriter = extensions => {
         if (!active) {
           return Promise.reject(new Error('The installed extensions lock was released.'));
         }
         return this.save(extensions);
       };
-      return task(read, write).finally(() => { active = false; });
+      return task(read, write, locations).finally(() => { active = false; });
     };
     // Tabs exclude each other with the Web Lock; this tab's own operations also queue without one.
     const result = this.queue.then(() => this.locks ? this.locks.request(installedExtensionsLockName, run) : run());
@@ -103,17 +109,29 @@ export class WebExtensionsScannerService implements IWebExtensionsScannerService
   }
 
   private async save(extensions: readonly StoredWebExtension[]): Promise<void> {
-    if (extensions.length) {
-      const text = JSON.stringify(extensions);
-      this.storage.storeImmediately(userExtensionsKey, text, scope, StorageTarget.USER);
-    } else {
+    // Every list, the empty one too, is an explicit write that reports a failure before the caller goes on to
+    // remove package folders. An empty list then drops its key, which reads back the same.
+    this.storage.storeImmediately(userExtensionsKey, JSON.stringify(extensions), scope, StorageTarget.USER);
+    if (!extensions.length) {
       this.storage.remove(userExtensionsKey, scope);
-      await this.storage.flush();
     }
   }
 }
 
 class NothingStored extends Error {}
+
+/** Every location string a saved record names, valid or not; undefined when the list itself cannot be parsed. */
+function recordedLocations(raw: string | undefined): ReadonlySet<string> | undefined {
+  let entries: unknown;
+  try {
+    entries = raw ? JSON.parse(raw) : [];
+  } catch {
+    return undefined;
+  }
+  return Array.isArray(entries)
+    ? new Set(entries.flatMap(entry => isRecord(entry) && typeof entry.location === 'string' ? [entry.location] : []))
+    : undefined;
+}
 
 function parseInstalled(raw: string | undefined): readonly StoredWebExtension[] {
   if (!raw) {

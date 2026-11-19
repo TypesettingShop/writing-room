@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, expect, test, vi } from 'vitest';
 import { Schemas } from '../../../../../base/common/network.js';
+import { ZipArchive } from '../../../../../base/common/zip.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { createVsix, sampleManifest } from '../../../../../platform/extensionManagement/test/common/vsixTestUtils.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
@@ -173,10 +174,29 @@ test('uninstall removes the record before the folder, and replacing a version re
 test('keeps the extension registered when the uninstall cannot write the list', async () => {
   const { storage, service, confirm, folders, active } = setup();
   await service.installPackage(createVsix(), source, confirm);
-  vi.spyOn(storage, 'flush').mockRejectedValueOnce(new Error('locked'));
+  // Removing the last record is an explicit write too, so its failure stops the folder removal.
+  vi.spyOn(storage, 'storeImmediately').mockImplementation((_key, value) => {
+    if (typeof value === 'string') {
+      throw new Error('locked');
+    }
+  });
   await expect(service.uninstall('tester.sample')).rejects.toThrow('locked');
   expect(active.extensions).toHaveLength(1);
   expect(await folders()).toEqual(['tester.sample-1.0.0']);
+});
+
+test('replaces a leftover folder of the same version that no record names', async () => {
+  const { files, service, confirm, folders, records } = setup();
+  await service.installPackage(createVsix(), source, confirm);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(files, 'del').mockRejectedValueOnce(new Error('busy'));
+  await expect(service.uninstall('tester.sample')).resolves.toBe(true);
+  expect(await folders()).toEqual(['tester.sample-1.0.0']);
+  vi.mocked(files.del).mockRestore();
+
+  await expect(service.installPackage(createVsix(), source, confirm)).resolves.toMatchObject({ location });
+  expect(await folders()).toEqual(['tester.sample-1.0.0']);
+  expect(records()).toEqual([expect.objectContaining({ location })]);
 });
 
 test('refuses an install when another window changed the record after the confirmation', async () => {
@@ -318,4 +338,51 @@ test('reads localized manifest strings only for manifests with placeholders', as
     ? new Response('', { status: 404 }) : Response.json({ ...sampleManifest, displayName: '%name%' })) as typeof fetch);
   await missing.service.installFromLocation(location, async () => true);
   expect(missing.records()[0].nls).toBeUndefined();
+});
+
+test('runs a removal asked for during an install after that install, so nothing is left half registered', async () => {
+  const { files, service, confirm, folders, records, active } = setup();
+  await service.installPackage(createVsix(), source, confirm);
+  const original = files.writeFile.bind(files);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let started!: () => void;
+  const staging = new Promise<void>(resolve => { started = resolve; });
+  vi.spyOn(files, 'writeFile').mockImplementation(async (...args) => {
+    started();
+    await gate;
+    return original(...args);
+  });
+  const install = service.installPackage(createVsix({ manifest: { ...sampleManifest, version: '1.1.0' } }), source, confirm);
+  await staging;
+  const removal = service.uninstall('tester.sample');
+  release();
+  await install;
+  await expect(removal).resolves.toBe(true);
+  expect(active.extensions).toEqual([]);
+  expect(records()).toEqual([]);
+  expect(await folders()).toEqual([]);
+});
+
+test('keeps the record of a reinstall whose registration fails, as it matches the replaced files', async () => {
+  const { files, service, confirm, folders, records, active } = setup();
+  await service.installPackage(createVsix(), source, confirm);
+  active.addExtension.mockReturnValueOnce(false);
+  const again = createVsix({ manifest: { ...sampleManifest, description: 'again' }, files: { 'dist/web.js': 'changed' } });
+  await expect(service.installPackage(again, source, confirm)).rejects.toThrow('loads after a reload');
+  expect(records()).toEqual([expect.objectContaining({ packageSha256: await sha256Hex(again), manifest: expect.objectContaining({ description: 'again' }) })]);
+  expect(await folders()).toEqual(['tester.sample-1.0.0']);
+  expect(new TextDecoder().decode((await files.readFile(URI.parse(location + 'dist/web.js'))).value)).toBe('changed');
+});
+
+test('unpacks each file once even when the confirmation read its localized strings', async () => {
+  const { service, confirm } = setup();
+  const read = vi.spyOn(ZipArchive.prototype, 'read');
+  await service.installPackage(createVsix({
+    manifest: { ...sampleManifest, displayName: '%displayName%' },
+    files: { 'dist/web.js': '', 'package.nls.json': JSON.stringify({ displayName: 'Sample' }) },
+  }), source, confirm);
+  const paths = read.mock.calls.map(([entry]) => entry.path);
+  expect(paths.filter(path => path === 'extension/package.nls.json')).toHaveLength(1);
+  expect(paths.filter(path => path === 'extension/dist/web.js')).toHaveLength(1);
 });

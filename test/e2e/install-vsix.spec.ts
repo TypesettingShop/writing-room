@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { fixtureOrigin, packageFolders, runCommand, savedIdentifiers, savedRecords } from './packages.helpers.js';
+import { enterLocation, fixtureOrigin, packageFolders, runCommand, savedIdentifiers, savedRecords } from './packages.helpers.js';
 
 const sampleFolder = '/extensions/writing-room-tests.vsix-sample-1.0.0';
 const confirmOption = (page: Page, action = 'Install') =>
@@ -18,13 +18,6 @@ async function chooseVsix(page: Page, name: string): Promise<Buffer> {
   await runCommand(page, 'Install from VSIX', /Install from VSIX/);
   await (await chooser).setFiles({ name, mimeType: 'application/octet-stream', buffer: bytes });
   return bytes;
-}
-
-async function enterLocation(page: Page, url: string): Promise<void> {
-  await runCommand(page, 'Install Extension from Location', /Install Extension from Location/);
-  const location = page.getByRole('textbox', { name: 'Install Extension from Location' });
-  await location.fill(url);
-  await location.press('Enter');
 }
 
 async function expectNothingStored(page: Page): Promise<void> {
