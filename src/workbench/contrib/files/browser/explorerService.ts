@@ -17,6 +17,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { NotificationsToasts } from '../../../browser/parts/notifications/notificationsToasts.js';
 import { ExplorerModel } from '../common/explorerModel.js';
+import { isStorageFullError } from './editors/textFileSaveErrorHandler.js';
 import type { ExplorerItem } from '../common/explorerModel.js';
 
 /** VS Code's key for the Explorer tree's state, in the workspace scope. */
@@ -24,6 +25,14 @@ export const EXPLORER_VIEW_STATE_KEY = 'workbench.explorer.treeViewState';
 
 /** How many expanded folders the stored state keeps; more are dropped, deepest last. */
 const MAX_STORED_EXPANDED = 10_000;
+
+/** Why a file operation failed, in words for a notification. */
+export function describeFileError(error: unknown): string {
+  if (isStorageFullError(error)) {
+    return 'The browser storage is full. Free up space and try again.';
+  }
+  return error instanceof Error && error.message ? error.message : String(error);
+}
 
 /** What the inline input of the tree is for: a new entry in `item` (a folder), or a new name for `item`. */
 export interface IExplorerEditable {

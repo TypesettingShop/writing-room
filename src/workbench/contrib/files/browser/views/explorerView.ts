@@ -7,12 +7,14 @@ import type { MenuActionGroup } from '../../../../../platform/actions/common/act
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IContextKeyService, RawContextKey } from '../../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../../platform/contextview/browser/contextMenuService.js';
+import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { ILanguageService } from '../../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../../editor/common/services/model.js';
 import { ResourceContextKey } from '../../../../common/contextkeys.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
 import type { ExplorerItem } from '../../common/explorerModel.js';
 import { IExplorerService } from '../explorerService.js';
+import { BrowserFileUpload, entriesOfDataTransfer } from '../fileImportExport.js';
 import type { IExplorerEditable, IExplorerView } from '../explorerService.js';
 import './media/explorerView.css';
 
@@ -24,6 +26,14 @@ export const ExplorerRootContext = new RawContextKey<boolean>('explorerResourceI
 /** VS Code's names for the tree and its inline input. */
 export const EXPLORER_TREE_LABEL = 'Files Explorer';
 export const EXPLORER_INPUT_LABEL = 'Type file name. Press Enter to confirm or Escape to cancel.';
+
+/** Marks the folder row (or, for the workspace folder, the tree) that files dragged in would go into. */
+export const EXPLORER_DROP_TARGET_ATTRIBUTE = 'data-explorer-drop-target';
+
+/** Whether a drag carries files from the computer (not text, links or the workbench's own drags). */
+function isFileDrag(event: DragEvent): boolean {
+  return !!event.dataTransfer?.types.includes('Files');
+}
 
 type Row =
   | { readonly kind: 'item'; readonly item: ExplorerItem; readonly level: number }
@@ -151,6 +161,10 @@ export class ExplorerView extends Disposable implements IExplorerView {
   /** An edit was cancelled from the keyboard: the tree takes the focus back once the input is gone. */
   private focusAfterRender = false;
   private disposed = false;
+  /** The folder files dragged over the view would go into, while such a drag is over it. */
+  private dropTarget: ExplorerItem | undefined;
+  /** The ways the drag over the view may end without a drop or a leave: Escape, blur, `dragend`, page hide. */
+  private readonly dropSession = this._register(new DisposableStore());
 
   constructor(
     parent: HTMLElement,
@@ -162,6 +176,7 @@ export class ExplorerView extends Disposable implements IExplorerView {
     @IModelService private readonly modelService: IModelService,
     @ILanguageService private readonly languageService: ILanguageService,
     @ICommandService private readonly commandService: ICommandService,
+    @IInstantiationService private readonly instantiationService: IInstantiationService,
   ) {
     super();
     const document = parent.ownerDocument;
@@ -185,6 +200,10 @@ export class ExplorerView extends Disposable implements IExplorerView {
       this.scheduleRender();
     }));
     this._register(addDisposableListener(this.tree, 'keydown', event => this.onKeyDown(event)));
+    this._register(addDisposableListener(this.element, 'dragenter', event => this.onDragOver(event)));
+    this._register(addDisposableListener(this.element, 'dragover', event => this.onDragOver(event)));
+    this._register(addDisposableListener(this.element, 'dragleave', event => this.onDragLeave(event)));
+    this._register(addDisposableListener(this.element, 'drop', event => this.onDrop(event)));
     this._register(addDisposableListener(this.element, 'contextmenu', event => {
       if (event.target instanceof Node && this.inlineInput.value?.row.contains(event.target)) {
         return;
@@ -320,6 +339,7 @@ export class ExplorerView extends Disposable implements IExplorerView {
         input.rendering = false;
       }
     }
+    this.showDropTarget();
     if (input && !input.row.isConnected && this.explorer.editable === input.editable) {
       // The folder of the new entry, or the item being renamed, went away: so does the edit.
       this.focusAfterRender ||= inputFocused;
@@ -560,6 +580,85 @@ export class ExplorerView extends Disposable implements IExplorerView {
         return;
     }
     event.preventDefault();
+  }
+
+  /** The folder a drop on `target` goes into: a folder row's, a file row's folder, else the workspace folder. */
+  private dropFolderAt(target: EventTarget | null): ExplorerItem {
+    const row = this.rowOf(target);
+    if (row?.kind === 'item') {
+      return row.item.isDirectory ? row.item : row.item.parent ?? this.explorer.root;
+    }
+    return row ? row.parent : this.explorer.root;
+  }
+
+  private onDragOver(event: DragEvent): void {
+    if (!isFileDrag(event)) {
+      return;
+    }
+    // Taken here, so the browser does not open a file dropped on the view instead.
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'copy';
+    this.setDropTarget(this.dropFolderAt(event.target));
+  }
+
+  private onDragLeave(event: DragEvent): void {
+    const next = event.relatedTarget;
+    if (!(next instanceof Node && this.element.contains(next))) {
+      this.setDropTarget(undefined);
+    }
+  }
+
+  private onDrop(event: DragEvent): void {
+    if (!isFileDrag(event)) {
+      this.setDropTarget(undefined);
+      return;
+    }
+    event.preventDefault();
+    const folder = this.dropFolderAt(event.target);
+    // The drop's data is gone once the event has run.
+    const entries = entriesOfDataTransfer(event.dataTransfer!);
+    this.setDropTarget(undefined);
+    if (entries.length) {
+      void this.instantiationService.createInstance(BrowserFileUpload).upload(folder.resource, entries).catch(console.error);
+    }
+  }
+
+  /**
+   * Shows where dragged files would go, or nothing. The mark goes with whatever ends the drag first:
+   * the drop, the pointer leaving the view, `dragend`, Escape, the window losing focus or the page.
+   */
+  private setDropTarget(item: ExplorerItem | undefined): void {
+    if (item === this.dropTarget) {
+      return;
+    }
+    const starting = !this.dropTarget;
+    this.dropTarget = item;
+    if (!item) {
+      this.dropSession.clear();
+    } else if (starting) {
+      const window = this.element.ownerDocument.defaultView!;
+      const end = () => this.setDropTarget(undefined);
+      this.dropSession.add(addDisposableListener(window, 'dragend', end, true));
+      this.dropSession.add(addDisposableListener(window, 'blur', end));
+      this.dropSession.add(addDisposableListener(window, 'pagehide', end));
+      this.dropSession.add(addDisposableListener(window, 'keydown', event => {
+        if (event.key === 'Escape') {
+          end();
+        }
+      }, true));
+    }
+    if (!this.disposed) {
+      this.showDropTarget();
+    }
+  }
+
+  private showDropTarget(): void {
+    const target = this.dropTarget;
+    this.tree.toggleAttribute(EXPLORER_DROP_TARGET_ATTRIBUTE, !!target?.isRoot);
+    this.rowElements.forEach((element, index) => {
+      const row = this.rows[index];
+      element.toggleAttribute(EXPLORER_DROP_TARGET_ATTRIBUTE, !!target && row?.kind === 'item' && row.item === target);
+    });
   }
 
   private runCommand(id: string, item: ExplorerItem): Promise<void> {

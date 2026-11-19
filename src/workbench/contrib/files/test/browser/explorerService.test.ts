@@ -228,7 +228,7 @@ describe('ExplorerView', () => {
     await explorer.resolveFolder(explorer.root);
     const parent = document.body.appendChild(document.createElement('div'));
     const unused = {} as never;
-    const view = disposables.add(new ExplorerView(parent, explorer, unused, unused, unused, unused, unused, unused, unused));
+    const view = disposables.add(new ExplorerView(parent, explorer, unused, unused, unused, unused, unused, unused, unused, unused));
     await settle();
     const tree = parent.querySelector('[role="tree"]')!;
     expect(tree.getAttribute('aria-label')).toBe('Files Explorer');

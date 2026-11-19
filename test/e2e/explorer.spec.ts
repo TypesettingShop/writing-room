@@ -3,10 +3,11 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import {
-  contextMenuByKeyboard, explorerInput, explorerTree, fileTabs, focusRow, part, rowNames, treeItem,
+  contextMenuByKeyboard, dragFiles, DROP_TARGET_ATTRIBUTE, explorerInput, explorerTree, fileTabs, focusRow, part, rowNames,
+  treeItem,
 } from './explorer.helpers.js';
 import {
-  answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, quickPick, readWorkspaceText,
+  answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, quickPick, readWorkspaceBytes, readWorkspaceText,
   selectedTab, waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
 
@@ -381,5 +382,201 @@ test.describe('with the files fixture extension', () => {
     await expect(sidebar.getByRole('region', { name: 'Files Fixture View' })).toBeVisible();
     await expect(sidebar.getByRole('heading')).toHaveText(['Explorer', 'workspace', 'Files Fixture View']);
     await expect(sidebar.getByRole('region', { name: 'workspace' }).getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
+  });
+});
+
+test.describe('upload and download', () => {
+  const MiB = 1024 * 1024;
+  const binary = [0, 255, 128, 10, 13, 0xc3, 0x28, 0, 1];
+  const menu = (page: Page) => page.getByRole('menu');
+
+  /** Runs Upload... from the context menu of `row` and gives the chooser `files`. */
+  async function uploadFromContextMenu(page: Page, row: string, files: { name: string; buffer: Buffer }[]): Promise<void> {
+    await treeItem(page, row).click({ button: 'right' });
+    const chooser = page.waitForEvent('filechooser');
+    await menu(page).getByRole('menuitem', { name: 'Upload...', exact: true }).click();
+    await (await chooser).setFiles(files.map(file => ({ ...file, mimeType: 'application/octet-stream' })));
+  }
+
+  /** Runs Upload... from the More Actions menu of the Explorer view's title and gives the chooser `files`. */
+  async function uploadFromTitle(page: Page, files: { name: string; buffer: Buffer }[]): Promise<void> {
+    const chooser = page.waitForEvent('filechooser');
+    await part(page, 'sidebar').getByRole('toolbar').getByRole('button', { name: 'More Actions' }).click();
+    await menu(page).getByRole('menuitem', { name: 'Upload...', exact: true }).click();
+    await (await chooser).setFiles(files.map(file => ({ ...file, mimeType: 'application/octet-stream' })));
+  }
+
+  test('Upload... writes the chosen files into the folder with their bytes, shows and opens them', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'docs/keep.md', 'k', ['docs']);
+    await writeWorkspaceFile(page, 'top.md', 't');
+
+    // Upload is offered on folders, Download on files.
+    await treeItem(page, 'top.md').click({ button: 'right' });
+    await expect(menu(page).getByRole('menuitem', { name: 'Download', exact: true })).toBeVisible();
+    await expect(menu(page).getByRole('menuitem', { name: 'Upload...', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await treeItem(page, 'docs').click({ button: 'right' });
+    await expect(menu(page).getByRole('menuitem', { name: 'Download', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await uploadFromContextMenu(page, 'docs', [
+      { name: 'notes.md', buffer: Buffer.from('# Notes\nsecond line') },
+      { name: 'raw.bin', buffer: Buffer.from(binary) },
+    ]);
+    await expect(treeItem(page, 'notes.md')).toHaveAttribute('aria-level', '2');
+    await expect(treeItem(page, 'raw.bin')).toHaveAttribute('aria-level', '2');
+    expect(await readWorkspaceBytes(page, 'docs/notes.md')).toEqual(Array.from(Buffer.from('# Notes\nsecond line')));
+    expect(await readWorkspaceBytes(page, 'docs/raw.bin')).toEqual(binary);
+    // The first file opens, with the text it was uploaded with.
+    await expect(selectedTab(groups(page).first())).toHaveText('notes.md');
+    await expectEditorText(groups(page).first(), '# Notes\nsecond line');
+    await expect(treeItem(page, 'notes.md')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('an upload over a file of the same name asks first; Escape keeps the file, Replace replaces it', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'same.md', 'old');
+    await expect(treeItem(page, 'same.md')).toBeVisible();
+    const question = "A file named 'same.md' already exists in 'workspace'. Do you want to replace it?";
+
+    await uploadFromTitle(page, [{ name: 'same.md', buffer: Buffer.from('new') }, { name: 'other.md', buffer: Buffer.from('o') }]);
+    await expect(quickPick(page, question)).toBeFocused();
+    // Nothing is written while the question is open.
+    expect(await readWorkspaceText(page, 'other.md')).toBeUndefined();
+    await page.keyboard.press('Escape');
+    await expect(quickPick(page, question)).toHaveCount(0);
+    expect(await readWorkspaceText(page, 'same.md')).toBe('old');
+    expect(await readWorkspaceText(page, 'other.md')).toBeUndefined();
+
+    await uploadFromTitle(page, [{ name: 'same.md', buffer: Buffer.from('new') }]);
+    await expect(quickPick(page, question)).toBeFocused();
+    await chooseOption(page, 'Replace');
+    await expect.poll(() => readWorkspaceText(page, 'same.md')).toBe('new');
+    await expectEditorText(groups(page).first(), 'new');
+  });
+
+  test('files dropped on a folder go into it, on empty space into the workspace folder', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'inbox/old.md', 'o', ['inbox']);
+    await writeWorkspaceFile(page, 'loose.md', 'l');
+    await expect(treeItem(page, 'loose.md')).toBeVisible();
+
+    const over = await dragFiles(treeItem(page, 'inbox'), ['dragenter', 'dragover'], [{ name: 'in.md', text: 'into inbox' }]);
+    // Taken, so the browser does not open the file instead.
+    expect(over.taken).toEqual([true, true]);
+    await expect(treeItem(page, 'inbox')).toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    await expect(explorerTree(page)).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    const drop = await dragFiles(treeItem(page, 'inbox'), ['drop'], [{ name: 'in.md', text: 'into inbox' }, { name: 'raw.bin', bytes: binary }]);
+    expect(drop.taken).toEqual([true]);
+    await expect(treeItem(page, 'inbox')).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    await expect.poll(() => readWorkspaceText(page, 'inbox/in.md')).toBe('into inbox');
+    expect(await readWorkspaceBytes(page, 'inbox/raw.bin')).toEqual(binary);
+    await expect(treeItem(page, 'in.md')).toHaveAttribute('aria-level', '2');
+
+    // A file row stands for its folder; the tree's empty space for the workspace folder, the whole tree marked.
+    await dragFiles(treeItem(page, 'loose.md'), ['dragover'], [{ name: 'x.md' }]);
+    await expect(explorerTree(page)).toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    await dragFiles(explorerTree(page), ['dragover', 'drop'], [{ name: 'top.md', text: 'top' }]);
+    await expect(explorerTree(page)).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    await expect.poll(() => readWorkspaceText(page, 'top.md')).toBe('top');
+    await expect(treeItem(page, 'top.md')).toHaveAttribute('aria-level', '1');
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test('a file over 50 MiB, or more than 200 MiB in all, writes none of the files', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    await dragFiles(explorerTree(page), ['dragover', 'drop'], [{ name: 'small.md', text: 'small' }, { name: 'big.bin', size: 50 * MiB + 1 }]);
+    await expect(page.getByRole('alert').filter({ hasText: "Unable to upload 'big.bin': it is larger than 50 MB. Nothing was uploaded." }))
+      .toBeVisible();
+    await dragFiles(explorerTree(page), ['dragover', 'drop'], [
+      { name: 'first.md', text: 'first' },
+      ...[1, 2, 3, 4].map(index => ({ name: `part${index}.bin`, size: 50 * MiB })),
+    ]);
+    await expect(page.getByRole('alert').filter({ hasText: /^Unable to upload: the files come to 200\.0 MB/ })).toBeVisible();
+    for (const path of ['small.md', 'big.bin', 'first.md', 'part1.bin']) {
+      expect(await readWorkspaceBytes(page, path)).toBeUndefined();
+    }
+    await expect(explorerTree(page).getByRole('treeitem')).toHaveCount(0);
+  });
+
+  test('a drag that ends without a drop leaves no drop mark', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'inbox/old.md', 'o', ['inbox']);
+    const inbox = treeItem(page, 'inbox');
+    const dragOver = async () => {
+      await dragFiles(inbox, ['dragenter', 'dragover'], [{ name: 'x.md', text: 'x' }]);
+      await expect(inbox).toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    };
+    const unmarked = async () => {
+      await expect(inbox).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+      await expect(explorerTree(page)).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    };
+
+    await dragOver();
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await unmarked();
+
+    await dragOver();
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+    await unmarked();
+
+    await dragOver();
+    await page.evaluate(() => window.dispatchEvent(new DragEvent('dragend', { bubbles: true })));
+    await unmarked();
+
+    // Out of the view, onto the editor area, and out of the window.
+    await dragOver();
+    await dragFiles(inbox, ['dragleave'], [{ name: 'x.md' }], part(page, 'editor'));
+    await unmarked();
+    await dragOver();
+    await dragFiles(inbox, ['dragleave'], [{ name: 'x.md' }]);
+    await unmarked();
+
+    // Moving between rows of the view keeps the mark, on the row now under the pointer.
+    await writeWorkspaceFile(page, 'outbox/old.md', 'o', ['outbox']);
+    await dragOver();
+    await dragFiles(inbox, ['dragleave'], [{ name: 'x.md' }], treeItem(page, 'outbox'));
+    await dragFiles(treeItem(page, 'outbox'), ['dragenter', 'dragover'], [{ name: 'x.md' }]);
+    await expect(treeItem(page, 'outbox')).toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    await expect(inbox).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    expect(await readWorkspaceBytes(page, 'x.md')).toBeUndefined();
+    expect(await readWorkspaceBytes(page, 'inbox/x.md')).toBeUndefined();
+  });
+
+  test('files dropped on the editor area still do nothing, and nothing is written', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    const editorArea = part(page, 'editor');
+    await dragFiles(editorArea, ['dragenter', 'dragover', 'drop'], [{ name: 'dropped.md', text: 'dropped' }]);
+    await expect(page.locator('[data-editor-drop-position]')).toHaveCount(0);
+    await expect(explorerTree(page)).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    expect(await readWorkspaceBytes(page, 'dropped.md')).toBeUndefined();
+    await expect(fileTabs(groups(page).first())).toHaveCount(0);
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test('Download saves the stored bytes of the file and then lets its URL go', async ({ appPage: page }) => {
+    await waitForStorage(page);
+    const bytes = Array.from({ length: 256 }, (_, index) => index);
+    await writeWorkspaceFile(page, 'data/all.bin', { bytes }, ['data']);
+    await page.evaluate(() => {
+      const revoke = URL.revokeObjectURL.bind(URL);
+      (window as unknown as { revoked: string[] }).revoked = [];
+      URL.revokeObjectURL = url => {
+        (window as unknown as { revoked: string[] }).revoked.push(url);
+        revoke(url);
+      };
+    });
+    await treeItem(page, 'data').click();
+    await focusRow(page, 'all.bin');
+
+    const download = page.waitForEvent('download');
+    await contextMenuByKeyboard(page, 'Download');
+    const saved = await download;
+    expect(saved.suggestedFilename()).toBe('all.bin');
+    expect(Array.from(readFileSync((await saved.path())!))).toEqual(bytes);
+    expect(saved.url()).toMatch(/^blob:/);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { revoked: string[] }).revoked)).toEqual([saved.url()]);
+    await expect(page.locator('a[download]')).toHaveCount(0);
   });
 });

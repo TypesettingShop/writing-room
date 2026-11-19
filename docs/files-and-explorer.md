@@ -235,6 +235,8 @@
 | 이름 바꾸기 | 컨텍스트 메뉴 **Rename...** | F2 |
 | 지우기 | 컨텍스트 메뉴 **Delete** | Delete |
 | 새로 고침, 모두 접기 | 뷰 제목의 버튼 | 팔레트 `File: Refresh Explorer`, `File: Collapse Folders in Explorer` |
+| 컴퓨터의 파일 올리기 | 뷰 제목의 **More Actions**(…) > **Upload...**, 폴더의 컨텍스트 메뉴, 파일을 끌어다 놓기 | 컨텍스트 메뉴 **Upload...** |
+| 파일 내려받기 | 파일의 컨텍스트 메뉴 **Download** | 컨텍스트 메뉴 **Download** |
 
 | 커맨드 | 하는 일 |
 | --- | --- |
@@ -244,6 +246,8 @@
 | `workbench.files.action.collapseExplorerFolders` | 모든 폴더를 접는다 |
 | `revealInExplorer` | 인자 URI(없으면 활성 에디터의 파일)를 드러낸다: Explorer 컨테이너를 연다(사이드바가 닫혀 있거나 패널로 옮겨졌어도), 접힌 폴더를 펼치고, 고르고, 보이게 하고, 포커스를 준다 |
 | `workbench.view.explorer` | Explorer 뷰를 열고 트리에 포커스를 준다 |
+| `explorer.upload` | 파일 고르기 창을 열고 고른 파일을 인자 URI(없으면 고른 항목)의 폴더(파일이면 그 폴더, 없으면 워크스페이스 폴더)에 올린다 |
+| `explorer.download` | 인자 URI(없으면 고른 항목)인 워크스페이스 폴더 안의 파일 하나를 내려받는다 |
 
 ### 줄 안의 입력
 
@@ -280,11 +284,41 @@
 ### 컨텍스트 메뉴
 
 - 행에서 오른쪽 클릭, Shift+F10, 메뉴 키로 연다. 빈 곳에서 열면 워크스페이스 폴더의 메뉴다.
-- 내장 항목: **New File...**, **New Folder...**(`navigation`), **Rename...**, **Delete**(`7_modification`, 워크스페이스 폴더에는
-  없다). 확장이 `menus`의 `explorer/context`에 기여한 항목이 그룹 순서대로 함께 나온다.
+- 내장 항목: **New File...**, **New Folder...**(`navigation`), **Download**(파일만)와 **Upload...**(폴더와 빈 곳만,
+  `5b_importexport`), **Rename...**, **Delete**(`7_modification`, 워크스페이스 폴더에는 없다). 확장이 `menus`의 `explorer/context`에 기여한 항목이 그룹 순서대로 함께 나온다.
 - 메뉴의 `when`은 그 항목의 키로 평가한다: `resource`, `resourceScheme`, `resourceFilename`, `resourceExtname`,
   `resourceDirname`, `resourcePath`, `resourceLangId`, `resourceSet`, 그리고 `explorerResourceIsFolder`,
   `explorerResourceIsRoot`. 확장 커맨드는 첫 인자로 그 항목의 `Uri`를 받는다.
+
+### 올리기와 내려받기
+
+컴퓨터와 워크스페이스 사이에 파일을 옮기는 길이다. 코드는 `src/workbench/contrib/files/browser/fileImportExport.ts`
+(VS Code의 같은 파일의 `BrowserFileUpload`, `FileDownload`)이고 커맨드는 `explorerActions.ts`, 드롭 대상은 `views/explorerView.ts`에 있다.
+
+- **Upload...**는 `<input type="file" multiple>`의 파일 고르기 창을 연다. 고르지 않고 닫으면 아무 일도 없다.
+- 파일을 운영체제에서 Explorer 뷰로 끌어 오면 놓일 폴더가 표시된다: 폴더 행이면 그 행, 파일 행이면 그 파일의 폴더 행,
+  빈 곳이면 트리 전체(워크스페이스 폴더). 표시는 `data-explorer-drop-target` 속성이다. 놓기, 뷰 밖으로 나가기,
+  `dragend`, Escape, 창의 blur, 페이지 숨김 가운데 먼저 오는 것에서 지운다. 놓은 파일이 브라우저에서 열리지 않도록
+  뷰가 그 드래그를 받는다(`preventDefault`). 파일이 아닌 드래그(글자, 링크, 탭과 뷰 컨테이너)는 건드리지 않는다.
+- 에디터 영역은 v0.1.0처럼 파일 드롭을 거절한다(`dropEffect = 'none'`). 에디터 영역에 놓은 파일은 열리지도 쓰이지도 않는다.
+- 쓰기 전에 모두 검사하고, 하나라도 걸리면 아무것도 쓰지 않고 오른쪽 아래에 이유를 알린다(`... Nothing was uploaded.`):
+  - 폴더가 섞여 있다(파일만 받는다).
+  - 이름이 Explorer의 이름 검증(`validateFileName`: 빈 이름, `.`, `..`, `/`, `\`, 제어 문자, 255자 초과)에 걸린다.
+  - 같은 이름이 둘 있다.
+  - 파일 하나가 50 MiB를 넘거나, 합계가 200 MiB를 넘는다.
+  - 대상 폴더에 같은 이름의 폴더가 있다(폴더는 바꾸지 않는다).
+- 같은 이름의 파일이 있으면 파일마다 퀵 픽으로 묻는다: 제목 `A file named '<이름>' already exists in '<폴더>'. Do you want to
+  replace it?`, 항목 **Replace**(`This action is irreversible!`) / **Skip**. 물음은 모두 쓰기 전에 끝나며, Escape는 올리기
+  전체를 취소한다(아무것도 쓰지 않는다).
+- 그다음 고른 순서대로 한 파일씩 끝까지 읽은 뒤 한 번에 쓴다(새 파일은 `createFile`, 바꾸는 파일은 `writeFile`).
+  브라우저 저장소의 쓰기는 레코드 하나라 반쯤 쓴 파일이 남지 않는다. 하나가 실패하면(읽을 수 없음, 저장소가 가득 참, 물은 뒤
+  다른 탭이 같은 이름을 만듦) 거기서 멈추고 `Uploaded N of M files (<이름들>), then stopped. Unable to upload '<이름>': <이유>`로
+  이미 쓴 것을 알린다.
+- 다 쓰면 폴더를 다시 읽고 첫 파일을 고르고 에디터로 연다(VS Code와 같다). 열려 있던 파일을 바꾸면 그 에디터는 저장소의
+  새 내용을 읽는다(고친 채인 에디터는 저장할 때 충돌을 묻는다).
+- **Download**는 파일을 저장소의 바이트 그대로 읽어 Blob URL을 만들고 `<a download="<이름>">`을 눌러 브라우저의
+  내려받기로 넘긴다. 링크는 바로 떼고 URL은 다음 태스크에서 `URL.revokeObjectURL`로 놓는다(VS Code의 `triggerDownload`와 같다).
+  워크스페이스 폴더 밖의 URI와 폴더는 받지 않는다.
 
 ### 펼침 저장
 
@@ -326,6 +360,14 @@
 - 뷰 머리글은 폴더 이름이고 뷰 설명자의 이름도 그것이다. VS Code의 설명자 이름은 `Folders`이고 머리글만 작업 영역 이름이다.
   폴더가 `workspace` 하나로 고정이라 모듈을 읽을 때 이름을 정한다 (wr-jrhv.02j).
 - 새 이름 검사는 경로가 든 이름(`a/b`)을 거부한다. VS Code는 그것으로 중간 폴더를 만든다. 앞뒤 공백 경고는 없다 (wr-jrhv.02j).
+- 올리기는 파일만 받는다. VS Code는 폴더도 통째로 올리고, 드롭한 폴더를 작업 영역에 더할지도 묻는다. 한도(파일 50 MiB,
+  합계 200 MiB)는 VS Code에 없다. 진행 표시와 취소, 동시 20개 올리기, 실행 취소가 없다. 덮어쓰기 확인은 모달 대화상자가
+  아니라 퀵 픽이고 Skip이 있으며, 모든 물음을 쓰기 전에 끝낸다. 같은 이름의 폴더는 바꾸지 않는다 (wr-jrhv.y8q).
+- **Upload...**는 VS Code처럼 폴더의 컨텍스트 메뉴에 있고, 더해서 뷰 제목의 More Actions에도 있다 (wr-jrhv.y8q).
+- 내려받기는 파일 하나를 Blob으로만 한다. VS Code 웹은 폴더와 32 MB를 넘는 파일을 File System Access API
+  (`showDirectoryPicker`)로 받는다. 그래서 메뉴 이름은 고를 것이 없어 `Download...`가 아니라 **Download**다 (wr-jrhv.y8q).
+- 파일을 끌어 폴더 위에 머물러도 폴더가 저절로 펼쳐지지 않고, 드롭 표시는 폴더 행 하나만 칠한다(VS Code는 그 아래 행도
+  칠한다) (wr-jrhv.y8q).
 - F2, Delete, Enter, Space는 키 바인딩이 아니라 트리가 직접 받는다(VS Code는 `filesExplorerFocus` 조건의 키 바인딩). 그래서 키
   바인딩 편집으로 바꿀 수 없다 (wr-jrhv.02j).
 
@@ -354,4 +396,4 @@
   `ExplorerViewletContribution`이 시작할 때 채운다). 사이드바가 기여보다 먼저 그려지기 때문이다. 뷰 설명자가 생성자 서술자를
   받게 되면 없앤다 (wr-jrhv.02j).
 
-Decided in: wr-efqx.n9k, wr-lv5h, wr-jrhv.q50, wr-jrhv.r4v, wr-jrhv.02j
+Decided in: wr-efqx.n9k, wr-lv5h, wr-jrhv.q50, wr-jrhv.r4v, wr-jrhv.02j, wr-jrhv.y8q

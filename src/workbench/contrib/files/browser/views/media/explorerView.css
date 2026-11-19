@@ -90,3 +90,9 @@
   border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
   border-top: none;
 }
+
+/* Where files dragged in from the computer would go: a folder row, or the whole tree for the workspace folder. */
+.explorer-tree[data-explorer-drop-target],
+.explorer-row[data-explorer-drop-target] {
+  background: var(--vscode-list-dropBackground, #383b3d);
+}

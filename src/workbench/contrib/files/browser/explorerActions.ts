@@ -4,8 +4,10 @@ import { URI } from '../../../../base/common/uri.js';
 import { Action2, MenuCommandContext, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { validateFileName } from '../../../services/dialogs/common/dialogPaths.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
@@ -15,9 +17,12 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IViewsService } from '../../../services/views/browser/viewsService.js';
 import type { ExplorerItem } from '../common/explorerModel.js';
-import { isStorageFullError } from './editors/textFileSaveErrorHandler.js';
-import { IExplorerService } from './explorerService.js';
-import { ExplorerRootContext } from './views/explorerView.js';
+import { describeFileError as describeError, IExplorerService } from './explorerService.js';
+import {
+  BrowserFileUpload, chooseFilesToUpload, DOWNLOAD_COMMAND_ID, DOWNLOAD_LABEL, fileEntry, FileDownload, UPLOAD_COMMAND_ID,
+  UPLOAD_LABEL,
+} from './fileImportExport.js';
+import { ExplorerFolderContext, ExplorerRootContext } from './views/explorerView.js';
 
 export const EXPLORER_VIEWLET_ID = 'workbench.view.explorer';
 export const EXPLORER_VIEW_ID = 'workbench.explorer.fileView';
@@ -44,13 +49,6 @@ export function validateExplorerName(name: string, folder: ExplorerItem, current
     return `A file or folder ${name} already exists at this location. Please choose a different name.`;
   }
   return undefined;
-}
-
-function describeError(error: unknown): string {
-  if (isStorageFullError(error)) {
-    return 'The browser storage is full. Free up space and try again.';
-  }
-  return error instanceof Error && error.message ? error.message : String(error);
 }
 
 /**
@@ -417,5 +415,66 @@ registerAction2(class ShowExplorerAction extends Action2 {
     const { explorer, views } = explorerServices(accessor);
     await views.openView(EXPLORER_VIEW_ID);
     explorer.focusView();
+  }
+});
+
+/**
+ * VS Code's Upload...: files chosen on the computer go into the folder of the URI it is given (a
+ * file's folder for a file), or of the Explorer's selection, or the workspace folder.
+ */
+registerAction2(class UploadAction extends Action2 {
+  constructor() {
+    super({
+      id: UPLOAD_COMMAND_ID, title: UPLOAD_LABEL,
+      menu: [
+        { id: MenuId.ViewTitle, group: '5b_importexport', order: 10, when: inExplorerView },
+        { id: MenuId.ExplorerContext, group: '5b_importexport', order: 20, when: ContextKeyExpr.has(ExplorerFolderContext.key) },
+      ],
+    });
+  }
+
+  override async run(accessor: ServicesAccessor, ...args: unknown[]): Promise<void> {
+    const services = explorerServices(accessor);
+    const instantiation = accessor.get(IInstantiationService);
+    const document = accessor.get(ILayoutService).mainContainer.ownerDocument;
+    const resource = commandResource(args);
+    const item = await revealItem(services, resource);
+    if (resource && !item) {
+      return;
+    }
+    const folder = !item ? services.explorer.root : item.isDirectory ? item : item.parent ?? services.explorer.root;
+    const files = await chooseFilesToUpload(document);
+    if (files?.length) {
+      await instantiation.createInstance(BrowserFileUpload).upload(folder.resource, files.map(fileEntry));
+    }
+  }
+});
+
+/** VS Code's Download for one file of the workspace folder: the URI it is given, or the Explorer's selection. */
+registerAction2(class DownloadAction extends Action2 {
+  constructor() {
+    super({
+      id: DOWNLOAD_COMMAND_ID, title: DOWNLOAD_LABEL,
+      menu: { id: MenuId.ExplorerContext, group: '5b_importexport', order: 10, when: ExplorerFolderContext.toNegated() },
+    });
+  }
+
+  override async run(accessor: ServicesAccessor, ...args: unknown[]): Promise<void> {
+    const explorer = accessor.get(IExplorerService);
+    const fileService = accessor.get(IFileService);
+    const instantiation = accessor.get(IInstantiationService);
+    const document = accessor.get(ILayoutService).mainContainer.ownerDocument;
+    const resource = commandResource(args) ?? explorer.selection?.resource;
+    // Only a file of the workspace folder, which the user sees in the Explorer.
+    if (!resource || !isEqualOrParent(resource, explorer.root.resource)) {
+      return;
+    }
+    // A missing file fails in the download, with its reason.
+    const stat = await fileService.stat(resource).catch(() => undefined);
+    if (stat?.isDirectory) {
+      explorer.showError(`Unable to download '${basename(resource)}': only files can be downloaded, not folders.`);
+      return;
+    }
+    await instantiation.createInstance(FileDownload).download(document, resource);
   }
 });
