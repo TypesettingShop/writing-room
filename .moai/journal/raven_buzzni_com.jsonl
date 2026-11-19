@@ -370,3 +370,5 @@
 {"ts":"2026-11-19T02:41:47Z","id":"wr-510x.gmi","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: anthropic/sonnet-5.5 (low — 위키 페이지 하나와 홈 링크 한 줄, 코드 없음)"}
 {"ts":"2026-11-19T02:41:47Z","id":"wr-510x.gmi","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"in_progress","to":"done"}
 {"ts":"2026-11-19T02:41:47Z","id":"wr-510x","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Next: 없음. docs/maintainability.md가 milestone/wr-zjt4에 병합됨."}
+{"ts":"2026-11-19T02:42:26Z","id":"wr-510x.gmi","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: anthropic/claude-sonnet-5-5 (low — docs: 유지보수·확장 가이드 페이지)"}
+{"ts":"2026-11-19T02:42:26Z","id":"wr-510x","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Report-checked: 2f10901"}
