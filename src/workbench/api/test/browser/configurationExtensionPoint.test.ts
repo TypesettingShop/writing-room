@@ -169,6 +169,20 @@ test('registers a property whose default does not match its type, as VS Code doe
   expect(service.getValue('nullable.path')).toBeNull();
 });
 
+test('takes a property’s own declared default wherever a value is checked', async () => {
+  host.apply([{
+    id: 'a.first', configuration: { properties: { 'nullable.path': { type: 'string', default: null } } },
+    configurationDefaults: { 'nullable.path': null, '[markdown]': { 'nullable.path': null } },
+  }]);
+  expect(host.messages).toEqual([]);
+  storeSettings('{"nullable.path": "lint.json", "[markdown]": {"nullable.path": null}}');
+  expect(service.getValue('nullable.path')).toBe('lint.json');
+  expect(service.getValue('nullable.path', { overrideIdentifier: 'markdown' })).toBeNull();
+  await service.updateValue('nullable.path', null);
+  expect(service.getValue('nullable.path')).toBeNull();
+  await expect(service.updateValue('nullable.path', 3)).rejects.toThrow("Unsupported value for configuration 'nullable.path'.");
+});
+
 test('warns about a "__proto__" property from a parsed manifest instead of dropping it silently', () => {
   const configuration = JSON.parse('{"properties": {"__proto__": {"type": "string"}, "good.key": {"type": "string"}}}');
   host.apply([{ id: 'a.first', configuration }]);

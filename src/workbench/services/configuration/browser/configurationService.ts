@@ -7,7 +7,7 @@ import type {
 } from '../../../../platform/configuration/common/configuration.js';
 import { Configuration, configurationChange } from '../../../../platform/configuration/common/configurationModels.js';
 import {
-  configurationRegistry, keyFromOverrideIdentifiers, validateConfigurationValue,
+  configurationRegistry, keyFromOverrideIdentifiers, acceptsConfigurationValue,
 } from '../../../../platform/configuration/common/configurationRegistry.js';
 import type { ConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { isJSONValue } from '../../../../platform/configuration/common/configurationValues.js';
@@ -74,7 +74,7 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
     if (!schema) {
       throw new Error(`Unable to write to User Settings because ${key} is not a registered configuration.`);
     }
-    if (value !== undefined && (!isJSONValue(value) || !validateConfigurationValue(schema, value))) {
+    if (value !== undefined && (!isJSONValue(value) || !acceptsConfigurationValue(schema, value))) {
       throw new Error(`Unsupported value for configuration '${key}'.`);
     }
     const language = overrides?.overrideIdentifier;
