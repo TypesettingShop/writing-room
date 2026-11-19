@@ -1,6 +1,7 @@
 import type { IExtensionManifest, IExtensionMessage } from './extensions.js';
 
-const identifierPart = /^[a-z\d][a-z\d-]*$/i;
+/** A publisher or extension name, as vsce accepts it. */
+export const identifierPart = /^[a-z\d][a-z\d-]*$/i;
 const versionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\da-z-]+(?:\.[\da-z-]+)*)?(?:\+[\da-z-]+(?:\.[\da-z-]+)*)?$/i;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
