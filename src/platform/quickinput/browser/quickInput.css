@@ -36,9 +36,79 @@
   outline-offset: -2px;
 }
 
-.wr-quick-input-title {
+.wr-quick-input-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 4px;
+}
+
+.wr-quick-input-header[hidden],
+.wr-quick-input-title[hidden],
+.wr-quick-input-prompt[hidden],
+.wr-quick-input-progress[hidden],
+.wr-quick-input-ok[hidden] {
+  display: none;
+}
+
+.wr-quick-input-title {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.wr-quick-input-steps {
+  color: var(--wr-quick-input-secondary, #46596e);
+  font-size: 0.8rem;
+}
+
+.wr-quick-input-buttons {
+  display: flex;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+
+.wr-quick-input-button,
+.wr-quick-input-ok {
+  padding: 2px 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wr-quick-input-button:hover,
+.wr-quick-input-ok:hover {
+  background: var(--wr-quick-input-selection, #e1effa);
+}
+
+.wr-quick-input-ok {
+  margin-top: 4px;
+  border-color: var(--wr-quick-input-border, #ccd4dc);
+}
+
+.wr-quick-input-progress {
+  height: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+  background: linear-gradient(90deg, transparent, var(--wr-quick-input-focus, #1c67a9), transparent) 0 0 / 40% 100% no-repeat;
+  animation: wr-quick-input-progress 1.2s linear infinite;
+}
+
+@keyframes wr-quick-input-progress {
+  from { background-position: -40% 0; }
+  to { background-position: 140% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wr-quick-input-progress {
+    animation: none;
+    background: var(--wr-quick-input-focus, #1c67a9);
+    opacity: 0.5;
+  }
 }
 
 .wr-quick-input-prompt,
@@ -48,6 +118,14 @@
 
 .wr-quick-input-message {
   color: var(--wr-quick-input-error, #a42929);
+}
+
+.wr-quick-input-message.info {
+  color: var(--wr-quick-input-secondary, #46596e);
+}
+
+.wr-quick-input-message.warning {
+  color: var(--wr-quick-input-warning, #7a5300);
 }
 
 .wr-quick-input-list {
@@ -75,6 +153,26 @@
 .wr-quick-input-option:hover,
 .wr-quick-input-option[aria-selected='true'] {
   background: var(--wr-quick-input-selection, #e1effa);
+}
+
+.wr-quick-input-check {
+  flex: none;
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--wr-quick-input-border, #ccd4dc);
+  border-radius: 3px;
+  font-size: 12px;
+  color: transparent;
+}
+
+.wr-quick-input-option[aria-checked='true'] > .wr-quick-input-check {
+  color: inherit;
+  background: var(--wr-quick-input-field, #f6f8fa);
+}
+
+.wr-quick-input-option:has(> .wr-quick-input-check) {
+  justify-content: flex-start;
 }
 
 .wr-quick-input-text {

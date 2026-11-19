@@ -1,5 +1,6 @@
 import codiconNames from 'virtual:codicon-names';
 import { ThemeIcon } from '../../../common/themables.js';
+import './iconLabels.css';
 
 const knownIcons = new Set(codiconNames);
 const iconInLabel = new RegExp('(\\\\)?\\$\\((' + ThemeIcon.iconIdExpression + ')\\)', 'g');

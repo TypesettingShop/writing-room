@@ -1,0 +1,10 @@
+/* Any codicon spins with `~spin`, as in VS Code; codicon.css itself spins only a few. */
+.codicon.codicon-modifier-spin {
+  animation: codicon-spin 1.5s steps(30) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codicon.codicon-modifier-spin {
+    animation: none;
+  }
+}

@@ -1,0 +1,82 @@
+.wr-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #0006;
+}
+
+.wr-dialog {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px 14px;
+  box-sizing: border-box;
+  width: min(440px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 18px 20px;
+  color: #f0f0f0;
+  background: #292d36;
+  border: 1px solid #535b6b;
+  border-radius: 6px;
+  box-shadow: 0 8px 28px #0008;
+  font: 0.875rem/1.5 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.wr-dialog-icon {
+  font-size: 24px;
+}
+
+.wr-dialog-body {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.wr-dialog-message {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.wr-dialog-detail {
+  margin-top: 6px;
+  color: #c8ccd4;
+  white-space: pre-wrap;
+}
+
+.wr-dialog-source {
+  margin-top: 6px;
+  color: #a9afbb;
+  font-size: 0.8rem;
+}
+
+.wr-dialog-buttons {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wr-dialog-button {
+  min-width: 72px;
+  padding: 4px 12px;
+  color: inherit;
+  background: #3a4252;
+  border: 1px solid #69738a;
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wr-dialog-button.primary {
+  background: #0e639c;
+  border-color: #1177bb;
+}
+
+.wr-dialog-button:focus-visible {
+  outline: 2px solid #4daafc;
+  outline-offset: 2px;
+}
