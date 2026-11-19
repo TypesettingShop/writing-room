@@ -26,7 +26,7 @@ export interface ApiProbeResult {
   version?: string;
   location: string;
   recorder: { installed: boolean; loads: string[] };
-  entry?: { declared: string; resolved: string; addedJsSuffix: boolean };
+  entry?: { declared: string; declaredWithoutJs: boolean };
   contributes: string[];
   messages: unknown[];
   activationEvents: string[];
@@ -85,18 +85,15 @@ async function run(): Promise<void> {
   const [extensions, commands] = workbench.instantiationService.invokeFunction(accessor =>
     [accessor.get(IExtensionService) as ExtensionService, accessor.get(ICommandService)] as const);
 
-  let manifest = await (await fetch(new URL('package.json', extensionLocation), { cache: 'no-store' })).json() as IExtensionManifest & {
+  const manifest = await (await fetch(new URL('package.json', extensionLocation), { cache: 'no-store' })).json() as IExtensionManifest & {
     contributes?: Record<string, unknown>;
   };
   result.contributes = Object.keys(manifest.contributes ?? {});
   if (manifest.browser) {
-    // VS Code's loader always ends the entry path in `.js` (ensureSuffix). Record whether the product would have to do
-    // the same, then do it here so the probe can go on to the API.
+    // Upstream ends an entry path without `.js` in `.js` (ensureSuffix); the product's loader does too since wr-efqx.
+    // The probe leaves the manifest as it is so a regression shows as a failed activation.
     const declared = new URL(manifest.browser, extensionLocation);
-    const addedJsSuffix = !declared.pathname.endsWith('.js');
-    const browser = addedJsSuffix ? manifest.browser + '.js' : manifest.browser;
-    manifest = { ...manifest, browser };
-    result.entry = { declared: declared.href, resolved: new URL(browser, extensionLocation).href, addedJsSuffix };
+    result.entry = { declared: declared.href, declaredWithoutJs: !declared.pathname.endsWith('.js') };
   }
   const identifier = ExtensionIdentifier.fromManifest(manifest);
   result.id = identifier.value;

@@ -415,3 +415,45 @@ export function resolveContained(root, urlPath) {
   const target = resolve(base, ...segments);
   return target.startsWith(base + sep) ? target : undefined;
 }
+
+export class MissingCacheError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'MissingCacheError';
+  }
+}
+
+// Reads every cached file of one pin and checks it: each against its own pin, the published .sha256 against the
+// VSIX pin, and the Ed25519 signature over the VSIX bytes. Returns the verified bytes.
+export async function verifyCachedPin(pins, pin, cacheDir = defaultCacheDir) {
+  const files = cachedFiles(pins, pin, cacheDir);
+  const bytes = {};
+  for (const [kind, file] of Object.entries(files)) {
+    bytes[kind] = await readVerified(file);
+    if (!bytes[kind]) {
+      throw new MissingCacheError(`${file.path} is not in the cache`);
+    }
+  }
+  const published = new TextDecoder().decode(bytes.sha256File).trim().toLowerCase();
+  if (published !== pin.vsix.sha256) {
+    throw new IntegrityError(`${files.sha256File.path}: says ${published}, the pin says ${pin.vsix.sha256}`);
+  }
+  if (!verifyPackageSignature(bytes.vsix, bytes.signature, bytes.publicKey)) {
+    throw new IntegrityError(`${files.vsix.path}: the Ed25519 signature in ${files.signature.path} does not verify`);
+  }
+  return bytes;
+}
+
+// The cache the real-extension tests need, checked offline. `problems` is empty when every pin is usable.
+export async function checkCache(pinsPath = defaultPinsPath, cacheDir = defaultCacheDir) {
+  const pins = await readPins(pinsPath);
+  const problems = [];
+  for (const pin of pins.extensions) {
+    try {
+      await verifyCachedPin(pins, pin, cacheDir);
+    } catch (error) {
+      problems.push(`${pin.id}@${pin.version}: ${error.message}`);
+    }
+  }
+  return { pins, problems };
+}

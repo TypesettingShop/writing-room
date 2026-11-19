@@ -8,8 +8,8 @@
 // --offline checks the cache without any network request.
 import { parseArgs } from 'node:util';
 import {
-  cachedFiles, defaultCacheDir, defaultPinsPath, download, IntegrityError, readPins, readVerified, selectPins,
-  verifyPackageSignature, writeVerified,
+  cachedFiles, defaultCacheDir, defaultPinsPath, download, readPins, readVerified, selectPins, verifyCachedPin,
+  writeVerified,
 } from './lib/real-extensions.mjs';
 
 const { values, positionals } = parseArgs({
@@ -24,36 +24,28 @@ const { values, positionals } = parseArgs({
 const pins = await readPins(values.pins);
 const failures = [];
 
+// Keeps a cached file that matches its pin, downloads a missing one, and throws on one that does not match.
 async function ensure(file, label) {
-  const cached = await readVerified(file);
-  if (cached) {
-    return { bytes: cached, fetched: false };
+  if (await readVerified(file)) {
+    return false;
   }
   if (values.offline) {
     throw new Error(`${label}: ${file.path} is not in the cache (run without --offline to download it)`);
   }
-  const bytes = await download(file.url, file.limit);
-  await writeVerified(file, bytes);
-  // Read back what landed on disk, so the checks below look at the cached bytes.
-  return { bytes: await readVerified(file), fetched: true };
+  await writeVerified(file, await download(file.url, file.limit));
+  return true;
 }
 
 for (const pin of selectPins(pins, positionals)) {
   const label = `${pin.id}@${pin.version}`;
   const files = cachedFiles(pins, pin, values.cache);
   try {
-    const vsix = await ensure(files.vsix, label);
-    const sha256File = await ensure(files.sha256File, label);
-    const signature = await ensure(files.signature, label);
-    const publicKey = await ensure(files.publicKey, label);
-    const published = new TextDecoder().decode(sha256File.bytes).trim().toLowerCase();
-    if (published !== pin.vsix.sha256) {
-      throw new IntegrityError(`${files.sha256File.path}: says ${published}, the pin says ${pin.vsix.sha256}`);
+    let fetched = false;
+    for (const file of Object.values(files)) {
+      fetched = await ensure(file, label) || fetched;
     }
-    if (!verifyPackageSignature(vsix.bytes, signature.bytes, publicKey.bytes)) {
-      throw new IntegrityError(`${files.vsix.path}: the Ed25519 signature in ${files.signature.path} does not verify`);
-    }
-    const fetched = [vsix, sha256File, signature, publicKey].some(file => file.fetched);
+    // Checks what landed on disk: every file against its pin, the published .sha256 and the signature.
+    await verifyCachedPin(pins, pin, values.cache);
     process.stdout.write(`ok ${label} ${fetched ? 'downloaded' : 'cached'} (sha256 and signature verified)\n`);
   } catch (error) {
     failures.push(`${label}: ${error.message}`);

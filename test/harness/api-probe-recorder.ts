@@ -147,8 +147,8 @@ function wrap(real: object, path: string, candidates: readonly string[] = []): o
       if (!descriptor) {
         return undefined;
       }
+      // Not recorded: interop helpers read every descriptor while copying. A read through the copy reaches `get`.
       if ('value' in descriptor && typeof key === 'string') {
-        record('access', name(key));
         descriptor.value = wrapMember(descriptor.value, name(key));
       }
       return { ...descriptor, configurable: true };

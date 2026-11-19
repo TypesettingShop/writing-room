@@ -119,8 +119,15 @@ try {
     let entry;
     if (manifest.browser) {
       const declared = manifest.browser.replace(/^\.\//, '');
-      const path = resolveContained(join(unpackedRoot, folder), result.entry?.addedJsSuffix ? declared + '.js' : declared);
-      const size = path ? (await stat(path).catch(() => undefined))?.size : undefined;
+      // The file the host loads: the declared path, or that path with `.js` added as upstream does.
+      let size;
+      for (const candidate of declared.endsWith('.js') ? [declared] : [declared, declared + '.js']) {
+        const path = resolveContained(join(unpackedRoot, folder), candidate);
+        const info = path ? await stat(path).catch(() => undefined) : undefined;
+        if (size === undefined && info?.isFile()) {
+          size = info.size;
+        }
+      }
       entry = { path: manifest.browser, size, limit: entryLimit, withinLimit: size !== undefined && size <= entryLimit };
     }
     const report = {

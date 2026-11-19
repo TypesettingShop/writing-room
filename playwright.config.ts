@@ -1,5 +1,6 @@
 import { createServer } from 'node:net';
 import { defineConfig } from '@playwright/test';
+import { checkCache } from './scripts/lib/real-extensions.mjs';
 
 const host = '127.0.0.1';
 
@@ -44,6 +45,21 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 
 if (!Number.isInteger(extensionPort) || extensionPort < 1 || extensionPort > 65535 || extensionPort === port) {
   throw new Error('E2E_EXTENSIONS_PORT must be a distinct TCP port between 1 and 65535.');
+}
+
+// The real-extension cache (wr-jbmd). Specs that need it skip with the reason below; E2E_REQUIRE_REAL_EXTENSIONS=1
+// fails the run instead. Checked once: workers inherit the result like the ports above.
+if (process.env.E2E_REAL_EXTENSIONS === undefined) {
+  const { problems } = await checkCache(undefined, process.env.E2E_REAL_EXTENSIONS_CACHE || undefined);
+  process.env.E2E_REAL_EXTENSIONS = problems.length ? 'missing' : 'available';
+  if (problems.length) {
+    const reason = 'The real extension cache is not usable, so the tests that install real extensions are skipped.'
+      + ' Run node scripts/fetch-real-extensions.mjs to fill it.\n  ' + problems.join('\n  ');
+    if (process.env.E2E_REQUIRE_REAL_EXTENSIONS === '1') {
+      throw new Error(reason.replace('are skipped', 'cannot run (E2E_REQUIRE_REAL_EXTENSIONS=1)'));
+    }
+    process.stdout.write(reason + '\n');
+  }
 }
 
 const baseURL = 'http://' + host + ':' + port;

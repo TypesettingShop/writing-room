@@ -29,6 +29,7 @@ export const limits: Readonly<Record<'vsix' | 'signature' | 'publicKey' | 'sha25
 export const allowedHosts: readonly string[];
 export const requestTimeout: number;
 export class IntegrityError extends Error {}
+export class MissingCacheError extends Error {}
 export function sha256(bytes: Uint8Array): string;
 export function readPins(path?: string): Promise<Pins>;
 export function selectPins(pins: Pins, ids: readonly string[]): readonly ExtensionPin[];
@@ -41,3 +42,5 @@ export function readZip(bytes: Uint8Array): ZipReader;
 export function extractVsix(bytes: Uint8Array, destination: string): Promise<void>;
 export function verifyPackageSignature(vsix: Uint8Array, sigzip: Uint8Array, publicKeyPem: Uint8Array | string): boolean;
 export function resolveContained(root: string, urlPath: string): string | undefined;
+export function verifyCachedPin(pins: Pins, pin: ExtensionPin, cacheDir?: string): Promise<Record<'vsix' | 'signature' | 'sha256File' | 'publicKey', Buffer>>;
+export function checkCache(pinsPath?: string, cacheDir?: string): Promise<{ pins: Pins; problems: string[] }>;
