@@ -3,8 +3,8 @@ import { expect, test } from './fixtures.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { treeItem } from './explorer.helpers.js';
 import {
-  answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, readWorkspaceText, selectedTab, waitForStorage,
-  writeWorkspaceFile,
+  answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, listBackups, readWorkspaceText, selectedTab,
+  waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
 import manifest from '../fixtures/extensions/custom-editor/package.json' with { type: 'json' };
 
@@ -169,6 +169,34 @@ test('comes back after a reload and after a host restart, resolving when shown',
   await command(page, 'Restart Extension Host');
   await expect(content(page).locator('#text')).toHaveText('kept');
   expect(await probe(page)).toMatchObject({ activations: 1, activeTab: 'custom fixture.noteView' });
+});
+
+test('keeps the draft of a file edited only in a custom text editor across a reload, its tab modified before it shows', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'a.note', 'kept');
+  await writeWorkspaceFile(page, 'b.txt', 'b');
+  await treeItem(page, 'a.note').click();
+  await expect(content(page).locator('#text')).toHaveText('kept');
+  await content(page).getByRole('button', { name: 'Append' }).click();
+  await expect(content(page).locator('#text')).toHaveText('kept!');
+  await treeItem(page, 'b.txt').click();
+  await expect.poll(() => listBackups(page)).toHaveLength(1);
+
+  await page.reload();
+  const group = groups(page).first();
+  await expect(group.getByRole('tab')).toHaveText(['Welcome', 'a.note', 'b.txt']);
+  await expect(selectedTab(group)).toHaveText('b.txt');
+  // The draft survives startup's cleanup, and the tab behind says so before it is shown.
+  await expect(group.getByRole('tab', { name: 'a.note' })).toHaveAccessibleDescription('Modified');
+  expect(await listBackups(page)).toHaveLength(1);
+  await group.getByRole('tab', { name: 'a.note' }).click();
+  await expect(content(page).locator('#text')).toHaveText('kept!');
+  expect(await readWorkspaceText(page, 'a.note')).toBe('kept');
+
+  await command(page, 'File: Save');
+  await expect.poll(() => readWorkspaceText(page, 'a.note')).toBe('kept!');
+  await expect(selectedTab(group)).not.toHaveAccessibleDescription('Modified');
+  await expect.poll(() => listBackups(page)).toEqual([]);
 });
 
 test('shows why a provider failed, and drops a resolution that ends after its editor closed', async ({ appPage: page }) => {
