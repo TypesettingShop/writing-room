@@ -1,0 +1,15 @@
+{
+  "name": "window-ui",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Window UI Fixture",
+  "browser": "./browser/extension",
+  "contributes": {
+    "commands": [
+      { "command": "windowUi.pickFruit", "title": "Window UI: Pick Fruit" },
+      { "command": "windowUi.pickMany", "title": "Window UI: Pick Many" },
+      { "command": "windowUi.askName", "title": "Window UI: Ask Name" },
+      { "command": "windowUi.search", "title": "Window UI: Search Notes" }
+    ]
+  }
+}
