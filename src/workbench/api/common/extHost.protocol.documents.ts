@@ -60,3 +60,68 @@ export function toModelRange(range: { start: { line: number; character: number }
     endLineNumber: range.end.line + 1, endColumn: range.end.character + 1,
   };
 }
+
+export interface EditorSelection {
+  readonly selectionStartLineNumber: number;
+  readonly selectionStartColumn: number;
+  readonly positionLineNumber: number;
+  readonly positionColumn: number;
+}
+
+export interface EditorOptions {
+  readonly tabSize?: number | string;
+  readonly indentSize?: number | string;
+  readonly insertSpaces?: boolean | string;
+  readonly cursorStyle?: number;
+  readonly lineNumbers?: number;
+}
+
+export interface EditorProperties {
+  readonly selections: EditorSelection[];
+  readonly visibleRanges: IRange[];
+  readonly options: EditorOptions;
+  readonly viewColumn: number;
+}
+
+export interface EditorSnapshot extends EditorProperties {
+  readonly id: string;
+  readonly document: string;
+}
+
+export interface EditorDelta {
+  readonly added: EditorSnapshot[];
+  readonly removed: string[];
+  readonly active: string | null;
+  readonly visible: string[];
+}
+
+export interface EditorShowOptions {
+  readonly viewColumn?: number;
+  readonly preserveFocus?: boolean;
+  readonly selection?: IRange;
+}
+
+export interface EditorUndoOptions {
+  readonly undoStopBefore?: boolean;
+  readonly undoStopAfter?: boolean;
+  readonly keepWhitespace?: boolean;
+}
+
+export interface MainThreadEditorsShape {
+  $showTextDocument(extension: string, document: string | URI, options: EditorShowOptions): Promise<string>;
+  $setSelections(id: string, selections: EditorSelection[]): Promise<void>;
+  $setOptions(id: string, options: EditorOptions): Promise<void>;
+  $revealRange(id: string, range: IRange, how: number): Promise<void>;
+  $applyEdits(id: string, version: number, edit: DocumentEdit, options: EditorUndoOptions): Promise<boolean>;
+  $insertSnippet(id: string, version: number, snippet: string, ranges: IRange[] | undefined, options: EditorUndoOptions): Promise<boolean>;
+  $showEditor(id: string, column?: number): Promise<void>;
+  $hideEditor(id: string): Promise<void>;
+}
+
+export interface ExtHostEditorsShape {
+  $acceptEditorDelta(delta: EditorDelta): Promise<void>;
+  $acceptEditorProperties(id: string, properties: Partial<EditorProperties>, selectionKind?: number): Promise<void>;
+}
+
+export const MainThreadEditorsProxy = createProxyIdentifier<MainThreadEditorsShape>('MainThreadEditors');
+export const ExtHostEditorsProxy = createProxyIdentifier<ExtHostEditorsShape>('ExtHostEditors');

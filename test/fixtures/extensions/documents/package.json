@@ -3,10 +3,24 @@
   "publisher": "fixtures",
   "displayName": "Documents Fixture",
   "version": "1.0.0",
-  "engines": { "vscode": "^1.0.0" },
+  "engines": {
+    "vscode": "^1.0.0"
+  },
   "browser": "./extension.js",
-  "activationEvents": ["onCommand:documents.check"],
+  "activationEvents": [
+    "onCommand:documents.check",
+    "onCommand:documents.checkEditor"
+  ],
   "contributes": {
-    "commands": [{ "command": "documents.check", "title": "Check Document API" }]
+    "commands": [
+      {
+        "command": "documents.check",
+        "title": "Check Document API"
+      },
+      {
+        "command": "documents.checkEditor",
+        "title": "Check Text Editor API"
+      }
+    ]
   }
 }

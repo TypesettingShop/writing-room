@@ -1,4 +1,5 @@
 import { CancellationToken, CancellationTokenSource } from '../../../base/common/cancellation.js';
+import { Emitter } from '../../../base/common/event.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { Schemas } from '../../../base/common/network.js';
@@ -44,6 +45,8 @@ interface Provider {
 }
 
 export class MainThreadDocuments extends Disposable implements MainThreadDocumentsShape {
+  private readonly mirrorChanges = this._register(new Emitter<void>());
+  readonly onDidChangeMirrors = this.mirrorChanges.event;
   private readonly tracked = new Map<string, TrackedModel>();
   private readonly references = new Map<string, { model: ITextModel; release: IDisposable }>();
   private readonly providers = new Map<number, Provider>();
@@ -149,6 +152,7 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     } else {
       this.send(this.proxy.$acceptDocumentDelta({ removed: [model.id] }));
     }
+    this.mirrorChanges.fire();
     return false;
   }
 
@@ -162,6 +166,7 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     this.references.get(model.id)?.release.dispose();
     if (entry.mirrored) {
       this.send(this.proxy.$acceptDocumentDelta({ removed: [model.id] }));
+      this.mirrorChanges.fire();
     }
   }
 

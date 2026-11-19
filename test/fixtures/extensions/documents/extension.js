@@ -52,4 +52,62 @@ exports.activate = context => {
       onOpen.dispose();
     }
   }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('documents.checkEditor', async () => {
+    const events = [];
+    const subOpen = workspace.onDidOpenTextDocument(document => events.push(['open', document]));
+    const subActive = window.onDidChangeActiveTextEditor(editor => events.push(['active', editor?.document]));
+    try {
+      const document = await workspace.openTextDocument({ content: 'abc\ndef\nghi' });
+      const editor = await window.showTextDocument(document);
+      assert(window.activeTextEditor === editor, 'Expected shown editor to be active');
+      assert(events.findIndex(([kind, value]) => kind === 'open' && value === document)
+        < events.findIndex(([kind, value]) => kind === 'active' && value === document), 'Document must open before editor activation');
+      const side = await window.showTextDocument(document.uri, {
+        viewColumn: vscode.ViewColumn.Beside,
+        preserveFocus: true,
+      });
+      assert(side !== editor && side.document === document, 'Expected separate editors to share the document');
+      assert(side.viewColumn === vscode.ViewColumn.Two && window.activeTextEditor === editor
+        && window.visibleTextEditors.includes(side), 'Beside must preserve the active group');
+
+      const selectionChanged = new Promise(resolve => {
+        const subscription = window.onDidChangeTextEditorSelection(event => {
+          if (event.textEditor === side) {
+            subscription.dispose();
+            resolve(event);
+          }
+        });
+      });
+      side.selections = [new vscode.Selection(1, 2, 1, 1), new vscode.Selection(1_000_000_000, 0, 1_000_000_000, 0)];
+      const event = await selectionChanged;
+      assert(event.selections[0].isReversed && event.selections[1].active.line === 2, 'Expected ordered, clamped selections');
+
+      const edits = editor.edit(builder => {
+        builder.replace(new Range(0, 0, 0, 1), 'A');
+        builder.insert(new Position(2, 3), '!');
+      });
+      const staleEdit = editor.edit(builder => builder.insert(new Position(0, 0), 'stale'));
+      assert((await edits) && !(await staleEdit), 'Expected a stale edit to be rejected as a whole');
+      assert(document.getText() === 'Abc\ndef\nghi!', 'Expected both changes in the document mirror');
+      let overlaps = false;
+      try {
+        await editor.edit(builder => {
+          builder.delete(new Range(0, 0, 0, 2));
+          builder.delete(new Range(0, 1, 0, 3));
+        });
+      } catch (error) {
+        overlaps = error.message === 'Overlapping ranges are not allowed!';
+      }
+      assert(overlaps, 'Expected overlapping edit to throw');
+
+      const snippet = new vscode.SnippetString(' \${1:snippet}$0');
+      assert(await editor.insertSnippet(snippet, new Position(1, 3)), 'Expected snippet insertion');
+      assert(document.getText() === 'Abc\ndef snippet\nghi!', 'Expected inserted snippet text');
+      await window.showInformationMessage('Text Editor API verified');
+    } finally {
+      subOpen.dispose();
+      subActive.dispose();
+    }
+  }));
 };
