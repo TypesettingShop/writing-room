@@ -1,0 +1,94 @@
+import { Disposable } from '../../../../../base/common/lifecycle.js';
+import { Schemas } from '../../../../../base/common/network.js';
+import { isEqual } from '../../../../../base/common/resources.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { IFileService } from '../../../../../platform/files/common/files.js';
+import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
+import type { IEditorSerializer } from '../../../../common/editor.js';
+import type { EditorInput } from '../../../../common/editor/editorInput.js';
+import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
+import {
+  DEFAULT_EDITOR_ID, IEditorResolverService, RegisteredEditorPriority,
+} from '../../../../services/editor/common/editorResolverService.js';
+import { FileEditorInput } from './fileEditorInput.js';
+
+interface ISerializedFileEditorInput {
+  /** The file. */
+  readonly resource: string;
+  /** Whether the file had unsaved text, kept as a draft backup, when the state was written. */
+  readonly backup?: true;
+}
+
+/**
+ * Writes a file editor as its resource and whether it was dirty; the text itself is the file's or
+ * its draft backup's, read when the editor shows.
+ */
+export class FileEditorInputSerializer implements IEditorSerializer {
+  canSerialize(editor: EditorInput): boolean {
+    return editor instanceof FileEditorInput;
+  }
+
+  serialize(editor: EditorInput): string | undefined {
+    if (!(editor instanceof FileEditorInput)) {
+      return undefined;
+    }
+    const value: ISerializedFileEditorInput = editor.isDirty()
+      ? { resource: editor.resource.toString(), backup: true }
+      : { resource: editor.resource.toString() };
+    return JSON.stringify(value);
+  }
+
+  deserialize(instantiationService: IInstantiationService, serialized: string): EditorInput | undefined {
+    let value: unknown;
+    try {
+      value = JSON.parse(serialized);
+    } catch {
+      return undefined;
+    }
+    if (typeof value !== 'object' || value === null) {
+      return undefined;
+    }
+    const { resource, backup } = value as Partial<Record<keyof ISerializedFileEditorInput, unknown>>;
+    if (typeof resource !== 'string' || (backup !== undefined && backup !== true)) {
+      return undefined;
+    }
+    let uri: URI;
+    try {
+      uri = URI.parse(resource, true);
+    } catch {
+      return undefined;
+    }
+    if (uri.scheme === Schemas.untitled) {
+      return undefined;
+    }
+    return instantiationService.createInstance(FileEditorInput, uri, { restoredDirty: backup === true });
+  }
+}
+
+/**
+ * Opens files by resource: the text editor is the default editor of every resource a file system
+ * provider serves. An editor of the file that is open already is reused, as its input holds the
+ * model reference.
+ */
+export class FileEditorResolverContribution extends Disposable {
+  static readonly ID = 'workbench.contrib.fileEditorResolver';
+
+  constructor(
+    @IEditorResolverService resolver: IEditorResolverService,
+    @IFileService fileService: IFileService,
+    @IEditorGroupsService groups: IEditorGroupsService,
+    @IInstantiationService instantiationService: IInstantiationService,
+  ) {
+    super();
+    this._register(resolver.registerEditor(
+      '*',
+      { id: DEFAULT_EDITOR_ID, label: 'Text Editor', priority: RegisteredEditorPriority.builtin },
+      { canSupportResource: resource => resource.scheme !== Schemas.untitled && fileService.hasProvider(resource) },
+      ({ resource, options }) => {
+        const open = groups.groups.flatMap(group => group.editors)
+          .find((editor): editor is FileEditorInput => editor instanceof FileEditorInput && isEqual(editor.resource, resource));
+        return { editor: open ?? instantiationService.createInstance(FileEditorInput, resource, {}), options };
+      },
+    ));
+  }
+}

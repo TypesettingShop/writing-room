@@ -71,6 +71,11 @@ export abstract class EditorInput extends Disposable {
     return undefined;
   }
 
+  /** What a tab's tooltip shows, such as the whole path; the name by default. */
+  getTitle(): string {
+    return this.getName();
+  }
+
   isDirty(): boolean {
     return false;
   }

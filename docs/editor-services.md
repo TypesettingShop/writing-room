@@ -13,8 +13,8 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 | `ITextModelService` | `src/editor/common/services/resolverService.ts` | 참조 세기(`TextModelResolverService`) | 그대로 |
 | `ILanguageService` | `src/editor/common/languages/language.ts` | `plaintext`만 아는 `PlaintextLanguageService` | 언어 기여 에픽 |
 | `IThemeService` | `src/platform/theme/common/themeService.ts` | v0.1.0의 어두운 팔레트(`DefaultThemeService`) | 테마 에픽 |
-| `ITextFileService` | `src/workbench/services/textfile/common/textfiles.ts` | 제목 없는 문서만 아는 `UntitledTextFileService` | 파일 편집 에픽 |
-| `IEditorResolverService` | `src/workbench/services/editor/common/editorResolverService.ts` | 제목 없는 문서와 settings.json 등록 | 파일 편집, Custom Editor 에픽이 등록을 더한다 |
+| `ITextFileService` | `src/workbench/services/textfile/common/textfiles.ts` | 제목 없는 문서만 아는 `UntitledTextFileService` | `BrowserTextFileService`(`services/textfile/browser/textFileService.ts`, 파일 편집 에픽): 제목 없는 문서와 파일 |
+| `IEditorResolverService` | `src/workbench/services/editor/common/editorResolverService.ts` | 제목 없는 문서와 settings.json 등록 | 파일 편집 에픽이 파일 제공자가 있는 스킴의 기본 텍스트 에디터를 등록했다(`contrib/files/browser/editors/fileEditorHandler.ts`). Custom Editor 에픽이 등록을 더한다 |
 | `IOpenerService` | `src/platform/opener/common/opener.ts` | 그대로 | 그대로 |
 
 ## 모델과 코드 에디터
@@ -29,7 +29,7 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 
 `ITextModelService.createModelReference(resource)`는 참조를 센다.
 
-1. `ITextFileService.canHandleResource`가 참이면(제목 없는 문서, 나중에 파일) 그 서비스의 모델을 빌려 준다. 참조를 놓아도 지우지 않는다. 입력이 주인이다.
+1. `ITextFileService.canHandleResource`가 참이면(제목 없는 문서, 파일 제공자가 있는 스킴의 리소스) 그 서비스의 모델을 준다. 마지막 참조가 가면 그 서비스에 알린다(`resolve`가 준 객체의 `dispose`). 제목 없는 문서는 입력이 주인이라 남는다. 파일 모델은 깨끗하면 지워지고, dirty하거나 저장 중이면 저장이나 되돌리기 뒤에 지워진다. 그 사이 새 참조가 오면 남는다. 다른 누군가 이미 만든 모델(settings.json)이 있는 리소스는 이 서비스가 맡지 않는다.
 2. 이미 있는 모델(예: settings.json)도 빌려 준다.
 3. 스킴에 등록한 내용 제공자(`registerTextModelContentProvider`)가 만든 모델은 이 서비스가 주인이다. 마지막 참조가 가면 지운다. 그 사이에 새 참조가 오면 지우지 않는다.
 4. 아무도 못 만들면 바로 거부한다.
@@ -50,7 +50,9 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 - `closeEditor`, `closeEditors`, `closeAllEditors`는 `Promise<boolean>`이다. `closeHandler.showConfirm()`이 참인 입력만, 그리고 다른 그룹이 그 입력을 보여 주지 않을 때만 묻는다. `CANCEL`이면 아무것도 바뀌지 않는다. 한 번의 닫기에서 하나라도 취소하면 모두 남는다. `SAVE`는 저장이 성공해야 닫고, `DONT_SAVE`는 되돌린 뒤 닫는다.
 - 묻는 동안 같은 에디터를 또 닫으면 같은 답을 기다린다(두 번 묻지 않는다). 답이 온 뒤 그룹이 사라졌거나 에디터가 옮겨졌으면 닫지 않는다.
 - 물을 것이 없으면 v0.1.0처럼 호출이 돌아오기 전에 닫힌다. 지금 묻는 입력은 없다. 내용이 있는 제목 없는 에디터의 확인은 파일 편집 에픽이 `closeHandler`로 단다.
-- `ITextFileService`의 `onWillSave`(`waitUntil`), `onDidSave`, `onDidChangeDirty`가 문서 API가 확장으로 넘기는 저장 이벤트다. 기본 구현은 저장하지 않는다.
+- `ITextFileService`의 `onWillSave`(`waitUntil`), `onDidSave`, `onDidChangeDirty`가 문서 API가 확장으로 넘기는 저장 이벤트다. 기본 구현은 저장하지 않는다. 실제 구현은 파일을 저장하고(`save`, `revert`), 제목 없는 문서는 아직 저장하지 않는다.
+- 파일 모델은 `ITextFileService.files`(VS Code의 모델 관리자 모양)에 있다: `get`, `resolve`, `models`, 이벤트 `onDidCreate`, `onDidResolve`, `onDidChangeDirty`, `onDidChangeOrphaned`, `onDidChangeReadonly`, `onDidSave`, `onDidRevert`, `onDidRemove`, 그리고 충돌과 실패를 묻는 `saveErrorHandler`. 모델(`ITextFileEditorModel`)은 `isDirty`, `isOrphaned`, `isReadonly`, `isSaving`, `save`(성공이면 `true`), `revert({ soft })`를 가진다. 사람 쪽 동작은 [파일 편집과 Explorer](files-and-explorer.md#텍스트-파일-편집)에 있다.
+- 파일 탭의 입력은 `FileEditorInput`(`workbench.editors.files.fileEditorInput`)이고 `save`, `revert`, `isDirty`, `isReadonly`를 텍스트 파일 서비스로 넘긴다. 입력은 `getTitle()`(툴팁)을 가진다.
 
 ## 링크 열기
 
