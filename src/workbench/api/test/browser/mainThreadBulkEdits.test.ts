@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { URI } from '../../../../base/common/uri.js';
 import type { IPosition, ISingleEditOperation } from '../../../../editor/common/model.js';
 import type { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import type { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import type { IFileService } from '../../../../platform/files/common/files.js';
 import type { IEditorService } from '../../../services/editor/common/editorService.js';
@@ -44,23 +45,33 @@ function textModel(initial: string) {
   };
 }
 
-function bulkEdits(model: ReturnType<typeof textModel>, dirty: boolean) {
+function bulkEdits(model: ReturnType<typeof textModel>, dirty: boolean, autoSave = true, createdModel?: ReturnType<typeof textModel>) {
   const save = vi.fn(async () => true);
   const createFile = vi.fn(async () => ({ etag: 'created' }));
+  const writeFile = vi.fn(async () => ({ etag: 'updated' }));
   const service = new MainThreadBulkEdits(
     { authorizeResource: (_extension: string, uri: URI) => uri, isReadOnly: () => false } as unknown as MainThreadDocuments,
     { active: undefined } as unknown as MainThreadEditors,
-    { createModelReference: async () => ({ object: { textEditorModel: model }, dispose: () => {} }) } as unknown as ITextModelService,
+    { createModelReference: async (uri: URI) => ({
+      object: { textEditorModel: uri === created && createdModel ? createdModel : model }, dispose: () => {},
+    }) } as unknown as ITextModelService,
     { findEditors: () => [] } as unknown as IEditorService,
     {
       activateProvider: async () => {},
       getProvider: () => ({ capabilities: 0 }),
-      stat: async () => { throw new FileSystemProviderError('missing', FileSystemProviderErrorCode.FileNotFound); },
+      stat: async (uri: URI) => {
+        if (uri === created && createFile.mock.calls.length) {
+          return { isDirectory: false, etag: 'created' };
+        }
+        throw new FileSystemProviderError('missing', FileSystemProviderErrorCode.FileNotFound);
+      },
       createFile,
+      writeFile,
     } as unknown as IFileService,
-    { isDirty: () => dirty, save } as unknown as ITextFileService,
+    { isDirty: () => dirty, canHandleResource: () => createdModel !== undefined, save } as unknown as ITextFileService,
+    { getValue: () => autoSave } as unknown as IConfigurationService,
   );
-  return { service, save, createFile };
+  return { service, save, createFile, writeFile };
 }
 
 function insert(line: number, column: number, text: string, version?: number): WorkspaceEditOperation {
@@ -87,12 +98,35 @@ test('a text group after a file operation applies to the text the earlier group 
   expect([versioned.value, createFile.mock.calls.length]).toEqual(['abc', 0]);
 });
 
-test('a workspace edit saves a hidden document only when it had no unsaved changes before', async () => {
-  const clean = bulkEdits(textModel('abc'), false);
-  expect(await clean.service.$applyWorkspaceEdit('fixture', [insert(1, 1, 'x')])).toBe(true);
-  expect(clean.save).toHaveBeenCalledExactlyOnceWith(target);
+test('only a multi-resource refactoring with auto-save saves a previously clean hidden file', async () => {
+  for (const [refactoring, autoSave, dirty, multiple, expected] of [
+    [false, true, false, true, false],
+    [true, false, false, true, false],
+    [true, true, true, true, false],
+    [true, true, false, false, false],
+    [true, true, false, true, true],
+  ]) {
+    const model = textModel('abc');
+    const { service, save } = bulkEdits(model, dirty, autoSave);
+    const operations = [insert(1, 1, 'x')];
+    if (multiple) {
+      operations.push({ kind: 'create', uri: created });
+    }
+    expect(await service.$applyWorkspaceEdit('fixture', operations, refactoring)).toBe(true);
+    expect(model.value).toBe('xabc');
+    expect(save.mock.calls).toEqual(expected ? [[target]] : []);
+  }
+});
 
-  const dirty = bulkEdits(textModel('abc'), true);
-  expect(await dirty.service.$applyWorkspaceEdit('fixture', [insert(1, 1, 'x')])).toBe(true);
-  expect(dirty.save).not.toHaveBeenCalled();
+test('create followed by text uses the working copy when the text file service can resolve it', async () => {
+  const workingCopy = textModel('');
+  const { service, createFile, save, writeFile } = bulkEdits(textModel(''), false, true, workingCopy);
+  expect(await service.$applyWorkspaceEdit('fixture', [
+    { kind: 'create', uri: created },
+    { ...insert(1, 1, 'draft'), uri: created },
+  ])).toBe(true);
+  expect(createFile).toHaveBeenCalledOnce();
+  expect(workingCopy.value).toBe('draft');
+  expect(writeFile).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
 });

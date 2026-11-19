@@ -30,7 +30,8 @@ extHostApiRegistry.register('documents', ({ rpc, isLive }) => {
         namespaces: {
           window: Object.assign(editors.createApi(key), { tabGroups: tabs.createApi(key) }),
           workspace: {
-            applyEdit: promiseApiMethod((edit: vscode.WorkspaceEdit) => bulkEdits.apply(key, edit)),
+            applyEdit: promiseApiMethod((edit: vscode.WorkspaceEdit, metadata?: vscode.WorkspaceEditMetadata) =>
+              bulkEdits.apply(key, edit, metadata)),
             get textDocuments() { return documents.allFor(key); },
             openTextDocument: promiseApiMethod((target?: Parameters<ExtHostDocuments['open']>[1]) => documents.open(key, target)),
             registerTextDocumentContentProvider: (scheme: string, provider: vscode.TextDocumentContentProvider) =>

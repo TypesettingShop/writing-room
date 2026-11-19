@@ -5,6 +5,8 @@ import type { URI } from '../../../base/common/uri.js';
 import type { IMonacoTextModel } from '../../../editor/browser/monaco.js';
 import type { ITextModel } from '../../../editor/common/model.js';
 import { ITextModelService } from '../../../editor/common/services/resolverService.js';
+import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
+import { configurationRegistry } from '../../../platform/configuration/common/configurationRegistry.js';
 import { FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, IFileService, toFileSystemProviderErrorCode } from '../../../platform/files/common/files.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ITextFileService } from '../../services/textfile/common/textfiles.js';
@@ -12,6 +14,19 @@ import type { DocumentEdit, MainThreadBulkEditsShape, WorkspaceEditOperation } f
 import { applyDocumentEdit, validateDocumentEdit } from './mainThreadDocumentEdits.js';
 import { MainThreadDocuments } from './mainThreadDocuments.js';
 import { MainThreadEditors } from './mainThreadEditors.js';
+
+const refactoringAutoSave = 'files.refactoring.autoSave';
+configurationRegistry.registerConfiguration({
+  id: 'files',
+  title: 'Files',
+  properties: {
+    [refactoringAutoSave]: {
+      type: 'boolean',
+      default: true,
+      description: 'Saves files affected by a multi-resource refactoring automatically.',
+    },
+  },
+});
 
 type TextOperation = Extract<WorkspaceEditOperation, { kind: 'text' }>;
 type Apply = () => Promise<void>;
@@ -113,9 +128,10 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
     @IEditorService private readonly editorService: IEditorService,
     @IFileService private readonly files: IFileService,
     @ITextFileService private readonly textFiles: ITextFileService,
+    @IConfigurationService private readonly configuration: IConfigurationService,
   ) {}
 
-  async $applyWorkspaceEdit(extension: string, operations: WorkspaceEditOperation[]): Promise<boolean> {
+  async $applyWorkspaceEdit(extension: string, operations: WorkspaceEditOperation[], isRefactoring?: boolean): Promise<boolean> {
     if (!Array.isArray(operations)) {
       return false;
     }
@@ -148,6 +164,9 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
 
     try {
       const steps: Apply[] = [];
+      const affected = new Set<string>();
+      const saves = new Map<string, { uri: URI; model: ITextModel }>();
+      const autoSave = isRefactoring === true && this.configuration.getValue(refactoringAutoSave) === true;
       const text = new Map<string, TextOperation[]>();
       const flush = async () => {
         if (!text.size) {
@@ -155,10 +174,10 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
         }
         const edits: Array<() => void> = [];
         const writes: Apply[] = [];
-        const saves = new Set<URI>();
         for (const entries of text.values()) {
           const uri = entries[0].uri;
           const key = uri.toString();
+          affected.add(key);
           const state = fileStates.get(key);
           if (state === null || state?.type === FileType.Directory) {
             throw new Error('Workspace edit has no file at its target.');
@@ -169,10 +188,35 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
               throw new Error('Workspace edit conflicts with a moved or replaced document.');
             }
             const bytes = state.contents ?? (await this.files.readFile(state.origin)).value;
-            const contents = editContents(bytes, combinedEdits(entries, true));
+            const edit = combinedEdits(entries, true);
+            const contents = editContents(bytes, edit);
             fileStates.set(key, { ...state, contents });
             writes.push(async () => {
-              const { etag } = await this.files.writeFile(uri, contents, { etag: writtenEtags.get(key) });
+              const expected = writtenEtags.get(key);
+              if (this.textFiles.canHandleResource(uri)) {
+                if (expected !== undefined && (await this.files.stat(uri)).etag !== expected) {
+                  throw new Error('The file changed after it was created or moved.');
+                }
+                const reference = references.add(await this.resolver.createModelReference(uri));
+                const model = reference.object.textEditorModel as IMonacoTextModel;
+                const alreadyEdited = versions.has(model);
+                checkVersions();
+                if (this.documents.isReadOnly(model) || (!alreadyEdited && this.textFiles.isDirty(uri))) {
+                  throw new Error('The target acquired unsaved changes.');
+                }
+                const showing = this.editorService.findEditors(uri);
+                if (showing.some(({ editor }) => editor.isReadonly())) {
+                  throw new Error('The target editor is read-only.');
+                }
+                applyDocumentEdit(model, validateDocumentEdit(model, edit), edit.eol);
+                versions.set(model, model.getVersionId());
+                if (autoSave && !alreadyEdited && !showing.length) {
+                  saves.set(key, { uri, model });
+                }
+                return;
+              }
+              // Until the text file service handles this scheme, a newly created file has no working copy.
+              const { etag } = await this.files.writeFile(uri, contents, { etag: expected });
               writtenEtags.set(key, etag);
             });
             continue;
@@ -215,8 +259,8 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
             });
           }
           // Saving a document that already had unsaved changes would write those changes too.
-          if (uri.scheme !== Schemas.untitled && !showing.length && !this.textFiles.isDirty(uri)) {
-            saves.add(uri);
+          if (autoSave && !editedBefore && uri.scheme !== Schemas.untitled && !showing.length && !this.textFiles.isDirty(uri)) {
+            saves.set(key, { uri, model });
           }
         }
         text.clear();
@@ -228,11 +272,6 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
           for (const write of writes) {
             checkVersions();
             await write();
-          }
-          for (const uri of saves) {
-            if (!await this.textFiles.save(uri)) {
-              throw new Error('Could not save the edited document.');
-            }
           }
         });
       };
@@ -264,6 +303,8 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
             return false;
           }
           const contents = operation.contents ?? new Uint8Array();
+          affected.add(key);
+          saves.delete(key);
           fileStates.set(key, { origin: uri, type: FileType.File, contents });
           steps.push(async () => {
             const { etag } = await this.files.createFile(uri, contents, { overwrite });
@@ -283,6 +324,9 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
           if (targetState && !overwrite) {
             return false;
           }
+          affected.add(target.toString());
+          saves.delete(key);
+          saves.delete(target.toString());
           fileStates.set(key, null);
           fileStates.set(target.toString(), existing);
           steps.push(async () => {
@@ -298,6 +342,8 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
             && (await this.files.resolve(existing.origin)).children?.length)) {
             return false;
           }
+          affected.add(key);
+          saves.delete(key);
           fileStates.set(key, null);
           steps.push(() => this.files.del(uri, { recursive: operation.recursive === true }));
         } else {
@@ -308,6 +354,13 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
       for (const step of steps) {
         checkVersions();
         await step();
+      }
+      if (affected.size > 1) {
+        await Promise.allSettled([...saves.values()].map(async ({ uri, model }) => {
+          if (!model.isDisposed() && model.getVersionId() === versions.get(model)) {
+            await this.textFiles.save(uri);
+          }
+        }));
       }
       return true;
     } catch {

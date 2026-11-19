@@ -88,7 +88,8 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
   }
 
   private editable(entry: MainThreadEditor): boolean {
-    return !this.documents.isReadOnly(entry.model) && !entry.group.activeEditor?.isReadonly() && !entry.control.getRawOptions().readOnly;
+    return this.documents.canEditSharedDocument(entry.model)
+      && !entry.group.activeEditor?.isReadonly() && !entry.control.getRawOptions().readOnly;
   }
 
   private watch(control: ICodeEditor): void {

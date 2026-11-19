@@ -219,6 +219,17 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     }
   }
 
+  /** The shared TextEditor handle has no caller identity, so it can only write shared resources. */
+  canEditSharedDocument(model: ITextModel): boolean {
+    const uri = this.tracked.get(model.id)?.uri;
+    if (!uri || this.isReadOnly(model) || uri.hasEncodedPathSeparator || forbiddenResourcePath.test(uri.path)) {
+      return false;
+    }
+    return uri.scheme === Schemas.untitled
+      || (uri.scheme === Schemas.vscodeVfs && !!this.workspace.getWorkspaceFolder(uri))
+      || (!reservedSchemes.has(uri.scheme) && this.fileService.hasProvider(uri));
+  }
+
   private requireExtension(key: string): HostExtensionDescription {
     const extension = this.getExtension(key);
     if (!extension || this.stopped) {

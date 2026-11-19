@@ -174,3 +174,24 @@ test('releasing an opened untitled document keeps it while a tab still shows it'
     }
   }
 });
+
+test('the shared editor handle can write untitled text but cannot write protected user data', async () => {
+  const untitled = model('untitled', 4);
+  const settings = model('settings', 4, URI.parse('vscode-userdata:/User/settings.json'));
+  const source = model('package', 4, URI.parse('vscode-userdata:/extensions/sample/extension.js'));
+  const { service, willSave } = bridge([untitled.value, settings.value, source.value], {
+    $acceptDocumentDelta: async () => {},
+  });
+  try {
+    await service.$startDocumentSync();
+    expect(service.canEditSharedDocument(untitled.value)).toBe(true);
+    expect(service.canEditSharedDocument(settings.value)).toBe(false);
+    expect(service.canEditSharedDocument(source.value)).toBe(false);
+  } finally {
+    service.dispose();
+    willSave.dispose();
+    untitled.content.dispose();
+    settings.content.dispose();
+    source.content.dispose();
+  }
+});

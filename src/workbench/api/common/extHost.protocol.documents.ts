@@ -134,7 +134,7 @@ export type WorkspaceEditOperation =
   | { readonly kind: 'delete'; readonly uri: URI; readonly recursive?: boolean; readonly ignoreIfNotExists?: boolean };
 
 export interface MainThreadBulkEditsShape {
-  $applyWorkspaceEdit(extension: string, operations: WorkspaceEditOperation[]): Promise<boolean>;
+  $applyWorkspaceEdit(extension: string, operations: WorkspaceEditOperation[], isRefactoring?: boolean): Promise<boolean>;
 }
 
 export const MainThreadBulkEditsProxy = createProxyIdentifier<MainThreadBulkEditsShape>('MainThreadBulkEdits');

@@ -11,7 +11,7 @@ export class ExtHostBulkEdits {
     private readonly documents: ExtHostDocuments,
   ) {}
 
-  async apply(extension: string, edit: vscode.WorkspaceEdit): Promise<boolean> {
+  async apply(extension: string, edit: vscode.WorkspaceEdit, metadata?: vscode.WorkspaceEditMetadata): Promise<boolean> {
     if (!(edit instanceof WorkspaceEdit)) {
       return false;
     }
@@ -49,7 +49,7 @@ export class ExtHostBulkEdits {
             return { kind: 'delete', uri, recursive: entry.options?.recursive, ignoreIfNotExists: entry.options?.ignoreIfNotExists };
         }
       }));
-      return await this.proxy.$applyWorkspaceEdit(extension, operations);
+      return await this.proxy.$applyWorkspaceEdit(extension, operations, metadata?.isRefactoring === true);
     } catch {
       return false;
     }

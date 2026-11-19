@@ -51,7 +51,9 @@ test('tab groups, built-in commands and editor context actions use the target ed
   const action = page.getByRole('menuitem', { name: 'Fixture Actions: Report Fixture Editor Resource' });
   await expect(action).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Different Language Fixture Action' })).toHaveCount(0);
-  await action.click();
+  // Monaco's menu ignores pointer release for 100 ms after it opens.
+  await action.click({ delay: 150 });
+  await expect(action).toBeHidden();
   await expect(page.getByText('Editor menu resource: Untitled-1', { exact: true })).toBeVisible();
   await page.keyboard.press('F1');
   await page.getByRole('combobox').fill('Check Reference Command');
