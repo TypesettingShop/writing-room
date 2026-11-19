@@ -59,7 +59,7 @@ function locate(error: unknown): string | undefined {
   const stack = error instanceof Error ? error.stack ?? '' : '';
   for (const [entry, lines] of sources) {
     const match = new RegExp(entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':(\\d+):(\\d+)').exec(stack);
-    // `Function` puts two header lines ("function anonymous(module,exports,require" and ") {") before the body.
+    // `Function` puts two header lines ("function anonymous(module,exports,require,..." and ") {") before the body.
     const number = match ? Number(match[1]) - 2 : 0;
     const line = match ? lines[number - 1] : undefined;
     if (match && line !== undefined) {
@@ -215,17 +215,18 @@ function wrapModule(module: { exports: ExtensionModule | undefined }): void {
 }
 
 const RealFunction = Function;
-// Only the host loader's call shape is wrapped: Function('module', 'exports', 'require', source).
+// Only the host loader's call shape is wrapped: Function('module', 'exports', 'require', ...more parameters, source).
+// The host passes further scoped globals after `require` (fetch, Worker, globalThis, self since wr-mn1x).
 const probeFunction = function (...args: string[]) {
   const compiled = RealFunction(...args) as (...args: unknown[]) => unknown;
-  if (args.length !== 4 || args[0] !== 'module' || args[1] !== 'exports' || args[2] !== 'require') {
+  if (args.length < 4 || args[0] !== 'module' || args[1] !== 'exports' || args[2] !== 'require') {
     return compiled;
   }
-  const source = args[3];
+  const source = args[args.length - 1];
   const entry = /\/\/# sourceURL=(\S+)\s*$/.exec(source)?.[1] ?? '';
   sources.set(entry, source.split('\n'));
   const candidates = [...new Set(Array.from(source.matchAll(/\.([A-Za-z_$][\w$]*)/g), match => match[1]))];
-  return function (this: unknown, module: { exports: ExtensionModule | undefined }, exports: unknown, require: (name: string) => unknown) {
+  return function (this: unknown, module: { exports: ExtensionModule | undefined }, exports: unknown, require: (name: string) => unknown, ...rest: unknown[]) {
     phase = 'load';
     post({ type: 'loaded', entry });
     const recordingRequire = (id: string) => {
@@ -233,7 +234,7 @@ const probeFunction = function (...args: string[]) {
       return id === 'vscode' && value !== null && typeof value === 'object' ? wrap(value, '', candidates) : value;
     };
     try {
-      compiled.call(this, module, exports, recordingRequire);
+      compiled.call(this, module, exports, recordingRequire, ...rest);
     } catch (error) {
       reportError('load', error);
       throw error;

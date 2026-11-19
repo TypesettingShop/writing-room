@@ -76,6 +76,8 @@ export default defineConfig({
     command: start + ' -- --host ' + host + ' --port ' + port + ' --strictPort',
     // Wait for this process to bind. A URL probe alone can succeed on a competing server.
     wait: { stdout: new RegExp('Local:\\s+' + baseURL.replaceAll('.', '\\.') + '/') },
+    // The preview target type-checks and builds first, which takes about a minute on a busy machine.
+    timeout: target === 'preview' ? 300_000 : 60_000,
     reuseExistingServer: false,
   }, {
     command: 'node test/fixtures/serve-extensions.mjs ' + extensionPort,
