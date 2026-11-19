@@ -23,3 +23,33 @@ test('activates a seeded browser entry and forwards the target tab URI from its 
   await expect(page.getByText('Fixture resource: Untitled-1', { exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Untitled-2' })).toHaveAttribute('aria-selected', 'true');
 });
+
+test('URL installation keeps commands with icon pairs and commands whose icons fail validation', async ({ page }) => {
+  const location = extensionFixtureLocation('foundation');
+  const fixtureOrigin = new URL(location).origin;
+  const requested: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.origin === fixtureOrigin) {
+      requested.push(url.pathname);
+    }
+  });
+
+  await page.goto('/');
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Install Extension from Location');
+  await page.getByRole('option', { name: /Install Extension from Location/ }).click();
+  const input = page.getByRole('textbox', { name: 'Install Extension from Location' });
+  await input.fill(location);
+  await input.press('Enter');
+  await page.getByRole('option', { name: /Install Foundation Fixture/ }).click();
+
+  await expect(page.getByRole('button', { name: 'Report Fixture Resource' })).toBeVisible();
+  await expect.poll(() => requested.some(path => path === '/foundation/icons/dark.svg')).toBe(true);
+  await page.reload();
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Report Fixture Code Action Kind');
+  await page.getByRole('option', { name: /Report Fixture Code Action Kind/ }).click();
+  await expect(page.getByText('Fixture code action kind: quickfix', { exact: true })).toBeVisible();
+  expect(requested).not.toContain('/outside.svg');
+});

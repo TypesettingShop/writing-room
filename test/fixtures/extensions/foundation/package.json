@@ -5,11 +5,33 @@
   "browser": "./browser/extension",
   "contributes": {
     "commands": [
-      { "command": "foundation.reportResource", "title": "Report Fixture Resource" }
+      {
+        "command": "foundation.reportResource",
+        "title": "Report Fixture Resource",
+        "icon": {
+          "light": "./icons/light.svg",
+          "dark": "./icons/dark.svg"
+        }
+      },
+      {
+        "command": "foundation.reportKind",
+        "title": "Report Fixture Code Action Kind",
+        "icon": "../outside.svg"
+      }
     ],
     "menus": {
-      "editor/title": [{ "command": "foundation.reportResource", "group": "navigation" }],
-      "editor/title/context": [{ "command": "foundation.reportResource" }]
+      "editor/title": [
+        {
+          "command": "foundation.reportResource",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "foundation.reportResource"
+        }
+      ]
     }
-  }
+  },
+  "displayName": "Foundation Fixture"
 }

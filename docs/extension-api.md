@@ -35,7 +35,7 @@
 | `viewsContainers` | `activitybar` 또는 `panel`에 `id`, `title`, `icon` 등록 |
 | `views` | 컨테이너 ID 또는 `explorer` 아래에 `id`, `name`, `when?` 등록 |
 
-`icon`은 codicon 지정자 `$(beaker)` 또는 확장 폴더 안의 상대 경로를 받는다. 커맨드와 하위 메뉴의 아이콘은 `{ light, dark }` 경로 쌍도 받는다. 경로 쌍이 유효하지 않으면 아이콘을 제외하고 기여 항목은 남긴다. `menus`의 `command`와 `submenu`는 각 기여 지점에 선언한 ID를 가리킨다. `alt`는 읽으며 메뉴 표시에는 적용하지 않는다. 그룹 순서는 `navigation@2`처럼 지정한다. 지원되는 컨텍스트 연산자는 `!`, `==`, `!=`, `&&`, `||`, 괄호다. 지원되지 않는 식이 있는 기여는 건너뛴다.
+`icon`은 codicon 지정자 `$(beaker)` 또는 확장 폴더 안의 상대 경로를 받는다. 커맨드와 하위 메뉴의 아이콘은 `{ light, dark }` 경로 쌍도 받는다. 커맨드 아이콘이 유효하지 않으면 아이콘을 제외하고 커맨드는 남긴다. `menus`의 `command`와 `submenu`는 각 기여 지점에 선언한 ID를 가리킨다. `alt`는 읽으며 메뉴 표시에는 적용하지 않는다. 그룹 순서는 `navigation@2`처럼 지정한다. 지원되는 컨텍스트 연산자는 `!`, `==`, `!=`, `&&`, `||`, 괄호다. 지원되지 않는 식이 있는 기여는 건너뛴다.
 
 ## 커맨드
 
@@ -47,7 +47,7 @@
 - `window.createStatusBarItem(alignment?, priority?)`는 `text`, `tooltip`, `command`를 설정할 수 있는 항목을 반환한다. `show()`와 `hide()`로 표시를 전환하고 `dispose()`로 제거한다. 텍스트에서 `$(name)`은 codicon으로 렌더링된다.
 - `window.showInformationMessage`, `showWarningMessage`, `showErrorMessage`는 문자열 또는 `{ title }` 버튼을 받는다. 고른 원래 항목으로 resolve되며 닫으면 `undefined`다. 메시지는 워크벤치 안에 쌓인다.
 
-`vscode.version`의 기본값은 `1.148.0`이다. 공용 값은 `Uri`, `Position`, `Range`, `Selection`, `Location`, `TextEdit`, `SnippetTextEdit`, `WorkspaceEdit`, `SnippetString`, `MarkdownString`, `ThemeIcon`, `ThemeColor`, `CancellationTokenSource`, `CancellationError`, `RelativePattern`, `EndOfLine`, `ViewColumn`, `LogLevel`, `DataTransfer`, `DataTransferItem`을 포함한다. 위치와 편집 범위의 줄과 열은 0에서 시작한다. 에디터 메뉴에서 실행한 확장 커맨드에는 해당 리소스의 `Uri`를 첫 인자로 전달한다.
+`vscode.version`의 기본값은 `1.148.0`이다. 공용 값은 `Uri`, `Position`, `Range`, `Selection`, `Location`, `TextEdit`, `SnippetTextEdit`, `WorkspaceEdit`, `SnippetString`, `MarkdownString`, `ThemeIcon`, `ThemeColor`, `CancellationTokenSource`, `CancellationError`, `RelativePattern`, `EndOfLine`, `ViewColumn`, `LogLevel`, `CodeActionKind`, `DataTransfer`, `DataTransferItem`을 포함한다. 위치와 편집 범위의 줄과 열은 0에서 시작한다. 에디터 메뉴에서 실행한 확장 커맨드에는 해당 리소스의 `Uri`를 첫 인자로 전달한다.
 
 지원 범위는 `src/vscode-dts/vscode*.d.ts`에 선언되어 있다. 트리의 사용자 요소는 Worker에 남는다. 항목을 선택하면 기존 요소를 핸들에서 복원하며, 일반 커맨드 인자는 구조화 복제한다. 트리 아이콘, 체크박스, 드래그 앤 드롭, `reveal`, 선택 이벤트, 상태 표시줄 색 지정, 모달 메시지와 Markdown 렌더링은 v0.1.0의 범위 밖이다. 확장 코드에는 `workspace`, `languages`, `env`, 설정, 편집기, 웹뷰, 확장 스토리지 API가 제공되지 않는다.
 

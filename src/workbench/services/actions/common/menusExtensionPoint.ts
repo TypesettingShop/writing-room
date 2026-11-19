@@ -87,9 +87,6 @@ function registerCommands(
         continue;
       }
       const icon = readIcon(entry.icon, path + '.icon', user, context.isLightTheme ?? false);
-      if (typeof entry.icon === 'string' && !icon) {
-        continue;
-      }
       if (MenuRegistry.getCommand(entry.command)) {
         user.collector.info(path + '.command', 'Replacing metadata for ' + entry.command + '.');
       }
