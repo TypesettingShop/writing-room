@@ -20,6 +20,8 @@ export interface ExtensionApiFragments {
 
 export interface ExtHostApiContribution extends Partial<IDisposable> {
   readonly service?: object;
+  /** Initialization required before an extension can call this area's synchronous API. */
+  readonly ready?: Promise<void>;
   create?(extension: HostExtensionDescription): ExtensionApiFragments;
   convertCommandArgument?(key: string, value: unknown): unknown;
   flush?(key: string): Promise<void>;

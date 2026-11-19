@@ -1,5 +1,6 @@
 import { Disposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
+import { Schemas } from '../../../base/common/network.js';
 import { ITextModelService } from '../../../editor/common/services/resolverService.js';
 import type { EditorInput } from '../../common/editor/editorInput.js';
 import { GroupsOrder, IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
@@ -63,7 +64,10 @@ export class MainThreadEditorTabs extends Disposable implements MainThreadEditor
     const uri = editor.resource;
     const viewType = 'viewType' in editor && typeof editor.viewType === 'string' ? editor.viewType : undefined;
     if (viewType !== undefined) {
-      return uri ? { kind: 'custom', uri, viewType } : { kind: 'webview', viewType };
+      if (!uri || uri.scheme === Schemas.webviewPanel) {
+        return { kind: 'webview', viewType };
+      }
+      return { kind: 'custom', uri, viewType };
     }
     return uri && this.models.canHandleResource(uri) ? { kind: 'text', uri } : undefined;
   }
