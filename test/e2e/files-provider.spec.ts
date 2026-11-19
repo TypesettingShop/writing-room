@@ -96,35 +96,47 @@ test('keeps fallback writes for the current page if the browser denies database 
   expect(await page.evaluate(() => window.filesHarness.list(''))).toEqual([]);
 });
 
-test('the workbench prepares its real workspace while the welcome editor mounts', async ({ appPage: page }) => {
+declare global {
+  interface Window {
+    filesTestConnection?: IDBDatabase;
+  }
+}
+
+test('the workbench prepares its real workspace while the welcome editor mounts', async ({ page }) => {
+  await page.addInitScript(() => {
+    const open = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (name, version) {
+      const request = open.call(this, name, version);
+      if (name === 'writing-room-files') {
+        request.addEventListener('success', () => { window.filesTestConnection = request.result; }, { once: true });
+      }
+      return request;
+    };
+  });
+  expect((await page.goto('/'))?.ok()).toBe(true);
   await expect(page.getByRole('tab', { name: 'Welcome' })).toBeVisible();
-  await expect.poll(() => page.evaluate(async () => {
-    if (!(await window.indexedDB.databases()).some(database => database.name === 'writing-room-files')) {
-      return;
-    }
-    const connection = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = window.indexedDB.open('writing-room-files', 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      return await new Promise<unknown>((resolve, reject) => {
+  await expect.poll(() => page.evaluate(() => {
+    const connection = window.filesTestConnection;
+    if (connection) {
+      return new Promise<unknown>((resolve, reject) => {
         const request = connection.transaction('vscode-vfs').objectStore('vscode-vfs').get('/workspace');
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-    } finally {
-      connection.close();
     }
   })).toMatchObject({ type: 2, size: 0 });
 });
 
 test('mounts the workbench without waiting for file storage to open', async ({ page }) => {
   await page.addInitScript(() => {
-    IDBFactory.prototype.open = () => new EventTarget() as IDBOpenDBRequest;
+    IDBFactory.prototype.open = () => {
+      document.documentElement.dataset.fileStorageOpening = 'true';
+      return new EventTarget() as IDBOpenDBRequest;
+    };
   });
   expect((await page.goto('/'))?.ok()).toBe(true);
   await expect(page.getByRole('tab', { name: 'Welcome' })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-file-storage-opening', 'true');
 });
 
 test('opens the workbench and warns once when its file storage is blocked', async ({ page }) => {
