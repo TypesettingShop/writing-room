@@ -9,7 +9,10 @@ import { NullConfigurationService } from '../../../../../platform/configuration/
 import type {
   IConfigurationChangeEvent, IConfigurationOverrides, IConfigurationService,
 } from '../../../../../platform/configuration/common/configuration.js';
+import { configurationRegistry } from '../../../../../platform/configuration/common/configurationRegistry.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
+import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { ConfigurationService } from '../../../../services/configuration/browser/configurationService.js';
 import { TextEditorPane } from '../../../../browser/parts/editor/textEditor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
 
@@ -463,5 +466,30 @@ test('reads the options for the language of the model it shows, again when the m
     expect(editor.updates).toHaveLength(count);
   } finally {
     configuration.dispose();
+  }
+});
+
+test('an extension default for markdown wraps markdown editors only, over the user\'s setting for every language', async () => {
+  const storage = new InMemoryStorageService();
+  storage.storeImmediately('user.settings.json', '{ "editor.wordWrap": "off" }', StorageScope.PROFILE, StorageTarget.USER);
+  const configuration = new ConfigurationService(configurationRegistry, storage);
+  const defaults = { overrides: { '[markdown]': { 'editor.wordWrap': 'on' } }, source: 'vscode.markdown' };
+  configurationRegistry.registerDefaultConfigurations([defaults]);
+  try {
+    const { pane } = createPane(undefined, configuration);
+    const notes = new TestTextInput('notes');
+    (notes.textModel as FakeMonacoTextModel).setLanguage('markdown');
+    await pane.setInput(notes, undefined);
+    const editor = editorOf(pane);
+    expect(editor.options).toMatchObject({ wordWrap: 'on' });
+    await pane.setInput(new TestTextInput('plain'), undefined);
+    expect(editor.updates.at(-1)).toMatchObject({ wordWrap: 'off' });
+    configurationRegistry.deregisterDefaultConfigurations([defaults]);
+    await pane.setInput(notes, undefined);
+    expect(editor.updates.at(-1)).toMatchObject({ wordWrap: 'off' });
+  } finally {
+    configurationRegistry.deregisterDefaultConfigurations([defaults]);
+    configuration.dispose();
+    storage.dispose();
   }
 });
