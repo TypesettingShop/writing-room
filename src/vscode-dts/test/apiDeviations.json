@@ -1,1 +1,110 @@
-[]
+[
+  {
+    "name": "vscode.ExternalUriOpenerPriority",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerPriority#None",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerPriority#Option",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerPriority#Default",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerPriority#Preferred",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpener",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpener#(heritage)",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpener#canOpenExternalUri",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpener#openExternalUri",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.OpenExternalUriContext",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.OpenExternalUriContext#(heritage)",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.OpenExternalUriContext#sourceUri",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.OpenExternalUriContext#viewColumn",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerMetadata",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerMetadata#(heritage)",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerMetadata#schemes",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.ExternalUriOpenerMetadata#label",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.window.registerExternalUriOpener",
+    "kind": "missing",
+    "issue": "wr-jbmd.g2y",
+    "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  }
+]
