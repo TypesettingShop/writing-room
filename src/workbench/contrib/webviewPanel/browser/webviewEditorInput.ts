@@ -1,3 +1,4 @@
+import { Emitter } from '../../../../base/common/event.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import type { WebviewContentOptions, WebviewIcon, WebviewPanelOptions } from '../../../api/common/extHost.protocol.webview.js';
@@ -9,6 +10,8 @@ export class WebviewEditorInput extends EditorInput {
   static readonly typeId = 'workbench.input.webviewPanel';
   readonly typeId = WebviewEditorInput.typeId;
   readonly resource: URI;
+  private readonly tabIconChanged = this._register(new Emitter<void>());
+  override readonly onDidChangeTabIcon = this.tabIconChanged.event;
   private icon: WebviewIcon | undefined;
   private storedIcon: WebviewIcon | undefined;
   private generation = 0;
@@ -67,6 +70,10 @@ export class WebviewEditorInput extends EditorInput {
     }
   }
 
+  override getTabIcon(): WebviewIcon | undefined {
+    return this.icon;
+  }
+
   get iconPath(): WebviewIcon | undefined {
     return this.icon;
   }
@@ -81,7 +88,9 @@ export class WebviewEditorInput extends EditorInput {
 
   setIconPath(icon: WebviewIcon | undefined): void {
     this.storedIcon = undefined;
-    this.icon = icon;
-    this._onDidChangeLabel.fire();
+    if (this.icon !== icon) {
+      this.icon = icon;
+      this.tabIconChanged.fire();
+    }
   }
 }

@@ -45,6 +45,27 @@
   outline: none;
 }
 
+.tabs-container > .tab .tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.tabs-container > .tab .tab-icon[hidden] {
+  display: none;
+}
+
+.tabs-container > .tab .tab-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .tabs-container > .tab .tab-description {
   margin-left: 6px;
   font-size: 0.9em;

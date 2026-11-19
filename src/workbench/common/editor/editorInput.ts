@@ -2,6 +2,7 @@ import { Emitter } from '../../../base/common/event.js';
 import type { Event } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
+import type { ThemeIcon } from '../../../base/common/themables.js';
 import type { URI } from '../../../base/common/uri.js';
 import type { IResourceEditorInput } from '../../../platform/editor/common/editor.js';
 import type { GroupIdentifier, IEditorIdentifier } from '../editor.js';
@@ -34,6 +35,10 @@ export interface IRevertOptions {
   readonly soft?: boolean;
 }
 
+/** Tab images use resource URIs that the input has authorized for display. */
+export type TabIcon = URI | { readonly light: URI; readonly dark: URI }
+  | (ThemeIcon & { readonly color?: { readonly id: string } });
+
 /**
  * What is open in an editor. An input names its content and owns whatever holds it (a text model,
  * say); an `EditorPane` shows it. Panes are reused, so nothing that belongs to one editor lives in a
@@ -48,6 +53,8 @@ export abstract class EditorInput extends Disposable {
 
   protected readonly _onDidChangeLabel = this._register(new Emitter<void>());
   readonly onDidChangeLabel: Event<void> = this._onDidChangeLabel.event;
+
+  readonly onDidChangeTabIcon?: Event<void>;
 
   private readonly _onWillDispose = this._register(new Emitter<void>());
   /** Fires once, before the input releases what it owns, so a pane can let go of it first. */
@@ -75,6 +82,10 @@ export abstract class EditorInput extends Disposable {
   /** What a tab's tooltip shows, such as the whole path; the name by default. */
   getTitle(): string {
     return this.getName();
+  }
+
+  getTabIcon(): TabIcon | undefined {
+    return undefined;
   }
 
   isDirty(): boolean {

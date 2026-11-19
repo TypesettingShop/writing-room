@@ -3,6 +3,7 @@ import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
+import { ThemeIcon } from '../../../base/common/themables.js';
 import { URI } from '../../../base/common/uri.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
@@ -25,6 +26,8 @@ import type {
   WebviewShowOptions,
 } from '../common/extHost.protocol.webview.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
+
+const themeIconId = new RegExp('^' + ThemeIcon.iconIdExpression + '$');
 
 interface PanelEntry {
   readonly owner: string;
@@ -318,7 +321,12 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       const dark = allowed(icon.dark);
       return light && dark ? { light, dark } : undefined;
     }
-    return typeof icon.id === 'string' && /^[\w-]+$/.test(icon.id) ? icon : undefined;
+    if (typeof icon.id !== 'string' || !themeIconId.test(icon.id)) {
+      return undefined;
+    }
+    const colorId = icon.color?.id;
+    return typeof colorId === 'string' && /^[\w.-]+$/.test(colorId)
+      ? { id: icon.id, color: { id: colorId } } : { id: icon.id };
   }
 
   private updateContent(entry: PanelEntry): void {
