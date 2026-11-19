@@ -83,6 +83,36 @@ export class RelativePattern implements vscode.RelativePattern {
   }
 }
 
+export class CodeActionKind implements vscode.CodeActionKind {
+  static readonly Empty = new CodeActionKind('');
+  static readonly QuickFix = CodeActionKind.Empty.append('quickfix');
+  static readonly Refactor = CodeActionKind.Empty.append('refactor');
+  static readonly RefactorExtract = CodeActionKind.Refactor.append('extract');
+  static readonly RefactorInline = CodeActionKind.Refactor.append('inline');
+  static readonly RefactorMove = CodeActionKind.Refactor.append('move');
+  static readonly RefactorRewrite = CodeActionKind.Refactor.append('rewrite');
+  static readonly Source = CodeActionKind.Empty.append('source');
+  static readonly SourceOrganizeImports = CodeActionKind.Source.append('organizeImports');
+  static readonly SourceFixAll = CodeActionKind.Source.append('fixAll');
+  static readonly Notebook = CodeActionKind.Empty.append('notebook');
+
+  private constructor(readonly value: string) {}
+
+  append(parts: string): CodeActionKind {
+    const prefix = this.value ? this.value + '.' : '';
+    return new CodeActionKind(prefix + parts);
+  }
+
+  contains(other: CodeActionKind): boolean {
+    const path = other.value;
+    return path === this.value || path.startsWith(this.value + '.');
+  }
+
+  intersects(other: CodeActionKind): boolean {
+    return this.contains(other) || other.contains(this);
+  }
+}
+
 export enum LogLevel { Off = 0, Trace = 1, Debug = 2, Info = 3, Warning = 4, Error = 5 }
 
 export class DataTransferItem implements vscode.DataTransferItem {

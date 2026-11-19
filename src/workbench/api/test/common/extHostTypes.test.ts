@@ -5,7 +5,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js';
 import { createProxyIdentifier } from '../../../services/extensions/common/proxyIdentifier.js';
 import {
-  DataTransfer, DataTransferItem, EndOfLine, Location, MarkdownString, Position, Range, RelativePattern,
+  CodeActionKind, DataTransfer, DataTransferItem, EndOfLine, Location, MarkdownString, Position, Range, RelativePattern,
   Selection, SnippetString, SnippetTextEdit, TextEdit, ThemeColor, ThemeIcon, Uri, WorkspaceEdit,
 } from '../../common/extHostTypes.js';
 import {
@@ -124,4 +124,25 @@ test('preserves the public Uri class across the RPC structured-clone boundary', 
     first.dispose();
     second.dispose();
   }
+});
+
+test('uses the pinned code action kind values and matches complete path segments', () => {
+  const kind = CodeActionKind;
+  expect([
+    kind.Empty.value, kind.QuickFix.value, kind.Refactor.value, kind.RefactorExtract.value,
+    kind.RefactorInline.value, kind.RefactorMove.value, kind.RefactorRewrite.value,
+    kind.Source.value, kind.SourceOrganizeImports.value, kind.SourceFixAll.value, kind.Notebook.value,
+  ]).toEqual([
+    '', 'quickfix', 'refactor', 'refactor.extract', 'refactor.inline', 'refactor.move', 'refactor.rewrite',
+    'source', 'source.organizeImports', 'source.fixAll', 'notebook',
+  ]);
+  expect(kind.Empty.append('quickfix').value).toBe(kind.QuickFix.value);
+  expect(kind.Empty.contains(kind.QuickFix)).toBe(false);
+  expect(kind.RefactorExtract.contains(kind.RefactorExtract)).toBe(true);
+  expect(kind.RefactorExtract.contains(kind.RefactorExtract.append('function'))).toBe(true);
+  expect(kind.RefactorExtract.contains(kind.Refactor)).toBe(false);
+  expect(kind.RefactorExtract.intersects(kind.Refactor)).toBe(true);
+  expect(kind.Refactor.intersects(kind.RefactorExtract)).toBe(true);
+  expect(kind.RefactorExtract.intersects(kind.RefactorInline)).toBe(false);
+  expect(kind.RefactorExtract.contains(kind.Refactor.append('extraction'))).toBe(false);
 });

@@ -331,6 +331,25 @@ declare module 'vscode' {
     Nine = 9
   }
 
+  class CodeActionKind {
+    static readonly Empty: CodeActionKind;
+    static readonly QuickFix: CodeActionKind;
+    static readonly Refactor: CodeActionKind;
+    static readonly RefactorExtract: CodeActionKind;
+    static readonly RefactorInline: CodeActionKind;
+    static readonly RefactorMove: CodeActionKind;
+    static readonly RefactorRewrite: CodeActionKind;
+    static readonly Source: CodeActionKind;
+    static readonly SourceOrganizeImports: CodeActionKind;
+    static readonly SourceFixAll: CodeActionKind;
+    static readonly Notebook: CodeActionKind;
+    private constructor(value: string);
+    readonly value: string;
+    append(parts: string): CodeActionKind;
+    intersects(other: CodeActionKind): boolean;
+    contains(other: CodeActionKind): boolean;
+  }
+
   enum LogLevel {
     Off = 0,
     Trace = 1,

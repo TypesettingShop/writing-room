@@ -236,6 +236,7 @@ test('assembles exactly the runtime keys declared by the repository', async () =
   const host = await createTestExtensionApi();
   try {
     expect(checkRuntime(projectApi(), host.api)).toEqual([]);
+    expect(host.api.CodeActionKind.QuickFix).toBeInstanceOf(host.api.CodeActionKind);
   } finally {
     host.dispose();
   }
