@@ -10,7 +10,6 @@ import { TextEditorPane } from '../../../browser/parts/editor/textEditor.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import type { IEditorFactoryRegistry, IEditorSerializer } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
-import '../../../services/configuration/browser/configurationService.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
