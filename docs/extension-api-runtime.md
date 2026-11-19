@@ -110,4 +110,4 @@ HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤
 | 외부 API | `debug`, `scm`, `tests`, `comments`, `authentication`, `chat`, `lm`, `notebooks`는 `undefined`다. |
 | Worker | 모듈 Worker와 중계 Worker 안의 상대 경로 `importScripts`는 오류로 거부한다. 호스트 자체의 `postMessage`, `close`, `importScripts`는 사용할 수 없다. |
 
-Decided in: wr-mn1x
+Decided in: wr-efqx.n9k, wr-mn1x

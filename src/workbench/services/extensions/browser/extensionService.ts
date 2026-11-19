@@ -75,6 +75,11 @@ export class ExtensionService extends Disposable implements IExtensionService {
   private hostFailure?: Error;
   private locale = 'en';
   private readonly localized = new WeakMap<IExtensionDescription, Readonly<Record<string, string>>>();
+  /** One localized copy per description and table, so contribution points see the same object on every refresh. */
+  private readonly localizedDescriptions = new WeakMap<IExtensionDescription, {
+    readonly translations: Readonly<Record<string, unknown>>;
+    readonly description: IExtensionDescription;
+  }>();
   private workspaceId?: string;
   private readonly incompatible = new Set<string>();
   private readonly removals = new Map<string, Promise<void>>();
@@ -144,7 +149,10 @@ export class ExtensionService extends Disposable implements IExtensionService {
     if (this.locale === 'en' || !this.instantiation) {
       finish();
     } else {
-      void Promise.all(this.extensions.map(extension => this.readLocalizedManifest(extension))).then(() => {
+      // A table that cannot be read leaves that extension's contributions in the default language.
+      void Promise.all(this.extensions.map(extension => this.readLocalizedManifest(extension).catch(error => {
+        console.warn(`[${extension.identifier.value}] Could not localize contributions:`, error);
+      }))).then(() => {
         if (!this.stopping) {
           finish();
         }
@@ -239,6 +247,20 @@ export class ExtensionService extends Disposable implements IExtensionService {
     }
     this.localized.set(extension, localized);
     return true;
+  }
+
+  private localizedDescription(extension: IExtensionDescription): IExtensionDescription {
+    const translations = this.localized.get(extension) ?? extension.nls;
+    if (!translations) {
+      return extension;
+    }
+    const cached = this.localizedDescriptions.get(extension);
+    if (cached?.translations === translations) {
+      return cached.description;
+    }
+    const description = { ...extension, manifest: localizeManifest(extension.manifest, translations) };
+    this.localizedDescriptions.set(extension, { translations, description });
+    return description;
   }
 
   private addDescription(extension: IExtensionDescription): boolean {
@@ -475,9 +497,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.incompatible.clear();
     const contributions = new DisposableStore();
     this.contributions.value = contributions;
-    const entries = this.extensions.map(extension => ({
-      ...extension, manifest: localizeManifest(extension.manifest, this.localized.get(extension) ?? extension.nls),
-    }));
+    const entries = this.extensions.map(extension => this.localizedDescription(extension));
     for (const extension of entries) {
       const id = extension.identifier.value;
       const { manifest } = extension;

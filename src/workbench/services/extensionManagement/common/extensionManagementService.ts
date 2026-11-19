@@ -1,6 +1,7 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { fetchBoundedResource, ResourceRequestError } from '../../../../base/parts/request/common/boundedFetch.js';
 import { readVsix, vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { readManifestNls } from '../../../../platform/extensionManagement/common/extensionNls.js';
 import { isRecord, isValidExtensionVersion, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription, IExtensionManifest } from '../../../../platform/extensions/common/extensions.js';
@@ -117,14 +118,7 @@ function readNlsBundle(bytes: Uint8Array, path: string): Record<string, string> 
   if (!isRecord(value)) {
     throw new Error(path + ' must contain a JSON object.');
   }
-  const result: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const message = isRecord(entry) ? entry.message : entry;
-    if (typeof message === 'string') {
-      result[key] = message;
-    }
-  }
-  return result;
+  return readManifestNls(value);
 }
 
 /** The folder that holds every package folder, as a location string. */
@@ -605,8 +599,9 @@ export class ExtensionManagementService {
   }
 
   /**
-   * Removes the extension from this tab, then its record, then its package folder. A failed record write
-   * registers the extension again; a failed folder removal is left to the startup cleanup.
+   * Removes the extension from this tab and waits for its deactivation, then removes its record, its package
+   * folder and its state. A failed record write registers the extension again; a failed folder removal is left
+   * to the startup cleanup; a failed state removal is reported without registering the extension again.
    */
   uninstall(identifier: string): Promise<boolean> {
     return this.serialize(() => this.remove(identifier));

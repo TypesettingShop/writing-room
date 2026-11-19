@@ -51,7 +51,10 @@ export interface IStorageService {
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue?: T): T | undefined;
 
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void;
-  /** Commit an explicit text save. A transform receives the last persisted value. */
+  /**
+   * Commit an explicit text save. A transform receives the last persisted value and every persisted address;
+   * returning `undefined` removes the key, and throwing leaves the stored value as it was.
+   */
   storeImmediately(
     key: string, value: string | ((stored: string | undefined, snapshot: ReadonlyMap<string, string>) => string | undefined), scope: StorageScope, target: StorageTarget,
   ): void;

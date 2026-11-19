@@ -1,6 +1,6 @@
 import type * as vscode from 'vscode';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
-import { EventEmitter, Uri } from './extHostTypes.js';
+import { Disposable, EventEmitter, Uri } from './extHostTypes.js';
 import { dispose } from '../../../base/common/lifecycle.js';
 import type { MainThreadExtensionServiceShape } from './extHost.protocol.js';
 
@@ -138,8 +138,17 @@ export class ExtensionsActivator {
         return match && this.extensionView(match, caller);
       },
       onDidChange: (listener, thisArgs, disposables) => {
-        const subscription = this.onDidChange.event(listener, thisArgs, disposables);
+        const listening = this.onDidChange.event(listener, thisArgs);
+        // Removal disposes what is left; one the extension disposes first leaves the list.
+        const subscription: vscode.Disposable = new Disposable(() => {
+          listening.dispose();
+          const index = caller.subscriptions.indexOf(subscription);
+          if (index !== -1) {
+            caller.subscriptions.splice(index, 1);
+          }
+        });
         caller.subscriptions.push(subscription);
+        disposables?.push(subscription);
         return subscription;
       },
     };

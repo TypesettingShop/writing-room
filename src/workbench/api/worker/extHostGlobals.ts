@@ -13,6 +13,31 @@ const evaluate = Function;
 const createObjectURL = URL.createObjectURL.bind(URL);
 const revokeObjectURL = URL.revokeObjectURL.bind(URL);
 const allowedFetch = new Set(['http:', 'https:', 'data:', 'blob:']);
+const nativeSource = Function.prototype.toString;
+const globalMethods = new WeakMap<Function, Function>();
+
+function isConstructor(value: Function): boolean {
+  try {
+    // Only checks [[Construct]] of the new target; `value` itself is not called.
+    Reflect.construct(String, [], value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Platform methods such as setTimeout reject any receiver but the global, so a call through `self` runs on it. */
+function globalValue(value: unknown): unknown {
+  if (typeof value !== 'function' || isConstructor(value) || !nativeSource.call(value).endsWith('{ [native code] }')) {
+    return value;
+  }
+  let method = globalMethods.get(value);
+  if (!method) {
+    method = value.bind(globalThis) as Function;
+    globalMethods.set(value, method);
+  }
+  return method;
+}
 
 // The nested worker gets its own control port before any caller messages arrive.
 const bootstrap = `
@@ -185,7 +210,10 @@ export class ExtensionGlobals {
         if (key === 'self' || key === 'globalThis') { return scoped; }
         if (key === 'fetch') { return fetch; }
         if (key === 'Worker') { return Worker; }
-        return Reflect.get(globalThis, key, globalThis);
+        return globalValue(Reflect.get(globalThis, key, globalThis));
+      },
+      has(_target, key) {
+        return key === 'self' || key === 'globalThis' || Reflect.has(globalThis, key);
       },
       set(_target, key, value) {
         return Reflect.set(globalThis, key, value, globalThis);
