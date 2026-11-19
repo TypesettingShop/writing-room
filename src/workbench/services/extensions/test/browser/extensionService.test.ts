@@ -166,15 +166,16 @@ test.each([['ko', 'ko'], ['en-US', 'en-us']])('registers defaults during %s tran
   const read = new Promise<{ value: Uint8Array }>(resolve => { finish = resolve; });
   const readFile = vi.fn(() => read);
   const instantiation = new InstantiationService(new ServiceCollection(
-    [IWorkbenchLayoutService, { mainContainer: document.createElement('div') } as IWorkbenchLayoutService],
+    [IWorkbenchLayoutService, { mainContainer: document.createElement('div') } as unknown as IWorkbenchLayoutService],
     [IConfigurationService, { getValue: () => locale } as IConfigurationService],
     [IWorkspaceContextService, { getWorkspace: () => ({ id: 'test', folders: [] }) } as unknown as IWorkspaceContextService],
     [IFileService, { readFile } as unknown as IFileService],
   ));
-  service = new ExtensionService(() => ({
-    extensions: [{ ...base, nls: { good: 'Default' } }, { ...broken, manifest: brokenManifest, nls: { broken: 'Fallback' } }],
-    messages: [],
-  }), instantiation);
+  const extensions: IExtensionDescription[] = [
+    { ...base, nls: { good: 'Default' } },
+    { ...broken, manifest: brokenManifest, nls: { broken: 'Fallback' } },
+  ];
+  service = new ExtensionService(() => ({ extensions, messages: [] }), instantiation);
   service.initialize();
   expect(MenuRegistry.getCommand('test.ext.translateGood')?.title).toBe('Default');
   expect(MenuRegistry.getCommand('test.ext.translateBroken')?.title).toBe('Fallback');
