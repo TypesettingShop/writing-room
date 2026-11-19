@@ -65,7 +65,9 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
       return;
     }
     this.checkDisposed();
-    const touched = new Map<string, vscode.Uri>();
+    // What replaces each touched resource; an empty list in the many-entries form removes it.
+    const next = new Map<string, Entry>();
+    let keepEmpty = false;
     if (!Array.isArray(first)) {
       const uri = checkUri(first);
       if (!diagnostics) {
@@ -75,11 +77,10 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
       if (!Array.isArray(diagnostics)) {
         throw new Error('Illegal argument: diagnostics');
       }
-      this.#data.set(uri.toString(), [uri, present(diagnostics)]);
-      touched.set(uri.toString(), uri);
+      next.set(uri.toString(), [uri, present(diagnostics)]);
+      keepEmpty = true;
     } else {
       // Entries for one resource add up, and `[uri, undefined]` empties what came before it.
-      const next = new Map<string, Entry>();
       for (const entry of first) {
         if (!Array.isArray(entry)) {
           throw new Error('Illegal argument: entries');
@@ -90,7 +91,6 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
         if (!value) {
           value = [uri, []];
           next.set(key, value);
-          touched.set(key, uri);
         }
         if (!entry[1]) {
           value[1].length = 0;
@@ -100,20 +100,21 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
           throw new Error('Illegal argument: diagnostics');
         }
       }
-      for (const [key, value] of next) {
-        if (value[1].length) {
-          this.#data.set(key, value);
-        } else {
-          this.#data.delete(key);
-        }
+    }
+    // Converted before anything is kept: a diagnostic that cannot be converted leaves the collection as it was.
+    const changes: MarkerChangeDto[] = [];
+    for (const [uri, list] of next.values()) {
+      const kept = keepEmpty || list.length > 0;
+      changes.push([uri as unknown as URI, kept ? limitMarkers(list.map(toMarkerData), MAX_MARKERS_PER_RESOURCE) : undefined]);
+    }
+    for (const [key, value] of next) {
+      if (keepEmpty || value[1].length) {
+        this.#data.set(key, value);
+      } else {
+        this.#data.delete(key);
       }
     }
-    const changes: MarkerChangeDto[] = [];
-    for (const [key, uri] of touched) {
-      const entry = this.#data.get(key);
-      changes.push([uri as unknown as URI, entry ? limitMarkers(entry[1].map(toMarkerData), MAX_MARKERS_PER_RESOURCE) : undefined]);
-    }
-    this.sync.changed([...touched.values()]);
+    this.sync.changed([...next.values()].map(([uri]) => uri));
     this.sync.changeMany(changes);
   }
 
@@ -341,8 +342,12 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
 }
 
 extHostApiRegistry.register('diagnostics', ({ rpc }) => {
-  const diagnostics = new ExtHostDiagnostics(rpc.getProxy(MainThreadDiagnosticsProxy));
+  const proxy = rpc.getProxy(MainThreadDiagnosticsProxy);
+  const diagnostics = new ExtHostDiagnostics(proxy);
   rpc.set(ExtHostDiagnosticsProxy, diagnostics);
+  // The workbench's earlier changes reached this host before it could take them: ask for the markers there are now.
+  // It fails only when the workbench has no diagnostics side, or the host is stopping.
+  void proxy.$requestMarkers().catch(() => {});
   return {
     service: diagnostics,
     create: ({ key }) => ({

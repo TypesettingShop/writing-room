@@ -18,13 +18,24 @@ export const MAX_RELATED_INFORMATION = 64;
 const MAX_POSITION = 2 ** 31 - 1;
 /** Schemes a code link may point at. Anything else keeps the code as text. */
 const CODE_TARGET_SCHEMES = new Set<string>([Schemas.http, Schemas.https, Schemas.vscodeVfs]);
+/**
+ * Schemes a related place may not point at. Monaco's marker hover gives a related place to its own
+ * opener, which hands these to the browser (a new tab, or the page's own address) without the
+ * workbench's question; a related place is a place in a document.
+ */
+const RELATED_REFUSED_SCHEMES = new Set<string>([Schemas.http, Schemas.https, 'mailto', 'vsls', 'command']);
 const SEVERITIES = new Set<number>([MarkerSeverity.Error, MarkerSeverity.Warning, MarkerSeverity.Info, MarkerSeverity.Hint]);
 
 function text(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string' || !value) {
     return undefined;
   }
-  return value.length > max ? value.slice(0, max) + '…' : value;
+  if (value.length <= max) {
+    return value;
+  }
+  // Not between the two halves of a surrogate pair.
+  const end = /[\uD800-\uDBFF]/.test(value[max - 1]) ? max - 1 : max;
+  return value.slice(0, end) + '…';
 }
 
 function uri(value: unknown): URI | undefined {
@@ -79,7 +90,7 @@ function relatedInformation(value: unknown): IRelatedInformation[] | undefined {
     }
     const resource = uri((item as { resource?: unknown }).resource);
     const message = text((item as { message?: unknown }).message, MAX_MESSAGE_LENGTH);
-    if (resource && message !== undefined) {
+    if (resource && !RELATED_REFUSED_SCHEMES.has(resource.scheme.toLowerCase()) && message !== undefined) {
       result.push({ resource, message, ...range(item as Record<string, unknown>) });
     }
   }
@@ -139,6 +150,8 @@ function checkCollection(collection: unknown): string {
 export class MainThreadDiagnostics implements MainThreadDiagnosticsShape, IDisposable {
   /** The owners each extension of this host has written, by extension key. */
   private readonly owners = new Map<string, Set<string>>();
+  /** Every owner in `owners`, for the check of each forwarded marker. */
+  private readonly own = new Set<string>();
   /** Resources the host last heard of with markers from outside it. */
   private readonly mirrored = new Set<string>();
   private readonly listener: IDisposable;
@@ -149,8 +162,16 @@ export class MainThreadDiagnostics implements MainThreadDiagnosticsShape, IDispo
     private readonly extensionId: (key: string) => string | undefined,
   ) {
     this.listener = markers.onMarkerChanged(resources => this.forward(resources));
+  }
+
+  /**
+   * The host can take markers now. What was sent before its diagnostics were set up was lost, so this
+   * sends every resource that has markers from outside it.
+   */
+  async $requestMarkers(): Promise<void> {
+    this.mirrored.clear();
     const existing = new Map<string, URI>();
-    for (const marker of markers.read()) {
+    for (const marker of this.markers.read()) {
       existing.set(marker.resource.toString(), marker.resource);
     }
     this.forward([...existing.values()]);
@@ -182,6 +203,7 @@ export class MainThreadDiagnostics implements MainThreadDiagnosticsShape, IDispo
   remove(extension: string): void {
     for (const owner of this.owners.get(extension) ?? []) {
       this.markers.changeAll(owner, []);
+      this.own.delete(owner);
     }
     this.owners.delete(extension);
   }
@@ -205,23 +227,15 @@ export class MainThreadDiagnostics implements MainThreadDiagnosticsShape, IDispo
       this.owners.set(extension as string, owned);
     }
     owned.add(owner);
+    this.own.add(owner);
     return owner;
-  }
-
-  private isOwn(owner: string): boolean {
-    for (const owned of this.owners.values()) {
-      if (owned.has(owner)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   private forward(resources: readonly URI[]): void {
     const data: [URI, MarkerDataDto[]][] = [];
     for (const resource of resources) {
       const key = resource.toString();
-      const foreign = this.markers.read({ resource }).filter(marker => !this.isOwn(marker.owner));
+      const foreign = this.markers.read({ resource }).filter(marker => !this.own.has(marker.owner));
       if (!foreign.length && !this.mirrored.has(key)) {
         continue;
       }

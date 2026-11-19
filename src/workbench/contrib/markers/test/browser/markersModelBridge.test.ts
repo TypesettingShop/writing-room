@@ -57,8 +57,29 @@ test('each owner is drawn on its own, so clearing one leaves the other on the mo
   calls.length = 0;
   markers.changeAll('a', []);
   await tick();
-  expect(calls).toEqual(['untitled:Untitled-1 a ', 'untitled:Untitled-1 b theirs']);
-  expect(calls.some(call => call === 'untitled:Untitled-1 b ')).toBe(false);
+  // The owner that did not change is not drawn again.
+  expect(calls).toEqual(['untitled:Untitled-1 a ']);
+  expect(shown.get('untitled:Untitled-1 b')).toEqual(['theirs']);
+});
+
+test('a closed model clears what it drew, so a model made again shows only the current markers', async () => {
+  const { markers, models, shown, start } = setup();
+  const resource = URI.parse('untitled:Untitled-1');
+  const first = await models.createModel('text', undefined, resource);
+  start();
+  markers.changeOne('a', resource, [marker('old')]);
+  await tick();
+  expect(shown.get('untitled:Untitled-1 a')).toEqual(['old']);
+
+  first.dispose();
+  // Monaco keeps markers by resource after the model goes: the bridge empties them.
+  expect(shown.get('untitled:Untitled-1 a')).toEqual([]);
+  markers.changeAll('a', []);
+  markers.changeOne('b', resource, [marker('new')]);
+  await tick();
+  await models.createModel('text', undefined, resource);
+  expect(shown.get('untitled:Untitled-1 a')).toEqual([]);
+  expect(shown.get('untitled:Untitled-1 b')).toEqual(['new']);
 });
 
 test('a resource without a model keeps its markers in the service and draws nothing', async () => {

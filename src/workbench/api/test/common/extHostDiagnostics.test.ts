@@ -16,6 +16,7 @@ function setup() {
   const proxy: MainThreadDiagnosticsShape = {
     $changeMany: async (extension, collection, entries) => { calls.push({ method: 'change', extension, collection, entries }); },
     $clear: async (extension, collection) => { calls.push({ method: 'clear', extension, collection }); },
+    $requestMarkers: async () => {},
   };
   const diagnostics = new ExtHostDiagnostics(proxy);
   const events: string[][] = [];
@@ -85,6 +86,22 @@ test('one set of many entries is one change and one event, naming only the resou
   collection.delete(uri('untitled:Untitled-9'));
   await vi.advanceTimersByTimeAsync(DIAGNOSTICS_EVENT_DELAY);
   expect(events).toHaveLength(1);
+});
+
+test('a diagnostic that cannot be converted leaves the collection and the workbench as they were', () => {
+  const { diagnostics, calls } = setup();
+  const collection = diagnostics.createDiagnosticCollection('1', 'lint');
+  const first = uri('untitled:Untitled-1');
+  const second = uri('untitled:Untitled-2');
+  collection.set(first, [diagnostic('kept')]);
+  calls.length = 0;
+  const broken = diagnostic('broken');
+  (broken as { range: unknown }).range = undefined;
+  expect(() => collection.set([[first, [diagnostic('lost')]], [second, [broken]]])).toThrow();
+  expect(() => collection.set(first, [broken])).toThrow();
+  expect(collection.get(first)!.map(item => item.message)).toEqual(['kept']);
+  expect(collection.has(second)).toBe(false);
+  expect(calls).toEqual([]);
 });
 
 test('two spellings of one resource are one entry', () => {

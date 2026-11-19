@@ -19,6 +19,8 @@ export interface MainThreadDiagnosticsShape {
   $changeMany(extension: string, collection: string, entries: readonly MarkerChangeDto[]): Promise<void>;
   /** Removes every marker of that collection. */
   $clear(extension: string, collection: string): Promise<void>;
+  /** The host is ready for `$acceptMarkersChange`: sends the markers of owners outside it that there are now. */
+  $requestMarkers(): Promise<void>;
 }
 
 export interface ExtHostDiagnosticsShape {

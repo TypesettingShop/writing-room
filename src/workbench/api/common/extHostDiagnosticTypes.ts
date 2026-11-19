@@ -4,6 +4,7 @@ import { MarkerSeverity, MarkerTag } from '../../../platform/markers/common/mark
 import type { IRelatedInformation } from '../../../platform/markers/common/markers.js';
 import type { MarkerDataDto } from './extHost.protocol.diagnostics.js';
 import { Location, Range } from './extHostEditorTypes.js';
+import { rangeFromEditor, rangeToEditor } from './extHostTypeConverters.js';
 
 export enum DiagnosticSeverity {
   Error = 0,
@@ -83,18 +84,8 @@ export function markerSeverity(severity: unknown): MarkerSeverity {
   return typeof severity === 'number' ? toMarkerSeverity[severity] ?? MarkerSeverity.Error : MarkerSeverity.Error;
 }
 
-/** 0-based API positions to 1-based marker lines and columns. The workbench checks them again. */
-function markerRange(range: vscode.Range) {
-  return {
-    startLineNumber: range.start.line + 1,
-    startColumn: range.start.character + 1,
-    endLineNumber: range.end.line + 1,
-    endColumn: range.end.character + 1,
-  };
-}
-
 function relatedInformation(value: vscode.DiagnosticRelatedInformation): IRelatedInformation {
-  return { resource: value.location.uri as unknown as URI, message: value.message, ...markerRange(value.location.range) };
+  return { resource: value.location.uri as unknown as URI, message: value.message, ...rangeToEditor(value.location.range) };
 }
 
 /** A diagnostic as the workbench takes it. */
@@ -107,8 +98,9 @@ export function toMarkerData(diagnostic: vscode.Diagnostic): MarkerDataDto {
   } else if (value && typeof value === 'object') {
     code = { value: String(value.value), target: value.target as unknown as URI };
   }
+  // 0-based API positions to 1-based marker lines and columns. The workbench checks them again.
   return {
-    ...markerRange(diagnostic.range),
+    ...rangeToEditor(diagnostic.range),
     message: diagnostic.message,
     source: diagnostic.source,
     code,
@@ -120,16 +112,9 @@ export function toMarkerData(diagnostic: vscode.Diagnostic): MarkerDataDto {
   };
 }
 
-function apiRange(data: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }): Range {
-  return new Range(
-    Math.max(0, data.startLineNumber - 1), Math.max(0, data.startColumn - 1),
-    Math.max(0, data.endLineNumber - 1), Math.max(0, data.endColumn - 1),
-  );
-}
-
-/** A marker the workbench sent back as a diagnostic, for `getDiagnostics`. */
+/** A marker the workbench sent back as a diagnostic, for `getDiagnostics`. Its lines and columns are at least 1. */
 export function fromMarkerData(data: MarkerDataDto): Diagnostic {
-  const diagnostic = new Diagnostic(apiRange(data), data.message, fromMarkerSeverity[data.severity] ?? DiagnosticSeverity.Error);
+  const diagnostic = new Diagnostic(rangeFromEditor(data), data.message, fromMarkerSeverity[data.severity] ?? DiagnosticSeverity.Error);
   if (data.source) {
     diagnostic.source = data.source;
   }
@@ -140,7 +125,7 @@ export function fromMarkerData(data: MarkerDataDto): Diagnostic {
   }
   if (data.relatedInformation) {
     diagnostic.relatedInformation = data.relatedInformation.map(item => new DiagnosticRelatedInformation(
-      new Location(URI.revive(item.resource) as unknown as vscode.Uri, apiRange(item)), item.message));
+      new Location(URI.revive(item.resource) as unknown as vscode.Uri, rangeFromEditor(item)), item.message));
   }
   if (data.tags?.length) {
     diagnostic.tags = data.tags.map(tag => tag as number as DiagnosticTag);

@@ -51,6 +51,10 @@ test('checks what the extension host sends: ranges, severities, lengths, tags an
   for (const target of ['javascript:alert(1)', 'data:text/html,x', 'untitled:Untitled-1', 'not a uri']) {
     expect(sanitizeMarker({ ...marker('m'), code: { value: 'c', target } })?.code).toBe('c');
   }
+  for (const target of ['https://example.test/', 'http://example.test/', 'mailto:a@example.test', 'vsls:x', 'command:workbench.action.quit']) {
+    expect(sanitizeMarker({ ...marker('m'), relatedInformation: [{ resource: URI.parse(target), message: 'see' }] })?.relatedInformation)
+      .toBeUndefined();
+  }
   expect(sanitizeMarker({ ...marker(''), severity: MarkerSeverity.Hint })).toBeUndefined();
   expect(sanitizeMarker(null)).toBeUndefined();
 });
@@ -105,6 +109,26 @@ test('changes from owners outside the host reach it; its own changes do not echo
   markers.changeOne('workbench.json', resource, []);
   await tick();
   expect(sent).toEqual(['untitled:Untitled-1=foreign', 'untitled:Untitled-1=']);
+});
+
+test('markers from outside the host that were there before it started reach it when it asks', async () => {
+  const sent: string[] = [];
+  const markers = disposables.add(new MarkerService());
+  markers.changeOne('workbench.json', resource, [marker('early')]);
+  await tick();
+  const main = disposables.add(new MainThreadDiagnostics({
+    $acceptMarkersChange: async data => { sent.push(data.map(([uri, items]) => uri + '=' + items.map(item => item.message).join()).join(' ')); },
+  }, markers, key => extensions.get(key)));
+  // Nothing goes out before the host can take it.
+  await tick();
+  expect(sent).toEqual([]);
+  await main.$requestMarkers();
+  expect(sent).toEqual(['untitled:Untitled-1=early']);
+});
+
+test('a cut message does not end between the halves of a surrogate pair', () => {
+  const message = 'x'.repeat(MAX_MESSAGE_LENGTH - 1) + '😀';
+  expect(sanitizeMarker({ ...marker(message + 'more') })?.message).toBe('x'.repeat(MAX_MESSAGE_LENGTH - 1) + '…');
 });
 
 test('an extension\'s collection reaches the marker service over RPC, limited, and leaves it when the host stops', async () => {

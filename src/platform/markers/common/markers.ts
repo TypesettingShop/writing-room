@@ -94,7 +94,7 @@ export interface IMarkerService extends BrandedService {
   /** Replaces everything `owner` has. An empty list removes all of it. */
   changeAll(owner: string, data: readonly { readonly resource: URI; readonly marker: IMarkerData }[]): void;
   remove(owner: string, resources: readonly URI[]): void;
-  /** Markers by owner, then resource, then position; the order within one owner's resource is kept. */
+  /** Markers by owner, then resource, unsorted: within one owner's resource, in the order they were given. */
   read(filter?: IMarkerReadOptions): IMarker[];
 }
 

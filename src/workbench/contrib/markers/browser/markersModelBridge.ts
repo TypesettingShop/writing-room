@@ -44,7 +44,8 @@ export class MonacoModelMarkerSink implements IModelMarkerSink {
 
   setModelMarkers(model: ITextModel, owner: string, markers: readonly IMarker[]): void {
     this.queue = this.queue.then(() => loadMonaco()).then(monaco => {
-      if (!model.isDisposed()) {
+      // Monaco keeps markers by resource, past its model: clearing the resource of a gone model is still due.
+      if (!markers.length || !model.isDisposed()) {
         monaco.editor.setModelMarkers(model as IMonacoTextModel, owner, markers.map(marker => toMonacoMarker(monaco, marker)));
       }
     }).catch(error => console.error('Markers could not be drawn:', error));
@@ -57,8 +58,8 @@ export class MonacoModelMarkerSink implements IModelMarkerSink {
  * resource got markers draws them at once.
  */
 export class MarkersModelBridge extends Disposable {
-  /** The owners drawn on each live model, by the model's id. */
-  private readonly drawn = new Map<string, { readonly model: ITextModel; readonly owners: Set<string> }>();
+  /** What each owner last drew on each live model, by the model's id. */
+  private readonly drawn = new Map<string, Map<string, readonly IMarker[]>>();
 
   constructor(
     private readonly sink: IModelMarkerSink,
@@ -75,7 +76,14 @@ export class MarkersModelBridge extends Disposable {
       }
     }));
     this._register(models.onModelAdded(model => this.draw(model, resourceOf(model))));
-    this._register(models.onModelRemoved(model => this.drawn.delete(model.id)));
+    this._register(models.onModelRemoved(model => {
+      // Monaco's marker service outlives the model, and a model made again for the resource would show
+      // what was drawn here; the marker service still has the markers to draw then.
+      for (const owner of this.drawn.get(model.id)?.keys() ?? []) {
+        this.sink.setModelMarkers(model, owner, []);
+      }
+      this.drawn.delete(model.id);
+    }));
     for (const model of models.getModels()) {
       this.draw(model, resourceOf(model));
     }
@@ -91,22 +99,29 @@ export class MarkersModelBridge extends Disposable {
       }
       list.push(marker);
     }
-    let entry = this.drawn.get(model.id);
-    if (!entry) {
-      entry = { model, owners: new Set() };
-      this.drawn.set(model.id, entry);
+    let drawn = this.drawn.get(model.id);
+    if (!drawn) {
+      drawn = new Map();
+      this.drawn.set(model.id, drawn);
     }
-    for (const owner of entry.owners) {
+    for (const owner of drawn.keys()) {
       if (!byOwner.has(owner)) {
         this.sink.setModelMarkers(model, owner, []);
-        entry.owners.delete(owner);
+        drawn.delete(owner);
       }
     }
     for (const [owner, list] of byOwner) {
-      this.sink.setModelMarkers(model, owner, list);
-      entry.owners.add(owner);
+      // The service keeps an owner's marker objects until that owner changes them: the same ones need no drawing.
+      if (!sameMarkers(drawn.get(owner), list)) {
+        this.sink.setModelMarkers(model, owner, list);
+        drawn.set(owner, list);
+      }
     }
   }
+}
+
+function sameMarkers(previous: readonly IMarker[] | undefined, next: readonly IMarker[]): boolean {
+  return previous?.length === next.length && previous.every((marker, index) => marker === next[index]);
 }
 
 /**
