@@ -1,16 +1,15 @@
 import { isEqual } from '../../../../base/common/resources.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { BrowserTextFileService } from '../../../services/textfile/browser/textFileService.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { FileEditorInput } from './editors/fileEditorInput.js';
 
 /**
- * At startup, once the editors of the last page are back: a draft stays while some editor of the page
- * has its file as `resource`, whatever its kind, and the others that no other tab keeps are deleted.
- * Each editor of a kept draft is asked to `resolve`: the text editor, and a custom editor over the
- * file's text (`CustomTextEditorProvider`), read the draft now, so their tabs show them dirty before
- * they are shown. An editor over a document of its own (`CustomEditorProvider`) reads nothing; the
- * draft only stays for when the file's text is opened again.
+ * At startup, restore the drafts of dirty file models. A matching editor is asked to resolve
+ * whatever its kind, so text editors and custom text editors can show their dirty marks.
+ * A custom editor over a document of its own leaves the draft available for a later text open.
+ * A draft without an editor gets a background text tab.
  */
 export class FileBackupRestorer {
   static readonly ID = 'workbench.contrib.fileBackupRestorer';
@@ -18,22 +17,29 @@ export class FileBackupRestorer {
   constructor(
     @IEditorGroupsService groups: IEditorGroupsService,
     @ITextFileService textFileService: ITextFileService,
+    @IInstantiationService instantiationService: IInstantiationService,
   ) {
     if (!(textFileService instanceof BrowserTextFileService)) {
       return;
     }
-    const editors = groups.groups.flatMap(group => group.editors);
-    void textFileService.backups.discardUnused(resource => editors.some(editor => isEqual(editor.resource, resource)))
-      .then(({ kept }) => {
-        for (const editor of editors) {
-          // An editor of a kept draft reads it through its model; a file tab restored as dirty learns
-          // from its model whether its draft is still there.
-          if (!editor.isDisposed() && (kept.some(resource => isEqual(resource, editor.resource))
-            || (editor instanceof FileEditorInput && editor.isDirty()))) {
-            void editor.resolve().catch(() => {});
-          }
+    void textFileService.backups.listRestorable().then(resources => {
+      // Take the editor list after the storage read. The user may have opened a file since startup.
+      const editors = new Set(groups.groups.flatMap(group => group.editors).filter(editor => !editor.isDisposed()));
+      for (const editor of editors) {
+        // A file tab restored with a dirty mark also needs to learn whether its draft is still there.
+        if (resources.some(resource => isEqual(resource, editor.resource)) || (editor instanceof FileEditorInput && editor.isDirty())) {
+          void editor.resolve().catch(() => {});
         }
-      })
-      .catch(error => console.warn('Could not restore the drafts of the open files.', error));
+      }
+      for (const resource of resources) {
+        if (groups.groups.some(group => group.editors.some(editor => isEqual(editor.resource, resource)))) {
+          continue;
+        }
+        const group = groups.activeGroup;
+        const editor = instantiationService.createInstance(FileEditorInput, resource, { restoredDirty: true });
+        void group.openEditor(editor, { index: group.editors.length, inactive: true, preserveFocus: true }).catch(console.warn);
+        void editor.resolve().catch(() => {});
+      }
+    }).catch(error => console.warn('Could not restore file drafts.', error));
   }
 }

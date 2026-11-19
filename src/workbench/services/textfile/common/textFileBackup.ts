@@ -1,7 +1,8 @@
-import { joinPath } from '../../../../base/common/resources.js';
+import { basename, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import type { IFileService } from '../../../../platform/files/common/files.js';
+import { isTextFileScheme } from './textfiles.js';
 
 /** What a draft was based on, so a save after a reload still checks the file it was read from. */
 export interface ITextFileBackupMeta {
@@ -122,40 +123,37 @@ export class TextFileBackups implements ITextFileBackups {
     return undefined;
   }
 
-  /**
-   * Deletes the backups whose resource is not in `keep` and that no tab keeps, and tells which
-   * resources keep theirs. Startup calls it once the restored editors are open, so a draft whose
-   * editor did not come back does not stay forever.
-   */
-  async discardUnused(keep: (resource: URI) => boolean): Promise<{ readonly discarded: URI[]; readonly kept: URI[] }> {
-    const discarded: URI[] = [];
-    const kept: URI[] = [];
-    let names: string[];
+  /** Lists the drafts this page can restore, including drafts without a saved editor. */
+  async listRestorable(): Promise<URI[]> {
+    let children;
     try {
-      const stat = await this.fileService.resolve(this.root);
-      names = (stat.children ?? []).filter(child => child.isFile).map(child => child.name);
+      children = (await this.fileService.resolve(this.root)).children ?? [];
     } catch (error) {
       if (toFileSystemProviderErrorCode(error) === FileSystemProviderErrorCode.FileNotFound) {
-        return { discarded, kept };
+        return [];
       }
       throw error;
     }
+    const resources: URI[] = [];
     const held = await this.locks?.held();
-    for (const name of names) {
-      const location = joinPath(this.root, name);
-      const backup = await this.readBackup(location);
-      if (backup && keep(backup.resource)) {
-        kept.push(backup.resource);
-      } else if (backup && held?.has(this.lockName(backup.resource))) {
+    for (const child of children) {
+      if (!child.isFile) {
         continue;
-      } else if (backup) {
-        await this.discard(backup.resource);
-        discarded.push(backup.resource);
-      } else if (!held?.has(`writing-room/backup${this.root.path}/${name}`)) {
-        await this.deleteBackup(location);
+      }
+      const name = `writing-room/backup${this.root.path}/${child.name}`;
+      if (held?.has(name) && !this.locks?.own.has(name)) {
+        continue;
+      }
+      try {
+        const backup = await this.readBackup(child.resource);
+        if (backup) {
+          resources.push(backup.resource);
+        }
+      } catch (error) {
+        console.warn(`Could not read draft backup ${child.resource}.`, error);
       }
     }
-    return { discarded, kept };
+    return resources;
   }
 
   private queue(resource: URI, task: () => Promise<void>): Promise<void> {
@@ -192,23 +190,26 @@ export class TextFileBackups implements ITextFileBackups {
       throw error;
     }
     const newline = text.indexOf('\n');
-    if (newline < 0) {
-      return undefined;
-    }
     try {
-      const header: unknown = JSON.parse(text.slice(0, newline));
-      if (typeof header !== 'object' || header === null) {
-        return undefined;
+      const header: unknown = newline < 0 ? undefined : JSON.parse(text.slice(0, newline));
+      if (typeof header === 'object' && header !== null) {
+        const { version, resource, etag, bom } = header as Record<string, unknown>;
+        if (typeof version === 'number' && version > BACKUP_FORMAT) {
+          return undefined;
+        }
+        if (version === BACKUP_FORMAT && typeof resource === 'string'
+          && (etag === null || typeof etag === 'string') && typeof bom === 'boolean') {
+          const uri = URI.parse(resource, true);
+          if (isTextFileScheme(uri.scheme) && hashResource(uri.toString()) === basename(location)) {
+            return { resource: uri, value: text.slice(newline + 1), meta: { etag: etag ?? undefined, bom } };
+          }
+        }
       }
-      const { version, resource, etag, bom } = header as Record<string, unknown>;
-      if (version !== BACKUP_FORMAT || typeof resource !== 'string' || (etag !== null && typeof etag !== 'string')
-        || typeof bom !== 'boolean') {
-        return undefined;
-      }
-      return { resource: URI.parse(resource), value: text.slice(newline + 1), meta: { etag: etag ?? undefined, bom } };
     } catch {
-      return undefined;
+      // The draft stays on disk even if its header cannot be read.
     }
+    console.warn(`Invalid draft backup ${location}.`);
+    return undefined;
   }
 }
 

@@ -517,21 +517,68 @@ describe('draft backups', () => {
     expect(own.size).toBe(1);
   });
 
-  test('startup deletes the drafts no open editor owns and keeps the others', async () => {
+  test('startup lists drafts even when no editor owns them, without deleting them', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    await files.writeFile(file('/kept.txt'), bytes('k'));
-    await files.writeFile(file('/stale.txt'), bytes('s'));
+    await files.writeFile(file('/unopened.txt'), bytes('saved'));
     const { service } = createService();
-    for (const path of ['/kept.txt', '/stale.txt']) {
-      append((await resolve(service, path)).textModel, '!');
-    }
+    append((await resolve(service, '/unopened.txt')).textModel, ' from an edit without a tab');
     await vi.advanceTimersByTimeAsync(BACKUP_DELAY + 10);
-    await vi.waitFor(async () => expect(await files.exists(backupOf('/stale.txt'))).toBe(true));
+    await vi.waitFor(async () => expect(await files.exists(backupOf('/unopened.txt'))).toBe(true));
 
-    const result = await service.backups.discardUnused(resource => resource.path === '/kept.txt');
-    expect(result.kept.map(resource => resource.path)).toEqual(['/kept.txt']);
-    expect(result.discarded.map(resource => resource.path)).toEqual(['/stale.txt']);
-    expect(await files.exists(backupOf('/kept.txt'))).toBe(true);
-    expect(await files.exists(backupOf('/stale.txt'))).toBe(false);
+    expect(await service.backups.listRestorable()).toEqual([file('/unopened.txt')]);
+    models = new TestModelService();
+    const restored = await resolve(createService().service, '/unopened.txt');
+    expect(restored.model.isDirty()).toBe(true);
+    expect(restored.textModel.getValue()).toBe('saved from an edit without a tab');
+  });
+
+  test('a model that reads a draft while startup lists it keeps its backup', async () => {
+    const { service } = createService();
+    const resource = file('/opened-during-startup.txt');
+    await files.writeFile(resource, bytes('saved'));
+    await service.backups.write(resource, 'draft', { etag: undefined, bom: false });
+    const entered = new DeferredPromise<void>();
+    const resume = new DeferredPromise<void>();
+    const readFile = userData.readFileWithStat.bind(userData);
+    vi.spyOn(userData, 'readFileWithStat').mockImplementationOnce(async location => {
+      await entered.complete();
+      await resume.p;
+      return readFile(location);
+    });
+    const listing = service.backups.listRestorable();
+    await entered.p;
+    const { model, textModel } = await resolve(service, resource.path);
+    await resume.complete();
+    expect(await listing).toEqual([resource]);
+    expect(model.isDirty()).toBe(true);
+    expect(textModel.getValue()).toBe('draft');
+    expect(await files.exists(service.backups.backupResource(resource))).toBe(true);
+  });
+
+  test('startup preserves malformed, mismatched, unsupported and newer drafts and keeps scanning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { service } = createService();
+    const meta = { etag: null, bom: false };
+    const blocked = ['http://example.test/remote', 'https://example.test/remote', 'vscode-userdata:/User/draft', 'untitled:/Untitled-1'];
+    const entries: [URI, string][] = [
+      [backupOf('/malformed.txt'), 'no header'],
+      [backupOf('/wrong.txt'), JSON.stringify({ version: 1, resource: file('/other.txt').toString(), ...meta }) + '\ndraft'],
+      [backupOf('/future.txt'), JSON.stringify({ version: 2, resource: file('/future.txt').toString(), ...meta }) + '\nfuture'],
+      ...blocked.map((resource): [URI, string] => [
+        service.backups.backupResource(URI.parse(resource)),
+        JSON.stringify({ version: 1, resource, ...meta }) + '\ndraft',
+      ]),
+    ];
+    for (const [location, content] of entries) {
+      await files.writeFile(location, bytes(content));
+    }
+    const valid = file('/valid.txt');
+    await service.backups.write(valid, 'our draft', { etag: undefined, bom: false });
+
+    expect(await service.backups.listRestorable()).toEqual([valid]);
+    expect(warn).toHaveBeenCalledTimes(entries.length - 1);
+    for (const [location, content] of entries) {
+      expect(text((await files.readFile(location)).value)).toBe(content);
+    }
   });
 });
