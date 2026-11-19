@@ -11,6 +11,7 @@ import { normalizeFileResource } from '../../../platform/files/common/fileResour
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
+import { forbiddenResourcePath, reservedSchemes } from './mainThreadDocuments.js';
 import { extensionEditorGroup, paneControl } from './mainThreadEditors.js';
 
 interface MonacoCommands {
@@ -37,7 +38,6 @@ function range(value: unknown): IRange {
 }
 
 const actionPrefix = 'editor.action.';
-const reservedSchemes = new Set<string>(Object.values(Schemas));
 const rename = 'editor.action.rename';
 const references = 'editor.action.showReferences';
 
@@ -88,7 +88,7 @@ export class DocumentApiCommands extends Disposable {
   }
 
   private resource(value: unknown): URI {
-    if (!URI.isUri(value) || value.hasEncodedPathSeparator || /[\\\x00-\x1f\x7f]|%(?:25)*(?:2f|5c)/i.test(value.path)) {
+    if (!URI.isUri(value) || value.hasEncodedPathSeparator || forbiddenResourcePath.test(value.path)) {
       throw new TypeError('Expected a permitted editor Uri.');
     }
     if (value.scheme === Schemas.vscodeVfs && this.workspace.getWorkspaceFolder(value)) {
@@ -114,10 +114,15 @@ export class DocumentApiCommands extends Disposable {
     }, extensionEditorGroup(this.groups, column));
   }
 
-  private editor(id: string): ICodeEditor {
+  private current(): ICodeEditor | undefined {
     const focused = this.controls.getFocusedCodeEditor();
     const active = focused?.getModel() ? focused : paneControl(this.editors.activeEditorPane);
-    if (!active?.getModel()) {
+    return active?.getModel() ? active : undefined;
+  }
+
+  private editor(id: string): ICodeEditor {
+    const active = this.current();
+    if (!active) {
       throw new Error(`command '${id}' not found`);
     }
     return active;
@@ -134,16 +139,18 @@ export class DocumentApiCommands extends Disposable {
       case 'top': editor.revealLineNearTop(line, 1); break;
       case 'center': editor.revealLineInCenter(line, 1); break;
       case 'bottom':
-        editor.setScrollTop(editor.getTopForLineNumber(line + 1) - editor.getLayoutInfo().height, 1);
+        // The top of the next line clamps to the last line's top, which would leave the last line hidden.
+        editor.setScrollTop(editor.getBottomForLineNumber(line) - editor.getLayoutInfo().height, 1);
         break;
       default: editor.revealLine(line, 1);
     }
   }
 
   private async atResource(id: string, uri: URI): Promise<ICodeEditor> {
-    const active = this.editor(id);
-    const model = active.getModel();
-    if (model && URI.parse(model.uri.toString(), true).toString() === uri.toString()) {
+    // With no text editor in front, the resource still opens in one.
+    const active = this.current();
+    const model = active?.getModel();
+    if (active && model && URI.parse(model.uri.toString(), true).toString() === uri.toString()) {
       return active;
     }
     const control = paneControl(await this.editors.openEditor({ resource: uri }));

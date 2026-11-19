@@ -9,6 +9,9 @@ test('only validated decoration values enter stylesheet rules', () => {
     color: 'url(https://example.test/image)',
     borderColor: { id: 'editor.foreground' },
     border: '1px solid #cafe00',
+    // These fit the value grammar; only the function filter keeps them out.
+    outline: '1px solid var(--vscode-focusBorder)',
+    textDecoration: 'underline url(https://example.test/image)',
     fontStyle: 'italic/*',
     letterSpacing: '0.2em',
     margin: '2px 0 2px 3px',

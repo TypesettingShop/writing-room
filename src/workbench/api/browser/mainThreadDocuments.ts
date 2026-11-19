@@ -16,6 +16,7 @@ import { ITextModelService } from '../../../editor/common/services/resolverServi
 import { normalizeFileResource } from '../../../platform/files/common/fileResource.js';
 import { FileSystemProviderError, FileSystemProviderErrorCode, IFileService } from '../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
+import { IEditorService } from '../../services/editor/common/editorService.js';
 import { extensionGlobalStorageUri, extensionWorkspaceStorageUri } from '../../services/extensions/common/extensionStoragePaths.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { ITextFileService } from '../../services/textfile/common/textfiles.js';
@@ -27,8 +28,13 @@ import { applyDocumentEdit, validateDocumentEdit } from './mainThreadDocumentEdi
 
 const referenceMaxAge = 3 * 60 * 1000;
 const settingsUri = 'vscode-userdata:/User/settings.json';
-const reservedSchemes = new Set<string>([...Object.values(Schemas), 'webview-panel', 'vscode-custom-editor', 'output']);
-const unsafeResource = /[\\\x00-\x1f\x7f-\x9f]|%(?:25)*(?:2f|5c)/i;
+/**
+ * Backslashes, control characters and encoded path separators, as fileResource.ts refuses them. Every
+ * resource gate of this area tests the same set; the platform file keeps its own copy private.
+ */
+export const forbiddenResourcePath = /[\\\x00-\x1F\x7F-\x9F]|%(?:25)*(?:2f|5c)/i;
+/** Workbench schemes, which neither a content provider nor a non-workspace resource may claim. */
+export const reservedSchemes: ReadonlySet<string> = new Set<string>(Object.values(Schemas));
 
 interface TrackedModel {
   readonly model: ITextModel;
@@ -72,6 +78,7 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
     @IUntitledTextEditorService private readonly untitled: IUntitledTextEditorService,
     @ILanguageService private readonly languages: ILanguageService,
+    @IEditorService private readonly editorService: IEditorService,
   ) {
     super();
     this._register(models.onModelAdded(model => this.add(model)));
@@ -220,10 +227,10 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     return extension;
   }
 
-  /** Apply the same storage boundaries to document opens, editor commands, and workspace edits. */
+  /** Apply the same storage boundaries to document opens, shown editors, will-save edits and workspace edits. */
   authorizeResource(extension: string, resource: URI, write: boolean): URI {
     const { id } = this.requireExtension(extension);
-    if (!URI.isUri(resource) || resource.hasEncodedPathSeparator || unsafeResource.test(resource.path)) {
+    if (!URI.isUri(resource) || resource.hasEncodedPathSeparator || forbiddenResourcePath.test(resource.path)) {
       throw new FileSystemProviderError('Invalid document resource.', FileSystemProviderErrorCode.NoPermissions);
     }
     if (resource.scheme === Schemas.untitled || resource.toString() === settingsUri) {
@@ -283,7 +290,9 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
       }
       const id = this.requireMirrored(model);
       this.keepReference(model, toDisposable(() => {
-        if (!this.editors.listCodeEditors().some(editor => editor.getModel() === model)) {
+        // A tab that is open but not in front has no code editor; disposing the model would close it.
+        if (!this.editors.listCodeEditors().some(editor => editor.getModel() === model)
+          && !this.editorService.findEditors(untitled.resource).length) {
           untitled.dispose();
         }
       }));
@@ -381,12 +390,15 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
 
   async $applySaveEdits(extension: string, save: number, version: number, edit: DocumentEdit): Promise<boolean> {
     const pending = this.saves.get(save);
+    const entry = pending && this.tracked.get(pending.id);
     const model = pending && this.getModel(pending.id);
-    if (!pending || Date.now() >= pending.deadline || !model || this.isReadOnly(model)
+    if (!pending || Date.now() >= pending.deadline || !entry || !model || this.isReadOnly(model)
       || !this.getExtension(extension) || model.getVersionId() !== version || this.stopped) {
       return false;
     }
     try {
+      // Will-save edits write the document, so they keep to the boundaries workspace edits do.
+      this.authorizeResource(extension, entry.uri, entry.uri.scheme !== Schemas.untitled);
       const operations = validateDocumentEdit(model, edit);
       if (Date.now() >= pending.deadline) {
         return false;

@@ -182,18 +182,22 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
           const model = reference.object.textEditorModel as IMonacoTextModel;
           const current = model.getVersionId();
           const showing = this.editorService.findEditors(uri);
-          if (this.documents.isReadOnly(model) || showing.some(({ editor }) => editor.isReadonly()) || entries.some(entry => entry.version !== undefined && current !== entry.version)) {
+          // An earlier text group of this edit changes the model before this one applies, so this
+          // group's ranges cannot be checked against the text seen here, nor its version kept.
+          const editedBefore = versions.has(model);
+          if (this.documents.isReadOnly(model) || showing.some(({ editor }) => editor.isReadonly())
+            || entries.some(entry => entry.version !== undefined && (editedBefore || current !== entry.version))) {
             throw new Error('Workspace edit conflicts with a document version or read-only resource.');
           }
-          if (!versions.has(model)) {
+          if (!editedBefore) {
             versions.set(model, current);
           }
           const active = this.editors.active;
-          const snippet = entries.length === 1 && entries[0].snippet && active?.model === model ? entries[0] : undefined;
+          const snippet = !editedBefore && entries.length === 1 && entries[0].snippet && active?.model === model ? entries[0] : undefined;
           const edit = combinedEdits(entries, !snippet);
           const validated = validateDocumentEdit(model, edit);
           edits.push(() => {
-            applyDocumentEdit(model, validated, edit.eol);
+            applyDocumentEdit(model, editedBefore ? validateDocumentEdit(model, edit) : validated, edit.eol);
             versions.set(model, model.getVersionId());
           });
           if (snippet && active) {
@@ -210,7 +214,8 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
               versions.set(model, model.getVersionId());
             });
           }
-          if (uri.scheme !== Schemas.untitled && !showing.length) {
+          // Saving a document that already had unsaved changes would write those changes too.
+          if (uri.scheme !== Schemas.untitled && !showing.length && !this.textFiles.isDirty(uri)) {
             saves.add(uri);
           }
         }

@@ -237,13 +237,15 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
     const spaces = options.insertSpaces;
     const insertSpaces = typeof spaces === 'boolean' ? spaces : spaces === 'true' ? true : spaces === 'false' ? false : undefined;
     if (options.tabSize === 'auto' || spaces === 'auto') {
+      // As VS Code: the given sizes are only the defaults of the detection, which decides the indentation.
       entry.model.detectIndentation(insertSpaces ?? current.insertSpaces, tabSize ?? current.tabSize);
+    } else {
+      entry.model.updateOptions({
+        ...(tabSize === undefined ? {} : { tabSize }),
+        ...(indentSize === undefined ? {} : { indentSize }),
+        ...(insertSpaces === undefined ? {} : { insertSpaces }),
+      });
     }
-    entry.model.updateOptions({
-      ...(tabSize === undefined ? {} : { tabSize }),
-      ...(indentSize === undefined ? {} : { indentSize }),
-      ...(insertSpaces === undefined ? {} : { insertSpaces }),
-    });
     entry.control.updateOptions(editorStyles(options.cursorStyle, options.lineNumbers));
   }
 
@@ -274,10 +276,13 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
       if (edit.eol !== undefined) {
         entry.model.pushEOL(edit.eol === 1 ? 0 : 1);
       }
-      const applied = !operations.length || entry.control.executeEdits('api', operations);
+      // As VS Code: the cursor move of an edit is not an API selection, so its change has no kind.
+      const applied = !operations.length || entry.control.executeEdits('MainThreadTextEditor', operations);
       if (options.undoStopAfter !== false) {
         entry.control.pushUndoStop();
       }
+      // The selection the edit moved reaches the extension host before the edit resolves there.
+      await entry.whenSettled();
       return applied;
     } catch {
       return false;
@@ -308,6 +313,7 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
         undoStopBefore: options.undoStopBefore !== false,
         undoStopAfter: options.undoStopAfter !== false,
       });
+      await entry.whenSettled();
       return true;
     } catch {
       return false;

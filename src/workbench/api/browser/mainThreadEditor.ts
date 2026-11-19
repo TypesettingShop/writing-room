@@ -27,6 +27,7 @@ export class MainThreadEditor extends Disposable {
   readonly decorations = this._register(new DisposableStore());
   private properties: EditorProperties;
   private pending = false;
+  private settled: Promise<void> = Promise.resolve();
   private selectionSource: string | undefined;
   private stopped = false;
 
@@ -59,8 +60,19 @@ export class MainThreadEditor extends Disposable {
     if (!this.pending) {
       this.pending = true;
       // The document change includes the settled dirty state and crosses RPC first.
-      queueMicrotask(() => queueMicrotask(() => this.refresh()));
+      this.settled = new Promise(resolve => queueMicrotask(() => queueMicrotask(() => {
+        try {
+          this.refresh();
+        } finally {
+          resolve();
+        }
+      })));
     }
+  }
+
+  /** Resolves once the properties scheduled so far have been sent, so a reply sent after it follows them. */
+  whenSettled(): Promise<void> {
+    return this.settled;
   }
 
   private read(): EditorProperties {
@@ -100,7 +112,8 @@ export class MainThreadEditor extends Disposable {
     this.selectionSource = undefined;
     this.properties = current;
     if (Object.keys(modified).length) {
-      const kind = source === 'keyboard' ? 1 : source === 'mouse' ? 2 : source ? 3 : undefined;
+      // As VS Code: only an API selection is a command; a model change or a restored state has no kind.
+      const kind = source === 'keyboard' ? 1 : source === 'mouse' ? 2 : source === 'api' ? 3 : undefined;
       void this.proxy.$acceptEditorProperties(this.id, modified, kind).catch(() => {});
     }
   }

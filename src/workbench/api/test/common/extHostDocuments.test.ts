@@ -4,7 +4,10 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ExtHostDocumentData } from '../../common/extHostDocumentData.js';
 import { ExtHostDocumentSaveParticipant } from '../../common/extHostDocumentSaveParticipant.js';
-import { EndOfLine, Position, Range, TextEdit } from '../../common/extHostTypes.js';
+import { ExtHostTextEditor } from '../../common/extHostTextEditor.js';
+import type { ExtHostTextEditorDecorations } from '../../common/extHostTextEditorDecorations.js';
+import type { MainThreadEditorsShape } from '../../common/extHost.protocol.documents.js';
+import { EndOfLine, Position, Range, Selection, SnippetString, TextEdit } from '../../common/extHostTypes.js';
 import type { IModelContentChangedEvent } from '../../../../editor/common/model.js';
 
 function mirror(lines: string[], eol = '\n') {
@@ -64,4 +67,46 @@ test('the save listener budget expires and removes only the subscription that fa
     log.mockRestore();
     vi.useRealTimers();
   }
+});
+
+test('a text editor reads back what it set, rejects an overlapping edit and snippets at the selections', async () => {
+  const data = mirror(['abc', 'def']);
+  const proxy = {
+    $setSelections: vi.fn(async () => {}),
+    $setOptions: vi.fn(async () => {}),
+    $applyEdits: vi.fn(async () => true),
+    $insertSnippet: vi.fn(async () => true),
+  };
+  const properties = {
+    selections: [{ selectionStartLineNumber: 1, selectionStartColumn: 1, positionLineNumber: 1, positionColumn: 1 }],
+    visibleRanges: [], viewColumn: 1,
+    options: { tabSize: 4, indentSize: 4, insertSpaces: true, cursorStyle: 1, lineNumbers: 1 },
+  };
+  const host = new ExtHostTextEditor('editor', proxy as unknown as MainThreadEditorsShape, data.document, properties,
+    {} as ExtHostTextEditorDecorations);
+  const editor = host.value;
+
+  editor.selection = new Selection(1, 1, 1, 2);
+  expect(editor.selection.isEqual(new Selection(1, 1, 1, 2))).toBe(true);
+  editor.options.tabSize = 2;
+  expect(editor.options.tabSize).toBe(2);
+  editor.options = { tabSize: 'auto', cursorStyle: 2 };
+  expect([editor.options.tabSize, editor.options.cursorStyle]).toEqual([2, 1]);
+
+  let returned: Thenable<boolean> | undefined;
+  expect(() => {
+    returned = editor.edit(builder => {
+      builder.delete(new Range(0, 0, 0, 2));
+      builder.delete(new Range(0, 1, 0, 3));
+    });
+  }).not.toThrow();
+  await expect(returned).rejects.toThrow('Overlapping ranges are not allowed!');
+  expect(proxy.$applyEdits).not.toHaveBeenCalled();
+
+  expect(await editor.insertSnippet(new SnippetString('x$0'), [])).toBe(true);
+  expect(proxy.$insertSnippet).toHaveBeenCalledWith('editor', 1, 'x$0', undefined, {});
+
+  host.close();
+  await expect(editor.edit(() => {})).rejects.toThrow('closed editors');
+  await expect(editor.insertSnippet(new SnippetString('x'))).rejects.toThrow('closed editors');
 });

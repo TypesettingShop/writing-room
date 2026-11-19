@@ -10,6 +10,7 @@ import { resolveExtensionPath } from '../../services/extensions/common/extension
 import { decorationRangeLimit } from '../common/extHost.protocol.documents.js';
 import type { DecorationInstance, MainThreadDecorationsShape } from '../common/extHost.protocol.documents.js';
 import { validateModelRange } from './mainThreadDocumentEdits.js';
+import { forbiddenResourcePath } from './mainThreadDocuments.js';
 import type { MainThreadEditor } from './mainThreadEditor.js';
 import { cssString, decorationColor, decorationCss, decorationIconSize, decorationOptions, themedDecoration } from './mainThreadEditorDecorationStyles.js';
 import type { MainThreadEditors } from './mainThreadEditors.js';
@@ -188,7 +189,7 @@ export class MainThreadEditorDecorations extends Disposable implements MainThrea
       const root = URI.parse(location.endsWith('/') ? location : location + '/', true);
       const resource = URI.isUri(value) ? value : typeof value === 'string'
         ? URI.parse(resolveExtensionPath(location, value)?.href ?? value, true) : undefined;
-      if (!resource || resource.hasEncodedPathSeparator || /[\\\x00-\x1f]|%(?:25)*(?:2f|5c)/i.test(resource.path)) {
+      if (!resource || resource.hasEncodedPathSeparator || forbiddenResourcePath.test(resource.path)) {
         return undefined;
       }
       const withinExtension = isEqualOrParent(resource, root) && !resource.path.split('/').includes('..')

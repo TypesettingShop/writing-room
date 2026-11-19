@@ -13,6 +13,23 @@ export enum TextEditorCursorStyle { Line = 1, Block, Underline, LineThin, BlockO
 export enum TextEditorLineNumbersStyle { Off, On, Relative, Interval }
 export enum TextEditorRevealType { Default, InCenter, InCenterIfOutsideViewport, AtTop }
 
+/** The value the main thread stores for an option, when it stores the given one as it is. */
+function settledOption(key: keyof vscode.TextEditorOptions, value: unknown): number | boolean | undefined {
+  switch (key) {
+    case 'tabSize':
+    case 'indentSize': {
+      const size = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+      return typeof size === 'number' && Number.isInteger(size) && size >= 1 && size <= 100 ? size : undefined;
+    }
+    case 'insertSpaces':
+      return typeof value === 'boolean' ? value : value === 'true' ? true : value === 'false' ? false : undefined;
+    case 'cursorStyle':
+      return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 6 ? value : undefined;
+    case 'lineNumbers':
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 3 ? value : undefined;
+  }
+}
+
 function selectionFromDto(value: EditorSelection): Selection {
   return new Selection(value.selectionStartLineNumber - 1, value.selectionStartColumn - 1,
     value.positionLineNumber - 1, value.positionColumn - 1);
@@ -74,8 +91,13 @@ class TextEditorEdit implements vscode.TextEditorEdit {
     }
   }
 
-  finish(): DocumentEdit {
+  /** Ends the callback's window; later builder calls throw. */
+  close(): void {
     this.finalized = true;
+  }
+
+  finish(): DocumentEdit {
+    this.close();
     const ordered = this.ranges.sort((a, b) => a.start.compareTo(b.start) || a.end.compareTo(b.end));
     if (ordered.some((range, index) => index > 0 && ordered[index - 1].end.isAfter(range.start))) {
       throw new Error('Overlapping ranges are not allowed!');
@@ -97,13 +119,25 @@ export class ExtHostTextEditor {
   ) {
     this.accept(properties);
     const editor = this;
+    const keys = ['tabSize', 'indentSize', 'insertSpaces', 'cursorStyle', 'lineNumbers'] as const;
     const setOptions = (options: vscode.TextEditorOptions) => {
       if (!editor.closed) {
         void proxy.$setOptions(id, options).catch(() => {});
+        // As VS Code: a value the main thread takes as it is reads back at once, not after a round trip.
+        // 'auto' and the 'tabSize' indent size wait for the main thread's result.
+        if (options && typeof options === 'object' && options.tabSize !== 'auto' && options.insertSpaces !== 'auto') {
+          const settled: Record<string, unknown> = { ...editor._options };
+          for (const key of keys) {
+            const value = settledOption(key, options[key]);
+            if (value !== undefined) {
+              settled[key] = value;
+            }
+          }
+          editor._options = settled as vscode.TextEditorOptions;
+        }
       }
     };
     const options: vscode.TextEditorOptions = {};
-    const keys = ['tabSize', 'indentSize', 'insertSpaces', 'cursorStyle', 'lineNumbers'] as const;
     for (const key of keys) {
       Object.defineProperty(options, key, {
         enumerable: true,
@@ -117,6 +151,8 @@ export class ExtHostTextEditor {
       set selections(value) {
         const selections = value.map(selectionToDto);
         if (!editor.closed && selections.length) {
+          // As VS Code: the editor reads back what was set at once; the main thread's clamped result follows.
+          editor._selections = Object.freeze([...value] as Selection[]);
           void proxy.$setSelections(id, selections).catch(() => {});
         }
       },
@@ -128,23 +164,32 @@ export class ExtHostTextEditor {
       get viewColumn() { return editor._viewColumn; },
       edit(callback, options) {
         if (editor.closed) {
-          return Promise.resolve(false);
+          // As VS Code: a closed editor rejects instead of reporting an edit that did not apply.
+          return Promise.reject(new Error('TextEditor#edit not possible on closed editors'));
         }
         const version = document.version;
         const builder = new TextEditorEdit(document);
-        let edit: DocumentEdit;
         try {
           callback(builder);
         } finally {
+          builder.close();
+        }
+        let edit: DocumentEdit;
+        try {
           edit = builder.finish();
+        } catch (error) {
+          // As VS Code: an invalid edit rejects the returned thenable instead of throwing.
+          return Promise.reject(error);
         }
         return proxy.$applyEdits(id, version, edit, options ?? {}).catch(() => false);
       },
       insertSnippet(snippet, location, options) {
         if (editor.closed) {
-          return Promise.resolve(false);
+          return Promise.reject(new Error('TextEditor#insertSnippet not possible on closed editors'));
         }
-        const locations = location === undefined ? undefined : Array.isArray(location) ? location : [location];
+        // As VS Code: no location, or an empty list of them, inserts at the selections.
+        const locations = location === undefined || (Array.isArray(location) && !location.length) ? undefined
+          : Array.isArray(location) ? location : [location];
         const ranges = locations?.map(part => toModelRange(document.validateRange(
           part instanceof Position ? new Range(part, part) : part,
         )));
