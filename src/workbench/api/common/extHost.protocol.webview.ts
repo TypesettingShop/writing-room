@@ -64,6 +64,7 @@ export interface ExtHostWebviewsShape {
   $onPanelViewState(extension: string, handle: string, state: WebviewPanelViewState): Promise<void>;
   $deserializePanel(extension: string, handle: string, data: WebviewPanelRestoreData, origin: WebviewOrigin, token: CancellationToken): Promise<void>;
   $onPanelDisposed(extension: string, handle: string): Promise<void>;
+  $prepareShutdown(): Promise<void>;
 }
 
 export type MainThreadWebviewContent = Pick<MainThreadWebviewsShape, '$setHtml' | '$setOptions' | '$postMessage'>;

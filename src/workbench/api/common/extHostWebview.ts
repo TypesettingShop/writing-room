@@ -204,6 +204,7 @@ interface SerializerRegistration {
 class ExtHostWebviews implements ExtHostWebviewsShape {
   private readonly panels = new Map<string, PanelEntry>();
   private readonly serializers = new Map<string, Map<string, SerializerRegistration>>();
+  private stopped = false;
 
   private forwardingHint: WebviewForwardingPorts | undefined;
   readonly ready: Promise<void> | undefined;
@@ -219,6 +220,9 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
     extension: string, viewType: string, title: string, showOptions: number | WebviewShowOptions,
     options: vscode.WebviewPanelOptions & vscode.WebviewOptions = {},
   ): vscode.WebviewPanel {
+    if (this.stopped) {
+      throw new Error('Webview panels are shutting down.');
+    }
     if (!randomUUID) {
       throw new Error('Webviews require a secure workbench address.');
     }
@@ -238,8 +242,9 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
       },
     }, origin, ready);
     void ready.catch(error => {
-      this.drop(extension, id);
-      console.error('Could not open Webview panel:', error);
+      if (this.drop(extension, id)) {
+        console.error('Could not open Webview panel:', error);
+      }
     });
     return panel;
   }
@@ -288,7 +293,7 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   async $deserializePanel(
     extension: string, handle: string, data: WebviewPanelRestoreData, origin: WebviewOrigin, token: CancellationToken,
   ): Promise<void> {
-    if (token.isCancellationRequested) {
+    if (this.stopped || token.isCancellationRequested) {
       return;
     }
     const serializer = this.serializers.get(extension)?.get(data.viewType)?.serializer;
@@ -335,8 +340,18 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
     }
   }
 
+  async $prepareShutdown(): Promise<void> {
+    // A create request still waiting for the workbench can leave a worker-only panel.
+    this.closePanels();
+  }
+
   dispose(): void {
+    this.closePanels();
     this.serializers.clear();
+  }
+
+  private closePanels(): void {
+    this.stopped = true;
     for (const [id, { extension }] of this.panels) {
       this.drop(extension, id);
     }

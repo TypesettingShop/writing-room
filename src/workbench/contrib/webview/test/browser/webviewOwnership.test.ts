@@ -56,6 +56,7 @@ function setup() {
     $deserializePanel: vi.fn().mockResolvedValue(undefined),
     $onPanelViewState: async () => {},
     $onPanelDisposed: vi.fn().mockResolvedValue(undefined),
+    $prepareShutdown: vi.fn().mockResolvedValue(undefined),
   } as unknown as ExtHostWebviewsShape;
   const workspace = { getWorkspace: () => ({ folders: [] }) } as unknown as IWorkspaceContextService;
   const extension = (key: string): HostExtensionDescription => ({
@@ -121,6 +122,7 @@ it('restarts a pending restore with the new host before origin resolution return
     expect(origins.resolve).toHaveBeenCalledOnce();
 
     first.dispose();
+    expect(proxy.$prepareShutdown).toHaveBeenCalledOnce();
     expect(input.restoreGeneration).toBe(previous + 1);
     expect(restore.show).toHaveBeenCalledWith(input);
     await second.$registerPanelSerializer('first', input.viewType);

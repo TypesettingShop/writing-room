@@ -73,6 +73,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
   private nextExtensionKey = 0;
   private host?: HostSession;
   private hostFailure?: Error;
+  private hostShutdown?: Promise<void>;
   private locale = 'en';
   private readonly localized = new WeakMap<IExtensionDescription, Readonly<Record<string, string>>>();
   /** One localized copy per description and table, so contribution points see the same object on every refresh. */
@@ -298,6 +299,9 @@ export class ExtensionService extends Disposable implements IExtensionService {
       // The default startup events can activate different extensions concurrently.
       void this.activateByEvent('*').catch(() => {});
     }
+    if (this.hostShutdown) {
+      await this.hostShutdown;
+    }
     if (!this.instantiation || this.applying || this.stopping) {
       return;
     }
@@ -344,8 +348,17 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   async restartExtensionHost(): Promise<void> {
-    this.stopHost();
-    this.hostFailure = undefined;
+    if (!this.hostShutdown) {
+      // Make the shutdown visible to activation requests before releasing the old host's
+      // customers. Releasing them can request activation to restore an open Webview.
+      this.hostShutdown = Promise.resolve()
+        .then(() => this.releaseHost()?.worker.shutdownGracefully())
+        .finally(() => {
+          this.hostFailure = undefined;
+          this.hostShutdown = undefined;
+        });
+    }
+    await this.hostShutdown;
     await this.replayEvents();
   }
 
@@ -426,17 +439,21 @@ export class ExtensionService extends Disposable implements IExtensionService {
     return host;
   }
 
-  private stopHost(): void {
+  private releaseHost(): HostSession | undefined {
     const host = this.host;
     this.host = undefined;
     this.eventOperations.clear();
     this.completedEvents.clear();
     this.activationStatus.clear();
     host?.main.dispose();
-    host?.worker.dispose();
     for (const finishRemoval of host?.removing.values() ?? []) {
       finishRemoval();
     }
+    return host;
+  }
+
+  private stopHost(): void {
+    this.releaseHost()?.worker.dispose();
   }
 
   private extensionsChanged(): void {

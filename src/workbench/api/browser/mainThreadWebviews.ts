@@ -184,6 +184,9 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
   }
 
   override dispose(): void {
+    if (this.stopped) {
+      return;
+    }
     this.stopped = true;
     for (const [handle, entry] of this.panels) {
       const { owner, input } = entry;
@@ -211,6 +214,8 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     for (const extension of this.serializers.keys()) {
       this.removeSerializers(extension);
     }
+    // This runs on the same port before the worker starts disposing extension subscriptions.
+    void this.proxy.$prepareShutdown().catch(() => {});
     super.dispose();
   }
 
