@@ -6,7 +6,7 @@ import type { ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import type { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { configurationRegistry, OVERRIDE_PROPERTY_REGEX } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -29,6 +29,7 @@ async function ensureSchema(): Promise<void> {
 }
 
 function registerSchema(monaco: MonacoNamespace): void {
+  const properties = Object.fromEntries(configurationRegistry.getConfigurationProperties());
   const defaults = monaco.json.jsonDefaults;
   const existing = defaults.diagnosticsOptions;
   defaults.setDiagnosticsOptions({
@@ -44,7 +45,11 @@ function registerSchema(monaco: MonacoNamespace): void {
           additionalProperties: false,
           allowComments: true,
           allowTrailingCommas: true,
-          properties: Object.fromEntries(configurationRegistry.getConfigurationProperties()),
+          properties,
+          // A language section such as "[markdown]" holds any registered setting.
+          patternProperties: {
+            [OVERRIDE_PROPERTY_REGEX.source]: { type: 'object', properties, additionalProperties: false },
+          },
         },
       },
     ],
