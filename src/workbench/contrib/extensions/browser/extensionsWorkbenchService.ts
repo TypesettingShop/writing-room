@@ -1,3 +1,4 @@
+import { Sequencer } from '../../../../base/common/async.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { galleryId, GalleryRateLimitError, IExtensionGalleryService } from '../../../../platform/extensionManagement/common/extensionGalleryService.js';
@@ -66,16 +67,6 @@ function compareVersions(left: string, right: string): number {
   return a.prerelease.length - b.prerelease.length;
 }
 
-export async function installVsixFile(
-  management: ExtensionManagementService, file: File, confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
-): Promise<void> {
-  if (file.size > vsixLimits.download) {
-    throw new Error(`'${file.name}' is ${file.size} bytes, more than the ${vsixLimits.download}-byte limit.`);
-  }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  await management.installPackage(bytes, { kind: 'vsix', label: file.name }, confirm);
-}
-
 /** Holds search and per-extension operations across view moves and focus changes. */
 export class ExtensionsWorkbenchService extends Disposable {
   declare readonly _serviceBrand: undefined;
@@ -85,7 +76,7 @@ export class ExtensionsWorkbenchService extends Disposable {
   private readonly operations = new Map<string, Operation>();
   private readonly errors = new Map<string, FailedOperation>();
   private readonly jobs = new Set<InstallJob>();
-  private confirmTail = Promise.resolve<unknown>(undefined);
+  private readonly prompts = new Sequencer();
   private searchController?: AbortController;
   private searchTimer?: ReturnType<typeof setTimeout>;
   private currentQuery = '';
@@ -119,10 +110,13 @@ export class ExtensionsWorkbenchService extends Disposable {
   get canStartInstall(): boolean { return this.jobs.size < installLimit; }
 
   get installed(): readonly InstalledExtension[] {
-    const records = new Map(this.scanner.scanUserExtensions().map(record => [record.identifier, record]));
-    return (this.extensions.extensions ?? []).map(({ identifier, manifest, location, nls, isBuiltin }) => ({
+    const extensions = this.extensions.extensions ?? [];
+    // Only package rows need stored provenance. The live registry supplies display and dependency state.
+    const records = extensions.some(extension => !extension.isBuiltin && isExtensionPackageLocation(extension.location))
+      ? new Map(this.scanner.scanUserExtensions().map(record => [record.identifier, record.source])) : undefined;
+    return extensions.map(({ identifier, manifest, location, nls, isBuiltin }) => ({
       id: identifier.value, displayName: localizedDisplayName(manifest, nls), version: manifest.version,
-      source: isBuiltin ? 'builtin' : records.get(identifier.value)?.source ?? (isExtensionPackageLocation(location) ? 'vsix' : 'location'),
+      source: isBuiltin ? 'builtin' : records?.get(identifier.value) ?? (isExtensionPackageLocation(location) ? 'vsix' : 'location'),
     } satisfies InstalledExtension)).sort((left, right) => left.displayName.localeCompare(right.displayName));
   }
 
@@ -249,7 +243,7 @@ export class ExtensionsWorkbenchService extends Disposable {
     if (ancestors.includes(id)) {
       throw new Error('Open VSX dependency cycle: ' + [...ancestors, id].join(' → '));
     }
-    if (ancestors.length && this.installed.some(extension => extension.id === id) && !this.operations.has(id)) {
+    if (ancestors.length && this.extensions.extensions?.some(extension => extension.identifier.value === id) && !this.operations.has(id)) {
       return true;
     }
     // Only a dependency that still has to be installed counts against the depth limit.
@@ -268,7 +262,7 @@ export class ExtensionsWorkbenchService extends Disposable {
       const download = await this.gallery.download(metadata, signal);
       const result = await this.management.installFromGallery(metadata, download, async confirmation => {
         this.setInstalling(id, job, 'Waiting for confirmation…');
-        if (!await this.confirm(confirmation, signal)) {
+        if (!await this.confirmInstall(confirmation, signal)) {
           return false;
         }
         if (metadata.dependencies.length) {
@@ -295,11 +289,27 @@ export class ExtensionsWorkbenchService extends Disposable {
     this.changed.fire();
   }
 
-  private confirm(confirmation: PackageInstallConfirmation, signal?: AbortSignal): Promise<boolean> {
-    // There is one workbench QuickPick. Independent downloads can finish together.
-    const answer = this.confirmTail.then(() => confirmPackage(this.quickInput, confirmation, signal));
-    this.confirmTail = answer.catch(() => {});
-    return answer;
+  /** Installation prompts share one QuickInput across the palette, gallery and file drops. */
+  queuePrompt<T>(show: () => Promise<T>): Promise<T> {
+    return this.prompts.queue(show);
+  }
+
+  confirmInstall(confirmation: PackageInstallConfirmation, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) {
+      return Promise.resolve(false);
+    }
+    const answer = this.queuePrompt(() => signal?.aborted
+      ? Promise.resolve(false) : confirmPackage(this.quickInput, confirmation, signal));
+    if (!signal) {
+      return answer;
+    }
+    // Resolve the job immediately on cancellation. Its queued turn stays behind the active prompt
+    // and becomes a no-op when reached, so a later confirmation cannot overtake the active one.
+    return new Promise((resolve, reject) => {
+      const abort = () => resolve(false);
+      signal.addEventListener('abort', abort, { once: true });
+      void answer.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
   }
 
   uninstall(extension: InstalledExtension): void {
@@ -317,8 +327,12 @@ export class ExtensionsWorkbenchService extends Disposable {
     });
   }
 
-  installDroppedFile(file: File): Promise<void> {
-    return installVsixFile(this.management, file, confirmation => this.confirm(confirmation));
+  async installVsixFile(file: File): Promise<void> {
+    if (file.size > vsixLimits.download) {
+      throw new Error(`'${file.name}' is ${file.size} bytes, more than the ${vsixLimits.download}-byte limit.`);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await this.management.installPackage(bytes, { kind: 'vsix', label: file.name }, confirmation => this.confirmInstall(confirmation));
   }
 
   override dispose(): void {

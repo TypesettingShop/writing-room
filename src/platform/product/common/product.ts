@@ -50,13 +50,15 @@ export function readProductConfiguration(json: string | undefined): ProductConfi
       return defaults;
     }
     const { version, extensionsGallery, webviewContentExternalBaseUrlTemplate } = value;
+    // An explicit opt-out survives validation failures in unrelated product settings.
+    const fallback = extensionsGallery === null ? { ...defaults, extensionsGallery: null } : defaults;
     if (version !== undefined && (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version))) {
-      return defaults;
+      return fallback;
     }
     if (webviewContentExternalBaseUrlTemplate !== undefined
       && (typeof webviewContentExternalBaseUrlTemplate !== 'string'
         || !isHttpsUrl(webviewContentExternalBaseUrlTemplate.replace(/\{[^}]+\}/g, 'placeholder')))) {
-      return defaults;
+      return fallback;
     }
     const gallery = { ...defaultGallery };
     if (extensionsGallery !== undefined && extensionsGallery !== null) {

@@ -108,9 +108,8 @@ export class ExtensionGalleryService {
       base.pathname = base.pathname.replace(/\/+$/, '') + '/';
       this.base = base;
     }
-    // Asset URLs are already confined to the service origin, so a response that was not redirected away from the
-    // service host is as trusted as its metadata. Without this a gallery that serves its own files is unusable
-    // unless its host is also listed.
+    // Asset requests start at the service origin. The download policy also accepts its hostname as a final
+    // response host. It checks the final hostname and protocol and does not inspect intermediate redirects or ports.
     this.hosts = base ? [...new Set([base.hostname, ...configuration?.allowedDownloadHosts ?? []])] : [];
   }
 

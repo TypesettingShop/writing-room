@@ -126,7 +126,7 @@ export class ExtensionsSearchView extends ExtensionList {
       } else if (!this.dropPending) {
         this.dropPending = true;
         this.dropMessage.textContent = 'Reading VSIX…';
-        void this.service.installDroppedFile(files[0]).then(() => {
+        void this.service.installVsixFile(files[0]).then(() => {
           this.dropMessage.textContent = '';
         }, (error: unknown) => {
           this.dropMessage.textContent = error instanceof Error ? error.message : String(error);

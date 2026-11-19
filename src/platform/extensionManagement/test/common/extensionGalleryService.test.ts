@@ -19,7 +19,7 @@ const signature = sign(null, bytes, keys.privateKey);
 afterEach(() => vi.restoreAllMocks());
 
 function fixture(options: {
-  unsigned?: boolean; checksum?: string; signature?: Uint8Array; key?: string;
+  downloadResponse?: Response; unsigned?: boolean; checksum?: string; signature?: Uint8Array; key?: string;
   web?: boolean; bundle?: Uint8Array<ArrayBuffer>; metadata?: Record<string, unknown>;
 } = {}) {
   const summary = { name: 'gallery', namespace: 'test', version: '1.0.0', displayName: 'Test Gallery', verified: true };
@@ -41,7 +41,7 @@ function fixture(options: {
         return Response.json({ offset: 0, totalSize: 25, extensions: [summary, { ...summary, name: {} }, { ...summary, displayName: 'a'.repeat(257) },
           ...Array.from({ length: 17 }, () => summary)] });
       case assets + 'gallery.vsix': {
-        const response = new Response(bytes);
+        const response = options.downloadResponse ?? new Response(bytes);
         Object.defineProperties(response, { url: { value: cdn + '/file.vsix' }, redirected: { value: true } });
         return response;
       }
@@ -181,4 +181,45 @@ it.skipIf(process.env.WRITING_ROOM_TEST_OPEN_VSX !== '1')('reads the fixed real 
   const service = new ExtensionGalleryService(config);
   const release = await service.getExtension({ namespace: 'DavidAnson', name: 'vscode-markdownlint' }, '0.62.1');
   expect(release).toMatchObject({ id: 'davidanson.vscode-markdownlint', isWebExtension: true, signature: { keyId: expect.any(String) } });
+});
+
+
+it('rejects an advertised oversized VSIX before starting its download', async () => {
+  const { service, request } = fixture({
+    metadata: { targetPlatform: 'universal', downloadSizes: { universal: 50 * 1024 * 1024 + 1 } },
+  });
+  await expect(service.getExtension(id)).rejects.toThrow(/50 MiB download limit/);
+  expect(request).toHaveBeenCalledOnce();
+});
+
+it('checks the 50 MiB limit in VSIX response headers before reading the body', async () => {
+  const response = new Response(bytes, { headers: { 'Content-Length': String(50 * 1024 * 1024 + 1) } });
+  const getReader = vi.spyOn(response.body!, 'getReader');
+  const { service, request } = fixture({ downloadResponse: response });
+  const release = await service.getExtension(id);
+  await expect(service.download(release)).rejects.toThrow(/52428800 bytes/);
+  expect(getReader).not.toHaveBeenCalled();
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+it('cancels a VSIX stream at the package limit when the headers have no length', async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  const cancel = vi.fn();
+  let pulls = 0;
+  const response = new Response(new ReadableStream({
+    pull(controller) {
+      if (++pulls <= 55) {
+        controller.enqueue(chunk);
+      } else {
+        controller.close();
+      }
+    },
+    cancel,
+  }, { highWaterMark: 0 }));
+  const { service, request } = fixture({ downloadResponse: response });
+  const release = await service.getExtension(id);
+  await expect(service.download(release)).rejects.toThrow(/52428800 bytes/);
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(pulls).toBe(51);
+  expect(request).toHaveBeenCalledTimes(2);
 });

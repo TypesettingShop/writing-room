@@ -4,6 +4,7 @@ import type { PackageInstallConfirmation } from '../../../services/extensionMana
 
 export const sourceNames = { location: 'folder URL', vsix: 'VSIX', gallery: 'Open VSX' } as const;
 
+/** Prompts with facts about the package bytes that will be installed. */
 export async function confirmPackage(
   quickInput: IQuickInputService,
   confirmation: PackageInstallConfirmation,
@@ -30,7 +31,7 @@ export async function confirmPackage(
     `Size: ${confirmation.size} bytes`,
     `SHA-256: ${confirmation.sha256}`,
     `Signature: ${signature}${gallery?.keyId ? ' (' + gallery.keyId + ')' : ''}`,
-    ...gallery && signature === 'verified' ? ['The key comes from Open VSX during installation. Verification detects changes in transit or at the CDN. A compromised registry could provide both a changed package and key.'] : [],
+    ...gallery && signature === 'verified' ? [`The key comes from ${gallery.label} during installation. Verification detects changes in transit or at the CDN. A compromised registry could provide both a changed package and key.`] : [],
     ...gallery && manifest.extensionDependencies?.length ? ['Dependencies: ' + manifest.extensionDependencies.join(', ')] : [],
     `engines.vscode ${confirmation.engine} is compatible with ${product.version}`,
     ...confirmation.persistent ? [] : ['Browser storage is unavailable: the extension stays for this session only.'],

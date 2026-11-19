@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { DeferredPromise } from '../../../../../base/common/async.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
@@ -161,4 +162,40 @@ test('restores good saved records around invalid or corrupt data', () => {
   } finally {
     warn.mockRestore();
   }
+});
+
+
+test('a folder reinstall can start while the previous registration is awaiting deactivation', async () => {
+  const fetched = new DeferredPromise<void>();
+  const { active, service, scanner, fetch } = setup();
+  await service.installFromLocation(location, async () => true);
+  fetch.mockImplementationOnce(async () => {
+    await fetched.complete();
+    return Response.json(manifest);
+  });
+  const removing = new DeferredPromise<void>();
+  const deactivated = new DeferredPromise<void>();
+  Object.assign(active, { whenExtensionRemoved: async () => {
+    await removing.complete();
+    await deactivated.p;
+  } });
+  const removal = service.uninstall('example.fixture');
+  await removing.p;
+  const confirm = vi.fn(async () => true);
+  const reinstall = service.installFromLocation(location, confirm);
+  // Observe any premature rejection while the old record still belongs to the pending removal.
+  const premature = vi.fn();
+  void reinstall.catch(premature);
+  try {
+    await fetched.p;
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(premature).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+  } finally {
+    await deactivated.complete();
+    await Promise.allSettled([removal, reinstall]);
+  }
+  await expect(reinstall).resolves.toMatchObject({ location });
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({ identifier: 'example.fixture' })]);
 });

@@ -60,7 +60,9 @@ test('installs the verified bytes by keyboard, persists them, runs the command, 
   const choice = confirmation(page, 'signed');
   await expect(choice).toContainText('writing-room-tests · 1.1.0 · writing-room-tests.gallery-signed');
   await expect(choice).toContainText('License: MIT');
+  await expect(choice).toContainText('Source: open-vsx.org');
   await expect(choice).toContainText('Download host: open-vsx.org');
+  await expect(choice).toContainText('The key comes from open-vsx.org');
   await expect(choice).toContainText(/Size: \d+ bytes.*SHA-256: [0-9a-f]{64}.*Signature: verified \(gallery-test\)/);
   await expect(choice).toContainText('compromised registry');
   await expect(choice).toContainText('Web extension');
@@ -129,6 +131,7 @@ for (const [variant, reason] of [
   ['bad-hash', /SHA-256 checksum does not match/],
   ['bad-signature', /Ed25519 signature does not match/],
   ['bad-host', /unapproved host or protocol/],
+  ['oversize', /exceeds the 50 MiB download limit/],
   ['node-metadata', /not a web extension/],
   ['node-package', /downloaded package is not a web extension/],
   ['pack', /extension packs are not supported/],
@@ -277,4 +280,74 @@ test('drops a local VSIX, then offers an update only for a newer gallery version
   await expect(installed(page).getByText(/gallery-signed · 1.1.0 · Open VSX/)).toBeVisible();
   expect(await packageFolders(page)).not.toContain('/extensions/writing-room-tests.gallery-signed-1.0.0');
   await expect(results(page).getByRole('button', { name: 'Update Gallery signed' })).toHaveCount(0);
+});
+
+
+test('keeps the gallery confirmation open when a palette VSIX download reaches confirmation', async ({ page }) => {
+  const url = fixtureOrigin + '/vsix/sample.vsix';
+  let finishDownload!: () => void;
+  const hold = new Promise<void>(resolve => { finishDownload = resolve; });
+  await page.route(url, async route => {
+    await hold;
+    await route.continue();
+  });
+
+  try {
+    await open(page);
+    await seek(page, 'signed');
+    const pending = page.waitForRequest(url);
+    await enterLocation(page, url);
+    await pending;
+    await installButton(page, 'signed').click();
+    const first = confirmation(page, 'signed');
+    await expect(first).toBeVisible();
+    finishDownload();
+
+    await expect(page.getByText('Waiting to confirm VSIX installation…', { exact: true })).toBeVisible();
+    await expect(first).toBeVisible();
+    const second = page.getByRole('option', { name: /^Install VSIX Fixture/ });
+    await expect(second).toHaveCount(0);
+    await first.click();
+    await expect(second).toBeVisible();
+    await second.click();
+    await expect.poll(async () => (await savedRecords(page)).map(record => record.source).sort())
+      .toEqual(['gallery', 'vsix']);
+  } finally {
+    finishDownload();
+  }
+});
+
+test('cancels a queued gallery confirmation while the first prompt remains open', async ({ page }) => {
+  await open(page);
+  await search(page).fill('gallery-');
+  await installButton(page, 'signed').click();
+  const first = confirmation(page, 'signed');
+  await expect(first).toBeVisible();
+  await installButton(page, 'unsigned').click();
+  const row = results(page).getByRole('listitem').filter({ hasText: 'Gallery unsigned' });
+  await expect(row.getByText('Waiting for confirmation…')).toBeVisible();
+  await row.getByRole('button', { name: 'Cancel Gallery unsigned' }).click();
+
+  await expect(installButton(page, 'unsigned')).toBeEnabled();
+  await expect(first).toBeVisible();
+  await first.click();
+  await expect(installed(page).getByRole('button', { name: 'Uninstall Gallery signed' })).toBeVisible();
+  await expect(confirmation(page, 'unsigned')).toHaveCount(0);
+  expect(await savedRecords(page)).toEqual([expect.objectContaining({ identifier: 'writing-room-tests.gallery-signed' })]);
+});
+
+test('reuses an icon that is still present when a search is refined', async ({ page }) => {
+  const icon = /open-vsx\.org.*gallery-unsigned.*icon\.svg/;
+  const fetches: string[] = [];
+  await page.route(icon, async route => {
+    fetches.push(route.request().url());
+    await respondFromFixture(route);
+  });
+  await open(page);
+  const row = results(page).getByRole('listitem').filter({ hasText: 'Gallery unsigned' });
+  await search(page).fill('gallery-unsigne');
+  await expect(row.locator('img')).toHaveAttribute('src', /^blob:/);
+  await search(page).fill('gallery-unsigned');
+  await expect(row.locator('img')).toHaveAttribute('src', /^blob:/);
+  expect(fetches).toHaveLength(1);
 });

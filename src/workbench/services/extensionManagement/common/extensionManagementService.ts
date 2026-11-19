@@ -398,7 +398,7 @@ export class ExtensionManagementService {
   ): Promise<IExtensionDescription | undefined> {
     const { bytes, ...verified } = download;
     return this.installPackageBytes(bytes, {
-      kind: 'gallery', label: 'Open VSX', host: verified.host,
+      kind: 'gallery', label: new URL(release.download).host, host: verified.host,
       ...(verified.signature.state === 'unsigned' ? {} : { keyId: verified.signature.keyId }),
       ...(release.license ? { license: release.license } : {}),
     }, confirm, options, { ...verified, release });

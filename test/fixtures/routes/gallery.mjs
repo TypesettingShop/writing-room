@@ -10,7 +10,7 @@ const keys = generateKeyPairSync('ed25519');
 const publicKey = '/api/-/public-key/gallery-test';
 const icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#489"/></svg>';
 const scenarios = [
-  'signed', 'unsigned', 'bad-hash', 'bad-signature', 'bad-host', 'slow',
+  'signed', 'unsigned', 'bad-hash', 'bad-signature', 'bad-host', 'oversize', 'slow',
   'node-metadata', 'node-package', 'dependency', 'with-dependency', 'pack', 'declarative',
 ];
 const results = [];
@@ -49,6 +49,7 @@ for (const scenario of scenarios) {
     const dependency = scenario === 'with-dependency' ? [publisher + '.gallery-dependency'] : [];
     const metadata = {
       ...summary, license: 'MIT',
+      ...(scenario === 'oversize' ? { targetPlatform: 'universal', downloadSizes: { universal: 50 * 1024 * 1024 + 1 } } : {}),
       extensionKind: scenario === 'node-metadata' ? ['workspace'] : ['web'],
       dependencies: dependency.map(value => ({ namespace: publisher, extension: value.split('.')[1] })),
       bundledExtensions: scenario === 'pack' ? [{ namespace: publisher, extension: 'gallery-dependency' }] : [],

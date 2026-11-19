@@ -134,3 +134,29 @@ test('asks separately for a package without a browser entry and applies only its
   await expect(page.locator('[id="workbench.parts.activitybar"]').getByRole('button', { name: 'VSIX Fixture' })).toBeVisible();
   expect(await savedIdentifiers(page)).toEqual(['writing-room-tests.vsix-sample']);
 });
+
+
+test('cancels a stalled URL download from the progress notification', async ({ page }) => {
+  const url = fixtureOrigin + '/vsix/slow.vsix';
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  await page.route(url, async route => {
+    await hold;
+    await route.abort().catch(() => {});
+  });
+  try {
+    await page.goto('/');
+    const requested = page.waitForRequest(url);
+    await enterLocation(page, url);
+    await requested;
+    const failed = page.waitForEvent('requestfailed', request => request.url() === url);
+    await expect(page.getByText('Downloading VSIX…')).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect((await failed).failure()?.errorText).toContain('ERR_ABORTED');
+    await expect(page.getByText('Downloading VSIX…')).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Could not install extension' })).toHaveCount(0);
+    await expectNothingStored(page);
+  } finally {
+    release();
+  }
+});

@@ -62,7 +62,10 @@ test('installs the pinned Open VSX release through the product-configured loopba
   expect(redirect?.url()).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/openvsx\/.*\.vsix$/);
 
   const option = page.getByRole('option', { name: /^Install .*davidanson\.vscode-markdownlint/i });
-  await expect(option).toContainText('Download host: localhost:' + process.env.E2E_EXTENSIONS_PORT);
+  const port = process.env.E2E_EXTENSIONS_PORT;
+  await expect(option).toContainText('Source: 127.0.0.1:' + port);
+  await expect(option).toContainText('The key comes from 127.0.0.1:' + port);
+  await expect(option).toContainText('Download host: localhost:' + port);
   await expect(option).toContainText('SHA-256: ' + sha256);
   await expect(option).toContainText('Signature: verified');
   expect(await savedRecords(page)).toEqual([]);

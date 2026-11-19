@@ -38,8 +38,12 @@ it.each([
     .toEqual(readProductConfiguration(undefined));
 });
 
-it('keeps the Webview origin template HTTPS requirement', () => {
-  expect(readProductConfiguration(JSON.stringify({
-    webviewContentExternalBaseUrlTemplate: 'http://localhost:5174/webview/', extensionsGallery: null,
-  }))).toEqual(readProductConfiguration(undefined));
+it.each([
+  { version: '1.90' },
+  { webviewContentExternalBaseUrlTemplate: 'http://localhost:5174/webview/' },
+])('keeps the gallery disabled when another setting is rejected (%o)', invalid => {
+  const defaults = readProductConfiguration(undefined);
+  expect(readProductConfiguration(JSON.stringify(invalid))).toEqual(defaults);
+  expect(readProductConfiguration(JSON.stringify({ ...invalid, extensionsGallery: null })))
+    .toEqual({ ...defaults, extensionsGallery: null });
 });

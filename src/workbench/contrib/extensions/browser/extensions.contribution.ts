@@ -2,6 +2,7 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -14,8 +15,8 @@ import {
 import { readPackageIcon } from '../../../services/extensionManagement/browser/extensionPackageStore.js';
 import '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
-import { confirmPackage, sourceNames } from './extensionInstallConfirmation.js';
-import { installVsixFile } from './extensionsWorkbenchService.js';
+import { sourceNames } from './extensionInstallConfirmation.js';
+import { IExtensionsWorkbenchService } from './extensionsWorkbenchService.js';
 import './extensionsViewlet.js';
 import { registerExtensionIconReader } from '../../../services/extensions/browser/remoteExtensionIcons.js';
 
@@ -96,15 +97,15 @@ registerAction2(class InstallFromVSIX extends Action2 {
 
   async run(accessor: ServicesAccessor): Promise<void> {
     const quickInput = accessor.get(IQuickInputService);
-    const management = accessor.get(IExtensionManagementService);
+    const workbench = accessor.get(IExtensionsWorkbenchService);
     const file = await chooseVsixFile();
     if (!file) {
       return;
     }
     try {
-      await installVsixFile(management, file, confirmation => confirmPackage(quickInput, confirmation));
+      await workbench.installVsixFile(file);
     } catch (error) {
-      await showInstallError(quickInput, error);
+      await workbench.queuePrompt(() => showInstallError(quickInput, error));
     }
   }
 });
@@ -117,7 +118,9 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
   async run(accessor: ServicesAccessor): Promise<void> {
     const quickInput = accessor.get(IQuickInputService);
     const management = accessor.get(IExtensionManagementService);
-    const location = await quickInput.input({
+    const workbench = accessor.get(IExtensionsWorkbenchService);
+    const notifications = accessor.get(INotificationService);
+    const location = await workbench.queuePrompt(() => quickInput.input({
       title: 'Install Extension from Location',
       placeHolder: 'Extension directory URL or .vsix URL',
       validateInput: value => {
@@ -132,19 +135,43 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
           return describeError(error);
         }
       },
-    });
+    }));
     if (location === undefined) {
       return;
     }
     try {
       if (isPackageUrl(location)) {
-        await management.installFromPackageUrl(location, confirmation => confirmPackage(quickInput, confirmation));
+        const abort = new AbortController();
+        const progress = notifications.notify({
+          severity: Severity.Info, message: 'Downloading VSIX…', progress: { infinite: true },
+          actions: [{ label: 'Cancel', run: () => abort.abort() }],
+        });
+        const dismissed = progress.onDidClose(() => abort.abort());
+        if (progress.closed) {
+          abort.abort();
+        }
+        try {
+          await management.installFromPackageUrl(location, async confirmation => {
+            progress.updateMessage('Waiting to confirm VSIX installation…');
+            const accepted = await workbench.confirmInstall(confirmation, abort.signal);
+            dismissed.dispose();
+            progress.close();
+            return accepted;
+          }, { signal: abort.signal });
+        } catch (error) {
+          if (!abort.signal.aborted) {
+            throw error;
+          }
+        } finally {
+          dismissed.dispose();
+          progress.close();
+        }
         return;
       }
       await management.installFromLocation(location, async ({ manifest, location, nls }) => {
         const origin = new URL(location).origin;
         const name = localizedDisplayName(manifest, nls);
-        const selected = await quickInput.pick([
+        const selected = await workbench.queuePrompt(() => quickInput.pick([
           { id: 'cancel', label: 'Cancel' },
           {
             id: 'install',
@@ -152,11 +179,11 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
             description: `${name} · ${manifest.publisher} · ${manifest.version}`,
             detail: `${origin} · Extension code can make requests as this page’s origin.`,
           },
-        ], { title: 'Install extension from ' + origin });
+        ], { title: 'Install extension from ' + origin }));
         return selected?.id === 'install';
       });
     } catch (error) {
-      await showInstallError(quickInput, error);
+      await workbench.queuePrompt(() => showInstallError(quickInput, error));
     }
   }
 });
@@ -169,6 +196,7 @@ registerAction2(class UninstallExtension extends Action2 {
   async run(accessor: ServicesAccessor): Promise<void> {
     const quickInput = accessor.get(IQuickInputService);
     const management = accessor.get(IExtensionManagementService);
+    const workbench = accessor.get(IExtensionsWorkbenchService);
     const records = new Map(accessor.get(IWebExtensionsScannerService).scanUserExtensions().map(record => [record.identifier, record]));
     const entries = management.installed.map(({ identifier, manifest, location, nls }) => {
       const record = records.get(identifier.value);
@@ -180,15 +208,15 @@ registerAction2(class UninstallExtension extends Action2 {
       };
     });
     if (!entries.length) {
-      await quickInput.pick([{ label: 'OK' }], { title: 'No installed extensions' });
+      await workbench.queuePrompt(() => quickInput.pick([{ label: 'OK' }], { title: 'No installed extensions' }));
       return;
     }
-    const selection = await quickInput.pick(entries, { title: 'Uninstall Extension' });
+    const selection = await workbench.queuePrompt(() => quickInput.pick(entries, { title: 'Uninstall Extension' }));
     if (selection) {
       try {
         await management.uninstall(selection.id);
       } catch (error) {
-        await quickInput.pick([{ label: 'OK', detail: describeError(error) }], { title: 'Could not uninstall extension' });
+        await workbench.queuePrompt(() => quickInput.pick([{ label: 'OK', detail: describeError(error) }], { title: 'Could not uninstall extension' }));
       }
     }
   }
