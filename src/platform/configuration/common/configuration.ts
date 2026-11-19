@@ -38,9 +38,18 @@ export class NullConfigurationService implements IConfigurationService {
   declare readonly _serviceBrand: undefined;
   readonly onDidChangeConfiguration: Event<IConfigurationChangeEvent> = Event.None;
   readonly onDidChangeUserSettings: Event<string> = Event.None;
+  private snapshot: {
+    readonly properties: unknown; readonly languageDefaults: unknown; readonly configuration: Configuration;
+  } | undefined;
 
   getConfiguration(): Configuration {
-    return Configuration.build(configurationRegistry.getConfigurationProperties(), configurationRegistry.getLanguageDefaults(), {});
+    // The registry replaces both maps on every update, so they tell whether the last snapshot is current.
+    const properties = configurationRegistry.getConfigurationProperties();
+    const languageDefaults = configurationRegistry.getLanguageDefaults();
+    if (this.snapshot?.properties !== properties || this.snapshot.languageDefaults !== languageDefaults) {
+      this.snapshot = { properties, languageDefaults, configuration: Configuration.build(properties, languageDefaults, {}) };
+    }
+    return this.snapshot.configuration;
   }
 
   getValue<T = unknown>(key?: string, overrides?: IConfigurationOverrides): T | undefined {

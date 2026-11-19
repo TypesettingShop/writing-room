@@ -4,6 +4,7 @@ import type * as vscode from 'vscode';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { InMemoryStorageDatabase } from '../../../../base/parts/storage/common/storage.js';
 import { URI } from '../../../../base/common/uri.js';
+import type { IConfigurationData } from '../../../../platform/configuration/common/configurationModels.js';
 import { ConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { ConfigurationService, userSettingsKey } from '../../../services/configuration/browser/configurationService.js';
@@ -200,4 +201,21 @@ test('fires when a default changes, and stops for an extension that was released
   await again;
   expect(host.getConfiguration('1').get('late.enabled')).toBe(false);
   expect(listener).toHaveBeenCalledOnce();
+});
+
+test('drops a change that arrives before the first data, which already holds it', async () => {
+  let answer!: (data: IConfigurationData) => void;
+  const early = new ExtHostConfiguration({
+    $getConfigurationData: () => new Promise(resolve => { answer = resolve; }),
+    $updateConfigurationOption: async () => {},
+    $removeConfigurationOption: async () => {},
+  });
+  disposables.add(early);
+  const listener = vi.fn();
+  early.onDidChangeConfiguration('1')(listener);
+  await early.$acceptConfigurationChanged([['editor.fontSize', { default: 14, user: 99 }]]);
+  answer([['editor.fontSize', { default: 14, user: 12 }]]);
+  await early.whenInitialized;
+  expect(early.getConfiguration('1', 'editor').get('fontSize')).toBe(12);
+  expect(listener).not.toHaveBeenCalled();
 });

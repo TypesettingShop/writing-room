@@ -75,7 +75,8 @@ ExtensionsRegistry.registerExtensionPoint<unknown>({
           user.collector.error(path + '.properties', "Expected 'properties' to be an object.");
           return;
         }
-        const accepted: Record<string, IConfigurationPropertySchema> = {};
+        // Without a prototype, a "__proto__" key stays a property, and the registry refuses it with a warning.
+        const accepted: Record<string, IConfigurationPropertySchema> = Object.create(null);
         for (const [key, schema] of Object.entries(properties ?? {})) {
           if (OVERRIDE_PROPERTY_REGEX.test(key)) {
             user.collector.warn(`${path}.properties.${key}`, `'${id}': ${languageKeyMessage(key)}`);

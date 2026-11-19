@@ -84,7 +84,7 @@ test('gives every reader its own copy of object and array values, and never merg
   expect(configuration.inspect('lint.config').defaultValue).toEqual({ MD013: true, MD033: true });
 });
 
-test('reads languages from sections naming several, the later section winning', () => {
+test('reads languages from sections naming several; a section naming one language wins over them wherever it stands', () => {
   const registry = new ConfigurationRegistry();
   registry.registerConfiguration({ id: 'test', properties: { 'test.size': { type: 'number', default: 1 } } });
   const configuration = build(registry, { '[markdown][plaintext]': { 'test.size': 2 }, '[plaintext]': { 'test.size': 3 } });
@@ -181,4 +181,21 @@ test('the service without settings.json gives the registered defaults', () => {
   } finally {
     configurationRegistry.deregisterConfigurations([node]);
   }
+});
+
+test('a section naming one language wins over a later one naming several, in user values and in defaults', () => {
+  const registry = new ConfigurationRegistry();
+  registry.registerConfiguration({ id: 'test', properties: { 'test.size': { type: 'number', default: 1 }, 'test.on': { type: 'boolean', default: false } } });
+  registry.registerDefaultConfigurations([
+    { overrides: { '[markdown]': { 'test.on': true } }, source: 'a' },
+    { overrides: { '[markdown][plaintext]': { 'test.on': false } }, source: 'b' },
+  ]);
+  const configuration = build(registry, {
+    '[markdown]': { 'test.size': 30 },
+    '[markdown][plaintext]': { 'test.size': 20 },
+    '[json][markdown]': { 'test.size': 25 },
+  });
+  expect(configuration.getValue('test', { overrideIdentifier: 'markdown' })).toEqual({ size: 30, on: true });
+  expect(configuration.getValue('test', { overrideIdentifier: 'plaintext' })).toEqual({ size: 20, on: false });
+  expect(configuration.getValue('test.size', { overrideIdentifier: 'json' })).toBe(25);
 });

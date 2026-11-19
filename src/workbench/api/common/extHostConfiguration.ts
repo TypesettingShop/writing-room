@@ -1,13 +1,12 @@
 import type * as vscode from 'vscode';
 import { Emitter } from '../../../base/common/event.js';
-import { Configuration, ConfigurationChangeEvent } from '../../../platform/configuration/common/configurationModels.js';
+import { Configuration, ConfigurationChangeEvent, navigate } from '../../../platform/configuration/common/configurationModels.js';
 import type { IConfigurationOverrides } from '../../../platform/configuration/common/configurationModels.js';
 import { deepFreeze, isJSONValue, isPlainObject } from '../../../platform/configuration/common/configurationValues.js';
-import { MainThreadConfigurationProxy } from './extHost.protocol.configuration.js';
+import { ExtHostConfigurationProxy, MainThreadConfigurationProxy } from './extHost.protocol.configuration.js';
 import type {
   ConfigurationChangeDto, ConfigurationTargetDto, ExtHostConfigurationShape, MainThreadConfigurationShape,
 } from './extHost.protocol.configuration.js';
-import { ExtHostConfigurationProxy } from './extHost.protocol.configuration.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
 
 export enum ConfigurationTarget {
@@ -29,14 +28,7 @@ function scopeToOverrides(scope: unknown): IConfigurationOverrides | undefined {
 }
 
 function lookUp(tree: unknown, key: string): unknown {
-  let node = tree;
-  for (const part of key.split('.')) {
-    if (!isPlainObject(node) || !Object.hasOwn(node, part)) {
-      return undefined;
-    }
-    node = node[part];
-  }
-  return node;
+  return navigate(tree, key.split('.'));
 }
 
 function toTarget(target: unknown): ConfigurationTargetDto {
@@ -67,7 +59,10 @@ export class ExtHostConfiguration implements ExtHostConfigurationShape {
     this.whenInitialized = proxy.$getConfigurationData().then(data => {
       this.configuration = new Configuration(data);
       this.initialized = true;
-    }, () => {});
+    }, error => {
+      // Without the data every read is empty and every change is dropped; say so instead of failing silently.
+      console.error('The extension host could not read the settings:', error);
+    });
   }
 
   async $acceptConfigurationChanged(changes: ConfigurationChangeDto): Promise<void> {

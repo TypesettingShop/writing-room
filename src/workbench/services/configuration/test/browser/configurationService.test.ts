@@ -223,6 +223,7 @@ test('two writers of different keys in a row both stay, and a key nobody registe
   expect(service.getValue('editor')).toMatchObject({ fontSize: 30, tabSize: 3 });
   await expect(service.updateValue('future.key', true)).rejects.toThrow('future.key is not a registered configuration');
   await expect(service.updateValue('editor.fontSize', { size: 1 })).rejects.toThrow('Unsupported value');
+  await expect(service.updateValue('editor.fontSize', 12, { overrideIdentifier: 'a]b' })).rejects.toThrow('Unsupported language');
 });
 
 test('a deregistered key reads as undefined with a change event, and its user value stays in the text', () => {
@@ -254,4 +255,12 @@ test('a default for a language changes the value for that language only and fire
   registry.deregisterDefaultConfigurations([defaults]);
   expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(16);
   expect(changed).toHaveBeenCalledTimes(2);
+});
+
+test('a language write is not hidden by a later section naming several languages', async () => {
+  const service = start('{ "[markdown]": { "editor.fontSize": 22 }, "[markdown][plaintext]": { "editor.fontSize": 20 } }');
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(22);
+  await service.updateValue('editor.fontSize', 30, { overrideIdentifier: 'markdown' });
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'markdown' })).toBe(30);
+  expect(service.getValue('editor.fontSize', { overrideIdentifier: 'plaintext' })).toBe(20);
 });

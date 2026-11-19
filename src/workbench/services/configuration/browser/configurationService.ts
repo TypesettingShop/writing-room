@@ -78,6 +78,10 @@ export class ConfigurationService extends Disposable implements IConfigurationSe
       throw new Error(`Unsupported value for configuration '${key}'.`);
     }
     const language = overrides?.overrideIdentifier;
+    if (language?.includes(']')) {
+      // "[a]b]" would not read back as a language section, so the write would change nothing.
+      throw new Error(`Unsupported language '${language}' for configuration '${key}'.`);
+    }
     const path = language ? [keyFromOverrideIdentifiers([language]), key] : [key];
     this.storage.storeImmediately(userSettingsKey, stored => {
       try {

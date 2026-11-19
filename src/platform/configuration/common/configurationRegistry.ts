@@ -176,14 +176,29 @@ export class ConfigurationRegistry {
   updateConfigurations(update: IConfigurationRegistryUpdate, report?: (problem: IConfigurationProblem) => void): void {
     const removedNodes = new Set(update.remove ?? []);
     const properties = new Map([...this.properties].filter(([, { node }]) => !removedNodes.has(node)));
+    // Every proper prefix of a registered key ("a" and "a.b" for "a.b.c"), to the first property under it.
+    const prefixes = new Map<string, IRegisteredProperty>();
+    const addPrefixes = (key: string, property: IRegisteredProperty) => {
+      for (let end = key.indexOf('.'); end >= 0; end = key.indexOf('.', end + 1)) {
+        const prefix = key.slice(0, end);
+        if (!prefixes.has(prefix)) {
+          prefixes.set(prefix, property);
+        }
+      }
+    };
+    for (const [key, property] of properties) {
+      addPrefixes(key, property);
+    }
     const problems: IConfigurationProblem[] = [];
     for (const node of update.add ?? []) {
       for (const [key, schema] of Object.entries(node.properties ?? {})) {
-        const message = this.checkProperty(properties, key, schema);
+        const message = this.checkProperty(properties, prefixes, key, schema);
         if (message) {
           problems.push({ source: nodeSource(node), key, message });
         } else {
-          properties.set(key, { schema, node });
+          const property = { schema, node };
+          properties.set(key, property);
+          addPrefixes(key, property);
         }
       }
     }
@@ -224,7 +239,10 @@ export class ConfigurationRegistry {
     return this.languageDefaults;
   }
 
-  private checkProperty(properties: ReadonlyMap<string, IRegisteredProperty>, key: string, schema: IConfigurationPropertySchema): string | undefined {
+  private checkProperty(
+    properties: ReadonlyMap<string, IRegisteredProperty>, prefixes: ReadonlyMap<string, IRegisteredProperty>,
+    key: string, schema: IConfigurationPropertySchema,
+  ): string | undefined {
     if (!isPlainObject(schema)) {
       return 'Expected a property schema object.';
     }
@@ -236,8 +254,11 @@ export class ConfigurationRegistry {
       : Array.isArray(type) && type.length > 0 && type.every(entry => knownTypes.includes(entry)))) {
       return 'The property type is not one of ' + knownTypes.join(', ') + '.';
     }
-    const existing = properties.get(key)
-      ?? [...properties].find(([candidate]) => candidate.startsWith(key + '.') || key.startsWith(candidate + '.'))?.[1];
+    // The key itself, a key under it, or a key it lies under.
+    let existing = properties.get(key) ?? prefixes.get(key);
+    for (let end = key.indexOf('.'); !existing && end >= 0; end = key.indexOf('.', end + 1)) {
+      existing = properties.get(key.slice(0, end));
+    }
     if (existing) {
       return `Cannot register '${key}'. This property is already registered by '${nodeSource(existing.node)}'.`;
     }
@@ -250,7 +271,9 @@ export class ConfigurationRegistry {
   private computeDefaults(added: ReadonlySet<IConfigurationDefaults>): IConfigurationProblem[] {
     const problems: IConfigurationProblem[] = [];
     const base = new Map<string, unknown>();
-    const languages = new Map<string, Map<string, unknown>>();
+    // As in VS Code, a section naming one language beats a section naming several (`[markdown][plaintext]`).
+    const shared = new Map<string, Map<string, unknown>>();
+    const own = new Map<string, Map<string, unknown>>();
     for (const entry of this.defaults) {
       const source = entry.source ?? 'defaults';
       const refuse = (key: string, message: string) => {
@@ -279,13 +302,18 @@ export class ConfigurationRegistry {
             refuse(key + '.' + name, `The default value of '${name}' for ${key} does not match its schema.`);
             continue;
           }
+          const target = identifiers.length === 1 ? own : shared;
           for (const identifier of identifiers) {
-            const values = languages.get(identifier) ?? new Map<string, unknown>();
-            languages.set(identifier, values);
+            const values = target.get(identifier) ?? new Map<string, unknown>();
+            target.set(identifier, values);
             values.set(name, overridden);
           }
         }
       }
+    }
+    const languages = shared;
+    for (const [identifier, values] of own) {
+      languages.set(identifier, new Map([...languages.get(identifier) ?? [], ...values]));
     }
 
     const effective = new Map<string, IConfigurationPropertySchema>();

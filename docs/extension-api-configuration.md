@@ -13,7 +13,7 @@
 | 기본 | 워크벤치나 확장이 등록한 속성의 `default`. 확장의 `configurationDefaults`가 일반 키에 준 값이 있으면 그것 |
 | 언어별 기본 | 확장의 `configurationDefaults`에 있는 `"[markdown]": { ... }` 같은 언어 구역 |
 | 사용자 | `settings.json`의 키 |
-| 언어별 사용자 | `settings.json`의 언어 구역. `"[markdown][plaintext]": { ... }`처럼 여러 언어를 한 구역에 적을 수 있고, 같은 언어가 여러 구역에 있으면 뒤의 구역이 이긴다 |
+| 언어별 사용자 | `settings.json`의 언어 구역. `"[markdown][plaintext]": { ... }`처럼 여러 언어를 한 구역에 적을 수 있고, 같은 언어가 여러 구역에 있으면 뒤의 구역이 이기지만, 언어 하나만 적은 구역(`"[markdown]"`)은 위치와 상관없이 여러 언어를 적은 구역을 이긴다(VS Code와 같다. 확장의 언어별 쓰기는 이 구역에 들어간다) |
 
 언어를 정해 읽으면 그 언어의 값이 모든 언어의 값을 이기고, 같은 종류 안에서는 사용자가 기본을 이긴다. 우선순위는 언어별 사용자, 언어별 기본, 사용자, 기본 순이다. 그래서 확장이 `[markdown]`에 준 `editor.wordWrap: "on"`은 사용자가 모든 언어에 쓴 `"editor.wordWrap": "off"`를 markdown 문서에서 이긴다. 사용자가 markdown에서도 끄려면 `"[markdown]": { "editor.wordWrap": "off" }`를 쓴다. VS Code와 같다.
 
@@ -50,7 +50,7 @@ await vscode.workspace.getConfiguration('markdown.preview').update('fontSize', 1
 
 - 확장 호스트는 설정의 사본을 가진다. 시작할 때 전체를 받고 그 뒤로는 바뀐 키만 받는다. 읽기는 동기다.
 - `scope`가 문서나 `{ languageId }`이면 그 언어로 읽는다. `Uri`나 워크스페이스 폴더는 받지만 값에 영향이 없다.
-- `get`, `has`, 구역 속성 읽기(`lint.config`)가 돌려주는 값은 깊이 얼린 복제본이다. 고치려 하면 `TypeError`가 나고, 사본과 다음 읽기는 바뀌지 않는다.
+- `get`, `has`, 구역 속성 읽기(`lint.config`)가 돌려주는 값은 깊이 얼린 복제본이다. 고치려 하면 엄격 모드 코드(`"use strict"`로 시작하는 TypeScript 출력 등)에서는 `TypeError`가 나고 엄격 모드가 아니면 조용히 무시되며, 어느 쪽이든 사본과 다음 읽기는 바뀌지 않는다.
 - `inspect(key)`는 `defaultValue`, `globalValue`, `defaultLanguageValue`, `globalLanguageValue`, `languageIds`를 채운다. `workspace*` 칸은 늘 `undefined`다.
 - `update(key, value, target?, overrideInLanguage?)`는 사용자 설정의 그 키만 고친다. 주석, 끝 쉼표, 모르는 키, 다른 키는 그대로다. `value`가 `undefined`이면 키를 지운다. `target`은 `ConfigurationTarget.Global`, `true`, `null`이거나 없을 때 사용자 설정이다. 언어 범위로 얻은 설정에서 `overrideInLanguage: true`면 언어 구역에, `false`면 모든 언어에 쓰고, 없으면 사용자가 그 언어에 이미 값을 두었을 때만 언어 구역에 쓴다. `await` 뒤의 읽기는 새 값이다.
 - 거부되는 쓰기: `ConfigurationTarget.Workspace`, `false`, `ConfigurationTarget.WorkspaceFolder`(`Unable to write to Workspace Settings because this release does not support workspace settings.`), 등록되지 않은 키(`Unable to write to User Settings because <키> is not a registered configuration.`), 스키마의 얕은 검사에 맞지 않는 값, 함수나 순환이 든 값.
@@ -67,6 +67,7 @@ await vscode.workspace.getConfiguration('markdown.preview').update('fontSize', 1
 - 타입이나 `enum`, 범위에 맞지 않는 사용자 값은 기본값으로 물러서고, 그런 값의 `update`는 거부한다. VS Code는 값을 그대로 쓰고 편집기 진단으로만 알린다 — v0.1.0의 검증 규칙을 유지한다 (wr-k5o0.242).
 - 객체 값은 층 사이에서 합치지 않는다. 사용자의 객체가 기본 객체를 통째로 이긴다. VS Code는 객체 값을 층마다 깊이 합친다 — 확장이 읽는 값이 원문과 같게 하려고 플래너가 정했다 (wr-k5o0.242).
 - 언어 구역은 등록된 모든 키를 받는다. `settings.json` 스키마도 언어 구역에 모든 속성을 둔다. VS Code의 스키마는 `scope`가 `language-overridable`인 속성만 언어 구역에 둔다 — 읽기 규칙과 스키마를 하나로 맞췄다 (wr-k5o0.xqs).
+- `get`과 구역 속성이 돌려주는 객체와 배열은 깊이 얼린 복제본이다. VS Code는 고칠 수 있는 사본(쓰면 복제하는 프록시)을 돌려주므로, 읽은 객체를 고쳐 쓰는 확장은 엄격 모드에서 `TypeError`를 만난다 — 확장이 고쳐도 사본이 바뀌지 않게 했다 (wr-k5o0.ze2).
 - 이름 없이 `getConfiguration()`으로 읽은 전체 값에는 `[언어]` 구역이 속성으로 들어 있지 않다. 언어 값은 언어 범위로 읽는다 (wr-k5o0.ze2).
 
 Decided in: wr-efqx.n9k, wr-k5o0

@@ -62,7 +62,8 @@ function sortedEntries(values: ReadonlyMap<string, unknown> | undefined): (reado
   return values?.size ? [...values].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0) : undefined;
 }
 
-function navigate(value: unknown, path: readonly string[]): unknown {
+/** The value at `path` inside nested plain objects, or `undefined` when a part is missing. */
+export function navigate(value: unknown, path: readonly string[]): unknown {
   let current = value;
   for (const part of path) {
     if (!isPlainObject(current) || !Object.hasOwn(current, part)) {
@@ -91,9 +92,14 @@ export class Configuration {
     user: Readonly<Record<string, unknown>>,
   ): Configuration {
     const userLanguages = new Map<string, Map<string, unknown>>();
-    for (const [section, contents] of Object.entries(user)) {
-      const identifiers = overrideIdentifiersFromKey(section);
-      if (!identifiers.length || !isPlainObject(contents)) {
+    // Later sections win, except that a section naming one language beats every section naming several,
+    // as in VS Code: `[markdown]`, where updateValue writes, is not hidden by `[markdown][plaintext]`.
+    const sections = Object.entries(user)
+      .map(([section, contents]) => [overrideIdentifiersFromKey(section), contents] as const)
+      .filter(([identifiers, contents]) => identifiers.length && isPlainObject(contents));
+    const ordered = [...sections.filter(([identifiers]) => identifiers.length > 1), ...sections.filter(([identifiers]) => identifiers.length === 1)];
+    for (const [identifiers, contents] of ordered) {
+      if (!isPlainObject(contents)) {
         continue;
       }
       for (const [key, value] of Object.entries(contents)) {

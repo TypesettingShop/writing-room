@@ -154,6 +154,15 @@ test('registers the other properties when one is wrong, and says which one', () 
   expect(host.messages.find(message => message.path.endsWith('[markdown]'))!.message).toContain('configurationDefaults');
 });
 
+test('warns about a "__proto__" property from a parsed manifest instead of dropping it silently', () => {
+  const configuration = JSON.parse('{"properties": {"__proto__": {"type": "string"}, "good.key": {"type": "string"}}}');
+  host.apply([{ id: 'a.first', configuration }]);
+  expect(service.getValue('good.key')).toBe('');
+  expect(host.messages).toEqual([expect.objectContaining({
+    extensionId: 'a.first', severity: 'warn', path: 'contributes.configuration.properties.__proto__',
+  })]);
+});
+
 test('removes the keys and defaults after the registrations are released, without a following accept', async () => {
   host.apply([fixtureExtension]);
   expect(service.getValue('editor.wordWrap', { overrideIdentifier: 'markdown' })).toBe('on');
