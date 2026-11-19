@@ -178,6 +178,9 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - Vite가 빌드 시 내장 확장 매니페스트를 읽고, 빌드 후 디렉터리를 `dist/extensions/`에 복사한다 — 개발과 배포에서 `extensionUri`를 기준으로 매니페스트와 리소스를 읽을 수 있게 한다 (wr-cla6.rmv). [VS Code 내장 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/builtinExtensionsScannerService.ts)
 - 파싱에 실패하는 `when`과 `enablement`는 해당 기여를 건너뛴다. 기여 집합이 바뀌어도 같은 확장의 뷰와 컨테이너를 유지해 열린 위치를 보존한다 (wr-cla6.v89). [VS Code 메뉴 기여 핸들러](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/actions/common/menusExtensionPoint.ts)
 
+- 테마별 커맨드와 서브메뉴 아이콘은 등록 시 현재 테마에 맞는 경로를 고른다. 테마가 바뀌면 기여 지점을 다시 적용한다. VS Code는 두 경로를 메뉴 아이콘에 함께 유지하고 표시할 때 선택한다 (wr-efqx.6ek). [VS Code의 테마 아이콘 경로 선택](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/browser/menuEntryActionViewItem.ts#L291-L319)
+- 확장 매니페스트 메뉴 항목의 `alt`는 문자열로 검증한다. 메뉴에는 기본 커맨드가 표시되고 실행된다. VS Code의 메뉴는 대체 커맨드를 표시하고 실행할 수 있다 (wr-efqx.6ek). [VS Code의 대체 메뉴 액션](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/browser/menuEntryActionViewItem.ts)
+
 #### Extension host
 
 - Writing Room은 영역별 기여로 Worker의 API와 확장 컨텍스트를 조립한다. VS Code는 `extHost.api.impl.ts`에 조립을 모은다. 영역의 진입 파일에서 함께 개발하는 기능을 별도로 등록하도록 분리했다 (wr-efqx.n9k). [VS Code API 조립](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.api.impl.ts)

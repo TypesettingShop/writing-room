@@ -101,6 +101,10 @@ flowchart LR
 3. `extHostApiRegistry.register`에 호스트당 한 번 생성할 기여를 등록한다. `create`가 확장마다 API 네임스페이스, 공개 타입, 컨텍스트 조각을 만들고 조립기가 중복 이름을 검사한다. 비활성 확장의 동기 함수는 던진다. 거부된 Promise를 돌려줄 메서드는 `promiseApiMethod`로 표시한다.
 4. 메인 스레드 진입 파일은 `mainThreadCustomers.register`로 세션별 고객을 생성하고 `rpc.set`으로 프록시를 연결한다. RPC 인자와 `getExtension(key)`로 얻은 확장 소유권을 검사한다. 확장별 리소스는 `remove`와 `release`에서 정리하며 세션 전체의 리소스는 `dispose`에서 해제한다.
 
+영역 팩토리는 `{ service, create, dispose }`를 반환해 호스트 객체를 자기 영역 키에 공개할 수 있다. 소비자는 제공 영역의 타입을 가져오고 `services.getService<T>('documents')`처럼 조회한다. 필요한 팩토리는 조회 시 초기화되므로 가져오기 순서와 무관하다. 조회는 호스트 세션 하나에 한정된다. 서비스가 없거나 초기화 도중 순환하면 영역 이름을 포함한 오류가 발생한다. 두 영역이 서로 필요하면 한쪽은 API 생성 또는 메서드 호출 시점으로 조회를 늦춘다. API 조립과 해제는 영역 등록 순서를 따른다. 네임스페이스 조각의 메서드와 접근자는 클로저로 호스트 객체를 읽는다. 뷰 본문 종류는 확장을 읽기 전에 영역 진입점에서 등록한다.
+
+API 타입 `RelativePattern`을 RPC 인자로 넘기면 `pattern`, `base`, `baseUri` 필드를 받는다. `baseUri`는 기반 URI 클래스로 복원된다.
+
 Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`를 포함한다. Worker의 제어 메시지는 전용 `MessagePort`로 전송한다. 리소스 크기 한도는 `extensionResources.ts`에 두고, 스킴별 진입 파일 읽기 전략을 등록할 수 있다. 호스트 시작 제한 60초, 응답 확인 주기 2초와 제한 8초는 `webWorkerExtensionHost.ts`에 있다.
 
 ## 7. 상태와 저장
@@ -145,7 +149,7 @@ v0.1.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 - 스토리지: 버전 표식 없이 접두 키가 남은 오리진의 처리(wr-a5aw), 쓰기 오류 뒤 메모리 모드 전환 범위(wr-vthy), 뒤로/앞으로 캐시 복귀 때 다른 탭의 스토리지 변경 반영 확인(wr-jg40).
 - 에디터: Welcome 시작 판단이 워크벤치 기여가 아니라 워크벤치 본체에 있다(wr-pz63). 여러 그룹에 열린 같은 입력을 그룹마다 직렬화한다(wr-67xb).
 - 뷰 컨테이너: 여러 브라우저 탭에서 위치와 순서를 저장할 때 다른 탭의 변경을 보존하는 일(wr-44tg), 패널 복합 파트 서비스의 구독 수명 관리(wr-4449).
-- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 확장 식별자 대신 설치 세대 키가 남는 문제(wr-m57b), 편집기 제목 도구 모음의 대체 경로 제거(wr-sgqe).
+- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 확장 식별자 대신 설치 세대 키가 남는 문제(wr-m57b).
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
 Decided in: wr-510x
