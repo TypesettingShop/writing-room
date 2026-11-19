@@ -1,0 +1,87 @@
+.extensions-body {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 8px 12px;
+}
+
+.extensions-body input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  padding: 5px 7px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+}
+
+.extensions-body input:focus-visible,
+.extensions-action:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.extensions-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.extensions-list li {
+  display: flow-root;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding: 9px 0;
+}
+
+.extensions-name {
+  font-size: 13px;
+}
+
+.extensions-message,
+.extensions-details,
+.extensions-error {
+  margin: 4px 0;
+}
+
+.extensions-details {
+  color: var(--vscode-descriptionForeground, inherit);
+  font-size: 11px;
+}
+
+.extensions-error {
+  color: var(--vscode-errorForeground, inherit);
+}
+
+.extensions-action {
+  font: inherit;
+  margin: 3px 0;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  padding: 3px 7px;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, white);
+  cursor: pointer;
+}
+
+.extensions-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.extensions-icon {
+  position: relative;
+  float: left;
+  display: grid;
+  place-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 2px 8px 0 0;
+}
+
+.extensions-icon img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--vscode-sideBar-background);
+}

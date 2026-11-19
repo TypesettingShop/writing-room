@@ -7,16 +7,16 @@ import { Schemas } from '../../../../base/common/network.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
-import { vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
-import { product } from '../../../../platform/product/common/product.js';
 import {
   ExtensionManagementService, IExtensionManagementService, IExtensionPackageStore, isExtensionPackageLocation,
   isPackageUrl, IWebExtensionsScannerService, localizedDisplayName, normalizeExtensionLocation, normalizePackageUrl,
 } from '../../../services/extensionManagement/common/extensionManagementService.js';
-import type { PackageInstallConfirmation } from '../../../services/extensionManagement/common/extensionManagementService.js';
 import { readPackageIcon } from '../../../services/extensionManagement/browser/extensionPackageStore.js';
 import '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { confirmPackage, sourceNames } from './extensionInstallConfirmation.js';
+import { installVsixFile } from './extensionsWorkbenchService.js';
+import './extensionsViewlet.js';
 import { registerExtensionIconReader } from '../../../services/extensions/browser/remoteExtensionIcons.js';
 
 registerSingleton(IExtensionManagementService, new SyncDescriptor(ExtensionManagementService, [
@@ -53,40 +53,6 @@ registerWorkbenchContribution2('workbench.contrib.extensionPackages', ExtensionP
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-const sourceNames = { location: 'folder URL', vsix: 'VSIX', gallery: 'Open VSX' } as const;
-
-/** Asks before a package install. Every value shown describes the bytes that are installed. */
-async function confirmPackage(quickInput: IQuickInputService, confirmation: PackageInstallConfirmation): Promise<boolean> {
-  const { manifest, source, existing } = confirmation;
-  const name = confirmation.displayName;
-  const action = !confirmation.isWebExtension ? 'Install Contributions Only'
-    : existing?.version === manifest.version ? 'Reinstall'
-      : existing ? 'Replace' : 'Install';
-  const facts = [
-    ...confirmation.isWebExtension ? [] : ['Not a web extension: only its contributions apply.'],
-    ...existing ? [existing.version === manifest.version
-      ? `Reinstalls version ${existing.version}.`
-      : `Replaces version ${existing.version} (${sourceNames[existing.source]}).`] : [],
-    `Source: ${source.label}`,
-    `Size: ${confirmation.size} bytes`,
-    `SHA-256: ${confirmation.sha256}`,
-    `Signature: ${confirmation.signature}`,
-    `engines.vscode ${confirmation.engine} is compatible with ${product.version}`,
-    ...confirmation.persistent ? [] : ['Browser storage is unavailable: the extension stays for this session only.'],
-    ...confirmation.warnings,
-    'Extension code can make requests as this page’s origin.',
-  ];
-  const selected = await quickInput.pick([
-    { id: 'cancel', label: 'Cancel' },
-    {
-      id: 'install', label: action,
-      description: `${name} · ${manifest.publisher} · ${manifest.version} · ${confirmation.identifier}`,
-      detail: facts.join(' · '),
-    },
-  ], { title: `${action} extension from ${source.label}` });
-  return selected?.id === 'install';
 }
 
 async function showInstallError(quickInput: IQuickInputService, error: unknown): Promise<void> {
@@ -136,11 +102,7 @@ registerAction2(class InstallFromVSIX extends Action2 {
       return;
     }
     try {
-      if (file.size > vsixLimits.download) {
-        throw new Error(`'${file.name}' is ${file.size} bytes, more than the ${vsixLimits.download}-byte limit.`);
-      }
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      await management.installPackage(bytes, { kind: 'vsix', label: file.name }, confirmation => confirmPackage(quickInput, confirmation));
+      await installVsixFile(management, file, confirmation => confirmPackage(quickInput, confirmation));
     } catch (error) {
       await showInstallError(quickInput, error);
     }

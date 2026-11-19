@@ -102,7 +102,7 @@ export class ExtensionGalleryService {
     configuration: ProductConfiguration['extensionsGallery'] | undefined,
     private readonly request: typeof fetch = (input, init) => fetch(input, init),
   ) {
-    if (configuration?.serviceUrl) {
+    if (configuration?.serviceUrl && URL.canParse(configuration.serviceUrl)) {
       const base = new URL(configuration.serviceUrl);
       if (!base.username && !base.password && !base.search && !base.hash
         && (base.protocol === 'https:' || (base.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(base.hostname)))) {
@@ -115,6 +115,10 @@ export class ExtensionGalleryService {
 
   get enabled(): boolean {
     return this.base !== undefined;
+  }
+
+  get rateLimited(): boolean {
+    return Date.now() < this.blockedUntil;
   }
 
   async search(query: string, offset = 0, signal?: AbortSignal): Promise<GallerySearchPage> {
@@ -276,7 +280,7 @@ export class ExtensionGalleryService {
   private async read(url: URL, limit: number, signal?: AbortSignal,
     redirectHosts?: readonly string[], idleTimeout?: boolean, contentTypePrefix?: string) {
     signal?.throwIfAborted();
-    if (Date.now() < this.blockedUntil) {
+    if (this.rateLimited) {
       throw new GalleryRateLimitError();
     }
     try {

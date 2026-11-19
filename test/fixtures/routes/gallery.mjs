@@ -66,6 +66,10 @@ exports.activate = context => context.subscriptions.push(vscode.commands.registe
   () => vscode.window.showInformationMessage(${JSON.stringify('Ran ' + id)}, 'OK')));`,
     } });
     const expected = createHash('sha256').update(bytes).digest('hex');
+    const payload = Buffer.from(bytes);
+    if (scenario === 'bad-hash') {
+      payload[payload.length - 1] ^= 1;
+    }
     const signature = sign(null, bytes, keys.privateKey);
     if (scenario === 'bad-signature') {
       signature[0] ^= 1;
@@ -73,7 +77,7 @@ exports.activate = context => context.subscriptions.push(vscode.commands.registe
     const bundle = createZip([{ name: '.signature.sig', data: signature }]);
     set(path, (_request, response) => send(response, metadata));
     for (const [file, body, type] of [
-      ['package.sha256', scenario === 'bad-hash' ? '0'.repeat(64) : expected, 'text/plain'],
+      ['package.sha256', expected, 'text/plain'],
       ['package.sigzip', bundle, 'application/zip'],
       ['icon.svg', scenario === 'signed' ? ' '.repeat(256 * 1024 + 1) : icon, 'image/svg+xml'],
     ]) {
@@ -95,7 +99,7 @@ exports.activate = context => context.subscriptions.push(vscode.commands.registe
         response.on('close', () => clearInterval(interval));
         response.writeHead(200).flushHeaders();
       } else {
-        send(response, bytes, 'application/zip');
+        send(response, payload, 'application/zip');
       }
     });
   }
