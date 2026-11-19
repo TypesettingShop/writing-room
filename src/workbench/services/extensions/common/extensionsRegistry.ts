@@ -26,6 +26,7 @@ export interface IExtensionPointUser<T> {
 
 export interface ExtensionPointContext {
   readonly instantiation?: IInstantiationService;
+  readonly isLightTheme?: boolean;
   readonly viewHandler: {
     acceptContainers(users: readonly IExtensionPointUser<Readonly<Record<string, unknown>>>[]): void;
     acceptViews(

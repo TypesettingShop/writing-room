@@ -120,6 +120,7 @@ Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`
 
 - 단위: Vitest(jsdom), `src/**/test/**/*.test.ts`(`vitest.config.ts`). 테스트는 대상 옆 `test/` 폴더에 두고, 서비스는 가짜 서비스로 주입해 검사한다. jsdom에는 레이아웃이 없으므로 크기에 의존하는 검증은 브라우저 테스트에서 한다. 레이어링 테스트도 이 스위트에 속한다.
 - 브라우저: Playwright(`test/e2e/*.spec.ts`, `playwright.config.ts`). 개발 서버(`npm run test:e2e`)와 프로덕션 빌드의 프리뷰(`E2E_TARGET=preview`) 양쪽에서 같은 스펙을 돌린다. 빌드에서만 깨지는 문제(워커 번들, 내장 확장 복사)를 잡기 위해서다. 앱과 원격 확장 픽스처 서버(`test/fixtures/serve-extensions.mjs`)를 Playwright가 각각 시작한다. 알려진 병렬 시간 초과 때문에 `--workers=2`로 돌리기를 권장한다([getting-started.md](getting-started.md)).
+- 확장 브라우저 픽스처는 `test/fixtures/extensions/<이름>/`에 둔다. `seedInstalledExtensions`로 앱 초기화 전에 설치 기록을 심을 수 있다. 별도 응답이 필요한 픽스처는 `test/fixtures/routes/<이름>.mjs`에서 절대 경로를 HTTP 핸들러에 매핑한 객체를 기본 내보내기로 제공한다. 단위 테스트는 `createTestExtensionApi`로 Worker 없이 API를 조립하고 실제 구조화 복제 경계를 사용할 수 있다.
 - 하니스: `test/harness/*.html`, `*.ts`는 개별 서브시스템(그리드, 인스턴스화, 키바인딩, 메뉴, 퀵 인풋, 스토리지, 텍스트 에디터, 확장 호스트)을 워크벤치 없이 띄우는 페이지다. 개발 서버에서만 열리고 빌드에는 들어가지 않는다(`test/e2e/smoke.spec.ts`가 확인한다).
 - 원칙:
   - 되돌리면 실패하는 테스트를 쓴다. 고친 코드를 되돌렸을 때 빨개지지 않는 테스트는 무엇도 지키지 못한다.
@@ -148,3 +149,5 @@ v0.1.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
 Decided in: wr-510x
+
+Decided in: wr-efqx

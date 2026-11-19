@@ -1,3 +1,7 @@
+import { URI } from '../../../base/common/uri.js';
+import { MenuCommandContext, MenuId, menuContextHandlers } from '../../../platform/actions/common/actions.js';
+import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
+import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 import { MainThreadCommandsProxy, ExtHostCommandsProxy } from '../common/extHost.protocol.commands.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
@@ -10,6 +14,32 @@ export interface CommandHostAccess {
   extensionId(key: string): string | undefined;
   commandOwner(command: string): string | undefined;
   activate(event: string, origin: string): Promise<void>;
+}
+
+function resolveCommandArguments(accessor: ServicesAccessor, args: unknown[]): unknown[] {
+  const [context, ...forwarded] = args;
+  if (!(context instanceof MenuCommandContext)) {
+    return args;
+  }
+  const [target, ...rest] = forwarded;
+  if (URI.isUri(target)) {
+    return forwarded;
+  }
+  if (target && typeof target === 'object' && 'resource' in target && URI.isUri(target.resource)) {
+    return [target.resource, ...rest];
+  }
+  if (context.menu === MenuId.ExplorerContext) {
+    return forwarded;
+  }
+  const editors = accessor.get(IEditorGroupsService);
+  if (target && typeof target === 'object' && 'groupId' in target && 'editorIndex' in target
+    && typeof target.groupId === 'number' && typeof target.editorIndex === 'number') {
+    const resource = editors.getGroup(target.groupId)?.getEditorByIndex(target.editorIndex)?.resource;
+    return resource ? [resource, ...rest] : forwarded;
+  }
+  const group = editors.groups.find(group => group.scopedContextKeyService === context.scope) ?? editors.activeGroup;
+  const resource = group.activeEditor?.resource;
+  return resource ? [resource, ...forwarded] : forwarded;
 }
 
 export class MainThreadCommands extends Disposable implements MainThreadCommandsShape {
@@ -34,14 +64,16 @@ export class MainThreadCommands extends Disposable implements MainThreadCommands
         throw new Error(`command '${id}' already exists`);
       }
       const keys = new Set<string>();
-      const disposable = this.registrations.add(CommandsRegistry.registerCommand(id, (_accessor, ...args) => {
+      const handler = (accessor: ServicesAccessor, ...args: unknown[]) => {
         const owner = this.host.commandOwner(id);
         const selected = owner ? [...keys].find(key => this.host.extensionId(key) === owner) : [...keys].at(-1);
         if (!selected) {
           throw new Error(`command '${id}' not found`);
         }
-        return this.proxy.$executeContributedCommand(selected, id, args);
-      }));
+        return this.proxy.$executeContributedCommand(selected, id, resolveCommandArguments(accessor, args));
+      };
+      menuContextHandlers.add(handler);
+      const disposable = this.registrations.add(CommandsRegistry.registerCommand(id, handler));
       command = { keys, disposable };
       this.commands.set(id, command);
     }

@@ -20,7 +20,7 @@
 
 확장 디렉터리의 `package.json`에는 `name`, `publisher`, `version`이 필요하다. 식별자는 대소문자를 구분하지 않는 `publisher.name`이다. `displayName`, `icon`, `browser`, `activationEvents`와 `contributes`를 추가할 수 있다. `browser`가 있는 확장은 단일 CommonJS 파일을 제공한다. `require('vscode')`로 확장에 바인딩된 API 객체를 가져온다. 다른 모듈 의존성은 진입 파일에 번들링해야 한다.
 
-`activate(context)`와 `deactivate()`를 내보낼 수 있다. `context.subscriptions`에 등록이 반환한 disposable을 넣으면 제거 시 정리된다. `context.extensionUri`는 확장 디렉터리를 나타낸다. 내장 확장은 개발 서버와 배포 빌드에서 이 디렉터리를 기준으로 리소스를 읽을 수 있다. `context.extension`은 `id`와 `packageJSON`을 제공한다.
+`activate(context)`와 `deactivate()`를 내보낼 수 있다. `context.subscriptions`에 등록이 반환한 disposable을 넣으면 제거 시 정리된다. `context.extensionUri`는 확장 디렉터리를 나타낸다. 내장 확장은 개발 서버와 배포 빌드에서 이 디렉터리를 기준으로 리소스를 읽을 수 있다. `context.extension`은 `id`와 `packageJSON`을 제공한다. `browser`가 `./dist/browser/extension`처럼 끝나면 로더가 `.js`를 붙인다.
 
 기여 커맨드와 뷰에는 각각 `onCommand:<id>`, `onView:<id>`가 암묵적으로 추가된다. `*`와 `onStartupFinished`는 첫 레이아웃과 기여 등록 이후 실행된다. 확장별로 호스트가 실행되는 동안 한 번 활성화한다. 활성화가 실패하면 그 확장과 진입 파일의 URL이 로그에 남는다. 명령 팔레트에서 **Restart Extension Host**를 실행하면 기존 호스트의 등록을 정리하고 발생했던 활성화 이벤트를 새 호스트에서 재생한다.
 
@@ -29,12 +29,13 @@
 | 키 | 항목 |
 | --- | --- |
 | `commands` | `command`, `title`, 선택적인 `category`, `icon`, `enablement` |
-| `menus` | `commandPalette`, `editor/title`, `editor/title/context`, `view/title`, `view/item/context`에 `command`, `when?`, `group?` 등록 |
-| `keybindings` | `command`, `key`, 선택적인 `mac`, `win`, `linux`, `when`, `args` |
+| `menus` | `commandPalette`, `editor/title`, `editor/title/context`, `editor/context`, `explorer/context`, `webview/context`, `view/title`, `view/item/context` 또는 선언한 하위 메뉴에 `command`나 `submenu` 등록. `when`과 `group`은 선택 사항이다 |
+| `submenus` | `id`, `label`, 선택적인 `icon`으로 하위 메뉴 선언 |
+| `keybindings` | `command`, `key`, 선택적인 `mac`, `win`, `linux`, `when`, `args`. 단일 객체나 배열을 받는다 |
 | `viewsContainers` | `activitybar` 또는 `panel`에 `id`, `title`, `icon` 등록 |
 | `views` | 컨테이너 ID 또는 `explorer` 아래에 `id`, `name`, `when?` 등록 |
 
-`icon`은 codicon 지정자 `$(beaker)` 또는 확장 폴더 안의 상대 경로를 받는다. 메뉴에는 `commands`에서 선언한 커맨드를 넣는다. 그룹 순서는 `navigation@2`처럼 지정한다. 지원되는 컨텍스트 연산자는 `!`, `==`, `!=`, `&&`, `||`, 괄호다. 지원되지 않는 식이 있는 기여는 건너뛴다.
+`icon`은 codicon 지정자 `$(beaker)` 또는 확장 폴더 안의 상대 경로를 받는다. 커맨드와 하위 메뉴의 아이콘은 `{ light, dark }` 경로 쌍도 받는다. 경로 쌍이 유효하지 않으면 아이콘을 제외하고 기여 항목은 남긴다. `menus`의 `command`와 `submenu`는 각 기여 지점에 선언한 ID를 가리킨다. `alt`는 읽으며 메뉴 표시에는 적용하지 않는다. 그룹 순서는 `navigation@2`처럼 지정한다. 지원되는 컨텍스트 연산자는 `!`, `==`, `!=`, `&&`, `||`, 괄호다. 지원되지 않는 식이 있는 기여는 건너뛴다.
 
 ## 커맨드
 
@@ -46,7 +47,9 @@
 - `window.createStatusBarItem(alignment?, priority?)`는 `text`, `tooltip`, `command`를 설정할 수 있는 항목을 반환한다. `show()`와 `hide()`로 표시를 전환하고 `dispose()`로 제거한다. 텍스트에서 `$(name)`은 codicon으로 렌더링된다.
 - `window.showInformationMessage`, `showWarningMessage`, `showErrorMessage`는 문자열 또는 `{ title }` 버튼을 받는다. 고른 원래 항목으로 resolve되며 닫으면 `undefined`다. 메시지는 워크벤치 안에 쌓인다.
 
-지원 범위는 `src/vscode-dts/vscode.d.ts`에 선언되어 있다. 트리의 사용자 요소는 Worker에 남는다. 항목을 선택하면 기존 요소를 핸들에서 복원하며, 일반 커맨드 인자는 구조화 복제한다. 트리 아이콘, 체크박스, 드래그 앤 드롭, `reveal`, 선택 이벤트, 상태 표시줄 색 지정, 모달 메시지와 Markdown 렌더링은 v0.1.0의 범위 밖이다. 확장 코드에는 `workspace`, `languages`, `env`, 설정, 편집기, 웹뷰, 확장 스토리지 API가 제공되지 않는다.
+`vscode.version`의 기본값은 `1.148.0`이다. 공용 값은 `Uri`, `Position`, `Range`, `Selection`, `Location`, `TextEdit`, `SnippetTextEdit`, `WorkspaceEdit`, `SnippetString`, `MarkdownString`, `ThemeIcon`, `ThemeColor`, `CancellationTokenSource`, `CancellationError`, `RelativePattern`, `EndOfLine`, `ViewColumn`, `LogLevel`, `DataTransfer`, `DataTransferItem`을 포함한다. 위치와 편집 범위의 줄과 열은 0에서 시작한다. 에디터 메뉴에서 실행한 확장 커맨드에는 해당 리소스의 `Uri`를 첫 인자로 전달한다.
+
+지원 범위는 `src/vscode-dts/vscode*.d.ts`에 선언되어 있다. 트리의 사용자 요소는 Worker에 남는다. 항목을 선택하면 기존 요소를 핸들에서 복원하며, 일반 커맨드 인자는 구조화 복제한다. 트리 아이콘, 체크박스, 드래그 앤 드롭, `reveal`, 선택 이벤트, 상태 표시줄 색 지정, 모달 메시지와 Markdown 렌더링은 v0.1.0의 범위 밖이다. 확장 코드에는 `workspace`, `languages`, `env`, 설정, 편집기, 웹뷰, 확장 스토리지 API가 제공되지 않는다.
 
 ## Worker 격리
 
@@ -64,3 +67,5 @@
 이 확장의 코드는 설치 화면에 표시된 서버에서 받아 앱 오리진의 Worker에서 실행된다. 매니페스트 사본은 프로필 스토리지에 저장한다. 스토리지가 브라우저에서 차단되면 워크벤치는 메모리 저장소를 사용하며 그 세션 안에서만 설치를 유지한다.
 
 Decided in: wr-ggyb
+
+Decided in: wr-efqx

@@ -1,0 +1,15 @@
+{
+  "name": "foundation",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "browser": "./browser/extension",
+  "contributes": {
+    "commands": [
+      { "command": "foundation.reportResource", "title": "Report Fixture Resource" }
+    ],
+    "menus": {
+      "editor/title": [{ "command": "foundation.reportResource", "group": "navigation" }],
+      "editor/title/context": [{ "command": "foundation.reportResource" }]
+    }
+  }
+}
