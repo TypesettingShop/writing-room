@@ -35,7 +35,7 @@
 | `viewsContainers` | `activitybar` 또는 `panel`에 `id`, `title`, `icon` 등록 |
 | `views` | 컨테이너 ID 또는 `explorer` 아래에 `id`, `name`, `when?` 등록 |
 
-`icon`은 codicon 지정자 `$(beaker)` 또는 확장 폴더 안의 상대 경로를 받는다. 커맨드와 하위 메뉴의 아이콘은 `{ light, dark }` 경로 쌍도 받는다. 커맨드 아이콘이 유효하지 않으면 아이콘을 제외하고 커맨드는 남긴다. `menus`의 `command`와 `submenu`는 각 기여 지점에 선언한 ID를 가리킨다. `alt`는 읽으며 메뉴 표시에는 적용하지 않는다. 그룹 순서는 `navigation@2`처럼 지정한다. 지원되는 컨텍스트 연산자는 `!`, `==`, `!=`, `&&`, `||`, 괄호다. 지원되지 않는 식이 있는 기여는 건너뛴다.
+`icon`은 codicon 지정자 `$(beaker)` 또는 확장 폴더 안의 상대 경로를 받는다. 커맨드와 하위 메뉴의 아이콘은 `{ light, dark }` 경로 쌍도 받는다. 커맨드 아이콘이 유효하지 않으면 아이콘을 제외하고 커맨드는 남긴다. `menus`의 `command`와 `submenu`는 각 기여 지점에 선언한 ID를 가리킨다. `alt`는 읽으며 메뉴 표시에는 적용하지 않는다. 그룹 순서는 `navigation@2`처럼 지정한다. 기여에 사용할 수 있는 식과 키는 [when 절과 컨텍스트 키](editor-services.md#when-절과-컨텍스트-키)에 정리되어 있다. 구문이 잘못된 식을 쓰는 기여는 건너뛴다.
 
 ## 커맨드
 
