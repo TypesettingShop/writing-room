@@ -1,0 +1,8 @@
+{
+  "publisher": "writing-room-tests",
+  "name": "api-probe-refused",
+  "version": "1.0.0",
+  "engines": { "vscode": "^99.0.0" },
+  "browser": "./extension.js",
+  "activationEvents": ["onStartupFinished"]
+}

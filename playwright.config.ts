@@ -1,5 +1,6 @@
 import { createServer } from 'node:net';
 import { defineConfig } from '@playwright/test';
+import { checkCache } from './scripts/lib/real-extensions.mjs';
 
 const host = '127.0.0.1';
 
@@ -46,6 +47,25 @@ if (!Number.isInteger(extensionPort) || extensionPort < 1 || extensionPort > 655
   throw new Error('E2E_EXTENSIONS_PORT must be a distinct TCP port between 1 and 65535.');
 }
 
+// The real-extension cache (wr-jbmd). Specs that need it skip with the reason below; E2E_REQUIRE_REAL_EXTENSIONS=1
+// fails the run instead. Checked once: workers inherit the result like the ports above.
+if (process.env.E2E_REAL_EXTENSIONS === undefined) {
+  const { problems } = await checkCache(undefined, process.env.E2E_REAL_EXTENSIONS_CACHE || undefined);
+  process.env.E2E_REAL_EXTENSIONS = problems.length ? 'missing' : 'available';
+  if (problems.length) {
+    const reason = 'The real extension cache is not usable, so the tests that install real extensions are skipped.'
+      + ' Run node scripts/fetch-real-extensions.mjs to fill it.\n  ' + problems.join('\n  ');
+    if (process.env.E2E_REQUIRE_REAL_EXTENSIONS === '1') {
+      throw new Error(reason.replace('are skipped', 'cannot run (E2E_REQUIRE_REAL_EXTENSIONS=1)'));
+    }
+    process.stdout.write(reason + '\n');
+  }
+} else if (process.env.E2E_REQUIRE_REAL_EXTENSIONS === '1' && process.env.E2E_REAL_EXTENSIONS !== 'available') {
+  // A value set before this run (exported in the shell, inherited from another run) must not bypass the requirement.
+  throw new Error(`The real extension cache is not usable (E2E_REAL_EXTENSIONS=${process.env.E2E_REAL_EXTENSIONS}), `
+    + 'so the tests that install real extensions cannot run (E2E_REQUIRE_REAL_EXTENSIONS=1).');
+}
+
 const baseURL = 'http://' + host + ':' + port;
 const start = target === 'preview' ? 'npm run build && npm run preview' : 'npm run dev';
 
@@ -60,6 +80,8 @@ export default defineConfig({
     command: start + ' -- --host ' + host + ' --port ' + port + ' --strictPort',
     // Wait for this process to bind. A URL probe alone can succeed on a competing server.
     wait: { stdout: new RegExp('Local:\\s+' + baseURL.replaceAll('.', '\\.') + '/') },
+    // The preview target type-checks and builds first, which takes about a minute on a busy machine.
+    timeout: target === 'preview' ? 300_000 : 60_000,
     reuseExistingServer: false,
   }, {
     command: 'node test/fixtures/serve-extensions.mjs ' + extensionPort,
