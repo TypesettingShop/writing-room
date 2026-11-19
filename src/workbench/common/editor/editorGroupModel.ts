@@ -2,10 +2,11 @@ import { Emitter } from '../../../base/common/event.js';
 import type { Event } from '../../../base/common/event.js';
 import { combinedDisposable, Disposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
+import type { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorsOrder, GroupModelChangeKind } from '../editor.js';
 import type { GroupIdentifier, IEditorFactoryRegistry } from '../editor.js';
-import type { EditorInput } from './editorInput.js';
+import { EditorInput } from './editorInput.js';
 
 export interface IGroupModelChangeEvent {
   readonly kind: GroupModelChangeKind;
@@ -35,6 +36,23 @@ export interface IEditorGroupModelOptions {
   readonly openPositioning: 'left' | 'right' | 'first' | 'last';
   /** Closing the active editor activates the most recently used one rather than its neighbour. */
   readonly focusRecentEditorAfterClose: boolean;
+}
+
+export type EditorInputWriter = (editor: EditorInput) => string | undefined;
+export type EditorInputReader = (typeId: string, value: string) => EditorInput | undefined;
+
+export function serializeEditorInput(editor: EditorInput): string | undefined {
+  const registry = Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!;
+  const serializer = registry.getEditorSerializer(editor);
+  return serializer?.canSerialize(editor) ? serializer.serialize(editor) : undefined;
+}
+
+export function deserializeEditorInput(
+  instantiationService: IInstantiationService, typeId: string, value: string,
+): EditorInput | undefined {
+  const registry = Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!;
+  const editor = registry.getEditorSerializer(typeId)?.deserialize(instantiationService, value);
+  return editor instanceof EditorInput && !editor.isDisposed() ? editor : undefined;
 }
 
 const DEFAULT_MODEL_OPTIONS: IEditorGroupModelOptions = { openPositioning: 'right', focusRecentEditorAfterClose: true };
@@ -68,16 +86,79 @@ export class EditorGroupModel extends Disposable {
   private readonly _onDidModelChange = this._register(new Emitter<IGroupModelChangeEvent>());
   readonly onDidModelChange: Event<IGroupModelChangeEvent> = this._onDidModelChange.event;
 
-  /** Increasing and never reused, across every model of the page. */
-  readonly id: GroupIdentifier = ++groupIds;
+  /**
+   * Unique among the page's models. A new model takes the next number; a restored one keeps its
+   * saved id and moves the counter past it.
+   */
+  readonly id: GroupIdentifier;
 
   private editors: EditorInput[] = [];
   private mru: EditorInput[] = [];
   private active: EditorInput | null = null;
   private readonly editorListeners = new Map<EditorInput, IDisposable>();
 
-  constructor(private readonly getOptions: () => IEditorGroupModelOptions = () => DEFAULT_MODEL_OPTIONS) {
+  constructor(
+    private readonly getOptions: () => IEditorGroupModelOptions = () => DEFAULT_MODEL_OPTIONS,
+    restoredId?: GroupIdentifier,
+  ) {
     super();
+    this.id = restoredId ?? ++groupIds;
+    groupIds = Math.max(groupIds, this.id);
+  }
+
+  static deserialize(
+    data: unknown, readEditor: EditorInputReader, getOptions: () => IEditorGroupModelOptions,
+  ): EditorGroupModel {
+    const state = data as Partial<ISerializedEditorGroupModel> | null | undefined;
+    const id = state?.id;
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0 || id === Number.MAX_SAFE_INTEGER) {
+      throw new Error('Invalid saved editor group id.');
+    }
+    const model = new EditorGroupModel(getOptions, id);
+    const warn = (detail: string, index?: number, typeId?: string) =>
+      console.warn('Invalid saved editor group data.', { key: 'editorpart.state', groupId: id, detail, index, typeId });
+    const byIndex = new Map<number, EditorInput>();
+
+    const entries = state?.editors;
+    if (Array.isArray(entries)) {
+      entries.forEach((saved, index) => {
+        if (typeof saved?.id !== 'string' || typeof saved.value !== 'string') {
+          warn('Invalid editor entry', index);
+          return;
+        }
+        try {
+          const editor = readEditor(saved.id, saved.value);
+          if (editor && !model.findEditor(editor)) {
+            model.insertEditor(editor, model.count);
+            byIndex.set(index, editor);
+            return;
+          }
+        } catch {
+          // A serializer or input can fail independently of the other tabs.
+        }
+        warn('Editor could not be restored', index, saved.id);
+      });
+    } else {
+      warn('Invalid editor list');
+    }
+
+    const recent = new Set<EditorInput>();
+    if (Array.isArray(state?.mru)) {
+      for (const index of state.mru) {
+        const editor = byIndex.get(index);
+        if (editor) {
+          recent.add(editor);
+        } else if (!Number.isInteger(index) || index < 0 || index >= (Array.isArray(entries) ? entries.length : 0)) {
+          warn('Invalid recently used editor index', index);
+        }
+      }
+    } else {
+      warn('Invalid recently used editor list');
+    }
+    model.editors.forEach(editor => recent.add(editor));
+    model.mru = [...recent];
+    model.active = model.mru[0] ?? null;
+    return model;
   }
 
   get count(): number {
@@ -136,15 +217,7 @@ export class EditorGroupModel extends Disposable {
     }
 
     const index = this.clampIndex(options.index ?? this.defaultOpenIndex(), this.editors.length);
-    this.editors.splice(index, 0, candidate);
-    // A new editor that does not become active is the least recently used one.
-    this.mru.push(candidate);
-    this.editorListeners.set(candidate, combinedDisposable(
-      candidate.onDidChangeDirty(() => this.fire(GroupModelChangeKind.EDITOR_DIRTY, candidate)),
-      candidate.onDidChangeLabel(() => this.fire(GroupModelChangeKind.EDITOR_LABEL, candidate)),
-      candidate.onWillDispose(() => this.fire(GroupModelChangeKind.EDITOR_WILL_DISPOSE, candidate)),
-    ));
-    this._onDidModelChange.fire({ kind: GroupModelChangeKind.EDITOR_OPEN, editor: candidate, editorIndex: index });
+    this.insertEditor(candidate, index);
     if (makeActive) {
       this.setActive(candidate);
     }
@@ -219,23 +292,38 @@ export class EditorGroupModel extends Disposable {
   }
 
   /**
-   * The group as data. Each editor is written by the serializer registered for its `typeId`; an
-   * editor without one, or whose serializer declines it, is left out of `editors` and `mru` alike.
+   * The group as data. Each editor is written by `writeEditor`, by default the serializer registered
+   * for its `typeId`; an editor it writes no string for, or that throws, is left out of `editors` and
+   * `mru` alike.
    */
-  serialize(): ISerializedEditorGroupModel {
-    const registry = Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!;
+  serialize(writeEditor: EditorInputWriter = serializeEditorInput): ISerializedEditorGroupModel {
     const serialized = new Map<EditorInput, number>();
     const editors: ISerializedEditorInput[] = [];
     for (const editor of this.editors) {
-      const serializer = registry.getEditorSerializer(editor);
-      const value = serializer?.canSerialize(editor) ? serializer.serialize(editor) : undefined;
-      if (typeof value === 'string') {
-        serialized.set(editor, editors.length);
-        editors.push({ id: editor.typeId, value });
+      try {
+        const value = writeEditor(editor);
+        if (typeof value === 'string') {
+          serialized.set(editor, editors.length);
+          editors.push({ id: editor.typeId, value });
+        }
+      } catch {
+        console.warn('Could not save editor.', { key: 'editorpart.state', groupId: this.id, typeId: editor.typeId });
       }
     }
     const mru = this.mru.filter(editor => serialized.has(editor)).map(editor => serialized.get(editor)!);
     return { id: this.id, editors, mru };
+  }
+
+  private insertEditor(editor: EditorInput, index: number): void {
+    this.editors.splice(index, 0, editor);
+    // A new editor that does not become active is the least recently used one.
+    this.mru.push(editor);
+    this.editorListeners.set(editor, combinedDisposable(
+      editor.onDidChangeDirty(() => this.fire(GroupModelChangeKind.EDITOR_DIRTY, editor)),
+      editor.onDidChangeLabel(() => this.fire(GroupModelChangeKind.EDITOR_LABEL, editor)),
+      editor.onWillDispose(() => this.fire(GroupModelChangeKind.EDITOR_WILL_DISPOSE, editor)),
+    ));
+    this._onDidModelChange.fire({ kind: GroupModelChangeKind.EDITOR_OPEN, editor, editorIndex: index });
   }
 
   private defaultOpenIndex(): number {

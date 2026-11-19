@@ -322,14 +322,16 @@ export interface ISerializedGrid extends ISerializedGridView {}
 
 export interface ISerializableGridOptions extends IGridOptions {}
 
-function serializeNode<T extends ISerializableView>(node: GridNode<T>, orientation: Orientation): object {
+function serializeNode<T extends ISerializableView>(
+  node: GridNode<T>, orientation: Orientation, serializeView: (view: T) => object,
+): object {
   // `orientation` is the node's own; its size runs along its parent's axis, the other one.
   const visibleSize = orientation === Orientation.VERTICAL ? node.box.width : node.box.height;
   const size = node.cachedVisibleSize ?? visibleSize;
   if (isGridBranchNode(node)) {
-    return { type: 'branch', data: node.children.map(child => serializeNode(child, orthogonal(orientation))), size };
+    return { type: 'branch', data: node.children.map(child => serializeNode(child, orthogonal(orientation), serializeView)), size };
   }
-  const result: { type: 'leaf'; data: object; size: number; visible?: boolean } = { type: 'leaf', data: node.view.toJSON(), size };
+  const result: { type: 'leaf'; data: object; size: number; visible?: boolean } = { type: 'leaf', data: serializeView(node.view), size };
   if (node.cachedVisibleSize !== undefined) {
     result.visible = false;
   }
@@ -348,9 +350,9 @@ export class SerializableGrid<T extends ISerializableView> extends Grid<T> {
     return new SerializableGrid<T>(gridview, options);
   }
 
-  serialize(): ISerializedGrid {
+  serialize(serializeView = (view: T) => view.toJSON()): ISerializedGrid {
     return {
-      root: serializeNode(this.getViews(), this.orientation) as ISerializedGrid['root'],
+      root: serializeNode(this.getViews(), this.orientation, serializeView) as ISerializedGrid['root'],
       orientation: this.orientation,
       width: this.width,
       height: this.height,

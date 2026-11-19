@@ -19,7 +19,8 @@ export interface IPartVisibilityChangeEvent {
 export interface IWorkbenchLayoutService extends ILayoutService {
   readonly onDidChangePartVisibility: Event<IPartVisibilityChangeEvent>;
   isVisible(part: Parts): boolean;
-  setPartHidden(hidden: boolean, part: Parts): void;
+  /** Automatic hiding follows container availability and leaves the stored user choice intact. */
+  setPartHidden(hidden: boolean, part: Parts, options?: { readonly automatic: boolean }): void;
   getContainer(part: Parts): HTMLElement;
 }
 

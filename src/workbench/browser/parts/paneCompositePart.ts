@@ -3,6 +3,8 @@ import { dispose, toDisposable } from '../../../base/common/lifecycle.js';
 import { IContextKeyService } from '../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey, RawContextKey } from '../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
+import { StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
+import type { IStorageService } from '../../../platform/storage/common/storage.js';
 import { FocusedViewContext } from '../../common/contextkeys.js';
 import { ViewContainerLocation, viewsRegistry } from '../../common/views.js';
 import type { IViewContainerLocationChange, IViewContainerLocationChangeEvent, IViewDescriptor, IViewDescriptorService, ViewContainer } from '../../common/views.js';
@@ -31,7 +33,6 @@ export abstract class PaneCompositePart extends Part {
   private refreshing = false;
   private refreshPending = false;
   private initialized = false;
-  private hiddenWhenEmpty = false;
   private transferring = false;
 
   protected constructor(
@@ -44,11 +45,16 @@ export abstract class PaneCompositePart extends Part {
     protected readonly instantiationService: IInstantiationService,
     private readonly layoutService: IWorkbenchLayoutService,
     protected readonly viewDescriptors: IViewDescriptorService,
+    private readonly storage: IStorageService,
+    private readonly storageKey: string,
   ) {
     super(id);
     this._register(toDisposable(() => dispose(this.containers.values())));
     this.activeContext = activeContext.bindTo(contextKeyService);
     this.focusedView = FocusedViewContext.bindTo(contextKeyService);
+    this._register(storage.onWillSaveState(() => storage.store(
+      this.storageKey, this.state[this.activeKey], StorageScope.WORKSPACE, StorageTarget.MACHINE,
+    )));
   }
 
   protected override createContentArea(parent: HTMLElement): void {
@@ -110,6 +116,15 @@ export abstract class PaneCompositePart extends Part {
   }
 
   initializeViewContainers(): void {
+    const stored = this.storage.get(this.storageKey, StorageScope.WORKSPACE);
+    if (stored !== undefined) {
+      const descriptor = this.viewDescriptors.getViewContainerById(stored);
+      if (descriptor && this.viewDescriptors.getViewContainerLocation(descriptor) === this.location) {
+        this.state[this.activeKey] ??= stored;
+      } else {
+        console.warn('Unavailable saved view container.', { key: this.storageKey, id: stored });
+      }
+    }
     this.initialized = true;
     this.refresh();
   }
@@ -200,17 +215,7 @@ export abstract class PaneCompositePart extends Part {
     const available = new Map<ViewContainer, readonly IViewDescriptor[]>();
     this.relevantContextKeys = new Set();
     const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location);
-    if (!descriptors.length) {
-      // A part the person had already hidden stays hidden when containers come back through a reset or a
-      // registration. A container moved into it still opens it (updateContainerLocations).
-      if (this.layoutService.isVisible(this.id)) {
-        this.hiddenWhenEmpty = true;
-        this.layoutService.setPartHidden(true, this.id);
-      }
-    } else if (this.hiddenWhenEmpty) {
-      this.hiddenWhenEmpty = false;
-      this.layoutService.setPartHidden(false, this.id);
-    }
+    this.layoutService.setPartHidden(descriptors.length === 0, this.id, { automatic: true });
     for (const container of descriptors) {
       const views = viewsRegistry.getViews(container).filter(view => {
         view.when?.keys().forEach(key => this.relevantContextKeys.add(key));

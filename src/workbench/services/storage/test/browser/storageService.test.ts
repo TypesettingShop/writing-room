@@ -301,6 +301,26 @@ describe('fallback and browser events', () => {
     expect(error).toHaveBeenCalledTimes(2);
   });
 
+  test('waits until a hidden tab becomes visible before saving at idle again', () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const storage = disposables.add(new BrowserStorageService());
+    const save = vi.fn();
+    storage.onWillSaveState(save, undefined, disposables);
+
+    visibility.mockReturnValue('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(save).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(120_000);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    visibility.mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(save).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
   test('saves periodically at idle and stops on disposal', () => {
     vi.useFakeTimers();
     const storage = disposables.add(new BrowserStorageService());

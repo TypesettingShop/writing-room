@@ -1,10 +1,11 @@
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
 import type { URI } from '../../../../base/common/uri.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
-import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { EditorExtensions } from '../../../common/editor.js';
+import type { IEditorFactoryRegistry, IEditorSerializer } from '../../../common/editor.js';
 import { EditorPane } from './editorPane.js';
 import './media/welcomeEditor.css';
 
@@ -69,15 +70,19 @@ export class WelcomeEditorPane extends EditorPane {
   }
 }
 
-/** Opens the Welcome page in the first group when the workbench starts with no editor open. */
-export class WelcomePageContribution extends Disposable {
-  static readonly ID = 'workbench.contrib.welcomePage';
+class WelcomeEditorSerializer implements IEditorSerializer {
+  canSerialize(editor: EditorInput): boolean {
+    return editor instanceof WelcomeEditorInput;
+  }
 
-  constructor(@IEditorGroupsService editorGroupsService: IEditorGroupsService) {
-    super();
-    const group = editorGroupsService.activeGroup;
-    if (editorGroupsService.count === 1 && group.isEmpty) {
-      void group.openEditor(new WelcomeEditorInput(), { preserveFocus: true });
-    }
+  serialize(): string {
+    return '';
+  }
+
+  deserialize(_instantiationService: unknown, value: string): EditorInput | undefined {
+    return value === '' ? new WelcomeEditorInput() : undefined;
   }
 }
+
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!
+  .registerEditorSerializer(WelcomeEditorInput.ID, WelcomeEditorSerializer);

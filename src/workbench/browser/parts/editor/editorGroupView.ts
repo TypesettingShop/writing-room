@@ -10,7 +10,7 @@ import { EditorExtensions, EditorsOrder, GroupModelChangeKind } from '../../../c
 import type { GroupIdentifier } from '../../../common/editor.js';
 import { EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
 import { EditorGroupModel } from '../../../common/editor/editorGroupModel.js';
-import type { IGroupModelChangeEvent, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
+import type { EditorInputWriter, IGroupModelChangeEvent, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type {
   ICloseEditorsFilter, IEditorGroup, IEditorMoveOptions, IEditorOpenOptions,
@@ -63,11 +63,12 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
 
   constructor(
     private readonly groupsView: IEditorGroupsView,
+    restoredModel: EditorGroupModel | undefined,
     @IInstantiationService private readonly instantiationService: IInstantiationService,
     @IContextKeyService contextKeyService: IContextKeyService,
   ) {
     super();
-    this.model = this._register(new EditorGroupModel(() => this.groupsView.partOptions));
+    this.model = this._register(restoredModel ?? new EditorGroupModel(() => this.groupsView.partOptions));
 
     this.element = $('.editor-group-container', { 'data-group-id': this.model.id, tabindex: -1 });
     this._register(toDisposable(() => this.element.remove()));
@@ -397,8 +398,16 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     }
   }
 
-  toJSON(): ISerializedEditorGroupModel {
-    return this.model.serialize();
+  restoreActiveEditor(): void {
+    const editor = this.model.activeEditor;
+    if (editor) {
+      void this.doShowEditor(editor, { preserveFocus: true }).catch(error =>
+        console.warn('Could not show restored editor.', { key: 'editorpart.state', groupId: this.id, error }));
+    }
+  }
+
+  toJSON(writeEditor?: EditorInputWriter): ISerializedEditorGroupModel {
+    return this.model.serialize(writeEditor);
   }
 
   override dispose(): void {

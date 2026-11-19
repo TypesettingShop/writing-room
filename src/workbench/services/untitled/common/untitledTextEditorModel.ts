@@ -17,6 +17,9 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
   private readonly _onDidChangeDirty = this._register(new Emitter<void>());
   readonly onDidChangeDirty: Event<void> = this._onDidChangeDirty.event;
 
+  private readonly _onDidChangeContent = this._register(new Emitter<void>());
+  readonly onDidChangeContent = this._onDidChangeContent.event;
+
   private readonly _onWillDispose = this._register(new Emitter<void>());
   readonly onWillDispose: Event<void> = this._onWillDispose.event;
 
@@ -42,6 +45,14 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
 
   get textEditorModel(): ITextModel | null {
     return this.model;
+  }
+
+  getValue(): string {
+    return this.model?.getValue() ?? this.initialValue;
+  }
+
+  getValueLength(): number {
+    return this.model?.getValueLength() ?? this.initialValue.length;
   }
 
   /** Untitled text is dirty while it is not empty. */
@@ -83,8 +94,13 @@ export class UntitledTextEditorModel extends Disposable implements ITextEditorMo
     this.model = model;
     // The text model holds the text from now on.
     this.initialValue = '';
-    this.modelListener.value = model.onDidChangeContent(() => this.setDirty(model.getValueLength() > 0));
-    this.setDirty(model.getValueLength() > 0);
+    this.modelListener.value = model.onDidChangeContent(() => this.handleContentChange());
+    this.handleContentChange();
+  }
+
+  private handleContentChange(): void {
+    this.setDirty(this.getValueLength() > 0);
+    this._onDidChangeContent.fire();
   }
 
   private setDirty(dirty: boolean): void {
