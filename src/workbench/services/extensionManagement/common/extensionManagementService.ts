@@ -619,18 +619,23 @@ export class ExtensionManagementService {
       return false;
     }
     await this.active.whenExtensionRemoved?.(id);
+    let removedRecord = false;
     try {
       await this.scanner.locked(async (read, write) => {
         const installed = read();
         const record = installed.find(extension => extension.identifier === id);
         const remaining = installed.filter(extension => extension.identifier !== id);
         await write(remaining);
+        removedRecord = true;
         if (record) {
           await this.removeUnreferenced(record.location, remaining);
         }
+        await this.active.clearExtensionStorage?.(id);
       });
     } catch (error) {
-      this.registerAgain(description);
+      if (!removedRecord) {
+        this.registerAgain(description);
+      }
       throw error;
     }
     return true;

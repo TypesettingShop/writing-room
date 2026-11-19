@@ -1,5 +1,6 @@
 import { parse } from '../../../../base/common/glob.js';
 import { normalizeFileResource } from '../../../../platform/files/common/fileResource.js';
+import { FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import type { IFileService } from '../../../../platform/files/common/files.js';
 import type { IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 
@@ -36,8 +37,13 @@ export async function findWorkspaceActivation(
         const pending = [folder.uri];
         const base = folder.uri.path + '/';
         while (pending.length && !search.aborted) {
-          const stat = await files.resolve(pending.pop()!);
-          for (const child of stat.children ?? []) {
+          const stat = await files.resolve(pending.pop()!).catch(error => {
+            if (toFileSystemProviderErrorCode(error) !== FileSystemProviderErrorCode.FileNotFound) {
+              throw error;
+            }
+            return undefined;
+          });
+          for (const child of stat?.children ?? []) {
             if (search.aborted) {
               return false;
             }

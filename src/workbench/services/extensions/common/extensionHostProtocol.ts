@@ -16,6 +16,8 @@ export interface HostExtensionDescription {
   readonly entry: string;
   readonly manifest: IExtensionManifest;
   readonly activationEvents: readonly string[];
+  readonly disabled?: boolean;
+  readonly runtime?: { readonly workspaceId?: string; readonly locale: string };
   readonly views?: readonly string[];
 }
 

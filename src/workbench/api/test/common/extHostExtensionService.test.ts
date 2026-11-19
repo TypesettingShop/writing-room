@@ -258,3 +258,50 @@ test('keeps the API and registrations until asynchronous deactivation finishes',
     worker.dispose();
   }
 });
+
+test('stops waiting for deactivation after five seconds and releases its API', async () => {
+  const channel = new MessageChannel();
+  const main = new RPCProtocol(channel.port1);
+  const worker = new RPCProtocol(channel.port2);
+  const removed = deferred();
+  const inside = deferred();
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const disposed = vi.fn();
+  main.set(MainContext.MainThreadExtensionService, {
+    async $setActivationStatus(_id, status) {
+      if (status.state === 'inactive') {
+        removed.resolve();
+      }
+    },
+  });
+  const service = new ExtHostExtensionService(worker, async (_extension, api) => ({
+    activate(context) {
+      context.subscriptions.push({ dispose: disposed });
+    },
+    async deactivate() {
+      inside.resolve();
+      await new Promise(() => {});
+      await api.commands.executeCommand('never');
+    },
+  }));
+  try {
+    const host = main.getProxy(ExtHostContext.ExtHostExtensionService);
+    await host.$deltaExtensions([description('timeout')], []);
+    await host.$activateByEvent('onCommand:test');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await host.$deltaExtensions([], ['timeout']);
+    await inside.promise;
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(disposed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await removed.promise;
+    expect(disposed).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledWith('[timeout] Deactivation timed out after 5 seconds.');
+  } finally {
+    vi.useRealTimers();
+    service.dispose();
+    main.dispose();
+    worker.dispose();
+    warning.mockRestore();
+  }
+});
