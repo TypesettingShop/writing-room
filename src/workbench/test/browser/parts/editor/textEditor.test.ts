@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { Dimension } from '../../../../../base/browser/dom.js';
-import { Emitter, Event } from '../../../../../base/common/event.js';
+import { Emitter } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { CodeEditorService } from '../../../../../editor/browser/services/codeEditorService.js';
 import type { ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { NullConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import type { IConfigurationChangeEvent, IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import type {
+  IConfigurationChangeEvent, IConfigurationOverrides, IConfigurationService,
+} from '../../../../../platform/configuration/common/configuration.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { TextEditorPane } from '../../../../browser/parts/editor/textEditor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
@@ -132,23 +134,26 @@ let contextKeys: ContextKeyService;
 let codeEditors: CodeEditorService;
 const panes: TextEditorPane[] = [];
 
-class TestConfiguration implements IConfigurationService {
-  declare readonly _serviceBrand: undefined;
+class TestConfiguration extends NullConfigurationService {
   readonly values = new Map<string, unknown>();
   private readonly changed = new Emitter<IConfigurationChangeEvent>();
-  readonly onDidChangeConfiguration = this.changed.event;
-  readonly onDidChangeUserSettings = Event.None;
-  getValue<T>(key?: string): T | undefined { return key === undefined ? undefined : this.values.get(key) as T | undefined; }
-  async updateValue(): Promise<void> {}
-  getUserSettingsText(): string { return '{}'; }
-  saveUserSettings(): void {}
+  override readonly onDidChangeConfiguration = this.changed.event;
+  override getValue<T>(key?: string, overrides?: IConfigurationOverrides): T | undefined {
+    const language = overrides?.overrideIdentifier;
+    const value = key === undefined ? undefined : language && this.values.has(`[${language}]${key}`)
+      ? this.values.get(`[${language}]${key}`) : this.values.get(key);
+    return value as T | undefined;
+  }
   change(values: Record<string, unknown>): void {
     for (const [key, value] of Object.entries(values)) {
       this.values.set(key, value);
     }
-    this.changed.fire({ affectsConfiguration: key => Object.keys(values).some(name => name === key || name.startsWith(key + '.')) });
+    this.changed.fire({
+      affectedKeys: new Set(Object.keys(values)),
+      affectsConfiguration: key => Object.keys(values).some(name => name === key || name.startsWith(key + '.')),
+    });
   }
-  dispose(): void { this.changed.dispose(); }
+  override dispose(): void { this.changed.dispose(); }
 }
 
 function createPane(
@@ -426,6 +431,36 @@ test('creates the editor with the configured options and applies changes to it a
 
     configuration.change({ 'workbench.commandPalette.history': 1 });
     expect(editor.updates).toHaveLength(1);
+  } finally {
+    configuration.dispose();
+  }
+});
+
+test('reads the options for the language of the model it shows, again when the model or its language changes', async () => {
+  const configuration = new TestConfiguration();
+  configuration.values.set('editor.wordWrap', 'off');
+  configuration.values.set('[markdown]editor.wordWrap', 'on');
+  configuration.values.set('[markdown]editor.tabSize', 2);
+  try {
+    const { pane } = createPane(undefined, configuration);
+    const text = new TestTextInput('text');
+    const notes = new TestTextInput('notes');
+    (notes.textModel as FakeMonacoTextModel).setLanguage('markdown');
+    await pane.setInput(notes, undefined);
+    const editor = editorOf(pane);
+    expect(editor.options).toMatchObject({ wordWrap: 'on' });
+    expect((notes.textModel as FakeMonacoTextModel).getOptions().tabSize).toBe(2);
+
+    await pane.setInput(text, undefined);
+    expect(editor.updates.at(-1)).toMatchObject({ wordWrap: 'off' });
+    expect((text.textModel as FakeMonacoTextModel).getOptions().tabSize).toBe(4);
+
+    (text.textModel as FakeMonacoTextModel).setLanguage('markdown');
+    expect(editor.updates.at(-1)).toMatchObject({ wordWrap: 'on' });
+    expect((text.textModel as FakeMonacoTextModel).getOptions().tabSize).toBe(2);
+    const count = editor.updates.length;
+    await pane.setInput(notes, undefined);
+    expect(editor.updates).toHaveLength(count);
   } finally {
     configuration.dispose();
   }
