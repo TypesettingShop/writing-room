@@ -57,9 +57,9 @@ export enum CustomEditorResolution {
  *
  * A `text` editor is over the text model of `resource`: dirty state, save and revert are the text
  * file model's, as for the text editor of the same file, and once it started to resolve (or startup
- * read its draft, `resolve`) it holds a reference to that model. A `custom` editor is over a document of the extension's own, which the
- * main thread attaches when it resolves: dirty state, save, revert, undo and redo are that
- * document's, shared by the editors of the same `viewType` and resource.
+ * read its draft, `resolve`) it holds a reference to that model. A `custom` editor is over a document
+ * of the extension's own, which the main thread attaches when it resolves: dirty state, save, revert,
+ * undo and redo are that document's, shared by the editors of the same `viewType` and resource.
  */
 export class CustomEditorInput extends EditorInput {
   static readonly ID = 'workbench.editors.webviewEditor';
@@ -258,8 +258,12 @@ export class CustomEditorInput extends EditorInput {
    * before it is shown, so its tab is dirty from the start. A `custom` editor's document is the
    * extension's, which it opens only when the editor shows.
    */
-  override async resolve(): Promise<ITextModel | null> {
-    return this.kind === 'text' ? this.acquireModel() : null;
+  override async resolve(): Promise<IResolvedTextEditorModel | null> {
+    if (this.kind !== 'text') {
+      return null;
+    }
+    await this.acquireModel();
+    return this.reference ? (await this.reference).object : null;
   }
 
   get resolutionState(): CustomEditorResolution {

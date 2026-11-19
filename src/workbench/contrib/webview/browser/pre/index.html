@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-c6x7sRir8lkgEbVYX2FqEqgcpBK9CUl4VVjjiO+TdpE='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-By0zkfWIMCrClPfk6O9quHViHZ9gnAwBnO/IOxVluMM='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="writing-room-webview-parent-origin" content="">
 <title>Webview</title>
@@ -164,9 +164,14 @@
     }
     document.addEventListener('keydown', forwardKey);
 
+    // The field undoes by the character the key types, the workbench's Undo and Redo by the physical
+    // key (`code`): either one is the field's on any keyboard layout. Shift+Y is neither.
     function isUndoRedo(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+        return false;
+      }
       const key = event.key.toLowerCase();
-      return (event.ctrlKey || event.metaKey) && !event.altKey && (key === 'z' || key === 'y');
+      return key === 'z' || event.code === 'KeyZ' || (!event.shiftKey && (key === 'y' || event.code === 'KeyY'));
     }
 
     function isEditable(element) {
@@ -177,7 +182,8 @@
         return true;
       }
       return element.localName === 'input'
-        && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(element.type);
+        && !['button', 'checkbox', 'color', 'date', 'datetime-local', 'file', 'hidden', 'image', 'month', 'radio', 'range', 'reset',
+          'submit', 'time', 'week'].includes(element.type);
     }
 
     function followLink(event) {

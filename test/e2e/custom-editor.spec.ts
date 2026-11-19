@@ -275,6 +275,13 @@ test('an editable custom document undoes in order, saves through its provider an
   await expect(field).toHaveValue('ab');
   await page.keyboard.press('ControlOrMeta+z');
   await expect(field).not.toHaveValue('ab');
+  // So is the Z key of a layout where it types another letter: the workbench matches the physical key.
+  const cdp = await page.context().newCDPSession(page);
+  const modifiers = process.platform === 'darwin' ? 4 : 2;
+  for (const type of ['rawKeyDown', 'keyUp'] as const) {
+    await cdp.send('Input.dispatchKeyEvent', { type, modifiers, key: 'я', code: 'KeyZ', windowsVirtualKeyCode: 90 });
+  }
+  await cdp.detach();
   // The probe runs after any undo the key would have sent to the extension host.
   expect((await probe(page)).undos).toBe(undos);
   // Three toasts show at once: the probes make room for the ones below.

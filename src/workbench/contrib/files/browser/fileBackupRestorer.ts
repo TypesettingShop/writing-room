@@ -5,13 +5,12 @@ import { ITextFileService } from '../../../services/textfile/common/textfiles.js
 import { FileEditorInput } from './editors/fileEditorInput.js';
 
 /**
- * At startup, once the editors of the last page are back: the editors that show a file with a draft
- * read it now, so their tabs show them dirty before they are shown; drafts that no editor of the page
- * shows, and that no other tab keeps, are deleted.
- *
- * An editor shows a file when its `resource` is that file, whatever its kind: a custom editor over the
- * file's text (`CustomTextEditorProvider`) writes the same drafts as the text editor, and its draft is
- * the user's text all the same.
+ * At startup, once the editors of the last page are back: a draft stays while some editor of the page
+ * has its file as `resource`, whatever its kind, and the others that no other tab keeps are deleted.
+ * Each editor of a kept draft is asked to `resolve`: the text editor, and a custom editor over the
+ * file's text (`CustomTextEditorProvider`), read the draft now, so their tabs show them dirty before
+ * they are shown. An editor over a document of its own (`CustomEditorProvider`) reads nothing; the
+ * draft only stays for when the file's text is opened again.
  */
 export class FileBackupRestorer {
   static readonly ID = 'workbench.contrib.fileBackupRestorer';
