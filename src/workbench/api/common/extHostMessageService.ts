@@ -1,4 +1,4 @@
-import { extHostApiRegistry } from './extHostApiRegistry.js';
+import { extHostApiRegistry, promiseApiMethod } from './extHostApiRegistry.js';
 import { MainThreadMessageServiceProxy } from './extHost.protocol.messages.js';
 import type * as vscode from 'vscode';
 import type { MainThreadMessageServiceShape, MessageSeverity } from './extHost.protocol.js';
@@ -19,8 +19,10 @@ extHostApiRegistry.register('messages', ({ rpc }) => {
   const messages = new ExtHostMessageService(rpc.getProxy(MainThreadMessageServiceProxy));
   return {
     create: ({ key }) => {
-      const show = (severity: MessageSeverity) =>
-        <T extends string | vscode.MessageItem>(message: string, ...items: T[]) => messages.showMessage(key, severity, message, items);
+      const show = (severity: MessageSeverity) => promiseApiMethod(
+        <T extends string | vscode.MessageItem>(message: string, ...items: T[]) =>
+          messages.showMessage(key, severity, message, items),
+      );
       return {
         namespaces: {
           window: {

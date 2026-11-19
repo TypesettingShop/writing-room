@@ -52,7 +52,7 @@ export function marshal(value: unknown): { value: unknown; transfer: ArrayBuffer
   const transfer = new Set<ArrayBuffer>();
   const data = transform(value, object => {
     if (object instanceof URI) {
-      return { $mid: URI_MARKER, ...object.toJSON() };
+      return { ...object.toJSON(), $mid: URI_MARKER };
     }
     if (object instanceof TransferableBuffer) {
       const bytes = object.bytes;

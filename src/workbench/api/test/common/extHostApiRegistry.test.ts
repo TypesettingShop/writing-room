@@ -33,8 +33,10 @@ test('joins an area’s window, type and context, guards methods and isolates cl
   const main = new RPCProtocol(channel.port1);
   const worker = new RPCProtocol(channel.port2);
   main.set(MainContext.MainThreadExtensionService, { async $setActivationStatus() {} });
+  let showInformationMessage!: typeof vscode.window.showInformationMessage;
   let windowApi!: { sync(): number; async(): Promise<number> };
   const service = new ExtHostExtensionService(worker, async (_extension, api) => {
+    showInformationMessage = api.window.showInformationMessage;
     windowApi = api.window as unknown as typeof windowApi;
     expect(api).toHaveProperty('TestType');
     return {
@@ -54,6 +56,7 @@ test('joins an area’s window, type and context, guards methods and isolates cl
     expect(events).toEqual(['first', 'second', 'subscription']);
     expect(() => windowApi.sync()).toThrow('no longer active');
     await expect(windowApi.async()).rejects.toThrow('no longer active');
+    await expect(showInformationMessage('Inactive')).rejects.toThrow('no longer active');
     service.dispose();
     expect(events.at(-1)).toBe('dispose');
   } finally {
