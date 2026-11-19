@@ -131,3 +131,67 @@ test('output written while the view is hidden is there when it shows; cleared ou
   await expect(channels.getByRole('option')).toHaveCount(0);
   await expect(lines).toHaveCount(0);
 });
+
+test('a modal message traps focus, keeps the workbench out of reach and answers Escape with its close item', async ({ page }) => {
+  await openWindowUiFixture(page);
+  await runCommand(page, 'Window UI: Confirm Delete');
+  const dialog = page.getByRole('dialog', { name: 'Delete <b>the draft</b>?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('It cannot be undone.');
+  await expect(dialog).toContainText('Source: Window UI Fixture');
+  await expect(dialog.getByRole('button')).toHaveText(['Delete', 'Keep']);
+  await expect(dialog.getByRole('button', { name: 'Delete' })).toBeFocused();
+  for (let index = 0; index < 3; index++) {
+    await page.keyboard.press('Tab');
+    await expect(dialog.locator(':focus')).toHaveCount(1);
+  }
+  // A click behind the dialog reaches nothing.
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(message(page, 'Confirm: Keep (same object)')).toBeVisible();
+
+  await runCommand(page, 'Window UI: Confirm Delete');
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(message(page, 'Confirm: Delete (same object)')).toBeVisible();
+});
+
+test('notification progress fills, cancels once and goes when the task ends; window progress spins in the status bar', async ({ page }) => {
+  await openWindowUiFixture(page);
+  await runCommand(page, 'Window UI: Export');
+  const toast = page.locator('.extension-toast').filter({ hasText: 'Exporting' });
+  await expect(toast.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+  await expect(toast.getByRole('status')).toHaveText('Exporting: chapter 3');
+  await expect(toast).toContainText('Source: Window UI Fixture');
+  await toast.getByRole('button', { name: 'Cancel' }).click();
+  await expect(toast.getByRole('button', { name: 'Cancel' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(message(page, 'Export: cancelled')).toBeVisible();
+  await expect(toast).toHaveCount(0);
+
+  await runCommand(page, 'Window UI: Index');
+  const statusbar = page.locator('[id="workbench.parts.statusbar"]');
+  const indexing = statusbar.getByLabel('Indexing: notes');
+  await expect(indexing).toBeVisible();
+  await expect(indexing.locator('.codicon-loading.codicon-modifier-spin')).toBeVisible();
+  await expect(message(page, 'Index: index failed')).toBeVisible();
+  await expect(indexing).toHaveCount(0);
+
+  await runCommand(page, 'Window UI: Status Message');
+  const status = statusbar.getByText('Refreshing notes');
+  await expect(status).toBeVisible();
+  const icon = statusbar.locator('.codicon-refresh.codicon-modifier-spin');
+  expect(await icon.evaluate(element => getComputedStyle(element).animationName)).toBe('codicon-spin');
+});
+
+test('three toasts show at once and the waiting ones follow; the v0.1.0 buttons still answer', async ({ page }) => {
+  await openWindowUiFixture(page);
+  await runCommand(page, 'Window UI: Flood');
+  const toasts = page.locator('.extension-toast');
+  await expect(toasts).toHaveCount(3);
+  await expect(toasts.getByRole('status')).toHaveText(['Flood 1', 'Flood 2', 'Flood 3']);
+  await toasts.first().getByRole('button', { name: 'Dismiss message' }).click();
+  await expect(toasts.getByRole('status')).toHaveText(['Flood 2', 'Flood 3', 'Flood 4']);
+  await toasts.first().getByRole('button', { name: 'Dismiss message' }).press('Escape');
+  await expect(toasts.getByRole('status')).toHaveText(['Flood 3', 'Flood 4', 'Flood 5']);
+});

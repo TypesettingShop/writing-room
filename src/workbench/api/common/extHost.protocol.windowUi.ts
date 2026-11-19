@@ -1,4 +1,5 @@
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
+import type { MessageSeverity } from './extHost.protocol.messages.js';
 
 // Quick pick and input box. The items stay in the extension host; the workbench gets their text and a
 // handle, and reports which handles were highlighted, chosen or accepted.
@@ -97,3 +98,53 @@ export interface MainThreadOutputServiceShape {
 }
 
 export const MainThreadOutputServiceProxy = createProxyIdentifier<MainThreadOutputServiceShape>('MainThreadOutputService');
+
+// Message options, progress and status bar messages (wr-x0vf.hyt).
+
+export interface MessageOptionsDto {
+  readonly modal?: boolean;
+  readonly detail?: string;
+}
+
+export interface MessageItemDto {
+  readonly title: string;
+  readonly isCloseAffordance?: boolean;
+}
+
+/**
+ * More methods of the `MainThreadMessageService` proxy of `extHost.protocol.messages.ts`: the one handler
+ * answers both shapes.
+ */
+export interface MainThreadMessageOptionsShape {
+  /** Resolves to the index of the chosen item, or `undefined` when the message closed without one. */
+  $showMessageWithOptions(
+    extension: string, severity: MessageSeverity, message: string, options: MessageOptionsDto, items: readonly MessageItemDto[],
+  ): Promise<number | undefined>;
+}
+
+export interface ProgressOptionsDto {
+  /** `ProgressLocation`: 1 source control, 10 window, 15 notification; a view is `{ viewId }`. */
+  readonly location: number | { readonly viewId: string };
+  readonly title?: string;
+  readonly cancellable?: boolean;
+}
+
+export interface ProgressStepDto {
+  readonly message?: string;
+  readonly increment?: number;
+}
+
+export interface MainThreadProgressShape {
+  $startProgress(extension: string, handle: number, options: ProgressOptionsDto): Promise<void>;
+  $progressReport(extension: string, handle: number, step: ProgressStepDto): Promise<void>;
+  $progressEnd(extension: string, handle: number): Promise<void>;
+  $setStatusBarMessage(extension: string, id: number, text: string): Promise<void>;
+  $disposeStatusBarMessage(extension: string, id: number): Promise<void>;
+}
+
+export interface ExtHostProgressShape {
+  $acceptProgressCanceled(handle: number): Promise<void>;
+}
+
+export const MainThreadProgressProxy = createProxyIdentifier<MainThreadProgressShape>('MainThreadProgress');
+export const ExtHostProgressProxy = createProxyIdentifier<ExtHostProgressShape>('ExtHostProgress');

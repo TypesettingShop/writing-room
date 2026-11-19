@@ -122,10 +122,13 @@ test('ten thousand items open with a window of rows that grows toward the highli
   const rendered = document.querySelectorAll('[role=option]');
   expect(rendered.length).toBeLessThan(500);
   expect(rendered[0].getAttribute('aria-setsize')).toBe('10000');
-  press('ArrowUp');
-  const last = document.querySelector('[role=option][aria-selected=true]')!;
-  expect(last.textContent).toBe('Item 9999 ');
-  expect(field().getAttribute('aria-activedescendant')).toBe(last.id);
+  for (let index = 0; index < 25; index++) {
+    press('PageDown');
+  }
+  const active = document.querySelector('[role=option][aria-selected=true]')!;
+  expect(active.textContent).toBe('Item 250 ');
+  expect(field().getAttribute('aria-activedescendant')).toBe(active.id);
+  expect(document.querySelectorAll('[role=option]').length).toBeLessThan(1000);
   field().value = '9998';
   field().dispatchEvent(new Event('input', { bubbles: true }));
   expect([...document.querySelectorAll('[role=option]')].map(option => option.textContent)).toEqual(['Item 9998 ']);

@@ -143,3 +143,46 @@ declare module 'vscode' {
     function createOutputChannel(name: string, options: { /** literal-type defines return type */log: true }): LogOutputChannel;
   }
 }
+
+declare module 'vscode' {
+  // Message options, progress and status bar messages (wr-x0vf.hyt). `MessageItem` is a shared type.
+
+  interface MessageOptions {
+    modal?: boolean;
+    detail?: string;
+  }
+
+  enum ProgressLocation {
+    SourceControl = 1,
+    Window = 10,
+    Notification = 15
+  }
+
+  interface ProgressOptions {
+    location: ProgressLocation | {
+      viewId: string;
+    };
+    title?: string;
+    cancellable?: boolean;
+  }
+
+  interface Progress<T> {
+    report(value: T): void;
+  }
+
+  namespace window {
+    function showInformationMessage<T extends string>(message: string, options: MessageOptions, ...items: T[]): Thenable<T | undefined>;
+    function showInformationMessage<T extends MessageItem>(message: string, options: MessageOptions, ...items: T[]): Thenable<T | undefined>;
+    function showWarningMessage<T extends string>(message: string, options: MessageOptions, ...items: T[]): Thenable<T | undefined>;
+    function showWarningMessage<T extends MessageItem>(message: string, options: MessageOptions, ...items: T[]): Thenable<T | undefined>;
+    function showErrorMessage<T extends string>(message: string, options: MessageOptions, ...items: T[]): Thenable<T | undefined>;
+    function showErrorMessage<T extends MessageItem>(message: string, options: MessageOptions, ...items: T[]): Thenable<T | undefined>;
+    function setStatusBarMessage(text: string, hideAfterTimeout: number): Disposable;
+    function setStatusBarMessage(text: string, hideWhenDone: Thenable<any>): Disposable;
+    function setStatusBarMessage(text: string): Disposable;
+    function withProgress<R>(options: ProgressOptions, task: (progress: Progress<{
+      message?: string;
+      increment?: number;
+    }>, token: CancellationToken) => Thenable<R>): Thenable<R>;
+  }
+}

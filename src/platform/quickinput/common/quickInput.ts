@@ -1,5 +1,6 @@
 import type { Event } from '../../../base/common/event.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
+import { Severity } from '../../../base/common/severity.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import type { BrandedService } from '../../instantiation/common/instantiation.js';
 import type { ResolvedKeybinding } from '../../keybinding/common/keybinding.js';
@@ -30,12 +31,7 @@ export interface IQuickInputButton {
   readonly tooltip?: string;
 }
 
-export const enum Severity {
-  Ignore = 0,
-  Info = 1,
-  Warning = 2,
-  Error = 3,
-}
+export { Severity };
 
 export interface IQuickInput extends IDisposable {
   title: string | undefined;

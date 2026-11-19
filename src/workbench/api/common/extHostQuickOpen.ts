@@ -1,4 +1,5 @@
 import './extHostOutput.js';
+import './extHostProgress.js';
 import type * as vscode from 'vscode';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';

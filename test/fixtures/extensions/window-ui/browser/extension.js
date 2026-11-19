@@ -98,4 +98,41 @@ module.exports.activate = context => {
       say('Closed output: ' + error.message);
     }
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.confirm', async () => {
+    const remove = { title: 'Delete' };
+    const keep = { title: 'Keep', isCloseAffordance: true };
+    const choice = await vscode.window.showWarningMessage('Delete <b>the draft</b>?', { modal: true, detail: 'It cannot be undone.' }, remove, keep);
+    say('Confirm: ' + (choice ? choice.title + (choice === keep || choice === remove ? ' (same object)' : ' (copy)') : 'none'));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.export', async () => {
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: 'Exporting', cancellable: true },
+      (progress, token) => new Promise(resolve => {
+        progress.report({ message: 'chapter 1', increment: 40 });
+        progress.report({ message: 'chapter 2', increment: 40 });
+        progress.report({ message: 'chapter 3', increment: 40 });
+        // The task ignores the first cancellation for a moment, as a slow task does.
+        token.onCancellationRequested(() => setTimeout(() => resolve('cancelled'), 300));
+      }));
+    say('Export: ' + result);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.index', async () => {
+    try {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Indexing' }, async progress => {
+        progress.report({ message: 'notes' });
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        throw new Error('index failed');
+      });
+    } catch (error) {
+      say('Index: ' + error.message);
+    }
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.status', () => {
+    context.subscriptions.push(vscode.window.setStatusBarMessage('$(refresh~spin) Refreshing notes', 60_000));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.flood', () => {
+    for (let index = 1; index <= 5; index++) {
+      say('Flood ' + index);
+    }
+  }));
 };
