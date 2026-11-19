@@ -1,37 +1,49 @@
 export class ResourceRequestError extends Error {}
 
+export class ResourceResponseError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`);
+  }
+}
+
+export class ResourceTooLargeError extends Error {
+  constructor(limit: number) {
+    super(`Response exceeds ${limit} bytes.`);
+  }
+}
+
 interface BoundedFetchOptions {
   readonly limit: number;
   readonly signal?: AbortSignal;
   readonly request?: typeof fetch;
   readonly contentTypePrefix?: string;
+  readonly method?: 'GET' | 'HEAD';
 }
 
 export async function fetchBoundedResource(
   url: string | URL,
-  { limit, signal, request = fetch, contentTypePrefix }: BoundedFetchOptions,
-): Promise<{ bytes: Uint8Array<ArrayBuffer>; contentType: string }> {
+  { limit, signal, request = fetch, contentTypePrefix, method }: BoundedFetchOptions,
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; contentType: string; headers: Headers }> {
   const timeout = AbortSignal.timeout(30_000);
   const requestSignal = signal ? AbortSignal.any([timeout, signal]) : timeout;
   let response: Response;
   try {
     response = await request(url, {
-      mode: 'cors', credentials: 'omit', redirect: 'error', signal: requestSignal,
+      mode: 'cors', credentials: 'omit', redirect: 'error', signal: requestSignal, ...(method ? { method } : {}),
     });
   } catch (cause) {
     throw new ResourceRequestError('Could not fetch the resource.', { cause });
   }
   const contentType = response.headers.get('Content-Type') ?? '';
-  const tooLarge = () => new Error(`Response exceeds ${limit} bytes.`);
   try {
     if (!response.ok || response.redirected) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new ResourceResponseError(response.status);
     }
     if (contentTypePrefix && !contentType.toLowerCase().startsWith(contentTypePrefix)) {
       throw new Error('Unsupported resource content type.');
     }
-    if (Number(response.headers.get('Content-Length')) > limit) {
-      throw tooLarge();
+    if (method !== 'HEAD' && Number(response.headers.get('Content-Length')) > limit) {
+      throw new ResourceTooLargeError(limit);
     }
     requestSignal.throwIfAborted();
   } catch (error) {
@@ -50,7 +62,7 @@ export async function fetchBoundedResource(
         }
         size += value.byteLength;
         if (size > limit) {
-          throw tooLarge();
+          throw new ResourceTooLargeError(limit);
         }
         chunks.push(value);
       }
@@ -68,5 +80,5 @@ export async function fetchBoundedResource(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { bytes, contentType };
+  return { bytes, contentType, headers: response.headers };
 }
