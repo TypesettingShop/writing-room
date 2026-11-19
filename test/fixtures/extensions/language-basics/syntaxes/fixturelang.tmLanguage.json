@@ -1,0 +1,25 @@
+{
+  "name": "Fixture Language",
+  "scopeName": "source.fixturelang",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#keyword" },
+    { "include": "#string" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.percentage.fixturelang",
+      "match": "%%.*$"
+    },
+    "keyword": {
+      "name": "keyword.control.fixturelang",
+      "match": "\\b(?:alpha|beta)\\b"
+    },
+    "string": {
+      "name": "string.quoted.double.fixturelang",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "name": "constant.character.escape.fixturelang", "match": "\\\\." }]
+    }
+  }
+}

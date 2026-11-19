@@ -45,6 +45,44 @@
   outline: none;
 }
 
+.tabs-container > .tab .tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.tabs-container > .tab .tab-icon[hidden] {
+  display: none;
+}
+
+.tabs-container > .tab .tab-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tabs-container > .tab .tab-description {
+  margin-left: 6px;
+  font-size: 0.9em;
+  opacity: 0.7;
+}
+
+.tabs-container > .tab .tab-readonly {
+  display: inline-flex;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.tabs-container > .tab .tab-description[hidden],
+.tabs-container > .tab .tab-readonly[hidden] {
+  display: none;
+}
+
 .tabs-container > .tab:has(.tab-label:focus-visible) {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;

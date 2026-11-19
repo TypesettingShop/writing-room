@@ -11,6 +11,8 @@
       { "command": "fixture.webview.restore", "title": "Fixture: Open Restorable Webview" },
       { "command": "fixture.webview.restore-fail", "title": "Fixture: Open Failing Restore" },
       { "command": "fixture.webview.restore-late", "title": "Fixture: Open Late Restore" },
+      { "command": "fixture.webview.restore-transient", "title": "Fixture: Open Transient Webview" },
+      { "command": "fixture.webview.block-shutdown", "title": "Fixture: Block Webview Host Shutdown" },
       { "command": "fixture.webview.restore-release", "title": "Fixture: Release Late Restore" }
     ]
   }

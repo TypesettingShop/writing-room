@@ -14,6 +14,7 @@
       { "command": "fixture.webview.dispose", "title": "Fixture: Dispose Webview" },
       { "command": "fixture.webview.context", "title": "Fixture: Webview Context Action" },
       { "command": "fixture.webview.active", "title": "Fixture: Active Webview Action" },
+      { "command": "fixture.webview.tabIcon", "title": "Fixture: Change Webview Tab Icon" },
       { "command": "fixture.webview.inspectTab", "title": "Fixture: Inspect Webview Tab" }
     ],
     "menus": {

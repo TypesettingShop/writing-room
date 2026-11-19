@@ -10,8 +10,10 @@ import type { ISerializedBranchNode } from '../../../base/browser/ui/grid/grid.j
 import type { IEditorPartUIState } from '../../browser/parts/editor/editorPart.js';
 import { Workbench } from '../../browser/workbench.js';
 import { EditorExtensions, EditorsOrder } from '../../common/editor.js';
+import { ConfirmResult } from '../../common/editor/editorInput.js';
 import type { IEditorFactoryRegistry, IEditorSerializer } from '../../common/editor.js';
 import type { ISerializedEditorGroupModel } from '../../common/editor/editorGroupModel.js';
+import { IFileDialogService } from '../../services/dialogs/common/dialogs.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { Parts } from '../../services/layout/browser/layoutService.js';
 import { UNTITLED_TEXT_LIMIT } from '../../services/untitled/common/untitledTextEditorHandler.js';
@@ -75,6 +77,7 @@ function start(viewport = { width: 800, height: 600 }) {
     storage: accessor.get(IStorageService),
     groups: accessor.get(IEditorGroupsService),
     untitled: accessor.get(IUntitledTextEditorService),
+    dialogs: accessor.get(IFileDialogService),
   }));
 }
 
@@ -174,7 +177,10 @@ test('round-trips group IDs, tab and activation order, and one model shared by t
 
   restoredLeft.closeEditor(restoredShared);
   expect(restoredShared.isDisposed()).toBe(false);
-  restoredRight.closeEditor(restoredShared);
+  // Its text is saved nowhere: closing its last tab asks first (v0.2.0 promise 9). Don't Save closes it.
+  const confirm = vi.spyOn(restored.dialogs, 'showSaveConfirm').mockResolvedValue(ConfirmResult.DONT_SAVE);
+  await restoredRight.closeEditor(restoredShared);
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(['Untitled-2']);
   expect(restoredShared.isDisposed()).toBe(true);
   const nextUntitled = restored.untitled.create();
   expect(nextUntitled.name).toBe('Untitled-3');
@@ -298,6 +304,22 @@ test('saves untitled text edited after an earlier save', async () => {
 
   const restored = start();
   expect((restored.groups.activeGroup.activeEditor as UntitledTextEditorInput).model.getValue()).toBe('after');
+});
+
+test('saves an untitled tab’s language changed after an earlier save, with no edit in between', async () => {
+  const { groups, storage, untitled } = start();
+  const input = new UntitledTextEditorInput(untitled.create({ initialValue: '# notes' }));
+  await groups.activeGroup.openEditor(input);
+  await input.resolve();
+  await storage.flush();
+  // A language switch changes no text, but the saved form holds the language.
+  input.model.setLanguageId('markdown');
+  await storage.flush();
+
+  const restored = start();
+  const restoredInput = restored.groups.activeGroup.activeEditor as UntitledTextEditorInput;
+  await restoredInput.resolve();
+  expect(restoredInput.model.getLanguageId()).toBe('markdown');
 });
 
 test('continues saving the other parts when a component throws', async () => {
