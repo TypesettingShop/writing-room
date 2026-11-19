@@ -302,7 +302,10 @@ describe('Workbench', () => {
     service.addEntry({ name: 'Right', text: 'Right' }, 'right', StatusbarAlignment.RIGHT, 10);
     const item = service.addEntry({ name: 'Lower right', text: 'Click' }, 'lower-right', StatusbarAlignment.RIGHT, 1);
     const statusbar = workbench.getContainer(Parts.STATUSBAR_PART);
-    const entries = () => [...statusbar.querySelectorAll<HTMLElement>('[data-entry-id]')].map(element => element.dataset.entryId);
+    const own = new Set(['left', 'priority-left', 'right', 'lower-right']);
+    // Entries that workbench contributions add (the Problems counts) are not this test's.
+    const entries = () => [...statusbar.querySelectorAll<HTMLElement>('[data-entry-id]')]
+      .map(element => element.dataset.entryId).filter(id => own.has(id!));
     expect(entries()).toEqual(['priority-left', 'left', 'right', 'lower-right']);
     const element = statusbar.querySelector('[data-entry-id="lower-right"]');
 

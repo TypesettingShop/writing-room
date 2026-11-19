@@ -1,0 +1,12 @@
+{
+  "name": "diagnostics-other",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Other Diagnostics Fixture",
+  "browser": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "otherDiagnosticsFixture.set", "title": "Set Other Fixture Diagnostics" }
+    ]
+  }
+}

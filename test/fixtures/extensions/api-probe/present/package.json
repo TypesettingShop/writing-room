@@ -1,0 +1,7 @@
+{
+  "publisher": "writing-room-tests",
+  "name": "api-probe-present",
+  "version": "1.0.0",
+  "browser": "./extension.js",
+  "activationEvents": ["onStartupFinished"]
+}
