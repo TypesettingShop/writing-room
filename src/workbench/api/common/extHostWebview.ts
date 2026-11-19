@@ -6,7 +6,7 @@ import { Emitter } from '../../../base/common/event.js';
 import type { URI } from '../../../base/common/uri.js';
 import { product } from '../../../platform/product/common/product.js';
 import { asWebviewUri } from '../../contrib/webview/common/webviewUri.js';
-import { getWebviewForwardingPorts, resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
+import { needsWebviewForwarding, resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import type { WebviewForwardingPorts, WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import { ExtHostWebviewsProxy, MainThreadWebviewsProxy } from './extHost.protocol.webview.js';
 import type {
@@ -17,10 +17,6 @@ import { Disposable } from './extHostTypes.js';
 
 const page = typeof location === 'undefined' ? undefined : new URL(location.href);
 const template = product.webviewContentExternalBaseUrlTemplate;
-// Let the Worker attach its RPC port while forwarding loads. Activation waits before exposing the
-// synchronous cspSource and asWebviewUri APIs.
-let forwarding: WebviewForwardingPorts | undefined;
-const forwardingReady = page && getWebviewForwardingPorts(page, template).then(ports => { forwarding = ports; });
 const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
 
 export type SendWebviewCall = <T>(call: () => Promise<T>, fallback: T) => Promise<T>;
@@ -31,10 +27,6 @@ export function toContentOptions(options: vscode.WebviewOptions): WebviewContent
     enableForms: options.enableForms,
     localResourceRoots: options.localResourceRoots as readonly URI[] | undefined,
   };
-}
-
-export function extHostWebviewOrigin(id: string): WebviewOrigin {
-  return page ? resolveWebviewOrigin(page, template, id, forwarding) : { error: 'No Webview origin' };
 }
 
 export class ExtHostWebview implements vscode.Webview {
@@ -213,11 +205,14 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   private readonly panels = new Map<string, PanelEntry>();
   private readonly serializers = new Map<string, Map<string, SerializerRegistration>>();
 
-  constructor(private readonly proxy: MainThreadWebviewsShape) {}
+  private forwardingHint: WebviewForwardingPorts | undefined;
+  readonly ready: Promise<void> | undefined;
 
-  async $getForwardingPorts() {
-    await forwardingReady;
-    return forwarding;
+  constructor(private readonly proxy: MainThreadWebviewsShape) {
+    if (page && needsWebviewForwarding(page, template)) {
+      // This is a local RPC to read navigation metadata. Config fetches only happen when a Webview opens.
+      this.ready = proxy.$getForwardingHint().then(ports => { this.forwardingHint = ports; }).catch(() => {});
+    }
   }
 
   createPanel(
@@ -232,13 +227,16 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
     const panelOptions = Object.freeze({
       enableFindWidget: options.enableFindWidget, retainContextWhenHidden: options.retainContextWhenHidden,
     });
+    const origin = page
+      ? resolveWebviewOrigin(page, template, id, this.forwardingHint)
+      : { error: 'No Webview origin' };
     const ready = this.proxy.$createPanel(extension, id, viewType, title, show, panelOptions, toContentOptions(options));
     const panel = this.attachPanel(extension, id, {
       id, viewType, title, options: panelOptions, contentOptions: options, state: undefined, viewState: {
         active: !show.preserveFocus, visible: true,
         viewColumn: show.viewColumn !== undefined && show.viewColumn > 0 ? show.viewColumn : undefined,
       },
-    }, ready);
+    }, origin, ready);
     void ready.catch(error => {
       this.drop(extension, id);
       console.error('Could not open Webview panel:', error);
@@ -249,9 +247,8 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   private attachPanel(
     extension: string, handle: string, data: Omit<WebviewPanelRestoreData, 'contentOptions'> & {
       readonly contentOptions: vscode.WebviewOptions;
-    }, ready: Promise<void>,
+    }, origin: WebviewOrigin, ready: Promise<void>,
   ): ExtHostWebviewPanel {
-    const origin = extHostWebviewOrigin(data.id);
     const send: SendWebviewCall = (call, fallback) => ready.then(() => this.panels.has(handle) ? call() : fallback);
     const webview = new ExtHostWebview(origin, data.contentOptions, send, this.proxy, extension, handle);
     const panel = new ExtHostWebviewPanel(data.viewType, data.title, webview, data.options, data.viewState, send,
@@ -289,7 +286,7 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   }
 
   async $deserializePanel(
-    extension: string, handle: string, data: WebviewPanelRestoreData, token: CancellationToken,
+    extension: string, handle: string, data: WebviewPanelRestoreData, origin: WebviewOrigin, token: CancellationToken,
   ): Promise<void> {
     if (token.isCancellationRequested) {
       return;
@@ -300,7 +297,7 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
     }
     const panel = this.attachPanel(extension, handle, {
       ...data, contentOptions: data.contentOptions as vscode.WebviewOptions,
-    }, Promise.resolve());
+    }, origin, Promise.resolve());
     try {
       await raceCancellation(Promise.resolve(serializer.deserializeWebviewPanel(panel, data.state)), token);
     } catch (error) {
@@ -370,7 +367,7 @@ extHostApiRegistry.register('webviews', ({ rpc }) => {
   rpc.set(ExtHostWebviewsProxy, webviews);
   return {
     service: webviews,
-    ready: forwardingReady,
+    ready: webviews.ready,
     create: ({ key }) => ({
       namespaces: {
         window: {

@@ -67,25 +67,46 @@ function isPortConfiguration(value: unknown): value is WebviewForwardingPorts {
   return Object.keys(value).length === 2 && isPort(appPort) && isPort(webviewPort) && appPort !== webviewPort;
 }
 
+export function needsWebviewForwarding(page: URL, template?: string): boolean {
+  return !template && !isLoopback(page) && page.protocol === 'https:';
+}
+
+export function parseWebviewPortHint(value: string): WebviewForwardingPorts | undefined {
+  const match = /^([0-9]+):([0-9]+)$/.exec(value);
+  if (match) {
+    const ports = { appPort: Number(match[1]), webviewPort: Number(match[2]) };
+    return isPortConfiguration(ports) ? ports : undefined;
+  }
+  return undefined;
+}
+
 const forwarding = new Map<string, Promise<WebviewForwardingPorts | undefined>>();
 
 export function getWebviewForwardingPorts(
   page: URL, template?: string, request: typeof fetch = fetch,
 ): Promise<WebviewForwardingPorts | undefined> {
-  if (template || isLoopback(page) || page.protocol !== 'https:') {
+  if (!needsWebviewForwarding(page, template)) {
     return Promise.resolve(undefined);
   }
-  let operation = forwarding.get(page.origin);
-  if (!operation) {
-    operation = fetchBoundedResource(new URL('/webview/config.json', page.origin), {
-      limit: 4096,
-      signal: AbortSignal.timeout(10_000),
-      request: (url, options) => request(url, { ...options, mode: 'same-origin' }),
-    }).then(({ bytes }) => {
-      const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-      return isPortConfiguration(value) ? value : undefined;
-    }).catch(() => undefined);
-    forwarding.set(page.origin, operation);
+  const existing = forwarding.get(page.origin);
+  if (existing) {
+    return existing;
   }
+  const operation = fetchBoundedResource(new URL('/webview/config.json', page.origin), {
+    limit: 4096,
+    signal: AbortSignal.timeout(10_000),
+    request: (url, options) => request(url, {
+      ...options, mode: 'same-origin', credentials: 'same-origin', cache: 'no-store',
+    }),
+  }).then(({ bytes }) => {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return isPortConfiguration(value) ? value : undefined;
+  }).catch(() => undefined).then(ports => {
+    if (!ports) {
+      forwarding.delete(page.origin);
+    }
+    return ports;
+  });
+  forwarding.set(page.origin, operation);
   return operation;
 }

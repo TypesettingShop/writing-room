@@ -51,15 +51,28 @@ describe('Webview forwarded origin', () => {
 });
 
 describe('Webview forwarding configuration', () => {
-  it('loads once without credentials or redirects', async () => {
+  it('caches a successful same-origin request and disallows redirects', async () => {
     const page = new URL('https://5173--config.example.test/app');
     const data = { appPort: 5173, webviewPort: 5174 };
     const fetch = vi.fn(async () => Response.json(data));
     expect(await getWebviewForwardingPorts(page, undefined, fetch)).toEqual(data);
     expect(await getWebviewForwardingPorts(page, undefined, fetch)).toEqual(data);
     expect(fetch).toHaveBeenCalledExactlyOnceWith(new URL('/webview/config.json', page), expect.objectContaining({
-      mode: 'same-origin', credentials: 'omit', redirect: 'error',
+      mode: 'same-origin', credentials: 'same-origin', redirect: 'error', cache: 'no-store',
     }));
+  });
+
+  it('shares a pending request and retries failures', async () => {
+    const page = new URL('https://5173--retry.example.test/');
+    const data = { appPort: 5173, webviewPort: 5174 };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(Response.json(data));
+    const first = getWebviewForwardingPorts(page, undefined, fetch);
+    expect(getWebviewForwardingPorts(page, undefined, fetch)).toBe(first);
+    expect(await first).toBeUndefined();
+    expect(await getWebviewForwardingPorts(page, undefined, fetch)).toEqual(data);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([

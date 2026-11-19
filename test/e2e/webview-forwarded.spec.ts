@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { createServer as devServer, preview } from 'vite';
 import { openForwardingProxy } from '../fixtures/forwarding-proxy.mjs';
 import { seedInstalledExtensions } from './extensionFixture.js';
@@ -41,6 +42,40 @@ async function openApp(port: number, webviewPort: number) {
       process.env.WRITING_ROOM_WEBVIEW_PORT = old;
     }
   }
+}
+
+async function shellConnects(page: Page, parent: string, shellOrigin: string): Promise<boolean> {
+  await page.goto(parent);
+  return page.evaluate(shellOrigin => new Promise<boolean>(resolve => {
+    const shell = document.createElement('iframe');
+    const source = new URL('/webview/index.html', shellOrigin);
+    const token = crypto.randomUUID();
+    source.searchParams.set('parentOrigin', location.origin);
+    source.searchParams.set('id', crypto.randomUUID());
+    source.hash = token;
+    const onConnect = (event: MessageEvent) => {
+      if (event.source === shell.contentWindow && event.origin === source.origin
+        && event.data?.type === 'connect' && event.data.token === token) {
+        finish(true);
+      }
+    };
+    const finish = (connected: boolean) => {
+      window.removeEventListener('message', onConnect);
+      shell.remove();
+      resolve(connected);
+    };
+    window.addEventListener('message', onConnect);
+    shell.addEventListener('load', () => setTimeout(() => finish(false), 250), { once: true });
+    shell.src = source.href;
+    document.body.append(shell);
+  }), shellOrigin);
+}
+
+async function runFixtureCommand(page: Page, name: string): Promise<void> {
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill(name);
+  await page.getByRole('option', { name, exact: true }).click();
+  await expect(page.getByRole('combobox')).toHaveCount(0);
 }
 
 test('serves and reaches the shell on the forwarded port without exposing the app there', async () => {
@@ -91,24 +126,42 @@ test('serves and reaches the shell on the forwarded port without exposing the ap
     expect(await page.evaluate(() => (window as any).harness.send('round trip'))).toBe(true);
     await expect.poll(() => page.evaluate(() => (window as any).harness.messages.at(-1))).toBe('round trip');
 
+    expect(await shellConnects(page, appOrigin, viewOrigin)).toBe(true);
+    const wrongAppOrigin = 'https://' + appPort + '--other.localhost:' + proxy.port;
+    expect(await shellConnects(page, wrongAppOrigin, viewOrigin)).toBe(false);
+    expect(await shellConnects(page, viewOrigin + '/webview/index.html', appOrigin)).toBe(false);
+    expect(await shellConnects(page, 'http://127.0.0.1:' + appPort, 'http://localhost:' + webviewPort)).toBe(false);
+
     const workbench = await browser.newPage();
-    const configs: string[] = [];
-    workbench.context().on('request', request => {
-      if (request.url() === appOrigin + '/webview/config.json') {
-        configs.push(request.url());
+    const configUrl = appOrigin + '/webview/config.json';
+    const configCookies: Array<string | null> = [];
+    await workbench.context().addCookies([{ name: 'coder-session', value: 'fixture', url: appOrigin }]);
+    await workbench.route(configUrl, async route => {
+      const request = route.request();
+      expect(request.frame()).toBe(workbench.mainFrame());
+      const cookie = await request.headerValue('cookie');
+      configCookies.push(cookie);
+      if (!cookie?.includes('coder-session=fixture')) {
+        await route.fulfill({ status: 401 });
+      } else if (configCookies.length === 1) {
+        await route.fulfill({ status: 503 });
+      } else {
+        await route.continue();
       }
     });
     const extensionLocation = new URL('/__extension-fixtures/webview/', appOrigin).href;
     await seedInstalledExtensions(workbench, [{ location: extensionLocation, manifest }]);
     await workbench.goto(appOrigin);
-    await workbench.keyboard.press('F1');
-    await workbench.getByRole('combobox').fill('Fixture: Open Retained Webview');
-    await workbench.getByRole('option', { name: 'Fixture: Open Retained Webview' }).click();
+    await runFixtureCommand(workbench, 'Fixture: Probe Webview State');
+    expect(configCookies).toHaveLength(0);
+    await runFixtureCommand(workbench, 'Fixture: Open Transient Webview');
+    await expect(workbench.locator('.webview-element').getByRole('status')).toContainText('WRITING_ROOM_WEBVIEW_PORT');
+    await runFixtureCommand(workbench, 'Fixture: Open Retained Webview');
     const actualShell = workbench.locator('iframe[title="Webview"]');
     await expect(actualShell).toHaveAttribute('src', new RegExp('^' + viewOrigin.replaceAll('.', '\\.') + '/'), { timeout: 10_000 });
     const actualContent = workbench.frameLocator('iframe[title="Webview"]').frameLocator('iframe[title="Webview content"]');
     await expect(actualContent.locator('#output')).toHaveText(Array.from({ length: 100 }, (_, index) => index).join(','));
-    expect(configs).toHaveLength(1);
+    expect(configCookies).toEqual(['coder-session=fixture', 'coder-session=fixture']);
     await workbench.close();
 
     await page.route('**/webview/config.json', route => route.fulfill({ status: 404, body: '' }));

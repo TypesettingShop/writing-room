@@ -2,19 +2,18 @@ import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
-import { product } from '../../../platform/product/common/product.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
-import { resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
+import { IWebviewOriginService } from '../../contrib/webview/browser/webviewOriginService.js';
 import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResourceScope.js';
 import { IWebviewStateStore } from '../../contrib/webview/browser/webviewStateStore.js';
 import type { WebviewViewPane } from '../../contrib/webviewView/browser/webviewViewPane.js';
 import { IWebviewViewService } from '../../contrib/webviewView/browser/webviewViewService.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { IViewsService } from '../../services/views/browser/viewsService.js';
-import { ExtHostWebviewViewsProxy, ExtHostWebviewsProxy, MainThreadWebviewViewsProxy } from '../common/extHost.protocol.webview.js';
+import { ExtHostWebviewViewsProxy, MainThreadWebviewViewsProxy } from '../common/extHost.protocol.webview.js';
 import type {
-  ExtHostWebviewViewsShape, ExtHostWebviewsShape, MainThreadWebviewViewsShape, WebviewContentOptions,
+  ExtHostWebviewViewsShape, MainThreadWebviewViewsShape, WebviewContentOptions,
 } from '../common/extHost.protocol.webview.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 
@@ -32,13 +31,14 @@ export class MainThreadWebviewViews extends Disposable implements MainThreadWebv
   private readonly registrations = new Map<string, { owner: string; registration: IDisposable }>();
 
   constructor(
-    private readonly proxy: ExtHostWebviewViewsShape, private readonly webviews: ExtHostWebviewsShape,
+    private readonly proxy: ExtHostWebviewViewsShape,
     private readonly getExtension: (key: string) => HostExtensionDescription | undefined,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IWebviewViewService private readonly webviewViews: IWebviewViewService,
     @IViewsService private readonly views: IViewsService,
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
     @IWebviewStateStore private readonly states: IWebviewStateStore,
+    @IWebviewOriginService private readonly origins: IWebviewOriginService,
   ) {
     super();
   }
@@ -117,12 +117,11 @@ export class MainThreadWebviewViews extends Disposable implements MainThreadWebv
   private async resolve(
     extension: string, owner: HostExtensionDescription, pane: WebviewViewPane, retain: boolean, token: CancellationToken,
   ): Promise<void> {
-    const forwarded = await this.webviews.$getForwardingPorts();
+    const handle = crypto.randomUUID();
+    const origin = await this.origins.resolve(handle);
     if (token.isCancellationRequested || this.getExtension(extension) !== owner) {
       return;
     }
-    const handle = crypto.randomUUID();
-    const origin = resolveWebviewOrigin(new URL(location.href), product.webviewContentExternalBaseUrlTemplate, handle, forwarded);
     const webview = this.instantiation.createInstance(WebviewOverlay, pane.id, origin, retain);
     const stateId = 'view/' + pane.id;
     const state = this.states.get(stateId, owner.id);
@@ -148,7 +147,7 @@ export class MainThreadWebviewViews extends Disposable implements MainThreadWebv
     listeners.add(pane.onDidDispose(() => this.drop(handle, entry)));
     try {
       await this.proxy.$resolveView(extension, handle, pane.id, pane.originalTitle,
-        state === undefined ? undefined : JSON.parse(state), pane.visible, token);
+        state === undefined ? undefined : JSON.parse(state), pane.visible, origin, token);
     } catch (error) {
       this.drop(handle, entry);
       throw error;
@@ -182,8 +181,7 @@ export class MainThreadWebviewViews extends Disposable implements MainThreadWebv
 }
 
 mainThreadCustomers.register('webviewViews', ({ rpc, instantiation, getExtension }) => {
-  const views = instantiation.createInstance(MainThreadWebviewViews, rpc.getProxy(ExtHostWebviewViewsProxy),
-    rpc.getProxy(ExtHostWebviewsProxy), getExtension);
+  const views = instantiation.createInstance(MainThreadWebviewViews, rpc.getProxy(ExtHostWebviewViewsProxy), getExtension);
   rpc.set(MainThreadWebviewViewsProxy, views);
   return views;
 });

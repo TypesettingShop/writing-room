@@ -6,7 +6,8 @@ import { extHostApiRegistry } from './extHostApiRegistry.js';
 import { ExtHostWebviewViewsProxy, MainThreadWebviewViewsProxy } from './extHost.protocol.webview.js';
 import type { ExtHostWebviewViewsShape, MainThreadWebviewViewsShape } from './extHost.protocol.webview.js';
 import { Disposable } from './extHostTypes.js';
-import { ExtHostWebview, extHostWebviewOrigin } from './extHostWebview.js';
+import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
+import { ExtHostWebview } from './extHostWebview.js';
 import type { SendWebviewCall } from './extHostWebview.js';
 
 class ExtHostWebviewView implements vscode.WebviewView {
@@ -107,14 +108,15 @@ class ExtHostWebviewViews implements ExtHostWebviewViewsShape {
   }
 
   async $resolveView(
-    extension: string, handle: string, viewId: string, title: string, state: unknown, visible: boolean, token: CancellationToken,
+    extension: string, handle: string, viewId: string, title: string, state: unknown, visible: boolean,
+    origin: WebviewOrigin, token: CancellationToken,
   ): Promise<void> {
     const registration = this.providers.get(extension)?.get(viewId);
     if (!registration || this.views.has(handle) || token.isCancellationRequested) {
       return;
     }
     const send: SendWebviewCall = (call, fallback) => this.views.has(handle) ? call() : Promise.resolve(fallback);
-    const webview = new ExtHostWebview(extHostWebviewOrigin(handle), {}, send, this.proxy, extension, handle);
+    const webview = new ExtHostWebview(origin, {}, send, this.proxy, extension, handle);
     const view = new ExtHostWebviewView(viewId, webview, title, visible,
       (label, value) => { void send(() => this.proxy.$setViewLabel(extension, handle, label, value), undefined).catch(console.error); },
       preserve => { void send(() => this.proxy.$showView(extension, handle, preserve), undefined).catch(console.error); });

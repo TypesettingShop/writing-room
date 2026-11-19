@@ -1,8 +1,10 @@
 <!doctype html>
 <html lang="en">
+<head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-gH4rhd5st8Qxn7O9he6vccvXuekLXqC98yLvO5HZhO8='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-1xYNu4MR9zCexjchP7+YsqdXckCMeVRpq7tpQVyYXrs='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
+<meta name="writing-room-webview-parent-origin" content="">
 <title>Webview</title>
 <style>
   html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
@@ -15,9 +17,9 @@
   const shellId = url.searchParams.get('id');
   const parentWindow = window.parent;
   if (parentWindow !== window && parentWindow === window.top && parentOrigin && parentOrigin !== location.origin
-      && isAllowedParent(parentOrigin) && /^[\da-f-]{36}$/.test(token) && /^[\da-f-]{36}$/.test(shellId)) {
+      && expectedParent() === parentOrigin && /^[\da-f-]{36}$/.test(token) && /^[\da-f-]{36}$/.test(shellId)) {
     window.addEventListener('message', function attach(event) {
-      if (event.source !== parentWindow || event.origin !== parentOrigin || event.data?.type !== 'attach'
+      if (!event.isTrusted || event.source !== parentWindow || event.origin !== parentOrigin || event.data?.type !== 'attach'
           || event.data.token !== token || event.ports.length !== 1) {
         return;
       }
@@ -27,15 +29,36 @@
     parentWindow.postMessage({ type: 'connect', token }, parentOrigin);
   }
 
-  // A loopback shell is served by the development server itself, so only a loopback workbench may drive it.
-  function isAllowedParent(origin) {
-    const loopback = /^(?:localhost|127\.0\.0\.1)$/;
+  function expectedParent() {
+    const peer = new URL(location.origin);
+    if (peer.hostname === 'localhost' || peer.hostname === '127.0.0.1') {
+      peer.hostname = peer.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+      return peer.origin;
+    }
+    if (peer.protocol !== 'https:') {
+      return undefined;
+    }
+
+    // Only the dedicated listener adds this metadata. The app listener serves the unconfigured shell.
+    const forwarding = document.querySelector('meta[name="writing-room-webview-forwarding"]')?.content;
+    const ports = /^([0-9]+):([0-9]+)$/.exec(forwarding ?? '');
+    if (ports) {
+      const [, appPort, webviewPort] = ports;
+      const marker = new RegExp('(?<![0-9])' + webviewPort + '(?![0-9])', 'g');
+      if ([...peer.hostname.matchAll(marker)].length === 1) {
+        peer.hostname = peer.hostname.replace(marker, appPort);
+        return peer.origin;
+      }
+      return undefined;
+    }
+
+    // Static deployments configure the parent in the trusted shell HTML.
+    const configured = document.querySelector('meta[name="writing-room-webview-parent-origin"]')?.content;
     try {
-      const parent = new URL(origin);
-      return parent.origin === origin && /^https?:$/.test(parent.protocol)
-        && (!loopback.test(location.hostname) || (parent.protocol === 'http:' && loopback.test(parent.hostname)));
+      const parent = new URL(configured);
+      return parent.protocol === 'https:' && parent.origin === configured ? parent.origin : undefined;
     } catch {
-      return false;
+      return undefined;
     }
   }
 
@@ -327,5 +350,6 @@
     });
   }
 </script>
+</head>
 <body></body>
 </html>

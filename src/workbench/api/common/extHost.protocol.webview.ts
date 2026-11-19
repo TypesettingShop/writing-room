@@ -1,7 +1,7 @@
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import type { URI } from '../../../base/common/uri.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
-import type { WebviewForwardingPorts } from '../../contrib/webview/common/webviewOrigin.js';
+import type { WebviewForwardingPorts, WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 
 export interface WebviewContentOptions {
   readonly enableScripts?: boolean;
@@ -45,6 +45,7 @@ export interface WebviewPanelRestoreData {
 }
 
 export interface MainThreadWebviewsShape {
+  $getForwardingHint(): Promise<WebviewForwardingPorts | undefined>;
   $createPanel(extension: string, handle: string, viewType: string, title: string, show: WebviewShowOptions,
     panelOptions: WebviewPanelOptions, contentOptions: WebviewContentOptions): Promise<void>;
   $setHtml(extension: string, handle: string, html: string): Promise<void>;
@@ -59,10 +60,9 @@ export interface MainThreadWebviewsShape {
 }
 
 export interface ExtHostWebviewsShape {
-  $getForwardingPorts(): Promise<WebviewForwardingPorts | undefined>;
   $onMessage(extension: string, handle: string, message: unknown): Promise<void>;
   $onPanelViewState(extension: string, handle: string, state: WebviewPanelViewState): Promise<void>;
-  $deserializePanel(extension: string, handle: string, data: WebviewPanelRestoreData, token: CancellationToken): Promise<void>;
+  $deserializePanel(extension: string, handle: string, data: WebviewPanelRestoreData, origin: WebviewOrigin, token: CancellationToken): Promise<void>;
   $onPanelDisposed(extension: string, handle: string): Promise<void>;
 }
 
@@ -77,7 +77,7 @@ export interface MainThreadWebviewViewsShape extends MainThreadWebviewContent {
 
 export interface ExtHostWebviewViewsShape {
   $resolveView(extension: string, handle: string, viewId: string, title: string, state: unknown, visible: boolean,
-    token: CancellationToken): Promise<void>;
+    origin: WebviewOrigin, token: CancellationToken): Promise<void>;
   $onViewMessage(extension: string, handle: string, value: unknown): Promise<void>;
   $onViewVisibility(extension: string, handle: string, visible: boolean): Promise<void>;
   $onViewDisposed(extension: string, handle: string): Promise<void>;

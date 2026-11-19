@@ -5,14 +5,13 @@ import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
-import { product } from '../../../platform/product/common/product.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { normalizeWebviewResource } from '../../contrib/webview/browser/resourceLoading.js';
 import { IWebviewStateStore } from '../../contrib/webview/browser/webviewStateStore.js';
 import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResourceScope.js';
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
-import { resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
-import type { WebviewForwardingPorts } from '../../contrib/webview/common/webviewOrigin.js';
+import { IWebviewOriginService } from '../../contrib/webview/browser/webviewOriginService.js';
+import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import { WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
 import { IWebviewPanelRestoreService } from '../../contrib/webviewPanel/browser/webviewPanelRestoreService.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
@@ -52,6 +51,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
     @IWebviewPanelRestoreService private readonly restore: IWebviewPanelRestoreService,
     @IWebviewStateStore private readonly states: IWebviewStateStore,
+    @IWebviewOriginService private readonly origins: IWebviewOriginService,
   ) {
     super();
     for (const event of [
@@ -60,6 +60,10 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     ]) {
       this._register(event(() => this.scheduleState()));
     }
+  }
+
+  async $getForwardingHint() {
+    return this.origins.getForwardingHint();
   }
 
   async $createPanel(
@@ -71,11 +75,10 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       || typeof viewType !== 'string' || !viewType || typeof title !== 'string') {
       throw new Error('Invalid Webview panel.');
     }
-    const forwarding = await this.proxy.$getForwardingPorts();
+    const origin = await this.origins.resolve(handle);
     if (this.stopped || this.getExtension(extension) !== owner || this.panels.has(handle)) {
       return;
     }
-    const origin = resolveWebviewOrigin(new URL(location.href), product.webviewContentExternalBaseUrlTemplate, handle, forwarding);
     const webview = this.instantiation.createInstance(WebviewOverlay, viewType, origin, panelOptions.retainContextWhenHidden === true);
     const persistent = owner.manifest.activationEvents?.includes('onWebviewPanel:' + viewType) === true;
     const input = this.instantiation.createInstance(WebviewEditorInput,
@@ -222,9 +225,9 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     }
     const handle = crypto.randomUUID();
     this.restoring.set(input, generation);
-    let forwarding: WebviewForwardingPorts | undefined;
+    let origin: WebviewOrigin;
     try {
-      forwarding = await this.proxy.$getForwardingPorts();
+      origin = await this.origins.resolve(input.id);
     } finally {
       if (this.restoring.get(input) === generation) {
         this.restoring.delete(input);
@@ -240,8 +243,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     const saved = this.states.get(input.id, owner.id);
     input.setIconPath(this.validateIcon(owner, input.persistedIconPath));
     input.webview.setState(saved);
-    input.webview.setOrigin(resolveWebviewOrigin(new URL(location.href),
-      product.webviewContentExternalBaseUrlTemplate, input.id, forwarding));
+    input.webview.setOrigin(origin);
     const cancellation = new CancellationTokenSource();
     entry.listeners.add(toDisposable(() => cancellation.dispose(true)));
     try {
@@ -249,7 +251,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
         id: input.id, viewType: input.viewType, title: input.getName(), options: input.options,
         contentOptions: input.contentOptions, icon: input.iconPath, viewState: this.viewState(input),
         state: saved === undefined ? undefined : JSON.parse(saved),
-      }, cancellation.token);
+      }, origin, cancellation.token);
     } catch (error) {
       if (this.lookup(extension, handle) === entry) {
         this.drop(handle, entry);

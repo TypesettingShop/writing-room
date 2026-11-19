@@ -31,12 +31,7 @@ test('isolates the workbench, serves the first bounded resource and exchanges me
   await page.evaluate(() => {
     const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Webview"]')!;
     const shell = new URL(iframe.src);
-    // A synthetic handshake and an event without the negotiated port cannot deliver content.
-    window.dispatchEvent(new MessageEvent('message', {
-      source: iframe.contentWindow,
-      origin: shell.origin,
-      data: { type: 'connect', token: shell.hash.slice(1) },
-    }));
+    // A window event without the negotiated port cannot deliver content.
     window.dispatchEvent(new MessageEvent('message', {
       source: iframe.contentWindow,
       origin: shell.origin,
@@ -60,6 +55,63 @@ test('isolates the workbench, serves the first bounded resource and exchanges me
   await page.evaluate(() => (window as any).harness.dispose());
   await expect(shell).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).harness.send('disposed'))).toBe(false);
+});
+
+test('rejects a synthetic connection before the shell starts', async ({ page }) => {
+  let releaseShell!: () => void;
+  const blocked = new Promise<void>(resolve => { releaseShell = resolve; });
+  await page.route('**/webview/index.html?*', async route => {
+    await blocked;
+    await route.continue();
+  });
+
+  try {
+    await openWebviewHarness(page, '/', harnessCode);
+    await page.evaluate(() => {
+      const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Webview"]')!;
+      const shell = new URL(iframe.src);
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: shell.origin,
+        data: { type: 'connect', token: shell.hash.slice(1) },
+      }));
+      (window as any).harness.set('<p>Connected to the real shell</p>', false);
+    });
+  } finally {
+    releaseShell();
+  }
+
+  const content = page.frameLocator('iframe[title="Webview"]').frameLocator('iframe[title="Webview content"]');
+  await expect(content.getByText('Connected to the real shell')).toBeVisible();
+});
+
+test('serves more than sixteen simultaneous resource requests', async ({ page }) => {
+  const extensionOrigin = 'http://127.0.0.1:' + process.env.E2E_EXTENSIONS_PORT;
+  let releaseReads!: () => void;
+  const blocked = new Promise<void>(resolve => { releaseReads = resolve; });
+  let reads = 0;
+  await page.route(extensionOrigin + '/webview/concurrent-*.txt', async route => {
+    reads++;
+    await blocked;
+    await route.fulfill({ body: 'resource', headers: { 'Access-Control-Allow-Origin': '*' } });
+  });
+
+  try {
+    await openWebviewHarness(page, '/', harnessCode);
+    await page.evaluate(root => {
+      const harness = (window as any).harness;
+      const urls = Array.from({ length: 24 }, (_, index) => harness.asWebviewUri(root + '/concurrent-' + index + '.txt'));
+      harness.set('<script>const api = acquireVsCodeApi(); Promise.all(' + JSON.stringify(urls)
+        + '.map(async url => { const response = await fetch(url); return [response.status, await response.text()]; }))'
+        + '.then(results => api.postMessage(results));</script>', true, root);
+    }, extensionOrigin + '/webview');
+    await expect.poll(() => reads).toBe(16);
+  } finally {
+    releaseReads();
+  }
+  await expect.poll(() => page.evaluate(() => (window as any).harness.messages[0]))
+    .toEqual(Array.from({ length: 24 }, () => [200, 'resource']));
+  expect(reads).toBe(24);
 });
 
 test('renders with scripts disabled and shows same-origin configuration errors', async ({ page }) => {
