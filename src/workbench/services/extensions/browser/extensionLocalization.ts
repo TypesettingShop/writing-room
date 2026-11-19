@@ -7,28 +7,29 @@ import { extensionResourceLimits, resolveExtensionResource } from '../common/ext
 import type { HostExtensionDescription } from '../common/extensionHostProtocol.js';
 
 export async function loadLocaleManifest(
-  files: IFileService, extension: IExtensionDescription, locale: string,
+  files: IFileService, extension: IExtensionDescription, locale: string, signal: AbortSignal,
 ): Promise<Readonly<Record<string, string>> | undefined> {
   const { identifier: { value: id }, location, manifest } = extension;
   if (!/%[^"%]+%/.test(JSON.stringify(manifest))) {
     return undefined;
   }
-  let translations = { ...extension.nls };
-  for (const language of localeFallbacks(locale)) {
+  const tables = await Promise.all(localeFallbacks(locale).filter(language => language !== 'en').map(async language => {
     const filename = `package.nls.${language}.json`;
     const file = resolveExtensionResource(URI.parse(location), filename);
-    if (file) {
-      try {
-        const { value } = await files.readFile(file, { limits: { size: extensionResourceLimits.nls } });
-        translations = { ...translations, ...readManifestNls(JSON.parse(new TextDecoder().decode(value))) };
-      } catch (error) {
-        if (toFileSystemProviderErrorCode(error) !== FileSystemProviderErrorCode.FileNotFound) {
-          console.warn(`[${id}] Could not read ${filename}:`, error);
-        }
-      }
+    if (!file || signal.aborted) {
+      return undefined;
     }
-  }
-  return translations;
+    try {
+      const { value } = await files.readFile(file, { limits: { size: extensionResourceLimits.nls }, signal });
+      return readManifestNls(JSON.parse(new TextDecoder().decode(value)));
+    } catch (error) {
+      if (!signal.aborted && toFileSystemProviderErrorCode(error) !== FileSystemProviderErrorCode.FileNotFound) {
+        console.warn(`[${id}] Could not read ${filename}:`, error);
+      }
+      return undefined;
+    }
+  }));
+  return tables.some(table => table && Object.keys(table).length) ? Object.assign(Object.create(null), extension.nls, ...tables) : undefined;
 }
 
 export async function loadExtensionBundle(

@@ -159,7 +159,9 @@ export class ExtensionsActivator {
     const command = event.startsWith('onCommand:') ? event.slice('onCommand:'.length) : undefined;
     const extensions = [...this.extensions.values()];
     const targets = extensions.filter(extension =>
-      !this.removing.has(extension) && !extension.description.disabled && extension.description.activationEvents.includes(event),
+      !this.removing.has(extension)
+      && (!extension.description.manifest.main || extension.description.entry)
+      && extension.description.activationEvents.includes(event),
     );
     if (caller && command && targets.length === 0) {
       const registered = extensions.reverse().find(extension => !this.removing.has(extension) && extension.commands.has(command));
@@ -251,8 +253,8 @@ export class ExtensionsActivator {
       const cancelSlowWarning = () => clearTimeout(slow);
       abort.signal.addEventListener('abort', cancelSlowWarning, { once: true });
       try {
-        if (description.disabled) {
-          throw new Error('The requested VS Code API version is not available.');
+        if (description.manifest.main && !description.entry) {
+          throw new Error('This extension has no web entry point.');
         }
         await this.activateDependencies(extension);
         abort.signal.throwIfAborted();

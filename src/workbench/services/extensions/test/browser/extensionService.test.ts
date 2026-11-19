@@ -1,3 +1,9 @@
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { IFileService } from '../../../../../platform/files/common/files.js';
+import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
+import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
+import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { IWorkbenchLayoutService } from '../../../layout/browser/layoutService.js';
 import { afterEach, expect, test, vi } from 'vitest';
 import { MenuId, MenuRegistry } from '../../../../../platform/actions/common/actions.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
@@ -102,4 +108,85 @@ test('registers valid entries, diagnoses individual failures and cleans up dynam
   expect(MenuRegistry.getCommand('test.ext.command')).toBeUndefined();
   expect(viewContainersRegistry.get('workbench.view.extension.ext-test')).toBeUndefined();
   expect(viewsRegistry.getViewContainer('ext-test.fallback')).toBeUndefined();
+});
+
+test('rejects an incompatible extension before registering its command, view or activation events', () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const base = description('future', {
+    commands: [{ command: 'test.ext.future', title: 'Future' }],
+    views: { explorer: [{ id: 'test.ext.future.view', name: 'Future' }] },
+  });
+  const extension = { ...base, manifest: { ...base.manifest, browser: './extension.js', engines: { vscode: '^2.0.0' } } };
+  service = new ExtensionService(() => ({ extensions: [extension], messages: [] }));
+  service.initialize();
+  expect(service.extensions).toEqual([]);
+  expect(service.addExtension(extension)).toBe(false);
+  expect(MenuRegistry.getCommand('test.ext.future')).toBeUndefined();
+  expect(viewsRegistry.getViewContainer('test.ext.future.view')).toBeUndefined();
+  expect(service.getExtensionsStatus()['example.future']).toMatchObject({
+    activationEvents: [],
+    messages: [expect.objectContaining({ path: 'engines.vscode' })],
+  });
+});
+
+test('keeps a localized view registered when an unrelated extension is added or removed', () => {
+  const base = description('local-view', {
+    viewsContainers: { activitybar: [{ id: 'test-local-view', title: '%label%', icon: '$(beaker)' }] },
+    views: { 'test-local-view': [{ id: 'test.ext.localized', name: '%label%' }] },
+  });
+  const extension = { ...base, nls: { label: 'Localized view' } };
+  service = new ExtensionService(() => ({ extensions: [extension], messages: [] }));
+  service.initialize();
+  const container = viewsRegistry.getViewContainer('test.ext.localized')!;
+  const initial = viewsRegistry.getViews(container).find(view => view.id === 'test.ext.localized');
+  expect(initial?.name).toBe('Localized view');
+  const removed = vi.fn();
+  const listener = viewsRegistry.onViewsDeregistered(removed);
+  try {
+    service.addExtension(description('other', {}));
+    service.removeExtension('example.other');
+    expect(viewsRegistry.getViews(container).find(view => view.id === 'test.ext.localized')).toBe(initial);
+    expect(removed).not.toHaveBeenCalled();
+  } finally {
+    listener.dispose();
+  }
+});
+
+
+test.each([['ko', 'ko'], ['en-US', 'en-us']])('registers defaults during %s translation and isolates a broken extension', async (locale, language) => {
+  const base = description('good-translation', {
+    commands: [{ command: 'test.ext.translateGood', title: '%good%' }],
+  });
+  const broken = description('broken-translation', {
+    commands: [{ command: 'test.ext.translateBroken', title: '%broken%' }],
+  });
+  const brokenManifest = { ...broken.manifest, toJSON() { throw new Error('Cannot read translation metadata'); } };
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let finish!: (content: { value: Uint8Array }) => void;
+  const read = new Promise<{ value: Uint8Array }>(resolve => { finish = resolve; });
+  const readFile = vi.fn(() => read);
+  const instantiation = new InstantiationService(new ServiceCollection(
+    [IWorkbenchLayoutService, { mainContainer: document.createElement('div') } as IWorkbenchLayoutService],
+    [IConfigurationService, { getValue: () => locale } as IConfigurationService],
+    [IWorkspaceContextService, { getWorkspace: () => ({ id: 'test', folders: [] }) } as unknown as IWorkspaceContextService],
+    [IFileService, { readFile } as unknown as IFileService],
+  ));
+  service = new ExtensionService(() => ({
+    extensions: [{ ...base, nls: { good: 'Default' } }, { ...broken, manifest: brokenManifest, nls: { broken: 'Fallback' } }],
+    messages: [],
+  }), instantiation);
+  service.initialize();
+  expect(MenuRegistry.getCommand('test.ext.translateGood')?.title).toBe('Default');
+  expect(MenuRegistry.getCommand('test.ext.translateBroken')?.title).toBe('Fallback');
+  expect(await service.whenInstalledExtensionsRegistered()).toBe(true);
+  expect(readFile).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ path: expect.stringMatching('/package.nls.' + language + '.json$') }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  finish({ value: new TextEncoder().encode('{"good":"Translated"}') });
+  await vi.waitFor(() => {
+    expect(MenuRegistry.getCommand('test.ext.translateGood')?.title).toBe('Translated');
+    expect(MenuRegistry.getCommand('test.ext.translateBroken')?.title).toBe('Fallback');
+    expect(warn).toHaveBeenCalledWith('[example.broken-translation] Could not localize contributions:', expect.any(Error));
+  });
 });

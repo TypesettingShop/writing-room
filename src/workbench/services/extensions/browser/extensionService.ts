@@ -81,9 +81,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
     readonly description: IExtensionDescription;
   }>();
   private workspaceId?: string;
-  private readonly incompatible = new Set<string>();
   private readonly removals = new Map<string, Promise<void>>();
-  private readonly workspaceSearch = new AbortController();
+  private readonly lifetime = new AbortController();
   private readonly eventOperations = new Map<string, Promise<void>>();
   private readonly completedEvents = new Set<string>();
   private stopping = false;
@@ -105,7 +104,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
         // A bfcache restore resumes the same workbench and worker.
         if (!event.persisted) {
           this.stopping = true;
-          this.workspaceSearch.abort();
+          this.lifetime.abort();
           this.host?.worker.shutdown();
         }
       }));
@@ -139,27 +138,11 @@ export class ExtensionService extends Disposable implements IExtensionService {
     for (const extension of [...extensions, ...installed].sort((a, b) => Number(b.isBuiltin) - Number(a.isBuiltin))) {
       this.addDescription(extension);
     }
-    const finish = () => {
-      this.applyContributions();
-      this.finishRegistration(true);
-      if (this.instantiation) {
-        void this.searchWorkspaceActivation().catch(error => console.warn('Workspace activation search failed:', error));
-      }
-    };
-    if (this.locale === 'en' || !this.instantiation) {
-      finish();
-    } else {
-      // A table that cannot be read leaves that extension's contributions in the default language.
-      void Promise.all(this.extensions.map(extension => this.readLocalizedManifest(extension).catch(error => {
-        console.warn(`[${extension.identifier.value}] Could not localize contributions:`, error);
-      }))).then(() => {
-        if (!this.stopping) {
-          finish();
-        }
-      }).catch(error => {
-        this.finishRegistration(false);
-        console.error('Could not register localized extension contributions:', error);
-      });
+    this.applyContributions();
+    this.finishRegistration(true);
+    if (this.instantiation) {
+      void this.searchWorkspaceActivation().catch(error => console.warn('Workspace activation search failed:', error));
+      this.refreshTranslations(this.extensions);
     }
   }
 
@@ -174,13 +157,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     if (this.initialized) {
       try {
         this.applyContributions();
-        if (this.locale !== 'en') {
-          void this.readLocalizedManifest(extension).then(changed => {
-            if (changed && !this.stopping && this.descriptions.get(extension.identifier.value) === extension) {
-              this.applyContributions();
-            }
-          }).catch(error => console.warn(`[${extension.identifier.value}] Could not localize contributions:`, error));
-        }
+        this.refreshTranslations([extension]);
       } catch (error) {
         this.removeExtension(extension.identifier.value);
         throw error;
@@ -233,20 +210,35 @@ export class ExtensionService extends Disposable implements IExtensionService {
       folders: accessor.get(IWorkspaceContextService).getWorkspace().folders,
     }));
     await Promise.all([...events].map(async event => {
-      if (await findWorkspaceActivation(files, folders, event.slice(prefix.length), this.workspaceSearch.signal)) {
+      if (await findWorkspaceActivation(files, folders, event.slice(prefix.length), this.lifetime.signal)) {
         await this.activateByEvent(event);
       }
     }));
   }
 
-  private async readLocalizedManifest(extension: IExtensionDescription): Promise<boolean> {
-    const files = this.instantiation?.invokeFunction(accessor => accessor.get(IFileService));
-    const localized = files && await loadLocaleManifest(files, extension, this.locale);
-    if (!localized) {
-      return false;
+  private refreshTranslations(extensions: readonly IExtensionDescription[]): void {
+    if (this.locale === 'en' || !this.instantiation) {
+      return;
     }
-    this.localized.set(extension, localized);
-    return true;
+    const files = this.instantiation.invokeFunction(accessor => accessor.get(IFileService));
+    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(2_000)]);
+    void Promise.all(extensions.map(async extension => {
+      try {
+        const translations = await loadLocaleManifest(files, extension, this.locale, signal);
+        if (!translations || this.stopping || this.descriptions.get(extension.identifier.value) !== extension) {
+          return false;
+        }
+        this.localized.set(extension, translations);
+        return true;
+      } catch (error) {
+        console.warn(`[${extension.identifier.value}] Could not localize contributions:`, error);
+        return false;
+      }
+    })).then(changed => {
+      if (changed.some(Boolean) && !this.stopping) {
+        this.applyContributions();
+      }
+    }).catch(error => console.error('Could not register localized extension contributions:', error));
   }
 
   private localizedDescription(extension: IExtensionDescription): IExtensionDescription {
@@ -274,6 +266,19 @@ export class ExtensionService extends Disposable implements IExtensionService {
       }
       return false;
     }
+    const range = extension.manifest.engines?.vscode;
+    if (range !== undefined && (typeof range !== 'string' || !isValidExtensionVersion(product.version, range))) {
+      const message: IExtensionMessage = {
+        extensionId: id, severity: 'warn', path: 'engines.vscode',
+        message: `This extension requires VS Code ${String(range)}. Writing Room provides API ${product.version}.`,
+      };
+      if (!this.scanMessages.some(previous => previous.extensionId === id && previous.path === message.path
+        && previous.message === message.message)) {
+        this.scanMessages.push(message);
+        this.report(message);
+      }
+      return false;
+    }
     this.descriptions.set(id, extension);
     return true;
   }
@@ -287,7 +292,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     }]));
   }
 
-  async activateByEvent(event: string, origin?: string): Promise<void> {
+  async activateByEvent(event: string, origin?: string, probeUnadvertised = false): Promise<void> {
     this.recordedEvents.add(event);
     if (event === 'onStartupFinished' && !this.recordedEvents.has('*')) {
       // The default startup events can activate different extensions concurrently.
@@ -301,7 +306,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
         this.remoteIcons?.activate(id);
       }
     }
-    if (!this.matches(event) && !(origin && this.host)) {
+    if (!this.matches(event) && !(origin && this.host && probeUnadvertised)) {
       return;
     }
     if (this.hostFailure) {
@@ -345,7 +350,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   private matches(event: string): boolean {
-    return this.extensions.some(extension => extension.manifest.browser && !this.incompatible.has(extension.identifier.value)
+    return this.extensions.some(extension => extension.manifest.browser
       && this.extensionEvents.get(extension.identifier.value)?.has(event));
   }
 
@@ -362,14 +367,14 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const result = new Map<string, HostExtensionDescription>();
     for (const description of this.extensions) {
       const { identifier, location, manifest } = description;
-      const entry = !this.incompatible.has(identifier.value) && manifest.browser && resolveExtensionEntry(location, manifest.browser);
+      const entry = manifest.browser && resolveExtensionEntry(location, manifest.browser);
       let key = this.extensionKeys.get(description);
       if (!key) {
         key = String(++this.nextExtensionKey);
         this.extensionKeys.set(description, key);
       }
       result.set(key, { id: identifier.value, key, location, entry: entry ? entry.href : '', manifest,
-        disabled: this.incompatible.has(identifier.value),
+        isBuiltin: description.isBuiltin,
         runtime: { locale: this.locale, workspaceId: this.workspaceId },
         activationEvents: [...this.extensionEvents.get(identifier.value) ?? []], views: this.viewHandler.viewIds(identifier.value) });
     }
@@ -385,7 +390,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
       main: this.instantiation!.createInstance(MainThreadExtensionService, worker.rpc, {
         getExtension: key => this.host === host ? host.registered.get(key) : undefined,
         commandOwner: id => this.commandOwners.get(id),
-        activate: (event, origin) => this.activateByEvent(event, origin),
+        activate: (event, origin, probeUnadvertised) => this.activateByEvent(event, origin, probeUnadvertised),
         setStatus: (key, status) => {
           const id = host.registered.get(key)?.id;
           if (this.host === host && id) {
@@ -469,7 +474,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
 
   override dispose(): void {
     this.stopping = true;
-    this.workspaceSearch.abort();
+    this.lifetime.abort();
     this.stopHost();
     super.dispose();
   }
@@ -494,7 +499,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.messages.clear();
     this.extensionEvents.clear();
     this.commandOwners.clear();
-    this.incompatible.clear();
     const contributions = new DisposableStore();
     this.contributions.value = contributions;
     const entries = this.extensions.map(extension => this.localizedDescription(extension));
@@ -502,11 +506,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
       const id = extension.identifier.value;
       const { manifest } = extension;
       this.extensionEvents.set(id, new Set(manifest.activationEvents));
-      const range = manifest.engines?.vscode;
-      if (range !== undefined && (typeof range !== 'string' || !isValidExtensionVersion(product.version, range))) {
-        this.incompatible.add(id);
-        this.report({ extensionId: id, severity: 'warn', path: 'engines.vscode', message: `This extension requires VS Code ${String(range)}. Writing Room provides API ${product.version}.` });
-      }
       if (Array.isArray(manifest.enabledApiProposals) && manifest.enabledApiProposals.length) {
         this.report({ extensionId: id, severity: 'info', path: 'enabledApiProposals', message: 'Proposed APIs are not supported.' });
       }

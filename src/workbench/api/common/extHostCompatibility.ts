@@ -81,8 +81,7 @@ class Task implements vscode.Task {
   }
 }
 
-export function compatibilityFragments() {
-  const noEvent = () => new Disposable(() => {});
+export function compatibilityFragments(noEvent: () => vscode.Disposable) {
   return {
     types: {
       Task, TaskGroup, CustomExecution, ProcessExecution, ShellExecution,

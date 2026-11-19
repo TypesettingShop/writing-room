@@ -234,6 +234,11 @@ test('keeps the API and registrations until asynchronous deactivation finishes',
     activate(context) {
       isActive = () => context.extension.isActive;
       api.extensions.onDidChange(listChanged);
+      const baseline = context.subscriptions.length;
+      for (let iteration = 0; iteration < 20; iteration++) {
+        api.extensions.onDidChange(() => {}).dispose();
+      }
+      expect(context.subscriptions).toHaveLength(baseline);
       context.subscriptions.push({ dispose: () => steps.push('disposed') });
       api.commands.registerCommand('during', () => steps.push('called'));
     },

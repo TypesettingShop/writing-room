@@ -211,13 +211,24 @@ export class MainThreadStorage extends Disposable implements MainThreadStorageSh
     return extension.id;
   }
 
+  private installation(key: string, id: string): Installation | undefined {
+    const extension = this.getExtension(key);
+    if (!extension || extension.isBuiltin) {
+      return undefined;
+    }
+    const record = this.installations.get(key) ?? this.installed().find(item =>
+      item.identifier === id && item.location === extension.location);
+    // Folder installs register before saving their record. Retry an initial miss on the next write.
+    if (record) {
+      this.installations.set(key, record);
+    }
+    return record;
+  }
+
   async $initialize(key: string): Promise<{ global: string; workspace: string }> {
     const id = this.id(key);
     this.subscribed.set(key, id);
-    const installation = this.installed().find(item => item.identifier === id && item.location === this.getExtension(key)?.location);
-    if (installation) {
-      this.installations.set(key, installation);
-    }
+    this.installation(key, id);
     return { global: this.state.read(id, 'global'), workspace: this.state.read(id, 'workspace') };
   }
 
@@ -227,11 +238,7 @@ export class MainThreadStorage extends Disposable implements MainThreadStorageSh
     if (!Object.hasOwn(scopeFor, scope) || (json !== undefined && (typeof json !== 'string' || measure(json) > maxState))) {
       throw new Error('Invalid extension state update.');
     }
-    const installation = this.installations.get(key) ?? this.installed().find(item =>
-      item.identifier === id && item.location === this.getExtension(key)?.location);
-    if (installation) {
-      this.installations.set(key, installation);
-    }
+    const installation = this.installation(key, id);
     await this.state.update(id, scope, name, json, () => this.getExtension(key)?.id === id, installation);
   }
 

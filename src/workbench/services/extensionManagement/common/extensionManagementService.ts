@@ -435,6 +435,8 @@ export class ExtensionManagementService {
   ): Promise<IExtensionDescription> {
     const { identifier, location } = record;
     const staged = await this.packages.stage(pkg, signal, preloaded);
+    const replaced = this.installed.find(extension => extension.identifier.value === identifier);
+    let stoppedPrevious = false;
     let committed = false;
     try {
       await this.scanner.locked(async (read, write) => {
@@ -442,6 +444,11 @@ export class ExtensionManagementService {
         const current = installed.find(entry => entry.identifier === identifier);
         if (current?.location !== previous?.location || current?.installedAt !== previous?.installedAt) {
           throw new Error(`'${identifier}' changed in another window during the install. Try again.`);
+        }
+        // The old generation can still save state/read package resources during deactivate.
+        if (replaced && this.active.removeExtension?.(identifier)) {
+          stoppedPrevious = true;
+          await this.active.whenExtensionRemoved?.(identifier);
         }
         // Only `current` can name this identifier and version. A folder there that it does not use is left
         // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
@@ -458,15 +465,13 @@ export class ExtensionManagementService {
       if (!committed) {
         await this.packages.discard(staged).catch(cleanup => console.warn('Could not remove a staged extension package.', cleanup));
       }
+      if (stoppedPrevious && replaced) {
+        this.registerAgain(replaced);
+      }
       throw error;
     }
 
     const description = toExtensionDescription(record);
-    const replaced = this.installed.find(extension => extension.identifier.value === identifier);
-    if (replaced) {
-      this.active.removeExtension?.(identifier);
-      await this.active.whenExtensionRemoved?.(identifier);
-    }
     try {
       if (!this.active.addExtension?.(description)) {
         throw new Error(`Could not register extension '${identifier}'.`);

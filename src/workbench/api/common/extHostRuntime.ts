@@ -85,7 +85,7 @@ extHostApiRegistry.register('runtime', ({ rpc, isLive }) => {
       const globalStorageUri = extensionGlobalStorageUri(id);
       const storageUri = runtime?.workspaceId ? extensionWorkspaceStorageUri(runtime.workspaceId, id) : undefined;
       const logUri = extensionLogUri(id);
-      const compatibility = compatibilityFragments();
+      const compatibility = compatibilityFragments(noEvent);
       return {
         types: {
           ...compatibility.types,

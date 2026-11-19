@@ -3,6 +3,9 @@ const sourceMessage = vscode.l10n.t('Welcome {name}', { name: 'Runtime' });
 
 exports.activate = context => {
   context.subscriptions.push(vscode.commands.registerCommand('runtime.globals', async () => {
+    const workerGlobalMethods = 'fetch' in self && 'Worker' in globalThis
+      && await new Promise(resolve => self.setTimeout(() => resolve(
+        globalThis.structuredClone({ text: self.atob('b2s=') }).text === 'ok'), 0));
     const address = path => vscode.Uri.joinPath(context.extensionUri, path).toString();
     const result = await fetch(address('data.json')).then(response => response.json());
     const worker = new self.Worker(address('worker.js'));
@@ -30,7 +33,7 @@ exports.activate = context => {
     await vscode.window.showInformationMessage([
       vscode.env.language, sourceMessage, context.extension.packageJSON.contributes.commands[0].title,
       result.label, messages, taskRejected, taskCalled, folderDenied, typeof vscode.debug,
-      typeof self.postMessage, typeof self.close, typeof self.importScripts,
+      typeof self.postMessage, typeof self.close, typeof self.importScripts, workerGlobalMethods,
     ].join(' | '));
   }));
 };

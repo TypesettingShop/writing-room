@@ -131,7 +131,7 @@ for (const installedFrom of ['folder', 'package'] as const) {
     }).toBe(true);
     await command.click();
     await expect(page.getByText(
-      'ko | Runtime 시작 | %title% | resource read | echo one,echo two | true | false | true | undefined | undefined | undefined | undefined',
+      'ko | Runtime 시작 | %title% | resource read | echo one,echo two | true | false | true | undefined | undefined | undefined | undefined | true',
     )).toBeVisible();
   });
 }
