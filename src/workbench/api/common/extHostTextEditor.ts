@@ -1,6 +1,7 @@
 import type * as vscode from 'vscode';
 import type { ISingleEditOperation } from '../../../editor/common/model.js';
 import { EndOfLine, Position, Range, Selection } from './extHostEditorTypes.js';
+import type { ExtHostTextEditorDecorations } from './extHostTextEditorDecorations.js';
 import { fromModelRange } from './extHostDocumentData.js';
 import { toModelRange } from './extHost.protocol.documents.js';
 import type {
@@ -91,7 +92,9 @@ export class ExtHostTextEditor {
   private closed = false;
   readonly value: vscode.TextEditor;
 
-  constructor(readonly id: string, private readonly proxy: MainThreadEditorsShape, document: vscode.TextDocument, properties: EditorProperties) {
+  constructor(readonly id: string, private readonly proxy: MainThreadEditorsShape, document: vscode.TextDocument,
+    properties: EditorProperties, decorations: ExtHostTextEditorDecorations,
+  ) {
     this.accept(properties);
     const editor = this;
     const setOptions = (options: vscode.TextEditorOptions) => {
@@ -146,6 +149,11 @@ export class ExtHostTextEditor {
           part instanceof Position ? new Range(part, part) : part,
         )));
         return proxy.$insertSnippet(id, document.version, snippet.value, ranges, options ?? {}).catch(() => false);
+      },
+      setDecorations(type, ranges) {
+        if (!editor.closed) {
+          decorations.set(id, type, ranges);
+        }
       },
       revealRange(range, revealType = TextEditorRevealType.Default) {
         if (!editor.closed) {

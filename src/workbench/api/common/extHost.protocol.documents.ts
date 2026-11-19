@@ -125,3 +125,31 @@ export interface ExtHostEditorsShape {
 
 export const MainThreadEditorsProxy = createProxyIdentifier<MainThreadEditorsShape>('MainThreadEditors');
 export const ExtHostEditorsProxy = createProxyIdentifier<ExtHostEditorsShape>('ExtHostEditors');
+
+export type WorkspaceEditOperation =
+  | { readonly kind: 'text'; readonly uri: URI; readonly version?: number; readonly edit: DocumentEdit; readonly snippet?: boolean; readonly keepWhitespace?: boolean }
+  | { readonly kind: 'create'; readonly uri: URI; readonly overwrite?: boolean; readonly ignoreIfExists?: boolean; readonly contents?: Uint8Array }
+  | { readonly kind: 'rename'; readonly uri: URI; readonly target: URI; readonly overwrite?: boolean; readonly ignoreIfExists?: boolean }
+  | { readonly kind: 'delete'; readonly uri: URI; readonly recursive?: boolean; readonly ignoreIfNotExists?: boolean };
+
+export interface MainThreadBulkEditsShape {
+  $applyWorkspaceEdit(extension: string, operations: WorkspaceEditOperation[]): Promise<boolean>;
+}
+
+export const MainThreadBulkEditsProxy = createProxyIdentifier<MainThreadBulkEditsShape>('MainThreadBulkEdits');
+
+export const decorationRangeLimit = 10_000;
+
+export interface DecorationInstance {
+  readonly range: IRange;
+  readonly hover?: string[];
+  readonly render?: object;
+}
+
+export interface MainThreadDecorationsShape {
+  $registerDecoration(extension: string, key: string, options: object): Promise<void>;
+  $removeDecoration(extension: string, key: string): Promise<void>;
+  $setDecorations(extension: string, editor: string, key: string, entries: DecorationInstance[], truncated: boolean): Promise<void>;
+}
+
+export const MainThreadDecorationsProxy = createProxyIdentifier<MainThreadDecorationsShape>('MainThreadEditorDecorations');

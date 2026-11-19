@@ -2,7 +2,9 @@ import type { IRange, ISingleEditOperation, ITextModel } from '../../../editor/c
 import type { IMonacoTextModel } from '../../../editor/browser/monaco.js';
 import type { DocumentEdit } from '../common/extHost.protocol.documents.js';
 
-export function validateModelRange(model: ITextModel, range: IRange): IRange {
+type RangeModel = Pick<ITextModel, 'getLineCount' | 'getLineContent' | 'getOffsetAt'>;
+
+export function validateModelRange(model: RangeModel, range: IRange): IRange {
   const position = (line: number, column: number) => {
     if (!Number.isSafeInteger(line) || !Number.isSafeInteger(column)) {
       throw new TypeError('Invalid text range.');
@@ -22,7 +24,7 @@ export function validateModelRange(model: ITextModel, range: IRange): IRange {
   return { startLineNumber: start.line, startColumn: start.column, endLineNumber: end.line, endColumn: end.column };
 }
 
-export function validateDocumentEdit(model: ITextModel, edit: DocumentEdit): ISingleEditOperation[] {
+export function validateDocumentEdit(model: RangeModel, edit: DocumentEdit): ISingleEditOperation[] {
   if (!Array.isArray(edit.operations) || (edit.eol !== undefined && edit.eol !== 1 && edit.eol !== 2)) {
     throw new TypeError('Invalid text edit.');
   }

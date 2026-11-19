@@ -165,3 +165,98 @@ declare module 'vscode' {
     export function showTextDocument(uri: Uri, options?: TextDocumentShowOptions): Thenable<TextEditor>;
   }
 }
+
+declare module 'vscode' {
+  export interface WorkspaceEditMetadata {
+    readonly isRefactoring?: boolean;
+  }
+
+  export namespace workspace {
+    export function applyEdit(edit: WorkspaceEdit, metadata?: WorkspaceEditMetadata): Thenable<boolean>;
+  }
+}
+
+declare module 'vscode' {
+  export interface TextEditorDecorationType {
+    readonly key: string;
+    dispose(): void;
+  }
+
+  export enum OverviewRulerLane { Left = 1, Center = 2, Right = 4, Full = 7 }
+  export enum DecorationRangeBehavior { OpenOpen = 0, ClosedClosed = 1, OpenClosed = 2, ClosedOpen = 3 }
+
+  export interface ThemableDecorationRenderOptions {
+    backgroundColor?: string | ThemeColor;
+    outline?: string;
+    outlineColor?: string | ThemeColor;
+    outlineStyle?: string;
+    outlineWidth?: string;
+    border?: string;
+    borderColor?: string | ThemeColor;
+    borderRadius?: string;
+    borderSpacing?: string;
+    borderStyle?: string;
+    borderWidth?: string;
+    fontStyle?: string;
+    fontWeight?: string;
+    textDecoration?: string;
+    cursor?: string;
+    color?: string | ThemeColor;
+    opacity?: string;
+    letterSpacing?: string;
+    gutterIconPath?: string | Uri;
+    gutterIconSize?: string;
+    overviewRulerColor?: string | ThemeColor;
+    before?: ThemableDecorationAttachmentRenderOptions;
+    after?: ThemableDecorationAttachmentRenderOptions;
+  }
+
+  export interface ThemableDecorationAttachmentRenderOptions {
+    contentText?: string;
+    contentIconPath?: string | Uri;
+    border?: string;
+    borderColor?: string | ThemeColor;
+    fontStyle?: string;
+    fontWeight?: string;
+    textDecoration?: string;
+    color?: string | ThemeColor;
+    backgroundColor?: string | ThemeColor;
+    margin?: string;
+    width?: string;
+    height?: string;
+  }
+
+  export interface DecorationRenderOptions extends ThemableDecorationRenderOptions {
+    isWholeLine?: boolean;
+    rangeBehavior?: DecorationRangeBehavior;
+    overviewRulerLane?: OverviewRulerLane;
+    light?: ThemableDecorationRenderOptions;
+    dark?: ThemableDecorationRenderOptions;
+  }
+
+  export type MarkedString = string | { language: string; value: string };
+
+  export interface DecorationOptions {
+    range: Range;
+    hoverMessage?: MarkdownString | MarkedString | Array<MarkdownString | MarkedString>;
+    renderOptions?: DecorationInstanceRenderOptions;
+  }
+
+  export interface ThemableDecorationInstanceRenderOptions {
+    before?: ThemableDecorationAttachmentRenderOptions;
+    after?: ThemableDecorationAttachmentRenderOptions;
+  }
+
+  export interface DecorationInstanceRenderOptions extends ThemableDecorationInstanceRenderOptions {
+    light?: ThemableDecorationInstanceRenderOptions;
+    dark?: ThemableDecorationInstanceRenderOptions;
+  }
+
+  export interface TextEditor {
+    setDecorations(decorationType: TextEditorDecorationType, rangesOrOptions: readonly Range[] | readonly DecorationOptions[]): void;
+  }
+
+  export namespace window {
+    export function createTextEditorDecorationType(options: DecorationRenderOptions): TextEditorDecorationType;
+  }
+}

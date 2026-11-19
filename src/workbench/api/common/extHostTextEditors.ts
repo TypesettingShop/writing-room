@@ -6,6 +6,7 @@ import { promiseApiMethod } from './extHostApiRegistry.js';
 import { toModelRange } from './extHost.protocol.documents.js';
 import type { EditorDelta, EditorProperties, MainThreadEditorsShape } from './extHost.protocol.documents.js';
 import type { ExtHostDocuments } from './extHostDocuments.js';
+import type { ExtHostTextEditorDecorations } from './extHostTextEditorDecorations.js';
 import { ExtHostTextEditor } from './extHostTextEditor.js';
 
 export class ExtHostTextEditors extends Disposable {
@@ -19,7 +20,11 @@ export class ExtHostTextEditors extends Disposable {
   private readonly optionsChanged = this._register(new Emitter<vscode.TextEditorOptionsChangeEvent>());
   private readonly columnChanged = this._register(new Emitter<vscode.TextEditorViewColumnChangeEvent>());
 
-  constructor(private readonly proxy: MainThreadEditorsShape, private readonly documents: ExtHostDocuments) { super(); }
+  constructor(
+    private readonly proxy: MainThreadEditorsShape,
+    private readonly documents: ExtHostDocuments,
+    private readonly decorations: ExtHostTextEditorDecorations,
+  ) { super(); }
 
   private get activeTextEditor(): vscode.TextEditor | undefined {
     return this.active === null ? undefined : this.editors.get(this.active)?.value;
@@ -34,6 +39,7 @@ export class ExtHostTextEditors extends Disposable {
     return {
       get activeTextEditor() { return service.activeTextEditor; },
       get visibleTextEditors() { return service.visibleTextEditors; },
+      createTextEditorDecorationType: (options: vscode.DecorationRenderOptions) => this.decorations.create(key, options),
       onDidChangeActiveTextEditor: this.documents.event(key, this.activeChanged.event),
       onDidChangeVisibleTextEditors: this.documents.event(key, this.visibleChanged.event),
       onDidChangeTextEditorSelection: this.documents.event(key, this.selectionChanged.event),
@@ -74,7 +80,7 @@ export class ExtHostTextEditors extends Disposable {
     for (const snapshot of delta.added) {
       const document = this.documents.get(snapshot.document);
       if (document) {
-        this.editors.set(snapshot.id, new ExtHostTextEditor(snapshot.id, this.proxy, document, snapshot));
+        this.editors.set(snapshot.id, new ExtHostTextEditor(snapshot.id, this.proxy, document, snapshot, this.decorations));
       }
     }
     this.active = delta.active;

@@ -9,7 +9,9 @@
   "browser": "./extension.js",
   "activationEvents": [
     "onCommand:documents.check",
-    "onCommand:documents.checkEditor"
+    "onCommand:documents.checkEditor",
+    "onCommand:documents.checkBulk",
+    "onCommand:documents.clearDecoration"
   ],
   "contributes": {
     "commands": [
@@ -20,6 +22,14 @@
       {
         "command": "documents.checkEditor",
         "title": "Check Text Editor API"
+      },
+      {
+        "command": "documents.checkBulk",
+        "title": "Check Workspace Edit API"
+      },
+      {
+        "command": "documents.clearDecoration",
+        "title": "Clear Fixture Decoration"
       }
     ]
   }

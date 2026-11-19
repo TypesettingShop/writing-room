@@ -110,4 +110,37 @@ exports.activate = context => {
       subActive.dispose();
     }
   }));
+
+  let decoration;
+  context.subscriptions.push(vscode.commands.registerCommand('documents.checkBulk', async () => {
+    const first = await workspace.openTextDocument({ content: 'text' });
+    const second = await workspace.openTextDocument({ content: 'word' });
+    const editor = await window.showTextDocument(first);
+    const secondEditor = await window.showTextDocument(second, { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
+
+    const stale = new vscode.WorkspaceEdit();
+    stale.insert(first.uri, new Position(0, 0), 'unused ');
+    stale.insert(second.uri, new Position(0, 0), 'unused ');
+    const advance = secondEditor.edit(builder => builder.insert(new Position(0, 0), 'new '));
+    const conflict = workspace.applyEdit(stale);
+    assert(await advance && !(await conflict), 'Expected conflicting workspace edit to fail');
+    assert(first.getText() === 'text' && second.getText() === 'new word', 'Conflicting edit must leave every target alone');
+
+    const file = Uri.parse('vscode-vfs://writing-room/workspace/bulk-created.txt');
+    const edit = new vscode.WorkspaceEdit();
+    edit.createFile(file);
+    edit.insert(file, new Position(0, 0), 'file created by WorkspaceEdit');
+    edit.set(second.uri, [vscode.SnippetTextEdit.insert(new Position(0, 0), new vscode.SnippetString('${1:prefix} $0'))]);
+    edit.insert(first.uri, new Position(0, 4), '!');
+    assert(await workspace.applyEdit(edit), 'Expected a mixed workspace edit to succeed');
+    assert(first.getText() === 'text!' && second.getText() === 'prefix new word', 'Expected literal fallback for inactive snippet');
+
+    decoration = window.createTextEditorDecorationType({
+      color: '#010203', backgroundColor: '#ddeeff', after: { contentText: 'fixture hint' },
+    });
+    context.subscriptions.push(decoration);
+    editor.setDecorations(decoration, [new Range(0, 0, 0, 4)]);
+    await window.showInformationMessage('Workspace Edit API verified');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('documents.clearDecoration', () => decoration?.dispose()));
 };
