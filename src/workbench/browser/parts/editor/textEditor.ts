@@ -20,46 +20,63 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorPane } from './editorPane.js';
 import './media/textEditor.css';
 
+type QuickSuggestionsValue = boolean | 'on' | 'inline' | 'off';
+type QuickSuggestions = boolean | { readonly other?: QuickSuggestionsValue; readonly comments?: QuickSuggestionsValue; readonly strings?: QuickSuggestionsValue };
+const quickSuggestionsValue = { anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['on', 'inline', 'off'] }] };
+
+// Editor settings can be set per language (`"[markdown]": { ... }`), as in VS Code.
 const editorSettings = {
-  'editor.fontSize': { type: 'number', default: 14, minimum: 6, maximum: 100, description: 'Controls the font size in pixels.' },
-  'editor.tabSize': { type: 'integer', default: 4, minimum: 1, description: 'Controls how many columns a tab occupies.' },
+  'editor.fontSize': {
+    type: 'number', default: 14, minimum: 6, maximum: 100, scope: 'language-overridable', description: 'Controls the font size in pixels.',
+  },
+  'editor.tabSize': {
+    type: 'integer', default: 4, minimum: 1, scope: 'language-overridable', description: 'Controls how many columns a tab occupies.',
+  },
   'editor.wordWrap': {
-    type: 'string', default: 'off', enum: ['off', 'on', 'wordWrapColumn', 'bounded'],
+    type: 'string', default: 'off', enum: ['off', 'on', 'wordWrapColumn', 'bounded'], scope: 'language-overridable',
     description: 'Controls where editor lines wrap.',
   },
   'editor.lineNumbers': {
-    type: 'string', default: 'on', enum: ['off', 'on', 'relative', 'interval'],
+    type: 'string', default: 'on', enum: ['off', 'on', 'relative', 'interval'], scope: 'language-overridable',
     description: 'Controls how editor line numbers are shown.',
   },
-  'editor.minimap.enabled': { type: 'boolean', default: true, description: 'Shows the editor minimap.' },
+  'editor.minimap.enabled': { type: 'boolean', default: true, scope: 'language-overridable', description: 'Shows the editor minimap.' },
+  'editor.quickSuggestions': {
+    type: ['boolean', 'object'], default: { other: 'on', comments: 'off', strings: 'off' }, scope: 'language-overridable',
+    properties: { other: quickSuggestionsValue, comments: quickSuggestionsValue, strings: quickSuggestionsValue },
+    additionalProperties: false,
+    description: 'Controls whether suggestions show up while typing, in code, comments and strings.',
+  },
 } as const satisfies Record<string, IConfigurationPropertySchema>;
 
 configurationRegistry.registerConfiguration({ id: 'editor', title: 'Editor', properties: editorSettings });
 
 /**
- * Every option the text editor is created with, and updated with when the configuration changes.
- * The pane lays the editor out itself (`automaticLayout: false`), as all layout here is explicit.
- * The theme is not among them: Monaco's theme is global, and `loadMonaco()` sets it once. Nor is the
- * tab size: Monaco keeps it on each model (`getTextEditorTabSize`).
+ * Every option the text editor is created with, and updated with when the configuration or the shown
+ * model's language changes. Values set for `language` win over the others. The pane lays the editor out
+ * itself (`automaticLayout: false`), as all layout here is explicit. The theme is not among them:
+ * Monaco's theme is global, and `loadMonaco()` sets it once. Nor is the tab size: Monaco keeps it on each
+ * model (`getTextEditorTabSize`).
  */
-export function getTextEditorOptions(configuration?: IConfigurationService): IStandaloneEditorConstructionOptions {
+export function getTextEditorOptions(configuration?: IConfigurationService, language?: string): IStandaloneEditorConstructionOptions {
+  const overrides = language ? { overrideIdentifier: language } : undefined;
+  const value = <K extends keyof typeof editorSettings, T>(key: K): T =>
+    configuration?.getValue<T>(key, overrides) ?? editorSettings[key].default as T;
   return {
     automaticLayout: false,
     ariaLabel: 'Editor content',
-    fontSize: configuration?.getValue<number>('editor.fontSize') ?? editorSettings['editor.fontSize'].default,
-    wordWrap: configuration?.getValue<NonNullable<IStandaloneEditorConstructionOptions['wordWrap']>>('editor.wordWrap')
-      ?? editorSettings['editor.wordWrap'].default,
-    lineNumbers: configuration?.getValue<NonNullable<IStandaloneEditorConstructionOptions['lineNumbers']>>('editor.lineNumbers')
-      ?? editorSettings['editor.lineNumbers'].default,
-    minimap: {
-      enabled: configuration?.getValue<boolean>('editor.minimap.enabled') ?? editorSettings['editor.minimap.enabled'].default,
-    },
+    fontSize: value('editor.fontSize'),
+    wordWrap: value('editor.wordWrap'),
+    lineNumbers: value('editor.lineNumbers'),
+    minimap: { enabled: value('editor.minimap.enabled') },
+    quickSuggestions: value<'editor.quickSuggestions', QuickSuggestions>('editor.quickSuggestions'),
   };
 }
 
-/** The tab size the pane gives each model it shows. */
-export function getTextEditorTabSize(configuration?: IConfigurationService): number {
-  return configuration?.getValue<number>('editor.tabSize') ?? editorSettings['editor.tabSize'].default;
+/** The tab size the pane gives each model it shows, for the model's language. */
+export function getTextEditorTabSize(configuration?: IConfigurationService, language?: string): number {
+  return configuration?.getValue<number>('editor.tabSize', language ? { overrideIdentifier: language } : undefined)
+    ?? editorSettings['editor.tabSize'].default;
 }
 
 interface IShownModel {
@@ -85,6 +102,8 @@ export class TextEditorPane extends EditorPane {
   private editor: IStandaloneCodeEditor | undefined;
   private dimension: Dimension | undefined;
   private shown: IShownModel | undefined;
+  /** The language the editor's options were last read for. */
+  private optionsLanguage: string | undefined;
   private pendingFocus = false;
   /** Increases with every `setInput` and `clearInput`; a load that finishes under an older one is dropped. */
   private request = 0;
@@ -106,9 +125,8 @@ export class TextEditorPane extends EditorPane {
   ) {
     super(TextEditorPane.ID);
     this._register(configuration.onDidChangeConfiguration(event => {
-      if (event.affectsConfiguration('editor') && this.editor) {
-        this.editor.updateOptions(getTextEditorOptions(configuration));
-        this.updateTabSize();
+      if (event.affectsConfiguration('editor')) {
+        this.updateOptions(true);
       }
     }));
   }
@@ -247,9 +265,10 @@ export class TextEditorPane extends EditorPane {
       return;
     }
     const { width, height } = this.dimension;
+    this.optionsLanguage = this.shown?.model.getLanguageId();
     // Without `model: null` Monaco creates an empty model of its own that nothing would dispose.
     const editor = this.editor = this.monaco.editor.create(this.editorContainer, {
-      ...getTextEditorOptions(this.configuration),
+      ...getTextEditorOptions(this.configuration, this.optionsLanguage),
       model: null,
       dimension: { width, height },
     });
@@ -278,7 +297,8 @@ export class TextEditorPane extends EditorPane {
     }
     this.hideMessage();
     if (this.editor.getModel() !== shown.model) {
-      this.updateTabSize();
+      // The pane is reused: the options follow the language of the model it shows now.
+      this.updateOptions();
       this.editor.setModel(shown.model);
       this.editorLanguage.set(shown.model.getLanguageId());
       this.editorReadonly.set(shown.input.isReadonly());
@@ -287,6 +307,7 @@ export class TextEditorPane extends EditorPane {
       this.modelListener.value = model.onDidChangeLanguage(({ newLanguage }) => {
         if (this.shown?.model === model) {
           this.editorLanguage.set(newLanguage);
+          this.updateOptions();
         }
       });
     }
@@ -316,9 +337,23 @@ export class TextEditorPane extends EditorPane {
     this.editor!.revealRangeInCenter(range);
   }
 
-  private updateTabSize(): void {
+  /**
+   * Applies the options for the shown model's language: to the editor when they were read for another
+   * language or `changed`, and the tab size to the model.
+   */
+  private updateOptions(changed = false): void {
     const model = this.shown?.model;
-    const tabSize = getTextEditorTabSize(this.configuration);
+    const language = model && !model.isDisposed() ? model.getLanguageId() : undefined;
+    if (this.editor && (changed || language !== this.optionsLanguage)) {
+      this.optionsLanguage = language;
+      this.editor.updateOptions(getTextEditorOptions(this.configuration, language));
+    }
+    this.updateTabSize(language);
+  }
+
+  private updateTabSize(language: string | undefined): void {
+    const model = this.shown?.model;
+    const tabSize = getTextEditorTabSize(this.configuration, language);
     if (model && !model.isDisposed() && model.getOptions().tabSize !== tabSize) {
       model.updateOptions({ tabSize });
     }

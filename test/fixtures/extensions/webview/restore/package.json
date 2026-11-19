@@ -1,0 +1,17 @@
+{
+  "name": "webview-restore",
+  "displayName": "Webview Restore Fixture",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "engines": { "vscode": "^1.95.0" },
+  "browser": "./extension.js",
+  "activationEvents": ["onWebviewPanel:fixture.restore", "onWebviewPanel:fixture.restore-fail", "onWebviewPanel:fixture.restore-late"],
+  "contributes": {
+    "commands": [
+      { "command": "fixture.webview.restore", "title": "Fixture: Open Restorable Webview" },
+      { "command": "fixture.webview.restore-fail", "title": "Fixture: Open Failing Restore" },
+      { "command": "fixture.webview.restore-late", "title": "Fixture: Open Late Restore" },
+      { "command": "fixture.webview.restore-release", "title": "Fixture: Release Late Restore" }
+    ]
+  }
+}
