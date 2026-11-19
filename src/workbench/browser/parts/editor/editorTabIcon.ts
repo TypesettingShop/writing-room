@@ -15,11 +15,19 @@ const imageTypes: Readonly<Record<string, string>> = {
   '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp',
 };
 
+/** Inputs may hand out a new object for the same icon, so the tab compares what the icon shows. */
+function iconKey(source: Exclude<TabIcon, { readonly light: URI }> | undefined): string | undefined {
+  if (!source) {
+    return undefined;
+  }
+  return URI.isUri(source) ? 'uri:' + source.toString() : 'icon:' + JSON.stringify([source.id, source.color?.id]);
+}
+
 /** The tab owns its image request and object URL for as long as it displays the icon. */
 export class EditorTabIcon extends Disposable {
   private readonly element: HTMLElement;
   private readonly image = this._register(new MutableDisposable<IDisposable>());
-  private current?: TabIcon;
+  private current?: string;
 
   constructor(
     label: HTMLElement, private readonly editor: EditorInput, private readonly files: IFileService,
@@ -39,10 +47,11 @@ export class EditorTabIcon extends Disposable {
     const scheme = this.themes.getColorTheme().type;
     const light = scheme === ColorScheme.LIGHT || scheme === ColorScheme.HIGH_CONTRAST_LIGHT;
     const source = icon && 'light' in icon ? (light ? icon.light : icon.dark) : icon;
-    if (source === this.current) {
+    const key = iconKey(source);
+    if (key === this.current) {
       return;
     }
-    this.current = source;
+    this.current = key;
     this.image.clear();
     this.element.replaceChildren();
     this.element.hidden = true;

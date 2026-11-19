@@ -242,7 +242,10 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
       },
     }, origin, ready);
     void ready.catch(error => {
-      if (this.drop(extension, id)) {
+      this.drop(extension, id);
+      // A host that is shutting down rejects every waiting creation after closing its panels.
+      // Any other rejection is reported, even for a panel the extension already disposed.
+      if (!this.stopped) {
         console.error('Could not open Webview panel:', error);
       }
     });

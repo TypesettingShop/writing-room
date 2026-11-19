@@ -8,6 +8,7 @@ import { ColorScheme, DefaultThemeService } from '../../../../../platform/theme/
 import type { IColorTheme, IThemeService } from '../../../../../platform/theme/common/themeService.js';
 import { EditorTabIcon } from '../../../../browser/parts/editor/editorTabIcon.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
+import type { TabIcon } from '../../../../common/editor/editorInput.js';
 
 it('selects light and dark images, aborts obsolete reads and revokes the displayed URLs', async () => {
   const light = URI.parse('https://example.test/ext/light.png');
@@ -69,6 +70,63 @@ it('selects light and dark images, aborts obsolete reads and revokes the display
   } finally {
     icon.dispose();
     editor.dispose();
+    themeChanged.dispose();
+    files.dispose();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('keeps the shown icon when the input hands out an equal icon as a new object', async () => {
+  const changed = new Emitter<void>();
+  let current: TabIcon = URI.parse('https://example.test/ext/icon.png');
+  class Input extends EditorInput {
+    readonly typeId = 'test.sameTabIcon';
+    readonly resource = undefined;
+    override readonly onDidChangeTabIcon = changed.event;
+    override getTabIcon() { return current; }
+  }
+  const editor = new Input();
+  const label = document.createElement('span');
+  const themeChanged = new Emitter<IColorTheme>();
+  const theme = new DefaultThemeService().getColorTheme();
+  const themes: IThemeService = {
+    _serviceBrand: undefined, getColorTheme: () => theme, onDidColorThemeChange: themeChanged.event,
+  };
+  const files = new FileService();
+  const readFile = vi.spyOn(files, 'readFile').mockImplementation(async resource => ({
+    resource, name: 'icon.png', ctime: 0, mtime: 0, etag: '', size: 1, value: new Uint8Array([1]),
+    type: FileType.File, isFile: true, isDirectory: false, isSymbolicLink: false, readonly: true,
+  }));
+  const revokeObjectURL = vi.fn();
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = vi.fn().mockReturnValue('blob:icon');
+    static revokeObjectURL = revokeObjectURL;
+  });
+  const icon = new EditorTabIcon(label, editor, files, themes);
+
+  try {
+    await vi.waitFor(() => expect(label.querySelector('img')?.getAttribute('src')).toBe('blob:icon'));
+    const image = label.querySelector('img');
+    current = URI.parse('https://example.test/ext/icon.png');
+    changed.fire();
+    expect(readFile).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    expect(label.querySelector('img')).toBe(image);
+
+    current = { id: 'beaker', color: { id: 'charts.red' } };
+    changed.fire();
+    const codicon = label.querySelector('.codicon-beaker');
+    expect(codicon).not.toBeNull();
+    current = { id: 'beaker', color: { id: 'charts.red' } };
+    changed.fire();
+    expect(label.querySelector('.codicon-beaker')).toBe(codicon);
+    current = { id: 'beaker', color: { id: 'charts.blue' } };
+    changed.fire();
+    expect(label.querySelector('.codicon-beaker')).not.toBe(codicon);
+  } finally {
+    icon.dispose();
+    editor.dispose();
+    changed.dispose();
     themeChanged.dispose();
     files.dispose();
     vi.unstubAllGlobals();

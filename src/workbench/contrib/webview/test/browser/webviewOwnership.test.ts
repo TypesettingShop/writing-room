@@ -1,14 +1,16 @@
 import { expect, it, vi } from 'vitest';
 import { Event } from '../../../../../base/common/event.js';
+import { URI } from '../../../../../base/common/uri.js';
 import type { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
 import type { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { MainThreadWebviews } from '../../../../api/browser/mainThreadWebviews.js';
-import type { ExtHostWebviewsShape } from '../../../../api/common/extHost.protocol.webview.js';
+import type { ExtHostWebviewsShape, WebviewIcon } from '../../../../api/common/extHost.protocol.webview.js';
 import type { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import type { IEditorService } from '../../../../services/editor/common/editorService.js';
 import type { HostExtensionDescription } from '../../../../services/extensions/common/extensionHostProtocol.js';
 import { WebviewEditorInput } from '../../../webviewPanel/browser/webviewEditorInput.js';
+import { WebviewEditorInputSerializer } from '../../../webviewPanel/browser/webviewEditorInputSerializer.js';
 import type { IWebviewPanelRestoreService } from '../../../webviewPanel/browser/webviewPanelRestoreService.js';
 import type { IWebviewOriginService } from '../../browser/webviewOriginService.js';
 import type { WebviewOrigin } from '../../common/webviewOrigin.js';
@@ -82,7 +84,10 @@ function setup() {
       overlay as unknown as WebviewOverlay, true, states);
     return input;
   };
-  return { overlay, storage, proxy, restore, origins, origin, handle, startHost, createRestorable, getInput: () => input };
+  return {
+    overlay, storage, proxy, restore, origins, origin, handle, instantiation, startHost, createRestorable,
+    getInput: () => input, showInput: (editor: WebviewEditorInput) => { input = editor; },
+  };
 }
 
 it('authorizes panel operations by the extension that created the handle', async () => {
@@ -138,6 +143,45 @@ it('restarts a pending restore with the new host before origin resolution return
   } finally {
     second.dispose();
     input.dispose();
+    storage.dispose();
+  }
+});
+
+it('shows a stored tab icon only after the restore validates it against the owner', async () => {
+  const { storage, proxy, restore, instantiation, startHost, createRestorable, showInput } = setup();
+  const serializer = new WebviewEditorInputSerializer();
+  const reload = (icon: WebviewIcon) => {
+    const live = createRestorable();
+    live.setIconPath(icon);
+    const serialized = serializer.serialize(live);
+    live.dispose();
+    const input = serializer.deserialize(instantiation, serialized) as WebviewEditorInput;
+    showInput(input);
+    return input;
+  };
+  const main = startHost();
+  const restored: WebviewEditorInput[] = [];
+  try {
+    await main.$registerPanelSerializer('first', 'fixture.panel');
+    const restorePanel = restore.register.mock.calls[0][2];
+
+    const themeIcon = { id: 'loading~spin', color: { id: 'charts.red' } };
+    const spinning = reload(themeIcon);
+    restored.push(spinning);
+    expect(spinning.getTabIcon()).toBeUndefined();
+    await restorePanel(spinning, spinning.restoreGeneration!);
+    expect(spinning.getTabIcon()).toEqual(themeIcon);
+    expect(proxy.$deserializePanel).toHaveBeenLastCalledWith('first', expect.any(String),
+      expect.objectContaining({ icon: themeIcon }), expect.anything(), expect.anything());
+
+    const foreign = reload(URI.parse('https://extensions.example.test/second/icon.png'));
+    restored.push(foreign);
+    expect(foreign.getTabIcon()).toBeUndefined();
+    await restorePanel(foreign, foreign.restoreGeneration!);
+    expect(foreign.getTabIcon()).toBeUndefined();
+  } finally {
+    restored.forEach(input => input.dispose());
+    main.dispose();
     storage.dispose();
   }
 });

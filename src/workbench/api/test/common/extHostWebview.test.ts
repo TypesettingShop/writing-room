@@ -23,3 +23,22 @@ test('closes a panel waiting for the workbench before its extension subscription
   }
   expect(closed).toHaveBeenCalledOnce();
 });
+
+test('reports a rejected panel creation even after the extension disposed the panel', async () => {
+  const host = await createTestExtensionApi();
+  let reject!: (error: Error) => void;
+  const createPanel = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  host.main.set<Pick<MainThreadWebviewsShape, '$createPanel'>>(MainThreadWebviewsProxy, { $createPanel: createPanel });
+  try {
+    const panel = host.api.window.createWebviewPanel('fixture.rejected', 'Rejected', host.api.ViewColumn.One);
+    await vi.waitFor(() => expect(createPanel).toHaveBeenCalledOnce());
+    panel.dispose();
+    reject(new Error('Invalid Webview panel.'));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith('Could not open Webview panel:',
+      expect.objectContaining({ message: 'Invalid Webview panel.' })));
+  } finally {
+    host.dispose();
+    errors.mockRestore();
+  }
+});

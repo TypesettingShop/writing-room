@@ -352,7 +352,14 @@ export class ExtensionService extends Disposable implements IExtensionService {
       // Make the shutdown visible to activation requests before releasing the old host's
       // customers. Releasing them can request activation to restore an open Webview.
       this.hostShutdown = Promise.resolve()
-        .then(() => this.releaseHost()?.worker.shutdownGracefully())
+        .then(async () => {
+          const host = this.releaseHost();
+          try {
+            await host?.worker.shutdownGracefully();
+          } finally {
+            this.finishRemovals(host);
+          }
+        })
         .finally(() => {
           this.hostFailure = undefined;
           this.hostShutdown = undefined;
@@ -446,14 +453,20 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.completedEvents.clear();
     this.activationStatus.clear();
     host?.main.dispose();
-    for (const finishRemoval of host?.removing.values() ?? []) {
-      finishRemoval();
-    }
     return host;
   }
 
+  /** Called once the worker has exited, so a removed package is not replaced while its old code runs. */
+  private finishRemovals(host: HostSession | undefined): void {
+    for (const finishRemoval of host?.removing.values() ?? []) {
+      finishRemoval();
+    }
+  }
+
   private stopHost(): void {
-    this.releaseHost()?.worker.dispose();
+    const host = this.releaseHost();
+    host?.worker.dispose();
+    this.finishRemovals(host);
   }
 
   private extensionsChanged(): void {

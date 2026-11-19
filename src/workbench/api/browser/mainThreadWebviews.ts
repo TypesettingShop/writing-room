@@ -3,7 +3,6 @@ import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
-import { ThemeIcon } from '../../../base/common/themables.js';
 import { URI } from '../../../base/common/uri.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
@@ -13,7 +12,7 @@ import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResour
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
 import { IWebviewOriginService } from '../../contrib/webview/browser/webviewOriginService.js';
 import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
-import { WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
+import { toWebviewThemeIcon, WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
 import { IWebviewPanelRestoreService } from '../../contrib/webviewPanel/browser/webviewPanelRestoreService.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
@@ -26,8 +25,6 @@ import type {
   WebviewShowOptions,
 } from '../common/extHost.protocol.webview.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
-
-const themeIconId = new RegExp('^' + ThemeIcon.iconIdExpression + '$');
 
 interface PanelEntry {
   readonly owner: string;
@@ -321,12 +318,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       const dark = allowed(icon.dark);
       return light && dark ? { light, dark } : undefined;
     }
-    if (typeof icon.id !== 'string' || !themeIconId.test(icon.id)) {
-      return undefined;
-    }
-    const colorId = icon.color?.id;
-    return typeof colorId === 'string' && /^[\w.-]+$/.test(colorId)
-      ? { id: icon.id, color: { id: colorId } } : { id: icon.id };
+    return toWebviewThemeIcon(icon);
   }
 
   private updateContent(entry: PanelEntry): void {
