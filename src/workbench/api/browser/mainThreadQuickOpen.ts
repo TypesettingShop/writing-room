@@ -141,6 +141,15 @@ export class MainThreadQuickOpen implements MainThreadQuickOpenShape, IDisposabl
     input.buttons = this.buttons(session, dto.buttons);
     if (session.type === 'quickPick') {
       const pick = input as IQuickPick<HandleItem>;
+      // The highlight that new items move to is reported under this update, which the extension already
+      // counts as its latest change, so it takes it. An update that sets the highlight itself counts only
+      // from that property on: the moves before it are dropped and the extension's choice stands.
+      if (dto.items !== undefined) {
+        session.seq.selection = seq;
+        if (dto.activeItems === undefined) {
+          session.seq.active = seq;
+        }
+      }
       pick.placeholder = text(dto.placeholder);
       pick.prompt = text(dto.prompt);
       pick.canSelectMany = dto.canSelectMany === true;
@@ -148,19 +157,18 @@ export class MainThreadQuickOpen implements MainThreadQuickOpenShape, IDisposabl
       pick.matchOnDetail = dto.matchOnDetail === true;
       if (dto.items !== undefined) {
         pick.items = this.items(session, dto.items);
-        session.seq.active = session.seq.selection = seq;
       }
       if (dto.value !== undefined) {
         pick.value = String(dto.value);
         session.seq.value = seq;
       }
       if (dto.activeItems !== undefined) {
-        pick.activeItems = this.resolve(session, dto.activeItems);
         session.seq.active = seq;
+        pick.activeItems = this.resolve(session, dto.activeItems);
       }
       if (dto.selectedItems !== undefined) {
-        pick.selectedItems = this.resolve(session, dto.selectedItems);
         session.seq.selection = seq;
+        pick.selectedItems = this.resolve(session, dto.selectedItems);
       }
     } else {
       const box = input as IInputBox;
@@ -225,11 +233,13 @@ export class MainThreadQuickOpen implements MainThreadQuickOpenShape, IDisposabl
       if (!dto || !Number.isSafeInteger(dto.handle) || [...buttons.values()].includes(dto.handle)) {
         continue;
       }
-      const icon = text(dto.icon);
+      const raw = text(dto.icon);
+      // Compared as stored, so an unchanged button stays the same object and its element is not redrawn.
+      const icon = raw && /^[a-z\d-]+(?:~spin)?$/i.test(raw) ? raw.split('~')[0] : undefined;
       const tooltip = text(dto.tooltip);
       let button = dto.handle === backButtonHandle ? this.quickInput.backButton : previous.get(dto.handle);
       if (!button || (button !== this.quickInput.backButton && (button.icon !== icon || button.tooltip !== tooltip))) {
-        button = Object.freeze({ icon: icon && /^[a-z\d-]+(?:~spin)?$/i.test(icon) ? icon.split('~')[0] : undefined, tooltip });
+        button = Object.freeze({ icon, tooltip });
       }
       buttons.set(button, dto.handle);
     }

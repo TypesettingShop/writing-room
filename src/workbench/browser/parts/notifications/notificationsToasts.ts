@@ -39,6 +39,11 @@ class Toast implements INotificationHandle {
     return this.notification.source;
   }
 
+  /** A progress toast reports work still running and is never dropped from the queue. */
+  get droppable(): boolean {
+    return !this.notification.progress;
+  }
+
   render(): HTMLElement {
     const { severity, message, source } = this.notification;
     const item = $('section.extension-toast', { 'aria-label': message });
@@ -174,11 +179,11 @@ export class NotificationsToasts extends Disposable {
 
   private trim(source: string | undefined): void {
     const fromSource = this.waiting.filter(toast => toast.source === source);
-    for (const toast of fromSource.slice(0, Math.max(0, fromSource.length - maxWaitingPerSource))) {
+    for (const toast of fromSource.filter(toast => toast.droppable).slice(0, Math.max(0, fromSource.length - maxWaitingPerSource))) {
       toast.close();
     }
-    while (this.waiting.length > maxWaiting) {
-      this.waiting[0].close();
+    for (const toast of this.waiting.filter(toast => toast.droppable).slice(0, Math.max(0, this.waiting.length - maxWaiting))) {
+      toast.close();
     }
   }
 

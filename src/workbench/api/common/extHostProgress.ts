@@ -70,7 +70,9 @@ class ThrottledReporter {
 export class ExtHostProgress implements ExtHostProgressShape {
   private nextHandle = 0;
   private nextMessage = 0;
-  private readonly cancellations = new Map<number, CancellationTokenSource>();
+  /** The token sources of running tasks; only a cancellable one is cancelled from the workbench. */
+  private readonly sources = new Map<number, CancellationTokenSource>();
+  private readonly cancellable = new Set<number>();
   private readonly running = new Map<string, Set<number>>();
   private readonly messages = new Map<string, Set<vscode.Disposable>>();
 
@@ -98,8 +100,9 @@ export class ExtHostProgress implements ExtHostProgressShape {
     const running = this.running.get(extension) ?? new Set();
     this.running.set(extension, running);
     running.add(handle);
+    this.sources.set(handle, source);
     if (dto.cancellable) {
-      this.cancellations.set(handle, source);
+      this.cancellable.add(handle);
     }
     const ignore = () => {};
     this.proxy.$startProgress(extension, handle, dto).catch(ignore);
@@ -113,7 +116,8 @@ export class ExtHostProgress implements ExtHostProgressShape {
       // Thrown or returned, the last report shows and then the progress goes away.
       reporter.end();
       this.proxy.$progressEnd(extension, handle).catch(ignore);
-      this.cancellations.delete(handle);
+      this.sources.delete(handle);
+      this.cancellable.delete(handle);
       running.delete(handle);
       source.dispose();
     }
@@ -121,8 +125,9 @@ export class ExtHostProgress implements ExtHostProgressShape {
 
   async $acceptProgressCanceled(handle: number): Promise<void> {
     // The task decides when to stop; the progress stays until it does.
-    this.cancellations.get(handle)?.cancel();
-    this.cancellations.delete(handle);
+    if (this.cancellable.delete(handle)) {
+      this.sources.get(handle)?.cancel();
+    }
   }
 
   setStatusBarMessage(extension: string, text: string, hide?: number | Thenable<unknown>): vscode.Disposable {
@@ -147,11 +152,14 @@ export class ExtHostProgress implements ExtHostProgressShape {
     return message;
   }
 
-  /** Cancels the running progress of an extension that was deactivated or removed, and drops its messages. */
+  /**
+   * Cancels the tokens of an extension's running tasks — cancellable or not — as it is deactivated or removed,
+   * and drops its messages.
+   */
   release(extension: string): void {
     for (const handle of this.running.get(extension) ?? []) {
-      this.cancellations.get(handle)?.cancel();
-      this.cancellations.delete(handle);
+      this.cancellable.delete(handle);
+      this.sources.get(handle)?.cancel();
     }
     this.running.delete(extension);
     for (const message of [...this.messages.get(extension) ?? []]) {

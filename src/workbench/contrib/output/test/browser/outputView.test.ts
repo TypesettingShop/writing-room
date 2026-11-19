@@ -182,3 +182,15 @@ test('the contribution puts the Output view in place of the placeholder, in the 
   expect(parent.querySelector('[role=listbox][aria-label="Output Channels"]')).not.toBeNull();
   body?.dispose?.();
 });
+
+test('a channel added after one was removed gets an option id no other option has', async () => {
+  const first = service.registerChannel({ id: 'a', label: 'A' });
+  service.registerChannel({ id: 'b', label: 'B' });
+  await tick();
+  first.dispose();
+  await tick();
+  service.registerChannel({ id: 'c', label: 'C' });
+  await tick();
+  const ids = [...view.channelList.querySelectorAll('[role=option]')].map(option => option.id);
+  expect(new Set(ids).size).toBe(ids.length);
+});

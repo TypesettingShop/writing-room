@@ -29,7 +29,7 @@ const text = (value: unknown) => typeof value === 'string' ? value : undefined;
 
 export function extensionName(extension: HostExtensionDescription | undefined): string | undefined {
   const name = extension?.manifest.displayName;
-  return typeof name === 'string' && name.trim() ? name : extension?.id;
+  return typeof name === 'string' && name.trim() ? name.trim() : extension?.id;
 }
 
 /**

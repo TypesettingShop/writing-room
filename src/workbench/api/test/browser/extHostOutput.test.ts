@@ -238,6 +238,21 @@ test('removing an extension removes its channels, and its host side ignores late
   expect(service.getChannelDescriptors().map(channel => channel.label)).toEqual(['Beta Log']);
 });
 
+test('releasing an extension drops its waiting writes and sends nothing for its channels after', () => {
+  vi.useFakeTimers();
+  const { calls, host: recording } = recordingHost();
+  const alpha = recording.createOutputChannel('a', 'Alpha Log') as vscode.OutputChannel;
+  const beta = recording.createOutputChannel('b', 'Beta Log') as vscode.OutputChannel;
+  alpha.append('waiting');
+  recording.release('a');
+  alpha.appendLine('after release');
+  alpha.show();
+  beta.append('kept');
+  vi.advanceTimersByTime(OUTPUT_FLUSH_DELAY);
+  expect(calls.slice(2)).toEqual([['$dispose'], ['$append', 'kept']]);
+  recording.dispose();
+});
+
 test('the workbench takes nothing it should not from the extension host', async () => {
   const proxy = pair.worker.getProxy(MainThreadOutputServiceProxy);
   await proxy.$register('z', 1, 'Unknown extension');

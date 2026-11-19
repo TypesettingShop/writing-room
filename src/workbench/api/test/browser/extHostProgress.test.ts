@@ -3,6 +3,7 @@ import type * as vscode from 'vscode';
 import { BrowserLayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { DialogService } from '../../../../platform/dialogs/browser/dialogService.js';
 import { NotificationService } from '../../../browser/parts/notifications/notificationsToasts.js';
+import { Severity } from '../../../../platform/notification/common/notification.js';
 import type { IStatusbarEntry, IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
 import { MainThreadMessageService } from '../../browser/mainThreadMessageService.js';
@@ -151,6 +152,30 @@ test('removing an extension closes its toasts, dialogs and progress', async () =
   expect([...entries.values()].every(record => record.disposed)).toBe(true);
 });
 
+test('releasing an extension cancels the tokens of its running tasks, cancellable or not, and only its own', async () => {
+  const tokens: vscode.CancellationToken[] = [];
+  const task = (_: unknown, token: vscode.CancellationToken) => {
+    tokens.push(token);
+    return new Promise<void>(() => {});
+  };
+  void progress.withProgress('a', { location: ProgressLocation.Notification, title: 'Cancellable', cancellable: true }, task);
+  void progress.withProgress('a', { location: ProgressLocation.Window, title: 'Not cancellable' }, task);
+  void progress.withProgress('b', { location: ProgressLocation.Window, title: 'Another extension' }, task);
+  await settle();
+  progress.release('a');
+  expect(tokens.map(token => token.isCancellationRequested)).toEqual([true, true, false]);
+});
+
+test('waiting toasts stop at fifty in all, the oldest going first', async () => {
+  const closed: number[] = [];
+  for (let index = 0; index < 3 + 60; index++) {
+    notifications.notify({ severity: Severity.Info, message: 'Toast ' + index, source: 'source ' + (index % 7) })
+      .onDidClose(() => closed.push(index));
+  }
+  // Nine per source wait, under the limit per source; sixty in all are ten more than may wait.
+  expect(closed).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+});
+
 test('notification progress shows a bar that stops at 100, cancels once and stays until the task ends', async () => {
   const task = deferred<string>();
   let token!: vscode.CancellationToken;
@@ -233,4 +258,15 @@ test('status bar messages stack, and go after their timeout or promise', async (
   await settle();
   expect(record.disposed).toBe(true);
   second.dispose();
+});
+
+test('a waiting progress toast is never dropped by a flood from its source', () => {
+  for (let index = 0; index < 3; index++) {
+    notifications.notify({ severity: Severity.Info, message: 'Visible ' + index, source: 'Flood' });
+  }
+  const progressToast = notifications.notify({ severity: Severity.Info, message: 'Working', source: 'Flood', progress: { infinite: true } });
+  for (let index = 0; index < 60; index++) {
+    notifications.notify({ severity: Severity.Info, message: 'Waiting ' + index, source: 'Flood' });
+  }
+  expect(progressToast.closed).toBe(false);
 });

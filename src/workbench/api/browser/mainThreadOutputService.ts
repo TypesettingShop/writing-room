@@ -3,6 +3,7 @@ import { IOutputService } from '../../services/output/common/output.js';
 import type { IOutputChannel } from '../../services/output/common/output.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { extensionName } from './mainThreadProgress.js';
 import { MainThreadOutputServiceProxy } from '../common/extHost.protocol.windowUi.js';
 import type { MainThreadOutputServiceShape } from '../common/extHost.protocol.windowUi.js';
 
@@ -35,12 +36,11 @@ export class MainThreadOutputService implements MainThreadOutputServiceShape, ID
     if (this.output.getChannel(id)) {
       return;
     }
-    const displayName = description.manifest.displayName;
     const channel = this.output.registerChannel({
       id,
       label: label.trim().slice(0, MAX_LABEL_LENGTH),
       extensionId: description.id,
-      extensionName: typeof displayName === 'string' && displayName.trim() ? displayName.trim() : description.id,
+      extensionName: extensionName(description),
     });
     if (!channels) {
       channels = new Map();

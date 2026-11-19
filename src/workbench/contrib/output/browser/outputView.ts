@@ -44,6 +44,8 @@ export class OutputView extends Disposable implements IViewBody {
   readonly log: HTMLElement;
   private readonly idPrefix = `output-view-${++nextViewId}-`;
   private readonly optionIds = new Map<string, string>();
+  /** Never reused: a removed channel's number would otherwise go to the next new one while another has it. */
+  private nextOptionId = 0;
   private readonly modelListener = this._register(new MutableDisposable());
   private lines: HTMLElement[] = [];
   private lineStart = 0;
@@ -185,7 +187,7 @@ export class OutputView extends Disposable implements IViewBody {
     const options = ordered.map(id => {
       let optionId = this.optionIds.get(id);
       if (!optionId) {
-        optionId = this.idPrefix + this.optionIds.size;
+        optionId = this.idPrefix + this.nextOptionId++;
         this.optionIds.set(id, optionId);
       }
       const option = document.createElement('div');

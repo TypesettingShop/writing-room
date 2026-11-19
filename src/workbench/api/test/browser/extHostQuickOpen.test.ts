@@ -314,3 +314,46 @@ test('a password input box hides its value and an unregistered extension shows n
   await settle();
   expect(field()).toBeNull();
 });
+
+test('the highlight that new items move to reaches the extension, and so does a late list in showQuickPick', async () => {
+  const pick = host.createQuickPick('a');
+  pick.items = [{ label: 'A' }, { label: 'B' }];
+  pick.show();
+  await settle();
+  const x = { label: 'X' };
+  pick.items = [x, { label: 'Y' }];
+  await settle();
+  expect(active()).toBe('X ');
+  expect(pick.activeItems).toEqual([x]);
+  pick.dispose();
+
+  const list = deferred<string[]>();
+  const selected: unknown[] = [];
+  const late = host.showQuickPick('a', list.promise, { onDidSelectItem: item => selected.push(item) });
+  await settle();
+  list.resolve(['one', 'two']);
+  await settle();
+  expect(selected).toEqual(['one']);
+  press('Escape');
+  await late;
+});
+
+test('an active item the filter hides leaves the extension with the item that is highlighted', async () => {
+  const pick = host.createQuickPick('a');
+  const [alpha, beta, gamma] = [{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }];
+  pick.items = [alpha, beta, gamma];
+  pick.show();
+  await settle();
+  type('bet');
+  await settle();
+  pick.activeItems = [gamma];
+  await settle();
+  expect(active()).toBe('Beta ');
+  expect(pick.activeItems).toEqual([beta]);
+  pick.dispose();
+});
+
+test('a rejected list rejects showQuickPick even when the reason is undefined', async () => {
+  const result = host.showQuickPick('a', Promise.reject(undefined), undefined);
+  await expect(result).rejects.toBeUndefined();
+});

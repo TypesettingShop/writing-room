@@ -347,6 +347,11 @@ export class QuickPick<T extends IQuickPickItem> extends QuickInput implements I
     } finally {
       this.applyingActive = null;
     }
+    // An active item that is not shown leaves the highlight elsewhere: report where it really is.
+    if (dirty.active && this._activeItems[0] !== list.activeItem) {
+      this._activeItems = list.activeItem === undefined ? [] : [list.activeItem];
+      this.didChangeActive.fire(this._activeItems);
+    }
   }
 }
 

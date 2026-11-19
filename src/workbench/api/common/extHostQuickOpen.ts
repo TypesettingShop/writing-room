@@ -141,6 +141,10 @@ abstract class ExtHostQuickInput implements vscode.QuickInput {
     const buttons: QuickInputButtonDto[] = [];
     const handles = new Map<vscode.QuickInputButton, number>();
     for (const button of this.#buttons) {
+      if (handles.has(button)) {
+        // The same button twice is one button, with one handle.
+        continue;
+      }
       const handle = button === QuickInputButtons.Back ? backButtonHandle
         : this.#buttonHandles.get(button) ?? ++this.#nextButton;
       handles.set(button, handle);
@@ -283,6 +287,8 @@ class ExtHostQuickPick<T extends vscode.QuickPickItem> extends ExtHostQuickInput
     if (this.#canSelectMany !== !!value) {
       this.#canSelectMany = !!value;
       this.#selectedItems = this.#canSelectMany ? this.#picked() : [];
+      // The selection starts over, so a choice the user made under the old mode is stale.
+      this.changed.add('selection');
       this.update();
     }
   }
@@ -294,7 +300,8 @@ class ExtHostQuickPick<T extends vscode.QuickPickItem> extends ExtHostQuickInput
 
   get activeItems() { return this.#activeItems; }
   set activeItems(value) {
-    this.#activeItems = [...value ?? []].filter(item => this.#handles.has(item)).slice(0, 1);
+    this.#activeItems = [...value ?? []]
+      .filter(item => this.#handles.has(item) && item.kind !== QuickPickItemKind.Separator).slice(0, 1);
     this.changed.add('active');
     this.update();
   }
@@ -506,7 +513,7 @@ export class ExtHostQuickOpen implements ExtHostQuickOpenShape {
     return new Promise((resolve, reject) => {
       const subscriptions: IDisposable[] = [];
       let settled = false;
-      const settle = (result: T | string | (T | string)[] | undefined, error?: unknown) => {
+      const settle = (result: T | string | (T | string)[] | undefined, failure?: { readonly error: unknown }) => {
         if (settled) {
           return;
         }
@@ -516,7 +523,7 @@ export class ExtHostQuickOpen implements ExtHostQuickOpenShape {
         }
         pick.dispose();
         // The caller goes on once focus is back where it was, so what it focuses next keeps the focus.
-        void (pick as unknown as ExtHostQuickInput)[whenClosed]().then(() => error !== undefined ? reject(error) : resolve(result));
+        void (pick as unknown as ExtHostQuickInput)[whenClosed]().then(() => failure ? reject(failure.error) : resolve(result));
       };
       subscriptions.push(token.onCancellationRequested(() => settle(undefined)));
       pick.onDidChangeActive(active => {
@@ -549,7 +556,7 @@ export class ExtHostQuickOpen implements ExtHostQuickOpenShape {
             setItems(Array.isArray(list) ? list : []);
             pick.busy = false;
           }
-        }, error => settle(undefined, error));
+        }, (error: unknown) => settle(undefined, { error }));
       }
     });
   }
