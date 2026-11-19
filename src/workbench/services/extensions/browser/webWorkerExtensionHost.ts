@@ -6,6 +6,7 @@ import { RPCProtocol } from '../common/rpcProtocol.js';
 const startupTimeout = 60_000;
 const heartbeatInterval = 2_000;
 const heartbeatTimeout = 8_000;
+const shutdownTimeout = 5_000;
 
 export class WebWorkerExtensionHost {
   private readonly worker = new Worker(new URL('../../../api/worker/extensionHostWorkerMain.ts', import.meta.url), {
@@ -22,6 +23,7 @@ export class WebWorkerExtensionHost {
   private timer: number | undefined;
   private heartbeat: number | undefined;
   private deadline: number | undefined;
+  private shutdownTimer: number | undefined;
 
   constructor(extensions: readonly HostExtensionDescription[]) {
     const port = this.channel.port1;
@@ -30,6 +32,12 @@ export class WebWorkerExtensionHost {
       let initializing = false;
       this.timer = window.setTimeout(() => this.fail('Extension host startup timed out.'), startupTimeout);
       port.addEventListener('message', ({ data }: MessageEvent<HostControlMessage>) => {
+        if (this.shutdownTimer !== undefined) {
+          if (data.kind === ExtensionHostMessage.Terminated) {
+            this.dispose();
+          }
+          return;
+        }
         if (data.kind === ExtensionHostMessage.Ready && !initializing) {
           initializing = true;
           this.send({ kind: ExtensionHostMessage.Initialize, extensions: [...extensions] });
@@ -91,14 +99,19 @@ export class WebWorkerExtensionHost {
     this.stop(new Error('The extension host is not running. ' + message), true);
   }
 
+  private clearMonitoringTimers(): void {
+    window.clearTimeout(this.timer);
+    window.clearInterval(this.heartbeat);
+    window.clearTimeout(this.deadline);
+  }
+
   private stop(error: Error, terminateImmediately: boolean): void {
     if (this.stopped) {
       return;
     }
     this.stopped = true;
-    window.clearTimeout(this.timer);
-    window.clearInterval(this.heartbeat);
-    window.clearTimeout(this.deadline);
+    this.clearMonitoringTimers();
+    window.clearTimeout(this.shutdownTimer);
     if (terminateImmediately) {
       this.worker.terminate();
     }
@@ -110,6 +123,23 @@ export class WebWorkerExtensionHost {
 
   dispose(): void {
     this.stop(new Error('The extension host is not running.'), true);
+  }
+
+  shutdownGracefully(): Promise<void> {
+    if (this.stopped) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      this.onDidExit(() => resolve());
+      if (this.shutdownTimer === undefined) {
+        this.clearMonitoringTimers();
+        this.shutdownTimer = window.setTimeout(() => this.dispose(), shutdownTimeout);
+        // Panel notifications are already queued. Disable old API calls while keeping the
+        // control channel available for the worker to acknowledge its shutdown.
+        this.rpc.stop(new Error('The extension host is not running.'));
+        this.send({ kind: ExtensionHostMessage.Terminate });
+      }
+    });
   }
 
   shutdown(): void {
