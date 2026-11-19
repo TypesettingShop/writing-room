@@ -13,7 +13,8 @@
       { "command": "fixture.webview.probe", "title": "Fixture: Probe Webview State" },
       { "command": "fixture.webview.dispose", "title": "Fixture: Dispose Webview" },
       { "command": "fixture.webview.context", "title": "Fixture: Webview Context Action" },
-      { "command": "fixture.webview.active", "title": "Fixture: Active Webview Action" }
+      { "command": "fixture.webview.active", "title": "Fixture: Active Webview Action" },
+      { "command": "fixture.webview.inspectTab", "title": "Fixture: Inspect Webview Tab" }
     ],
     "menus": {
       "commandPalette": [

@@ -54,4 +54,13 @@ exports.activate = function (context) {
   });
   register('context', () => panels.get('retained')?.webview.postMessage({ text: 'Context action ran' }));
   register('active', () => panels.get('retained')?.webview.postMessage({ text: 'Active action ran' }));
+  register('inspectTab', () => {
+    const { activeTextEditor, tabGroups } = vscode.window;
+    const input = tabGroups.activeTabGroup.activeTab?.input;
+    return panels.get('retained')?.webview.postMessage({
+      text: JSON.stringify({
+        isWebviewTab: input instanceof vscode.TabInputWebview, viewType: input?.viewType, hasActiveTextEditor: activeTextEditor !== undefined,
+      }),
+    });
+  });
 };
