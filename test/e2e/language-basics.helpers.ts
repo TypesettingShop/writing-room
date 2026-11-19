@@ -81,6 +81,23 @@ export async function openEditorContextMenu(page: Page): Promise<void> {
 
 export const editorText = async (page: Page): Promise<string> => (await renderedText(activeGroup(page))).trimEnd();
 
+/**
+ * Toggles a block comment around the whole text until it reads `expected`: the language's configuration
+ * arrives a moment after the language does, and until then the toggle does nothing or something else.
+ */
+export async function toggleBlockCommentUntil(page: Page, expected: string): Promise<void> {
+  const before = await editorText(page);
+  await expect.poll(async () => {
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press(blockCommentKey);
+    const text = await editorText(page);
+    if (text !== expected && text !== before) {
+      await page.keyboard.press('ControlOrMeta+z');
+    }
+    return text;
+  }, { timeout: 15_000 }).toBe(expected);
+}
+
 /** An information message's toast, by its text. */
 export const message = (page: Page, text: string | RegExp): Locator => page.getByRole('status').filter({ hasText: text });
 

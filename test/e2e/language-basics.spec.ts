@@ -3,7 +3,7 @@ import { test as base } from '@playwright/test';
 import { expect, test } from './fixtures.js';
 import {
   activeEditor, activeGroup, blockCommentKey, changeLanguage, editorText, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
-  recordRequests, runCommand, tokenScopes,
+  recordRequests, runCommand, toggleBlockCommentUntil, tokenScopes,
 } from './language-basics.helpers.js';
 
 test.describe('language registry and language mode', () => {
@@ -63,9 +63,8 @@ test.describe('language registry and language mode', () => {
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press('Delete');
     await pasteText(page, 'alpha beta');
-    await page.keyboard.press('ControlOrMeta+a');
-    await page.keyboard.press(blockCommentKey);
-    await expect.poll(() => editorText(page)).toBe('/~ alpha beta ~/');
+    await expect.poll(() => editorText(page)).toBe('alpha beta');
+    await toggleBlockCommentUntil(page, '/~ alpha beta ~/');
     await page.keyboard.press(blockCommentKey);
     await expect.poll(() => editorText(page)).toBe('alpha beta');
     await page.keyboard.press('ControlOrMeta+/');
@@ -77,15 +76,8 @@ test.describe('language registry and language mode', () => {
     await newUntitled(page);
     await changeLanguage(page, 'Markdown');
     await pasteText(page, 'note');
-    await page.keyboard.press('ControlOrMeta+a');
-    await expect.poll(async () => {
-      await page.keyboard.press(blockCommentKey);
-      const text = await editorText(page);
-      if (text !== 'note') {
-        await page.keyboard.press('ControlOrMeta+z');
-      }
-      return text;
-    }, { timeout: 15_000 }).toBe('<!--~ note ~-->');
+    await expect.poll(() => editorText(page)).toBe('note');
+    await toggleBlockCommentUntil(page, '<!--~ note ~-->');
   });
 
   test('releases the configuration when the extension is removed', async ({ page }) => {
@@ -93,9 +85,8 @@ test.describe('language registry and language mode', () => {
     await newUntitled(page);
     await changeLanguage(page, 'Fixture Language');
     await pasteText(page, 'alpha');
-    await page.keyboard.press('ControlOrMeta+a');
-    await page.keyboard.press(blockCommentKey);
-    await expect.poll(() => editorText(page)).toBe('/~ alpha ~/');
+    await expect.poll(() => editorText(page)).toBe('alpha');
+    await toggleBlockCommentUntil(page, '/~ alpha ~/');
     await page.keyboard.press('ControlOrMeta+z');
     await expect.poll(() => editorText(page)).toBe('alpha');
 
