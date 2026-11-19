@@ -16,16 +16,20 @@ async function command(page: Page, title: string): Promise<void> {
 const content = (page: Page) =>
   page.frameLocator('iframe[title="Webview"]:visible').frameLocator('iframe[title="Webview content"]');
 
+function extensionWorkers(page: Page) {
+  return page.workers().filter(worker => /\/extensionHostWorkerMain(?:[.-])/.test(new URL(worker.url()).pathname));
+}
+
 async function saveLayout(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
 }
 
 test.beforeEach(async ({ page }) => {
   await seedInstalledExtensions(page, [{ location: fixtureBase(), manifest }]);
-  await page.goto('/');
 });
 
 test('restores the pane position and JSON state, rejecting oversize updates', async ({ page }) => {
+  await page.goto('/');
   const warnings: string[] = [];
   page.on('console', message => {
     if (message.type() === 'warning' && message.text().includes('Webview state could not be saved')) {
@@ -53,6 +57,7 @@ test('restores the pane position and JSON state, rejecting oversize updates', as
 });
 
 test('keeps hidden restores lazy and isolates a serializer failure', async ({ page }) => {
+  await page.goto('/');
   await command(page, 'Fixture: Open Restorable Webview');
   await expect(content(page).getByText('Opened')).toBeVisible();
   await page.getByRole('tab', { name: 'Welcome' }).click();
@@ -80,6 +85,7 @@ test('keeps hidden restores lazy and isolates a serializer failure', async ({ pa
 });
 
 test('ignores late success for a closed tab and restores eligible tabs after host restart', async ({ page }) => {
+  await page.goto('/');
   await command(page, 'Fixture: Open Late Restore');
   await expect(content(page).getByText('Opened')).toBeVisible();
   await saveLayout(page);
@@ -118,7 +124,10 @@ test('disposes panels in the old worker and restores only the serializable tab w
       restoredHandles.push(text.slice(restored.length));
     }
   });
-  await page.evaluate(() => {
+  await page.addInitScript(() => {
+    if (window.top !== window) {
+      return;
+    }
     const send = MessagePort.prototype.postMessage;
     MessagePort.prototype.postMessage = function (message) {
       if (message?.kind === 'request' && message.proxy === 'ExtHostWebviews') {
@@ -131,6 +140,7 @@ test('disposes panels in the old worker and restores only the serializable tab w
       Reflect.apply(send, this, arguments);
     };
   });
+  await page.goto('/');
 
   await command(page, 'Fixture: Open Restorable Webview');
   await content(page).getByRole('button', { name: 'Increment' }).click();
@@ -138,7 +148,7 @@ test('disposes panels in the old worker and restores only the serializable tab w
   await command(page, 'Fixture: Open Transient Webview');
   await expect(page.locator('.editor-group-container').nth(1).getByRole('tab', { name: 'Transient' })).toBeVisible();
 
-  const closed = page.workers()[0].waitForEvent('close');
+  const closed = extensionWorkers(page)[0].waitForEvent('close');
   await command(page, 'Restart Extension Host');
   await closed;
   await expect(page.getByRole('tab', { name: 'Transient' })).toHaveCount(0);
@@ -154,10 +164,11 @@ test('disposes panels in the old worker and restores only the serializable tab w
 });
 
 test('terminates a worker that stops responding during restart cleanup', async ({ page }) => {
+  await page.goto('/');
   const armed = page.waitForEvent('console', message => message.text() === 'Webview fixture armed shutdown block');
   await command(page, 'Fixture: Block Webview Host Shutdown');
   await armed;
-  const oldWorker = page.workers()[0];
+  const oldWorker = extensionWorkers(page)[0];
   const closed = oldWorker.waitForEvent('close', { timeout: 8_000 });
   const blocked = page.waitForEvent('console', {
     predicate: message => message.text() === 'Webview fixture blocked shutdown',
@@ -167,11 +178,12 @@ test('terminates a worker that stops responding during restart cleanup', async (
   await Promise.all([blocked, closed]);
   await command(page, 'Fixture: Open Restorable Webview');
   await expect(content(page).getByText('Opened')).toBeVisible();
-  expect(page.workers()).toHaveLength(1);
-  expect(page.workers()[0]).not.toBe(oldWorker);
+  expect(extensionWorkers(page)).toHaveLength(1);
+  expect(extensionWorkers(page)[0]).not.toBe(oldWorker);
 });
 
 test('keeps a missing extension tab closable and deletes its stored state', async ({ page }) => {
+  await page.goto('/');
   await command(page, 'Fixture: Open Restorable Webview');
   await content(page).getByRole('button', { name: 'Increment' }).click();
   await expect.poll(() => page.evaluate(key => localStorage.getItem(key), stateKey)).toContain('count');
