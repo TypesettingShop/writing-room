@@ -1,0 +1,10 @@
+{
+  "include": "../../outside-theme.json",
+  "colors": {
+    "editor.background": "red; } body { display: none",
+    "statusBar.background": "url(https://example.invalid/x.png)",
+    "panel.background": "rgb(1, 2, 3)",
+    "x; } body { display: none } .y": "#ffffff",
+    "sideBar.background": "#123456"
+  }
+}

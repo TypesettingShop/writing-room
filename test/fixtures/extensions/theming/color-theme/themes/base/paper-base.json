@@ -1,0 +1,10 @@
+// Included by paper.json: its values come first, so paper.json wins where both say something.
+{
+  "colors": {
+    "editor.background": "#000000",
+    "panel.background": "#ece4d4",
+  },
+  "tokenColors": [
+    { "scope": "comment", "settings": { "foreground": "#7a6a50", "fontStyle": "italic" } }
+  ]
+}

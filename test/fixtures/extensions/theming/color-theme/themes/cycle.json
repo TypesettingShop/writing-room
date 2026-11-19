@@ -1,0 +1,6 @@
+{
+  "include": "./cycle.json",
+  "colors": {
+    "statusBar.background": "#3a0050"
+  }
+}

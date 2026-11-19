@@ -3,6 +3,8 @@ import type { IExtensionDescription } from '../../../platform/extensions/common/
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { isRecord } from '../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionsRegistry } from '../../services/extensions/common/extensionsRegistry.js';
+import { viewWelcomeContributions } from '../../browser/parts/views/treeViewWelcome.js';
+import type { IViewWelcomeContent } from '../../browser/parts/views/treeViewWelcome.js';
 
 interface IViewContainerContribution {
   readonly id: string;
@@ -201,4 +203,34 @@ ExtensionsRegistry.registerExtensionPoint({
   after: ['viewsContainers'],
   validate: isRecord,
   accept: (users, _registrations, context) => context.viewHandler.acceptViews(users, context.addActivationEvent),
+});
+
+ExtensionsRegistry.registerExtensionPoint<unknown[]>({
+  name: 'viewsWelcome',
+  after: ['views'],
+  validate: (value): value is unknown[] => Array.isArray(value),
+  accept(users, registrations) {
+    const contents: IViewWelcomeContent[] = [];
+    for (const user of users) {
+      const declared = user.description.manifest.contributes?.commands;
+      const commands = (Array.isArray(declared) ? declared : [declared]).flatMap(entry =>
+        entry && typeof entry === 'object' && typeof (entry as { command?: unknown }).command === 'string'
+          ? [(entry as { command: string }).command] : []);
+      for (const [index, value] of user.value.entries()) {
+        const path = `contributes.viewsWelcome[${index}]`;
+        const entry = contributionRecord<{ view: string; contents: string; when?: string; enablement?: string }>(
+          value, path, user, ['view', 'contents'], ['when', 'enablement', 'group']);
+        if (!entry) {
+          continue;
+        }
+        const when = contributionWhen(entry.when, path + '.when', user);
+        const enablement = contributionWhen(entry.enablement, path + '.enablement', user);
+        if (when === false || enablement === false) {
+          continue;
+        }
+        contents.push({ view: entry.view, contents: entry.contents, when, enablement, commands });
+      }
+    }
+    registrations.add(viewWelcomeContributions.replace(contents));
+  },
 });

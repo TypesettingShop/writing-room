@@ -1,0 +1,15 @@
+{
+  "name": "Fixture Paper",
+  "include": "./base/paper-base.json",
+  "colors": {
+    // Warm paper.
+    "editor.background": "#f5f0e6",
+    "editor.foreground": "#2e2a24",
+    "sideBar.background": "#efe7d8",
+    "statusBar.background": "#d9c9a8",
+    "fixtureTheme.accent": "#a0522d"
+  },
+  "tokenColors": [
+    { "scope": "keyword", "settings": { "foreground": "#8b2252" } }
+  ]
+}
