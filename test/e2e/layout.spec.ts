@@ -106,7 +106,7 @@ test('Explorer exposes an icon and opens or closes the sidebar, and tabs switch 
   await expect(panel.getByText('No output yet')).toBeVisible();
   await problems.click();
   await expect(problems).toHaveAttribute('aria-selected', 'true');
-  await expect(panel.getByText('No problems detected')).toBeVisible();
+  await expect(panel.getByText('No problems have been detected in the workspace.')).toBeVisible();
   await expect(panel.getByText('No output yet')).toBeHidden();
 
   await problems.press('ArrowLeft');
