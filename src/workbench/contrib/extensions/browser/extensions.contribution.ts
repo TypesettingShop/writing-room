@@ -3,12 +3,41 @@ import { SyncDescriptor } from '../../../../platform/instantiation/common/descri
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { ExtensionManagementService, IExtensionManagementService, normalizeExtensionLocation } from '../../../services/extensionManagement/common/extensionManagementService.js';
+import { Schemas } from '../../../../base/common/network.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import {
+  ExtensionManagementService, IExtensionManagementService, IExtensionPackageStore, IWebExtensionsScannerService,
+  normalizeExtensionLocation,
+} from '../../../services/extensionManagement/common/extensionManagementService.js';
+import { readPackageIcon } from '../../../services/extensionManagement/browser/extensionPackageStore.js';
 import '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { registerExtensionIconReader } from '../../../services/extensions/browser/remoteExtensionIcons.js';
 
 registerSingleton(IExtensionManagementService, new SyncDescriptor(ExtensionManagementService, [
   (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
 ]));
+
+/** Serves package icons to the workbench and clears what interrupted installs left behind. */
+class ExtensionPackagesContribution extends Disposable {
+  constructor(
+    @IFileService files: IFileService,
+    @IExtensionService extensions: IExtensionService,
+    @IWebExtensionsScannerService scanner: IWebExtensionsScannerService,
+    @IExtensionPackageStore packages: IExtensionPackageStore,
+  ) {
+    super();
+    this._register(toDisposable(registerExtensionIconReader(Schemas.vscodeUserData,
+      (url, limit, signal) => readPackageIcon(files, url, limit, signal)).dispose));
+    void extensions.whenInstalledExtensionsRegistered()
+      .then(() => scanner.locked(async read => packages.cleanup(new Set(read().map(extension => extension.location)))))
+      .catch(error => console.warn('Could not clean up extension package folders.', error));
+  }
+}
+
+registerWorkbenchContribution2('workbench.contrib.extensionPackages', ExtensionPackagesContribution);
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
