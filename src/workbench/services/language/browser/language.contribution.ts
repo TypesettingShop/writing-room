@@ -4,9 +4,10 @@ import { EditorStatusContribution } from '../../../browser/parts/editor/editorSt
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { WorkbenchLanguageService } from '../common/languageService.js';
 import { MonacoLanguageBridge } from './monacoLanguages.js';
+import '../../textMate/browser/textMateTokenizationFeature.contribution.js';
 
-// The language contributions of extensions (`contributes.languages`), their configuration files, and the
-// language mode in the status bar. This module is imported after the editor part, so its language
+// The language contributions of extensions (`contributes.languages` with their configuration files,
+// `contributes.grammars`), and the language mode in the status bar. This module is imported after the editor part, so its language
 // service replaces the one that knows only plain text.
 registerSingleton(ILanguageService, WorkbenchLanguageService);
 registerWorkbenchContribution2(MonacoLanguageBridge.ID, MonacoLanguageBridge);

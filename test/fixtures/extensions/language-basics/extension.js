@@ -10,8 +10,8 @@ exports.activate = context => {
     void vscode.window.showInformationMessage('Language ids: ' + wanted.join(', '));
   }));
   context.subscriptions.push(vscode.commands.registerCommand('languageBasics.reportScopes', async () => {
-    const language = await vscode.window.showInputBox({ prompt: 'Language id' });
-    const line = language && await vscode.window.showInputBox({ prompt: 'Line' });
+    const language = await vscode.window.showInputBox({ placeHolder: 'Language id' });
+    const line = language && await vscode.window.showInputBox({ placeHolder: 'Line' });
     if (!language || line === undefined) {
       return;
     }

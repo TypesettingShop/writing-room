@@ -1,7 +1,9 @@
+import type { Page } from '@playwright/test';
+import { test as base } from '@playwright/test';
 import { expect, test } from './fixtures.js';
 import {
-  activeEditor, blockCommentKey, changeLanguage, editorText, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
-  recordRequests, runCommand,
+  activeEditor, activeGroup, blockCommentKey, changeLanguage, editorText, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
+  recordRequests, runCommand, tokenScopes,
 } from './language-basics.helpers.js';
 
 test.describe('language registry and language mode', () => {
@@ -114,5 +116,109 @@ test.describe('language registry and language mode', () => {
     await changeLanguage(page, 'Escaping Language');
     await page.waitForTimeout(1000);
     expect(requests).toEqual([]);
+  });
+});
+
+/** The computed color of the first rendered token of the active editor whose text is `text`. */
+async function tokenColor(page: Page, text: string): Promise<string> {
+  const pattern = new RegExp('^' + text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll(' ', '[\\s\u00a0]') + '$');
+  const token = activeGroup(page).locator('.monaco-editor .view-line span span').filter({ hasText: pattern }).first();
+  await expect(token).toBeVisible();
+  return token.evaluate(element => getComputedStyle(element).color);
+}
+
+const keywordColor = 'rgb(86, 156, 214)';
+const commentColor = 'rgb(106, 153, 85)';
+const numberColor = 'rgb(181, 206, 168)';
+/** Monaco's own `vs-dark` comment color, which its JavaScript tokenizer uses: not the grammar theme's. */
+const builtinCommentColor = 'rgb(96, 139, 78)';
+const textMateRequests = /onig[^/]*\.wasm|vscode-textmate|vscode-oniguruma|textMateRuntime|\.tmLanguage(\.json)?(\?|$)/;
+
+test.describe('TextMate grammars', () => {
+  test('gives markdown headings, bold text, links and code fences the grammar\'s scopes', async ({ page }) => {
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await changeLanguage(page, 'Markdown');
+    const scopesOf = async (line: string, text: string) =>
+      (await tokenScopes(page, 'markdown', line))?.find(token => token.text === text)?.scopes ?? [];
+    expect(await scopesOf('# Title', 'Title')).toEqual(['text.html.markdown', 'markup.heading.markdown', 'entity.name.section.markdown']);
+    expect(await scopesOf('a **bold** b', 'bold')).toEqual(['text.html.markdown', 'markup.bold.markdown']);
+    expect(await scopesOf('[site](https://example.com)', 'https://example.com'))
+      .toEqual(['text.html.markdown', 'meta.link.inline.markdown', 'markup.underline.link.markdown']);
+    expect(await scopesOf('```js', '```')).toEqual(['text.html.markdown', 'markup.fenced_code.block.markdown', 'punctuation.definition.markdown']);
+  });
+
+  test('colors with the theme\'s token colors, embedded code too, and leaves built-in tokenizers their colors', async ({ page }) => {
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await changeLanguage(page, 'Fixture Language');
+    await pasteText(page, 'alpha "x" %% note');
+    await expect.poll(() => tokenColor(page, 'alpha'), { timeout: 20_000 }).toBe(keywordColor);
+    await expect.poll(() => tokenColor(page, '%% note')).toBe(commentColor);
+
+    await newUntitled(page);
+    await changeLanguage(page, 'Markdown');
+    await pasteText(page, 'Text\n```fixturelang\nbeta\n```\n```unregistered\nalpha\n```');
+    await expect.poll(() => tokenColor(page, 'beta'), { timeout: 20_000 }).toBe(keywordColor);
+    await expect.poll(() => editorText(page)).toContain('```unregistered');
+
+    await newUntitled(page);
+    await changeLanguage(page, 'JavaScript');
+    await pasteText(page, 'const x = 1; // c');
+    await expect.poll(() => tokenColor(page, 'const')).toBe(keywordColor);
+    await expect.poll(() => tokenColor(page, '1')).toBe(numberColor);
+    await expect.poll(() => tokenColor(page, '// c')).toBe(builtinCommentColor);
+  });
+
+  test('fetches the engine, its WebAssembly and a grammar only once a language with a grammar is used', async ({ page }) => {
+    const requests = recordRequests(page, textMateRequests);
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await page.keyboard.type('plain text');
+    await page.waitForTimeout(1000);
+    expect(requests).toEqual([]);
+
+    await changeLanguage(page, 'Fixture Language');
+    await expect.poll(() => requests.some(url => /onig[^/]*\.wasm/.test(url)), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => requests.some(url => url.endsWith('/language-basics/syntaxes/fixturelang.tmLanguage.json'))).toBe(true);
+    expect(requests.some(url => url.includes('markdown.tmLanguage'))).toBe(false);
+  });
+
+  test('keeps typing on a line of 25,000 characters and colors the lines around it', async ({ page }) => {
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await changeLanguage(page, 'Fixture Language');
+    await pasteText(page, 'beta\n' + 'alpha '.repeat(4167) + '\n');
+    await expect.poll(() => tokenColor(page, 'beta'), { timeout: 20_000 }).toBe(keywordColor);
+    await page.keyboard.press('ControlOrMeta+End');
+    const started = Date.now();
+    await page.keyboard.type('alpha');
+    await expect.poll(() => tokenColor(page, 'alpha'), { timeout: 5_000 }).toBe(keywordColor);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  // The missing grammar's 404 reaches the console, so this test does not fail on console errors.
+  base('a missing, broken or plist grammar leaves the editor open and the text visible', async ({ page }) => {
+    const escaping = recordRequests(page, /\/language-basics\/syntaxes\/fixturelang\.tmLanguage\.json/);
+    await openWithLanguageFixtures(page, ['broken/']);
+    for (const language of ['Broken Grammar Language', 'Missing Grammar Language', 'Plist Grammar Language', 'Escaping Language']) {
+      await newUntitled(page);
+      await changeLanguage(page, language);
+      await page.keyboard.type('still here');
+      await expect.poll(() => editorText(page)).toBe('still here');
+    }
+    expect(escaping).toEqual([]);
+  });
+
+  test('stops using an extension\'s grammar once it is removed', async ({ page }) => {
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await changeLanguage(page, 'Fixture Language');
+    await pasteText(page, 'alpha');
+    await expect.poll(() => tokenColor(page, 'alpha'), { timeout: 20_000 }).toBe(keywordColor);
+
+    await runCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /Language Basics Fixture/ }).click();
+    await expect.poll(() => tokenColor(page, 'alpha'), { timeout: 15_000 }).not.toBe(keywordColor);
   });
 });

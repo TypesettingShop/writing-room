@@ -87,12 +87,12 @@ export const message = (page: Page, text: string | RegExp): Locator => page.getB
 /** Asks the fixture for the TextMate scopes of `line` in `languageId`: one entry per token. */
 export async function tokenScopes(page: Page, languageId: string, line: string): Promise<{ text: string; scopes: string[] }[] | null> {
   await runCommand(page, 'Language Basics: Report Token Scopes');
-  const input = page.getByRole('combobox');
-  await input.fill(languageId);
-  await input.press('Enter');
-  await expect(page.getByText('Line', { exact: true })).toBeVisible();
-  await input.fill(line);
-  await input.press('Enter');
+  const languageInput = page.getByRole('textbox', { name: 'Language id' });
+  await languageInput.fill(languageId);
+  await languageInput.press('Enter');
+  const lineInput = page.getByRole('textbox', { name: 'Line' });
+  await lineInput.fill(line);
+  await lineInput.press('Enter');
   const toast = message(page, /^Scopes: /).last();
   await expect(toast).toBeVisible({ timeout: 20_000 });
   const text = (await toast.innerText()).split('\n').find(part => part.startsWith('Scopes: '))!;
