@@ -79,3 +79,44 @@ test('discards hidden transient content, rejects its messages and emits one disp
   await command(page, 'Fixture: Probe Webview State');
   await expect(content(page).locator('#output')).toContainText('"transient":[[false,false,1],[true,true,1],"disposed"]');
 });
+
+test('renders only the owning tab icon and releases image URLs when it changes or closes', async ({ page }) => {
+  const requests: string[] = [];
+  page.context().on('request', request => { requests.push(request.url()); });
+  const initialMessages = Array.from({ length: 100 }, (_, index) => index).join(',');
+  await command(page, 'Fixture: Open Retained Webview');
+  await expect(content(page).locator('#output')).toHaveText(initialMessages);
+  await command(page, 'Fixture: Open Transient Webview');
+  await expect(page.getByRole('tab', { name: 'Fixture transient', selected: true })).toBeVisible();
+  await expect(content(page).locator('#output')).toHaveText(initialMessages);
+  const tab = page.getByRole('tab', { name: 'Fixture retained', exact: true });
+  const icon = tab.locator('.tab-icon');
+  const image = icon.locator('img');
+  const change = () => command(page, 'Fixture: Change Webview Tab Icon');
+
+  await change();
+  await expect(icon.locator('.codicon-beaker')).toBeVisible();
+  await expect(tab).toHaveAccessibleName('Fixture retained');
+  await expect(page.getByRole('tab', { name: 'Fixture transient' }).locator('.tab-icon')).toBeHidden();
+
+  await change();
+  await expect(image).toHaveAttribute('src', /^blob:/);
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(12);
+  const lightUrl = (await image.getAttribute('src'))!;
+  await change();
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(16);
+  const urlReadable = (url: string) => page.evaluate(value => fetch(value).then(response => response.ok, () => false), url);
+  expect(await urlReadable(lightUrl)).toBe(false);
+
+  await change();
+  await expect(icon).toBeHidden();
+
+  await change();
+  await expect(image).toHaveAttribute('src', /^blob:/);
+  const lastUrl = (await image.getAttribute('src'))!;
+  expect(await urlReadable(lastUrl)).toBe(true);
+  await page.getByRole('button', { name: 'Close Fixture retained' }).click();
+  await expect(tab).toHaveCount(0);
+  expect(await urlReadable(lastUrl)).toBe(false);
+  expect(requests).not.toContain(new URL('../remote/icon.png', extensionFixtureLocation('webview')).href);
+});

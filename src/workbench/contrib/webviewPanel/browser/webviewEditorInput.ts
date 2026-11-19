@@ -1,14 +1,33 @@
+import { Emitter } from '../../../../base/common/event.js';
 import { Schemas } from '../../../../base/common/network.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import type { WebviewContentOptions, WebviewIcon, WebviewPanelOptions } from '../../../api/common/extHost.protocol.webview.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IWebviewStateStore } from '../../webview/browser/webviewStateStore.js';
 import type { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
 
+const themeIconId = new RegExp('^' + ThemeIcon.iconIdExpression + '$');
+
+/** Reads a theme icon from an extension call or a stored layout, keeping only the codicon id and color id. */
+export function toWebviewThemeIcon(value: unknown): WebviewIcon | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const { id, color } = value as { readonly id?: unknown; readonly color?: unknown };
+  if (typeof id !== 'string' || !themeIconId.test(id)) {
+    return undefined;
+  }
+  const colorId = color && typeof color === 'object' ? (color as { readonly id?: unknown }).id : undefined;
+  return typeof colorId === 'string' && /^[\w.-]+$/.test(colorId) ? { id, color: { id: colorId } } : { id };
+}
+
 export class WebviewEditorInput extends EditorInput {
   static readonly typeId = 'workbench.input.webviewPanel';
   readonly typeId = WebviewEditorInput.typeId;
   readonly resource: URI;
+  private readonly tabIconChanged = this._register(new Emitter<void>());
+  override readonly onDidChangeTabIcon = this.tabIconChanged.event;
   private icon: WebviewIcon | undefined;
   private storedIcon: WebviewIcon | undefined;
   private generation = 0;
@@ -67,6 +86,10 @@ export class WebviewEditorInput extends EditorInput {
     }
   }
 
+  override getTabIcon(): WebviewIcon | undefined {
+    return this.icon;
+  }
+
   get iconPath(): WebviewIcon | undefined {
     return this.icon;
   }
@@ -81,7 +104,9 @@ export class WebviewEditorInput extends EditorInput {
 
   setIconPath(icon: WebviewIcon | undefined): void {
     this.storedIcon = undefined;
-    this.icon = icon;
-    this._onDidChangeLabel.fire();
+    if (this.icon !== icon) {
+      this.icon = icon;
+      this.tabIconChanged.fire();
+    }
   }
 }

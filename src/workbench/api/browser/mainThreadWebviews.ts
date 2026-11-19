@@ -12,7 +12,7 @@ import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResour
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
 import { IWebviewOriginService } from '../../contrib/webview/browser/webviewOriginService.js';
 import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
-import { WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
+import { toWebviewThemeIcon, WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
 import { IWebviewPanelRestoreService } from '../../contrib/webviewPanel/browser/webviewPanelRestoreService.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
@@ -184,6 +184,9 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
   }
 
   override dispose(): void {
+    if (this.stopped) {
+      return;
+    }
     this.stopped = true;
     for (const [handle, entry] of this.panels) {
       const { owner, input } = entry;
@@ -211,6 +214,8 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     for (const extension of this.serializers.keys()) {
       this.removeSerializers(extension);
     }
+    // This runs on the same port before the worker starts disposing extension subscriptions.
+    void this.proxy.$prepareShutdown().catch(() => {});
     super.dispose();
   }
 
@@ -313,7 +318,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       const dark = allowed(icon.dark);
       return light && dark ? { light, dark } : undefined;
     }
-    return typeof icon.id === 'string' && /^[\w-]+$/.test(icon.id) ? icon : undefined;
+    return toWebviewThemeIcon(icon);
   }
 
   private updateContent(entry: PanelEntry): void {

@@ -9,7 +9,9 @@ import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolb
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { IEditorCommandsContext } from '../../../common/editor.js';
@@ -19,6 +21,7 @@ import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDro
 import type { DraggedEditorItem } from '../../dnd.js';
 import { mergeDroppedGroup } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView } from './editor.js';
+import { EditorTabIcon } from './editorTabIcon.js';
 import './media/multieditortabscontrol.css';
 
 interface ITab {
@@ -86,6 +89,8 @@ export class MultiEditorTabsControl extends Disposable {
     @IInstantiationService instantiationService: IInstantiationService,
     @IModelService private readonly modelService: IModelService,
     @ILanguageService private readonly languageService: ILanguageService,
+    @IFileService private readonly files: IFileService,
+    @IThemeService private readonly themes: IThemeService,
   ) {
     super();
     const container = append(parent, $('.tabs-and-actions-container'));
@@ -267,6 +272,9 @@ export class MultiEditorTabsControl extends Disposable {
     // children are presentational, so a button inside it would not be one.
     const element = $('.tab', { role: 'none' });
     const label = append(element, $('.tab-label', { role: 'tab' }));
+    if (editor.onDidChangeTabIcon || editor.getTabIcon()) {
+      disposables.add(new EditorTabIcon(label, editor, this.files, this.themes));
+    }
     const name = append(label, $('span.tab-name'));
     // The description and the lock are read out through the tab's description, not its name.
     const description = append(label, $('span.tab-description', { 'aria-hidden': 'true', hidden: '' }));
