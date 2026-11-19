@@ -11,8 +11,9 @@ URI를 만든다. 브라우저 워크스페이스는
 `vscode-vfs://writing-room/workspace` 폴더 하나다. `getWorkspaceFolder`는
 해당 폴더 또는 그 아래에 있는 URI에서 폴더를 돌려준다. `asRelativePath`는
 폴더 안의 경로를 상대 경로로 바꾸고, 밖에 있는 경로 문자열 또는 URI의
-`fsPath`는 그대로 돌려준다. 두 번째 인수에 `true`를 주면 상대 경로
-앞에 `workspace`를 붙인다.
+`fsPath`는 그대로 돌려준다. 폴더 루트 자체에서도 원래 경로를
+돌려준다. 두 번째 인수에 `true`를 주면 상대 경로 앞에 `workspace`를
+붙인다.
 
 `workspace.fs`는 `stat`, `readDirectory`, `createDirectory`,
 `readFile`, `writeFile`, `delete`, `rename`, `copy`를 제공한다.
@@ -79,8 +80,9 @@ URI를 만든다. 브라우저 워크스페이스는
 이 접근에서 아직 제공자가 없으면 활성화를 기다린다.
 
 제공자는 `onDidChangeFile`에서 변경 목록을 발행하고, `watch`에서는
-해당 감시에 쓰는 자원을 정리하는 구독을 반환한다. 브라우저의 기본
-텍스트 편집기에서 제공자 파일을 열 수 있다. 제공자 등록을 해제하거나
+해당 감시에 쓰는 자원을 정리하는 구독을 반환한다. `openTextDocument`로
+제공자 파일을 처음 읽을 때도 해당 스킴의 활성화를 기다린다. 제공자가
+등록되면 `vscode.open`으로 기본 텍스트 편집기에 열 수 있다. 제공자 등록을 해제하거나
 확장을 제거하거나 호스트가 끝나면 대리 제공자와 감시가 정리된다. 대기
 중인 제공자 호출은 `Unavailable`로 종료된다.
 
