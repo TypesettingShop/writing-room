@@ -1,7 +1,7 @@
 import { basename, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
-import type { IFileService } from '../../../../platform/files/common/files.js';
+import type { IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { isTextFileScheme } from './textfiles.js';
 
 /** What a draft was based on, so a save after a reload still checks the file it was read from. */
@@ -24,20 +24,26 @@ export interface ITextFileBackups {
   read(resource: URI): Promise<ITextFileBackup | undefined>;
 }
 
-/**
- * Lets other tabs of the same storage see which backups are still in use. A tab holds one lock per
- * draft it keeps; startup leaves the drafts of a live tab alone.
- */
+/** Exclusive locks shared by pages that use the same storage. */
 export interface IBackupLocks {
-  hold(name: string): void;
-  release(name: string): void;
-  /** The names held by any tab, this one included; `undefined` when nothing can tell. */
-  held(): Promise<ReadonlySet<string> | undefined>;
-  /** The names this tab holds. */
-  readonly own: ReadonlySet<string>;
+  /** Resolves when the lock has been acquired. The page holds it for its lifetime. */
+  hold(name: string): Promise<void>;
+  /** Runs the task with an exclusive lock only if it can be acquired without waiting. */
+  runIfAvailable(name: string, task: () => Promise<void>): Promise<void>;
 }
 
 const BACKUP_FORMAT = 1;
+const SESSION_ID = /^[0-9a-f]{32}$/;
+const BACKUP_NAME = /^[0-9a-f]{16}$/;
+
+interface IStoredBackup {
+  readonly draft?: Omit<ITextFileBackup, 'value'> & { readonly bytes: Uint8Array };
+}
+
+/** A new ID for each page, including in contexts without `crypto.randomUUID`. */
+export function createBackupSessionId(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 /** A 64-bit FNV-1a hash of `value`'s UTF-16 code units, as 16 hex digits: the same name for the same resource. */
 export function hashResource(value: string): string {
@@ -58,106 +64,165 @@ export function hashResource(value: string): string {
 }
 
 /**
- * The drafts of dirty file models, one file per resource under
- * `vscode-userdata:/User/workspaceStorage/<workspace id>/backups/`. A backup holds a header line with
- * the resource and what its text was based on, then the text.
+ * The drafts of this page, one file per resource under
+ * `vscode-userdata:/User/workspaceStorage/<workspace id>/backups/<session id>/`.
+ * At startup the page claims drafts from dead sessions by moving them into its own folder.
  */
 export class TextFileBackups implements ITextFileBackups {
   readonly root: URI;
-  /** The writes and deletions of each backup, in the order asked: a discard after a write wins. */
+  private readonly session: URI;
+  private readonly ready: Promise<void>;
+  /** Writes, discards and transfers to each backup path run in order. */
   private readonly queues = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly fileService: IFileService,
     workspaceId: string,
+    private readonly sessionId: string,
     private readonly locks: IBackupLocks | undefined = createBackupLocks(),
   ) {
+    if (!SESSION_ID.test(sessionId)) {
+      throw new Error('Invalid draft backup session ID.');
+    }
     this.root = URI.from({ scheme: 'vscode-userdata', path: `/User/workspaceStorage/${encodeURIComponent(workspaceId)}/backups` });
+    this.session = joinPath(this.root, sessionId);
+    this.ready = this.adoptBackups().catch(error => console.warn('Could not claim draft backups at startup.', error));
   }
 
   backupResource(resource: URI): URI {
-    return joinPath(this.root, hashResource(resource.toString()));
+    return joinPath(this.session, hashResource(resource.toString()));
   }
 
-  private lockName(resource: URI): string {
-    return `writing-room/backup${this.root.path}/${hashResource(resource.toString())}`;
-  }
-
-  /** Writes the draft of `resource`; the lock tells other tabs it is in use. */
-  write(resource: URI, value: string, meta: ITextFileBackupMeta): Promise<void> {
-    const name = this.lockName(resource);
+  async write(resource: URI, value: string, meta: ITextFileBackupMeta): Promise<void> {
+    await this.ready;
+    const location = this.backupResource(resource);
     const header = JSON.stringify({ version: BACKUP_FORMAT, resource: resource.toString(), etag: meta.etag ?? null, bom: meta.bom });
-    const bytes = new TextEncoder().encode(header + '\n' + value);
-    // Held in turn with the writes and discards: a discard queued before this write releases the
-    // lock when it runs, so taking it now would leave this write's backup without one.
     return this.queue(resource, async () => {
-      this.locks?.hold(name);
-      await this.fileService.writeFile(this.backupResource(resource), bytes);
+      const stored = await this.readBackup(location);
+      if (stored && stored.draft?.resource.toString() !== resource.toString()) {
+        throw new Error(`Cannot replace the existing draft backup ${location}.`);
+      }
+      await this.fileService.writeFile(location, new TextEncoder().encode(header + '\n' + value));
     });
   }
 
-  /** Forgets the draft of `resource`. */
-  discard(resource: URI): Promise<void> {
-    const name = this.lockName(resource);
+  async discard(resource: URI): Promise<void> {
+    await this.ready;
     return this.queue(resource, async () => {
-      await this.deleteBackup(this.backupResource(resource));
-      this.locks?.release(name);
+      const location = this.backupResource(resource);
+      const stored = await this.readBackup(location);
+      if (stored?.draft?.resource.toString() === resource.toString()) {
+        await this.deleteBackup(location);
+      }
     });
   }
 
-  /**
-   * The draft of `resource`, unless another tab still keeps it. Reading it makes this tab its
-   * keeper. A backup that is damaged or names another resource is not one.
-   */
+  /** Active editors can resolve before the startup contribution, so reads wait for adoption here. */
   async read(resource: URI): Promise<ITextFileBackup | undefined> {
-    const name = this.lockName(resource);
-    if (!this.locks?.own.has(name) && (await this.locks?.held())?.has(name)) {
+    await this.ready;
+    await this.queues.get(hashResource(resource.toString()));
+    const draft = (await this.readBackup(this.backupResource(resource)))?.draft;
+    if (draft?.resource.toString() !== resource.toString()) {
       return undefined;
     }
-    await this.queues.get(resource.toString());
-    const backup = await this.readBackup(this.backupResource(resource));
-    if (backup && backup.resource.toString() === resource.toString()) {
-      this.locks?.hold(name);
-      return backup;
-    }
-    return undefined;
+    return {
+      resource: draft.resource,
+      meta: draft.meta,
+      value: new TextDecoder('utf-8', { ignoreBOM: true }).decode(draft.bytes),
+    };
   }
 
   /** Lists the drafts this page can restore, including drafts without a saved editor. */
   async listRestorable(): Promise<URI[]> {
-    let children;
+    await this.ready;
+    const resources: URI[] = [];
+    for (const child of await this.children(this.session)) {
+      if (child.isFile) {
+        await this.tryRestore(child.resource, async () => {
+          const draft = (await this.readBackup(child.resource))?.draft;
+          if (draft) {
+            resources.push(draft.resource);
+          }
+        });
+      }
+    }
+    return resources;
+  }
+
+  private sessionLockName(id: string): string {
+    return `writing-room/backupSession${this.root.path}/${id}`;
+  }
+
+  private async adoptBackups(): Promise<void> {
+    await this.locks?.hold(this.sessionLockName(this.sessionId));
+    for (const child of await this.children(this.root)) {
+      if (child.isDirectory && child.name !== this.sessionId && SESSION_ID.test(child.name)) {
+        await this.claim(child.resource, this.sessionLockName(child.name), async () => {
+          for (const entry of await this.children(child.resource)) {
+            if (entry.isFile) {
+              await this.tryRestore(entry.resource, () => this.adoptDraft(entry));
+            }
+          }
+          if ((await this.children(child.resource)).length === 0) {
+            // A non-recursive delete also checks emptiness at the provider in case the folder gained a file.
+            await this.deleteBackup(child.resource);
+          }
+        });
+      } else if (child.isFile) {
+        if (!BACKUP_NAME.test(child.name)) {
+          console.warn(`Invalid draft backup name ${child.resource}.`);
+          continue;
+        }
+        // Older pages hold a shared lock per file under the original name.
+        await this.claim(child.resource, `writing-room/backup${this.root.path}/${child.name}`, () => this.adoptDraft(child));
+      }
+    }
+  }
+
+  private claim(source: URI, name: string, task: () => Promise<void>): Promise<void> {
+    return this.tryRestore(source, () => this.locks ? this.locks.runIfAvailable(name, task) : task());
+  }
+
+  private async adoptDraft(entry: IFileStat): Promise<void> {
+    const draft = (await this.readBackup(entry.resource))?.draft;
+    if (!draft) {
+      return;
+    }
+    const resource = draft.resource;
+    // Only one draft per resource fits in this page. The provider moves it in one transaction.
+    await this.queue(resource, async () => {
+      try {
+        await this.fileService.move(entry.resource, this.backupResource(resource));
+      } catch (error) {
+        const code = toFileSystemProviderErrorCode(error);
+        if (code !== FileSystemProviderErrorCode.FileNotFound && code !== FileSystemProviderErrorCode.FileExists) {
+          throw error;
+        }
+      }
+    });
+  }
+
+  private async tryRestore(location: URI, task: () => Promise<void>): Promise<void> {
     try {
-      children = (await this.fileService.resolve(this.root)).children ?? [];
+      await task();
+    } catch (error) {
+      console.warn(`Could not restore draft backup at ${location}.`, error);
+    }
+  }
+
+  private async children(location: URI): Promise<readonly IFileStat[]> {
+    try {
+      return (await this.fileService.resolve(location)).children ?? [];
     } catch (error) {
       if (toFileSystemProviderErrorCode(error) === FileSystemProviderErrorCode.FileNotFound) {
         return [];
       }
       throw error;
     }
-    const resources: URI[] = [];
-    const held = await this.locks?.held();
-    for (const child of children) {
-      if (!child.isFile) {
-        continue;
-      }
-      const name = `writing-room/backup${this.root.path}/${child.name}`;
-      if (held?.has(name) && !this.locks?.own.has(name)) {
-        continue;
-      }
-      try {
-        const backup = await this.readBackup(child.resource);
-        if (backup) {
-          resources.push(backup.resource);
-        }
-      } catch (error) {
-        console.warn(`Could not read draft backup ${child.resource}.`, error);
-      }
-    }
-    return resources;
   }
 
   private queue(resource: URI, task: () => Promise<void>): Promise<void> {
-    const key = resource.toString();
+    const key = hashResource(resource.toString());
     const next = (this.queues.get(key) ?? Promise.resolve()).then(task, task);
     const settled = next.catch(() => {});
     this.queues.set(key, settled);
@@ -179,29 +244,30 @@ export class TextFileBackups implements ITextFileBackups {
     }
   }
 
-  private async readBackup(location: URI): Promise<ITextFileBackup | undefined> {
-    let text: string;
+  private async readBackup(location: URI): Promise<IStoredBackup | undefined> {
+    let bytes: Uint8Array;
     try {
-      text = new TextDecoder('utf-8', { ignoreBOM: true }).decode((await this.fileService.readFile(location)).value);
+      bytes = (await this.fileService.readFile(location)).value;
     } catch (error) {
       if (toFileSystemProviderErrorCode(error) === FileSystemProviderErrorCode.FileNotFound) {
         return undefined;
       }
       throw error;
     }
-    const newline = text.indexOf('\n');
+    const newline = bytes.indexOf(10);
     try {
-      const header: unknown = newline < 0 ? undefined : JSON.parse(text.slice(0, newline));
+      const header: unknown = newline < 0 ? undefined
+        : JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, newline)));
       if (typeof header === 'object' && header !== null) {
         const { version, resource, etag, bom } = header as Record<string, unknown>;
         if (typeof version === 'number' && version > BACKUP_FORMAT) {
-          return undefined;
+          return {};
         }
         if (version === BACKUP_FORMAT && typeof resource === 'string'
           && (etag === null || typeof etag === 'string') && typeof bom === 'boolean') {
           const uri = URI.parse(resource, true);
           if (isTextFileScheme(uri.scheme) && hashResource(uri.toString()) === basename(location)) {
-            return { resource: uri, value: text.slice(newline + 1), meta: { etag: etag ?? undefined, bom } };
+            return { draft: { resource: uri, bytes: bytes.subarray(newline + 1), meta: { etag: etag ?? undefined, bom } } };
           }
         }
       }
@@ -209,45 +275,27 @@ export class TextFileBackups implements ITextFileBackups {
       // The draft stays on disk even if its header cannot be read.
     }
     console.warn(`Invalid draft backup ${location}.`);
-    return undefined;
+    return {};
   }
 }
 
-/** Web Locks where the browser has them; each held name stays held until released or the tab goes. */
+/** The browser releases a page's session lock when that page goes away. */
 function createBackupLocks(): IBackupLocks | undefined {
-  const manager = (globalThis.navigator as Navigator | undefined)?.locks;
+  const manager = globalThis.navigator?.locks;
   if (!manager) {
     return undefined;
   }
-  const releases = new Map<string, () => void>();
-  const own = new Set<string>();
   return {
-    own,
     hold(name) {
-      if (releases.has(name)) {
-        return;
-      }
-      let release!: () => void;
-      const held = new Promise<void>(resolve => { release = resolve; });
-      releases.set(name, release);
-      own.add(name);
-      void manager.request(name, { mode: 'shared' }, () => held).catch(() => {
-        releases.delete(name);
-        own.delete(name);
+      return new Promise<void>((resolve, reject) => {
+        void manager.request(name, { mode: 'exclusive' }, () => {
+          resolve();
+          return new Promise<void>(() => {});
+        }).catch(reject);
       });
     },
-    release(name) {
-      releases.get(name)?.();
-      releases.delete(name);
-      own.delete(name);
-    },
-    async held() {
-      try {
-        const snapshot = await manager.query();
-        return new Set((snapshot.held ?? []).flatMap(lock => lock.name ? [lock.name] : []));
-      } catch {
-        return undefined;
-      }
+    async runIfAvailable(name, task) {
+      await manager.request(name, { mode: 'exclusive', ifAvailable: true }, lock => lock ? task() : undefined);
     },
   };
 }

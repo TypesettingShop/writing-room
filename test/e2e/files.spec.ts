@@ -146,6 +146,37 @@ test('undo back to the saved text clears the modified mark', async ({ appPage: p
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
 });
 
+test('another page can save its edit without losing this page’s draft or its save conflict', async ({ appPage: page }) => {
+  await open(page, { 'both.md': 'base' });
+  const group = groups(page).first();
+  await expectEditorText(group, 'base');
+  await focusEditorEnd(page, group);
+  await page.keyboard.type(' first tab');
+  await expect.poll(() => listBackups(page)).toHaveLength(1);
+
+  const other = await page.context().newPage();
+  expect((await other.goto('/'))?.ok()).toBe(true);
+  await openFilesByRestore(other, ['both.md']);
+  const otherGroup = groups(other).first();
+  await expectEditorText(otherGroup, 'base');
+  await focusEditorEnd(other, otherGroup);
+  await other.keyboard.type(' second tab');
+  await expect.poll(() => listBackups(other)).toHaveLength(2);
+  await save(other);
+  await expect(selectedTab(otherGroup)).toHaveAccessibleDescription('');
+  await expect.poll(() => listBackups(other)).toHaveLength(1);
+
+  await page.reload();
+  await expectEditorText(group, 'base first tab');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('Modified');
+  await focusEditorEnd(page, group);
+  await save(page);
+  await expect(page.getByText(/Failed to save 'both\.md': The content of the file is newer/)).toBeVisible();
+  await chooseOption(page, 'Cancel');
+  expect(await readWorkspaceText(page, 'both.md')).toBe('base second tab');
+  expect(await listBackups(page)).toHaveLength(1);
+});
+
 test('asks before overwriting a file another tab saved first', async ({ appPage: page }) => {
   await open(page, { 'shared.txt': 'base' });
   const group = groups(page).first();
