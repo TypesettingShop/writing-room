@@ -71,4 +71,112 @@ exports.activate = context => {
     await fs.delete(dir, { recursive: true });
     await vscode.window.showInformationMessage('File System API verified');
   }));
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fixture.fileSystem.events', checkEventsAndSearch),
+    vscode.commands.registerCommand('fixture.fileSystem.watchPeer', watchPeer),
+    vscode.commands.registerCommand('fixture.fileSystem.writePeer', writePeer),
+  );
 };
+
+function waitFor(predicate) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const timer = setInterval(() => {
+      if (predicate() || Date.now() >= deadline) {
+        clearInterval(timer);
+        if (predicate()) {
+          resolve();
+        } else {
+          reject(new Error('File events were not delivered.'));
+        }
+      }
+    }, 20);
+  });
+}
+
+async function checkEventsAndSearch() {
+  const { workspace, Uri, RelativePattern, WorkspaceEdit, Position } = vscode;
+  const { fs } = workspace;
+  const dir = Uri.joinPath(workspace.workspaceFolders[0].uri, 'fs-events');
+  const dotfile = Uri.joinPath(dir, '.markdownlint.json');
+  const renamed = Uri.joinPath(dir, '.markdownlint.yml');
+  const doc = await workspace.openTextDocument({ content: 'before' });
+  const watcher = workspace.createFileSystemWatcher(new RelativePattern(dir, '**/.markdownlint.{json,yml}'));
+  const ignore = workspace.createFileSystemWatcher('**/.markdownlint.{json,yml}', true, true, true);
+  const changes = [];
+  const operations = [];
+  const ignored = [];
+  const listeners = [
+    watcher, ignore,
+    watcher.onDidCreate(uri => changes.push(['create', uri.path])),
+    watcher.onDidChange(uri => changes.push(['change', uri.path])),
+    watcher.onDidDelete(uri => changes.push(['delete', uri.path])),
+    ignore.onDidCreate(uri => ignored.push(uri)),
+    ignore.onDidChange(uri => ignored.push(uri)),
+    ignore.onDidDelete(uri => ignored.push(uri)),
+    workspace.onWillRenameFiles(event => {
+      operations.push(['will', event.files[0].oldUri.path, event.files[0].newUri.path]);
+      event.waitUntil(Promise.resolve().then(() => {
+        const edit = new WorkspaceEdit();
+        edit.insert(doc.uri, new Position(0, 0), 'after ');
+        return edit;
+      }));
+    }),
+    workspace.onDidRenameFiles(event => operations.push(['did', event.files[0].oldUri.path, event.files[0].newUri.path])),
+  ];
+  try {
+    await fs.writeFile(dotfile, Uint8Array.of(1));
+    await fs.writeFile(dotfile, Uint8Array.of(2));
+    await fs.writeFile(Uri.joinPath(dir, 'unrelated.txt'), new Uint8Array());
+    await fs.rename(dotfile, renamed);
+    await waitFor(() => changes.length >= 4 && operations.length >= 2);
+    check(JSON.stringify(changes) === JSON.stringify([
+      ['create', dotfile.path], ['change', dotfile.path], ['create', renamed.path], ['delete', dotfile.path],
+    ]), 'Glob filtering and change order: ' + JSON.stringify(changes));
+    check(JSON.stringify(operations) === JSON.stringify([
+      ['will', dotfile.path, renamed.path], ['did', dotfile.path, renamed.path],
+    ]), 'Rename event order');
+    check(doc.getText() === 'after before', 'WorkspaceEdit was applied before rename');
+    check(ignored.length === 0, 'Ignore flags');
+    watcher.dispose();
+    await fs.delete(renamed);
+
+    await fs.writeFile(Uri.joinPath(dir, 'top.md'), new Uint8Array());
+    await fs.writeFile(Uri.joinPath(dir, 'node_modules/nested.md'), new Uint8Array());
+    const include = new RelativePattern(dir, '**/*.md');
+    const defaults = await workspace.findFiles(include);
+    const all = await workspace.findFiles(include, null);
+    const explicit = await workspace.findFiles(include, '**/node_modules/**', 1);
+    const token = new vscode.CancellationTokenSource();
+    token.cancel();
+    const cancelled = await workspace.findFiles(include, null, undefined, token.token);
+    token.dispose();
+    check(defaults.length === 1 && all.length === 2 && explicit.length === 1 && cancelled.length === 0,
+      'Search filters, result cap and cancellation');
+    check(changes.length === 4, 'Disposed watcher');
+  } finally {
+    vscode.Disposable.from(...listeners).dispose();
+    await fs.delete(dir, { recursive: true });
+  }
+  await vscode.window.showInformationMessage('File events and search verified');
+}
+
+async function watchPeer() {
+  const watcher = vscode.workspace.createFileSystemWatcher('**/peer-file.txt');
+  let received = false;
+  const listener = watcher.onDidCreate(() => { received = true; });
+  try {
+    void vscode.window.showInformationMessage('Watching other tab');
+    await waitFor(() => received);
+    await vscode.window.showInformationMessage('Other tab event verified');
+  } finally {
+    listener.dispose();
+    watcher.dispose();
+  }
+}
+
+async function writePeer() {
+  const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, 'peer-file.txt');
+  await vscode.workspace.fs.writeFile(uri, Uint8Array.of(1));
+  await vscode.window.showInformationMessage('Other tab write verified');
+}

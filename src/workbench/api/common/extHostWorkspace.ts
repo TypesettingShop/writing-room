@@ -6,7 +6,7 @@ import { URI } from '../../../base/common/uri.js';
 import type { WorkspaceFolderDto } from './extHost.protocol.fileSystem.js';
 
 export class ExtHostWorkspace {
-  private folders: readonly WorkspaceFolderDto[] = [];
+  folders: readonly WorkspaceFolderDto[] = [];
 
   initialize(folders: readonly WorkspaceFolderDto[]): void {
     this.folders = Object.freeze(folders.map(folder => {

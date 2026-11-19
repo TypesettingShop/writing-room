@@ -1,3 +1,4 @@
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { TransferableBuffer } from '../../../base/common/marshalling.js';
 import { Schemas } from '../../../base/common/network.js';
@@ -12,10 +13,12 @@ import { IExtensionService } from '../../services/extensions/common/extensions.j
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { ExtHostFileSystemProxy, MainThreadFileSystemProxy } from '../common/extHost.protocol.fileSystem.js';
 import type {
-  ExtHostFileSystemShape, FileStatDto, FileSystemCapabilityDto, MainThreadFileSystemShape, WorkspaceFolderDto,
+  ExtHostFileSystemShape, FileGlobDto, FileOperationSubscription, FileStatDto, FileSystemCapabilityDto,
+  MainThreadFileSystemShape, WorkspaceFolderDto,
 } from '../common/extHost.protocol.fileSystem.js';
 import { ExtensionFileAccess } from './extensionFileAccess.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { MainThreadFileSystemEventService } from './mainThreadFileSystemEventService.js';
 import { MainThreadWorkspace } from './mainThreadWorkspace.js';
 
 const maxReadBytes = 50 * 1024 * 1024;
@@ -24,6 +27,7 @@ const knownSchemes = Object.values(Schemas);
 
 export class MainThreadFileSystem extends Disposable implements MainThreadFileSystemShape {
   private readonly workspace: MainThreadWorkspace;
+  private readonly events: MainThreadFileSystemEventService;
   private readonly access: ExtensionFileAccess;
 
   constructor(
@@ -34,9 +38,11 @@ export class MainThreadFileSystem extends Disposable implements MainThreadFileSy
     extensions: IExtensionService,
   ) {
     super();
-    this.workspace = new MainThreadWorkspace(context);
+    this.workspace = new MainThreadWorkspace(context, files);
     this.access = new ExtensionFileAccess(context.getWorkspace(),
       () => extensions.extensions?.map(extension => extension.location) ?? [], () => false);
+    this.events = this._register(new MainThreadFileSystemEventService(files, proxy, this.access, getExtension,
+      this.workspace.folders.map(folder => folder.uri)));
     this._register(files.onDidChangeFileSystemProviderRegistrations(({ scheme, added, provider }) => {
       void proxy.$acceptFileSystemCapability(scheme, added ? provider?.capabilities : undefined).catch(() => {});
     }));
@@ -56,12 +62,39 @@ export class MainThreadFileSystem extends Disposable implements MainThreadFileSy
     return { folders: this.workspace.folders, capabilities };
   }
 
-  private resource(extension: string, resource: URI, write = false): URI {
+  private extension(extension: string): HostExtensionDescription {
     const owner = typeof extension === 'string' ? this.getExtension(extension) : undefined;
     if (!owner) {
       throw new FileSystemProviderError('The extension is not registered.', Code.NoPermissions);
     }
-    return this.access.require(owner, resource, write);
+    return owner;
+  }
+
+  private resource(extension: string, resource: URI, write = false): URI {
+    return this.access.require(this.extension(extension), resource, write);
+  }
+
+  async $watch(extension: string, handle: number, base?: URI): Promise<void> {
+    this.events.watch(this.extension(extension), handle, base);
+  }
+
+  async $unwatch(extension: string, handle: number): Promise<void> {
+    this.events.unwatch(extension, handle);
+  }
+
+  async $subscribeFileOperation(extension: string, event: FileOperationSubscription, enabled: boolean): Promise<void> {
+    this.extension(extension);
+    this.events.subscribe(extension, event, enabled);
+  }
+
+  $findFiles(extension: string, include: FileGlobDto, exclude?: FileGlobDto | null,
+    maxResults?: number, token?: CancellationToken): Promise<URI[]> {
+    this.extension(extension);
+    return this.workspace.findFiles(include, exclude, maxResults, token);
+  }
+
+  remove(extension: string): void {
+    this.events.remove(extension);
   }
 
   private provider(resource: URI): IFileSystemProvider {

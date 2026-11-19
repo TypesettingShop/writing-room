@@ -52,8 +52,62 @@ declare module 'vscode' {
     readonly removed: readonly WorkspaceFolder[];
   }
 
+  export type GlobPattern = string | RelativePattern;
+
+  export interface FileSystemWatcher extends Disposable {
+    readonly ignoreCreateEvents: boolean;
+    readonly ignoreChangeEvents: boolean;
+    readonly ignoreDeleteEvents: boolean;
+    readonly onDidCreate: Event<Uri>;
+    readonly onDidChange: Event<Uri>;
+    readonly onDidDelete: Event<Uri>;
+  }
+
+  export interface FileCreateEvent {
+    readonly files: readonly Uri[];
+  }
+
+  export interface FileDeleteEvent {
+    readonly files: readonly Uri[];
+  }
+
+  export interface FileRenameEvent {
+    readonly files: ReadonlyArray<{ readonly oldUri: Uri; readonly newUri: Uri }>;
+  }
+
+  export interface FileWillCreateEvent {
+    readonly token: CancellationToken;
+    readonly files: readonly Uri[];
+    waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+    waitUntil(thenable: Thenable<any>): void;
+  }
+
+  export interface FileWillDeleteEvent {
+    readonly token: CancellationToken;
+    readonly files: readonly Uri[];
+    waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+    waitUntil(thenable: Thenable<any>): void;
+  }
+
+  export interface FileWillRenameEvent {
+    readonly token: CancellationToken;
+    readonly files: ReadonlyArray<{ readonly oldUri: Uri; readonly newUri: Uri }>;
+    waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+    waitUntil(thenable: Thenable<any>): void;
+  }
+
   export namespace workspace {
     export const fs: FileSystem;
+    export const onWillCreateFiles: Event<FileWillCreateEvent>;
+    export const onDidCreateFiles: Event<FileCreateEvent>;
+    export const onWillDeleteFiles: Event<FileWillDeleteEvent>;
+    export const onDidDeleteFiles: Event<FileDeleteEvent>;
+    export const onWillRenameFiles: Event<FileWillRenameEvent>;
+    export const onDidRenameFiles: Event<FileRenameEvent>;
+    export function createFileSystemWatcher(globPattern: GlobPattern, ignoreCreateEvents?: boolean,
+      ignoreChangeEvents?: boolean, ignoreDeleteEvents?: boolean): FileSystemWatcher;
+    export function findFiles(include: GlobPattern, exclude?: GlobPattern | null, maxResults?: number,
+      token?: CancellationToken): Thenable<Uri[]>;
     export const workspaceFolders: readonly WorkspaceFolder[] | undefined;
     export const name: string | undefined;
     export const workspaceFile: Uri | undefined;
