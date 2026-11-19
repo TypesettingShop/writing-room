@@ -18,13 +18,13 @@ WRITING_ROOM_WEBVIEW_PORT=5174 npm run dev -- --host 127.0.0.1 --port 5173 --str
 4. 워크벤치로 돌아가 웹뷰를 여는 확장 명령을 실행한다. 웹뷰의 외부 iframe이 5174 포워딩 주소를 쓰며 확장의 스크립트나 CSS가 적용됐는지 확인한다.
 5. 포트가 다른 호스트에서 `/`와 `/webview/config.json`을 열어 모두 404인지 확인한다. 그 호스트는 셸 HTML과 서비스 워커 파일을 제공한다.
 
-포워딩 서비스가 설정 JSON 요청에도 인증 쿠키를 요구하면, 같은 오리진 주소의 설정을 자격 증명 없이 읽는 경로를 사용할 수 없다. 이 배포에서는 제품 설정에 웹뷰 오리진 주소 틀을 지정한다.
+워크벤치는 웹뷰가 필요해질 때 자기 오리진의 설정을 읽으며, Coder처럼 인증이 필요한 포워딩 서비스의 세션 쿠키도 같은 오리진 요청으로 보낸다. 설정 읽기가 실패하면 다음 웹뷰 요청에서 다시 읽는다. 포워딩 셸은 둘째 리스너가 셸 HTML에 넣은 실제 포트 쌍으로 워크벤치의 오리진을 확인한다.
 
 안내가 보이면 서버 실행 시 `WRITING_ROOM_WEBVIEW_PORT`를 주었는지, 포트 두 개를 포워딩했는지, 브라우저에서 두 번째 주소에 로그인했는지 확인한다. 셸과 연결할 수 없으면 10초 뒤에 안내를 표시한다. 포워딩 주소와 루프백 주소의 설치 확장, 파일, 설정은 브라우저 오리진에 따라 별도로 저장된다.
 
 ## 오리진 선택
 
-Vite 제품 설정 `VITE_WRITING_ROOM_PRODUCT`의 `webviewContentExternalBaseUrlTemplate`가 있으면 먼저 사용한다. 정적 배포는 그 HTTPS 오리진의 `/webview/`에 배포 빌드의 셸과 서비스 워커를 둔다. `{{uuid}}`를 호스트 이름에 넣으면 웹뷰마다 별도 오리진을 쓸 수 있다.
+Vite 제품 설정 `VITE_WRITING_ROOM_PRODUCT`의 `webviewContentExternalBaseUrlTemplate`가 있으면 먼저 사용한다. 정적 배포는 그 HTTPS 오리진의 `/webview/`에 배포 빌드의 셸과 서비스 워커를 둔다. `{{uuid}}`를 호스트 이름에 넣으면 웹뷰마다 별도 오리진을 쓸 수 있다. 배포하는 `webview/index.html`에서 `writing-room-webview-parent-origin` 메타 태그의 `content`에 워크벤치의 정확한 HTTPS 오리진을 적는다. 예를 들어 앱이 `https://workbench.example.com`이면 그 문자열을 그대로 사용한다. 경로나 끝 슬래시는 두지 않는다. 셸은 워크벤치 주소가 지정된 경우에만 연결을 연다.
 
 제품 설정이 없으면 개발 서버와 프리뷰는 같은 포트의 `127.0.0.1`과 `localhost`를 서로 바꾼다. 두 루프백 호스트는 같은 Vite 서버에서 파일을 가져오지만 브라우저 저장소를 오리진별로 사용한다. 포워딩은 페이지의 호스트 이름에 있는 앱 포트 표식을 교체한다. 설정을 검증할 수 없거나 같은 오리진이 나오면 웹뷰를 열기 전에 안내를 표시한다.
 
@@ -70,6 +70,7 @@ panel.webview.html = `<!doctype html>
 - wr-cpnc.flj. 찾기와 `portMapping`은 옵션을 받되 동작하지 않는다. `enableCommandUris`도 옵션을 받으며 링크 처리는 HTTP와 HTTPS를 지원한다.
 - wr-cpnc.flj. 로컬 파일과 확장 리소스는 메인 스레드의 파일 서비스를 통해 읽는다. `asWebviewUri`는 `http(s)` 주소도 웹뷰 리소스 주소로 바꾼다. VS Code는 이런 주소를 그대로 돌려준다. 바뀐 주소는 `localResourceRoots` 안에 있을 때만 읽히므로 CDN 같은 외부 주소는 `asWebviewUri`를 거치지 않고 그대로 쓴다.
 - wr-cpnc.flj. `localResourceRoots`에는 워크스페이스 폴더와 그 확장의 설치 폴더 안쪽 루트만 남는다. 다른 확장의 폴더나 `globalStorageUri` 같은 사용자 저장소 루트는 경고 없이 빠진다.
+- wr-cpnc.flj. `TabInputWebview.viewType`은 확장이 패널을 만들 때 전달한 식별자다. VS Code의 탭 API는 `mainThreadWebview-` 접두사를 붙인다.
 - wr-cpnc.6ly. 뷰 배지는 이 에픽의 범위 밖이다.
 
 Decided in: wr-efqx.n9k, wr-cpnc
