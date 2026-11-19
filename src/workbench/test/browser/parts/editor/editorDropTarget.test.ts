@@ -5,6 +5,7 @@ import { DisposableStore, toDisposable } from '../../../../../base/common/lifecy
 import { LocalSelectionTransfer } from '../../../../../platform/dnd/browser/dnd.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
+import { InMemoryStorageService, IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { Registry } from '../../../../../platform/registry/common/platform.js';
 import { CompositeDragAndDropObserver, DraggedCompositeIdentifier, DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDropObserver } from '../../../../browser/dnd.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../../browser/editor.js';
@@ -162,7 +163,7 @@ function placeGroup(group: IEditorGroupView): void {
 
 beforeEach(async () => {
   disposables.add(registry.registerEditorPane(EditorPaneDescriptor.create(TestPane, PANE_ID, 'Test'), [INPUT_ID]));
-  const services = new ServiceCollection();
+  const services = new ServiceCollection([IStorageService, disposables.add(new InMemoryStorageService())]);
   const instantiation = new InstantiationService(services);
   part = instantiation.createInstance(EditorPart);
   services.set(IEditorGroupsService, part);

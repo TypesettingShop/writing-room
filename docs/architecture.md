@@ -122,7 +122,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - dirty한 제목 없는 에디터는 확인 없이 닫힌다 — v0.1.0에는 저장할 파일도 확인 대화 상자도 없다 (wr-cla6.vge)
 - Close Editor는 VS Code처럼 Ctrl+W(Windows는 Ctrl+F4와 Ctrl+W, macOS는 Cmd+W)로 선언하지만 일반 브라우저 탭에서 Ctrl+W는 브라우저가 가져가 페이지에 닿지 않는다 (wr-cla6.vge)
 - `workbench.action.files.newUntitledFile`은 `parts/editor/editorActions.ts`에 둔다. VS Code는 `contrib/files/browser/fileActions.contribution.ts`에 둔다 — 파일 기여가 아직 없다. 키는 VS Code 웹의 것(Ctrl+Alt+N, Windows는 Ctrl+K N)이다. Ctrl+N은 브라우저가 가져간다 (wr-cla6.vge)
-- Welcome 페이지는 `parts/editor/welcomeEditor.ts`의 작은 페인과 입력(`workbench.editors.gettingStartedInput`)이며, 시작할 때 그룹이 비어 있으면 포커스를 옮기지 않고 연다. VS Code의 Getting Started는 `contrib/welcomeGettingStarted`에 있고 설정과 복원 상태에 따라 연다 — 레이아웃과 에디터 저장 전에는 매번이 첫 실행이다 (wr-cla6.vge)
+- Welcome 페이지는 `parts/editor/welcomeEditor.ts`의 작은 페인과 입력(`workbench.editors.gettingStartedInput`)이며, 저장한 에디터 상태가 없을 때 워크벤치가 시작하면서 포커스를 옮기지 않고 연다. VS Code의 Getting Started는 `contrib/welcomeGettingStarted`에 있고 설정과 복원 상태에 따라 연다 (wr-cla6.vge, wr-cla6.kn7)
 - **View → Editor Layout**에 Split Up/Down/Left/Right와 **Join All Editor Groups**를 둔다. VS Code의 Editor Layout 메뉴에는 레이아웃 프리셋도 있다 — 프리셋은 범위 밖이다 (wr-cla6.vge)
 
 #### 에디터 그룹 조작
@@ -148,6 +148,13 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `IEditorGroupsView`에 `getGroup`, `addGroup`, `moveGroup`, `mergeGroup`을, `IEditorGroupView`에 `titleContainer`와 `titleHeight`(숫자)를 더했다. VS Code의 `IEditorGroupsView`에는 이미 있고 `titleHeight`는 `{ total, offset }`이다 — 탭 줄의 높이가 하나뿐이다 (wr-cla6.bxt)
 
 ### Storage and settings
+
+#### Layout and editor persistence
+
+- 페이지를 시작할 때 사이드바와 패널 크기, 파트 표시 여부, 마지막으로 선택한 뷰 컨테이너를 읽는다. 크기는 픽셀 단위로 프로필에 저장하고 현재 창과 파트의 한계에 맞춘다. 사용자가 정한 표시 여부와 활성 컨테이너는 워크스페이스에 저장한다. 빈 사이드바와 패널의 자동 숨김은 시작할 때 컨테이너 위치에서 다시 계산한다. 페이지가 숨겨지거나 보이는 페이지에 유휴 저장 알림이 오면 현재 값으로 갱신한다 (wr-cla6.kn7).
+- 워크스페이스의 `memento/workbench.parts.editor` 안에 `editorpart.state`를 저장한다. 그리드 비율, 그룹 ID, 탭 순서, 활성 그룹과 탭을 첫 레이아웃에서 복원한다. 저장한 에디터 상태가 없을 때만 Welcome을 연다. 탭을 모두 닫은 뒤 저장한 상태나 읽지 못한 상태에서는 빈 그룹 하나로 시작한다 (wr-cla6.kn7).
+- 제목 없는 텍스트에는 문서 전체를 기준으로 UTF-16 코드 유닛 1,000,000개의 합계 한도를 적용한다. 최근 사용한 문서부터 넣고, 여러 그룹에 나타나는 문서는 한 번만 계산한다. 첫 탭의 직렬화 문자열에는 Base64로 인코딩한 텍스트를, 나머지 탭에는 같은 입력의 이름을 넣는다. 한도를 넘어서 복원하지 못할 텍스트가 있을 때 브라우저의 페이지 나가기 확인을 건다 (wr-cla6.kn7).
+- 복원된 에디터는 문서의 맨 위에서 열린다. VS Code는 `EditorMemento`로 커서와 스크롤 위치를 복원한다 (wr-cla6.kn7). [VS Code의 에디터 뷰 상태](vscode-state-settings.md#22-저장-항목-목록)
 
 #### Storage
 
@@ -182,4 +189,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og

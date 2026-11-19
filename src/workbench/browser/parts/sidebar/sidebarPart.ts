@@ -1,6 +1,7 @@
 import { LayoutPriority } from '../../../../base/browser/ui/grid/grid.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { ActiveViewletContext } from '../../../common/contextkeys.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
@@ -18,9 +19,10 @@ export class SidebarPart extends PaneCompositePart {
     @IInstantiationService instantiationService: IInstantiationService,
     @IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
     @IViewDescriptorService viewDescriptors: IViewDescriptorService,
+    @IStorageService storage: IStorageService,
   ) {
     super(Parts.SIDEBAR_PART, ViewContainerLocation.Sidebar, state, 'activeViewlet',
-      ActiveViewletContext, contextKeyService, instantiationService, layoutService, viewDescriptors);
+      ActiveViewletContext, contextKeyService, instantiationService, layoutService, viewDescriptors, storage, 'workbench.sidebar.activeviewletid');
   }
 
   protected override createHeader(parent: HTMLElement): void {

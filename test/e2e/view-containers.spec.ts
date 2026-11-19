@@ -60,6 +60,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
 
   await page.reload();
   await expect(panel.getByRole('tab')).toHaveText(['Problems', 'Output', 'Explorer', 'Hello World']);
+  await expect(explorerTab).toHaveAttribute('aria-selected', 'true');
   await expect(sidebar).toBeHidden();
   await expect(explorerIcon).toHaveCount(0);
 
@@ -70,7 +71,7 @@ test('drags Explorer into the panel, restores its placement and order, and drags
   await expect(explorerTab).toHaveCount(0);
   await expect(explorerIcon).toHaveAttribute('aria-pressed', 'true');
   await expect(sidebar.getByText('No folder opened')).toBeVisible();
-  await expect(problems).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.getByRole('tab', { name: 'Hello World' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('places a drop over the gap between tabs or the bar padding beside the nearest tab', async ({ appPage: page }) => {
@@ -183,6 +184,29 @@ test('moves from the keyboard context menu and resets with the command palette',
   await page.getByRole('option', { name: /Reset View Locations/ }).click();
   await expect(explorer).toHaveAttribute('aria-pressed', 'true');
   await expect(panel.getByRole('tab')).toHaveText(['Output', 'Problems']);
+  await expect(sidebar.getByText('No folder opened')).toBeVisible();
+});
+
+test('reveals the auto-hidden sidebar when resetting view locations after reload', async ({ appPage: page }) => {
+  const activitybar = part(page, 'activitybar');
+  const sidebar = part(page, 'sidebar');
+  const panel = part(page, 'panel');
+  const explorer = activitybar.getByRole('button', { name: 'Explorer' });
+
+  await moveSampleToPanel(page);
+  await explorer.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Move to Panel' }).click();
+  await expect(sidebar).toBeHidden();
+  await expect(panel.getByRole('tab', { name: 'Explorer' })).toBeVisible();
+
+  await page.reload();
+  await expect(sidebar).toBeHidden();
+  await expect(panel.getByRole('tab', { name: 'Explorer' })).toBeVisible();
+
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Reset View Locations');
+  await page.getByRole('option', { name: /Reset View Locations/ }).click();
+  await expect(explorer).toHaveAttribute('aria-pressed', 'true');
   await expect(sidebar.getByText('No folder opened')).toBeVisible();
 });
 
