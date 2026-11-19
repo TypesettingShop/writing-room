@@ -327,17 +327,22 @@ export class ExtensionManagementService {
       ...(nls ? { nls } : {}),
     };
     return this.serialize(async () => {
-      await this.scanner.locked(async (read, write) => {
-        const installed = read();
-        this.ensureAvailable(identifier, installed);
-        await write([...installed, record]);
-      });
+      // A folder install has no files to stage, so it registers first: its commands are there as soon as the
+      // confirmation closes, not only after the cross-tab lock is granted. A failed write unregisters it again.
+      this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
+      if (!this.active.addExtension?.(description)) {
+        throw new Error(`Could not register extension '${identifier}'.`);
+      }
       try {
-        if (!this.active.addExtension?.(description)) {
-          throw new Error(`Could not register extension '${identifier}'.`);
-        }
+        await this.scanner.locked(async (read, write) => {
+          const installed = read();
+          if (installed.some(entry => entry.identifier === identifier)) {
+            throw new Error(`'${identifier}' is already installed. Uninstall it before replacing it.`);
+          }
+          await write([...installed, record]);
+        });
       } catch (error) {
-        await this.restore(record, undefined).catch(cleanup => console.error(`Could not remove the record of '${identifier}'.`, cleanup));
+        this.active.removeExtension?.(identifier);
         throw error;
       }
       return description;

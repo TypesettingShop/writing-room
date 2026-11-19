@@ -83,11 +83,13 @@ test('serializes concurrent installs and removes both catalog and active registr
   expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
 });
 
-test('starts no contribution when writing fails and restores the list when registration fails', async () => {
+test('leaves no contribution when writing fails and writes no list when registration fails', async () => {
   const { storage, scanner, active, service } = setup();
   const write = vi.spyOn(storage, 'storeImmediately').mockImplementationOnce(() => { throw new Error('write failed'); });
   await expect(service.installFromLocation(location, async () => true)).rejects.toThrow('write failed');
-  expect(active.addExtension).not.toHaveBeenCalled();
+  // A folder install registers before the cross-tab write and unregisters when that write fails.
+  expect(active.extensions).toEqual([]);
+  expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
   write.mockRestore();
   active.addExtension.mockReturnValueOnce(false);
   await expect(service.installFromLocation(location, async () => true)).rejects.toThrow('Could not register');
