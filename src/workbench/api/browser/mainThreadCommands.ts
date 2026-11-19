@@ -14,7 +14,7 @@ import type { ExtHostCommandsShape, MainThreadCommandsShape } from '../common/ex
 export interface CommandHostAccess {
   extensionId(key: string): string | undefined;
   commandOwner(command: string): string | undefined;
-  activate(event: string, origin: string): Promise<void>;
+  activate(event: string, origin: string, probeUnadvertised?: boolean): Promise<void>;
 }
 
 function resolveCommandArguments(accessor: ServicesAccessor, args: unknown[]): unknown[] {
@@ -95,7 +95,10 @@ export class MainThreadCommands extends Disposable implements MainThreadCommands
     if (!this.host.extensionId(extension)) {
       throw new Error('The extension is no longer registered.');
     }
-    await this.host.activate('onCommand:' + id, extension);
+    await this.host.activate('onCommand:' + id, extension, this.commands.has(id));
+    if (!this.host.extensionId(extension)) {
+      throw new Error('The extension is no longer registered.');
+    }
     const command = CommandsRegistry.getCommand(id);
     if (!command) {
       throw new Error(`command '${id}' not found`);

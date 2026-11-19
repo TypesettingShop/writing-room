@@ -1,3 +1,13 @@
+import { localizeManifest } from '../../../../platform/extensionManagement/common/extensionNls.js';
+import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { loadLocaleManifest } from './extensionLocalization.js';
+import { isValidExtensionVersion } from '../../../../platform/extensions/common/extensionValidator.js';
+import { product } from '../../../../platform/product/common/product.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IExtensionStorage } from '../../../api/browser/mainThreadStorage.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { findWorkspaceActivation } from './workspaceActivation.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IWorkbenchLayoutService } from '../../layout/browser/layoutService.js';
 import { RemoteExtensionIcons } from './remoteExtensionIcons.js';
@@ -23,12 +33,19 @@ import { ExtensionMessageCollector, ExtensionsRegistry } from '../common/extensi
 import type { ExtensionPointContext, IExtensionPointUser } from '../common/extensionsRegistry.js';
 import type { IExtensionService } from '../common/extensions.js';
 
+configurationRegistry.registerConfiguration({
+  id: 'extensions.runtime',
+  properties: { locale: { type: 'string', default: 'en', description: 'Language for extensions. Takes effect when the workbench restarts.' } },
+});
+
 type ExtensionScan = () => { extensions: readonly IExtensionDescription[]; messages: readonly IExtensionMessage[] };
 interface HostSession {
   readonly worker: WebWorkerExtensionHost;
   readonly main: MainThreadExtensionService;
   readonly proxy: ExtHostExtensionServiceShape;
   registered: Map<string, HostExtensionDescription>;
+  desired: Set<string>;
+  readonly removing: Map<string, () => void>;
   synchronized: Promise<void>;
 }
 
@@ -56,6 +73,17 @@ export class ExtensionService extends Disposable implements IExtensionService {
   private nextExtensionKey = 0;
   private host?: HostSession;
   private hostFailure?: Error;
+  private hostShutdown?: Promise<void>;
+  private locale = 'en';
+  private readonly localized = new WeakMap<IExtensionDescription, Readonly<Record<string, string>>>();
+  /** One localized copy per description and table, so contribution points see the same object on every refresh. */
+  private readonly localizedDescriptions = new WeakMap<IExtensionDescription, {
+    readonly translations: Readonly<Record<string, unknown>>;
+    readonly description: IExtensionDescription;
+  }>();
+  private workspaceId?: string;
+  private readonly removals = new Map<string, Promise<void>>();
+  private readonly lifetime = new AbortController();
   private readonly eventOperations = new Map<string, Promise<void>>();
   private readonly completedEvents = new Set<string>();
   private stopping = false;
@@ -77,6 +105,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
         // A bfcache restore resumes the same workbench and worker.
         if (!event.persisted) {
           this.stopping = true;
+          this.lifetime.abort();
           this.host?.worker.shutdown();
         }
       }));
@@ -97,6 +126,13 @@ export class ExtensionService extends Disposable implements IExtensionService {
       return;
     }
     this.initialized = true;
+    this.instantiation?.invokeFunction(accessor => {
+      const locale = accessor.get(IConfigurationService).getValue('locale');
+      if (typeof locale === 'string' && /^[a-z]{2,8}(?:-[a-z\d]{1,8})*$/i.test(locale)) {
+        this.locale = locale.toLowerCase();
+      }
+      this.workspaceId = accessor.get(IWorkspaceContextService).getWorkspace().id;
+    });
     const { extensions, messages } = this.scan();
     this.scanMessages.push(...messages);
     const installed = this.installedScanner?.scanUserExtensions().map(toExtensionDescription) ?? [];
@@ -105,6 +141,10 @@ export class ExtensionService extends Disposable implements IExtensionService {
     }
     this.applyContributions();
     this.finishRegistration(true);
+    if (this.instantiation) {
+      void this.searchWorkspaceActivation().catch(error => console.warn('Workspace activation search failed:', error));
+      this.refreshTranslations(this.extensions);
+    }
   }
 
   get extensions(): readonly IExtensionDescription[] {
@@ -118,6 +158,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     if (this.initialized) {
       try {
         this.applyContributions();
+        this.refreshTranslations([extension]);
       } catch (error) {
         this.removeExtension(extension.identifier.value);
         throw error;
@@ -150,6 +191,71 @@ export class ExtensionService extends Disposable implements IExtensionService {
     return true;
   }
 
+  async clearExtensionStorage(id: string): Promise<void> {
+    await this.instantiation?.invokeFunction(accessor => accessor.get(IExtensionStorage).clear(id.toLowerCase()));
+  }
+
+  async whenExtensionRemoved(id: string): Promise<void> {
+    await this.removals.get(id.toLowerCase());
+  }
+
+  private async searchWorkspaceActivation(): Promise<void> {
+    const prefix = 'workspaceContains:';
+    const events = new Set([...this.extensionEvents.values()].flatMap(events => [...events])
+      .filter(event => event.startsWith(prefix)));
+    if (!events.size) {
+      return;
+    }
+    const { files, folders } = this.instantiation!.invokeFunction(accessor => ({
+      files: accessor.get(IFileService),
+      folders: accessor.get(IWorkspaceContextService).getWorkspace().folders,
+    }));
+    await Promise.all([...events].map(async event => {
+      if (await findWorkspaceActivation(files, folders, event.slice(prefix.length), this.lifetime.signal)) {
+        await this.activateByEvent(event);
+      }
+    }));
+  }
+
+  private refreshTranslations(extensions: readonly IExtensionDescription[]): void {
+    if (this.locale === 'en' || !this.instantiation) {
+      return;
+    }
+    const files = this.instantiation.invokeFunction(accessor => accessor.get(IFileService));
+    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(2_000)]);
+    void Promise.all(extensions.map(async extension => {
+      try {
+        const translations = await loadLocaleManifest(files, extension, this.locale, signal);
+        if (!translations || this.stopping || this.descriptions.get(extension.identifier.value) !== extension) {
+          return false;
+        }
+        this.localized.set(extension, translations);
+        return true;
+      } catch (error) {
+        console.warn(`[${extension.identifier.value}] Could not localize contributions:`, error);
+        return false;
+      }
+    })).then(changed => {
+      if (changed.some(Boolean) && !this.stopping) {
+        this.applyContributions();
+      }
+    }).catch(error => console.error('Could not register localized extension contributions:', error));
+  }
+
+  private localizedDescription(extension: IExtensionDescription): IExtensionDescription {
+    const translations = this.localized.get(extension) ?? extension.nls;
+    if (!translations) {
+      return extension;
+    }
+    const cached = this.localizedDescriptions.get(extension);
+    if (cached?.translations === translations) {
+      return cached.description;
+    }
+    const description = { ...extension, manifest: localizeManifest(extension.manifest, translations) };
+    this.localizedDescriptions.set(extension, { translations, description });
+    return description;
+  }
+
   private addDescription(extension: IExtensionDescription): boolean {
     const id = extension.identifier.value;
     if (this.descriptions.has(id)) {
@@ -158,6 +264,19 @@ export class ExtensionService extends Disposable implements IExtensionService {
         this.report(message);
       } else {
         this.scanMessages.push(message);
+      }
+      return false;
+    }
+    const range = extension.manifest.engines?.vscode;
+    if (range !== undefined && (typeof range !== 'string' || !isValidExtensionVersion(product.version, range))) {
+      const message: IExtensionMessage = {
+        extensionId: id, severity: 'warn', path: 'engines.vscode',
+        message: `This extension requires VS Code ${String(range)}. Writing Room provides API ${product.version}.`,
+      };
+      if (!this.scanMessages.some(previous => previous.extensionId === id && previous.path === message.path
+        && previous.message === message.message)) {
+        this.scanMessages.push(message);
+        this.report(message);
       }
       return false;
     }
@@ -174,11 +293,14 @@ export class ExtensionService extends Disposable implements IExtensionService {
     }]));
   }
 
-  async activateByEvent(event: string, origin?: string): Promise<void> {
+  async activateByEvent(event: string, origin?: string, probeUnadvertised = false): Promise<void> {
     this.recordedEvents.add(event);
     if (event === 'onStartupFinished' && !this.recordedEvents.has('*')) {
       // The default startup events can activate different extensions concurrently.
       void this.activateByEvent('*').catch(() => {});
+    }
+    if (this.hostShutdown) {
+      await this.hostShutdown;
     }
     if (!this.instantiation || this.applying || this.stopping) {
       return;
@@ -188,7 +310,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
         this.remoteIcons?.activate(id);
       }
     }
-    if (!this.matches(event)) {
+    if (!this.matches(event) && !(origin && this.host && probeUnadvertised)) {
       return;
     }
     if (this.hostFailure) {
@@ -226,8 +348,24 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   async restartExtensionHost(): Promise<void> {
-    this.stopHost();
-    this.hostFailure = undefined;
+    if (!this.hostShutdown) {
+      // Make the shutdown visible to activation requests before releasing the old host's
+      // customers. Releasing them can request activation to restore an open Webview.
+      this.hostShutdown = Promise.resolve()
+        .then(async () => {
+          const host = this.releaseHost();
+          try {
+            await host?.worker.shutdownGracefully();
+          } finally {
+            this.finishRemovals(host);
+          }
+        })
+        .finally(() => {
+          this.hostFailure = undefined;
+          this.hostShutdown = undefined;
+        });
+    }
+    await this.hostShutdown;
     await this.replayEvents();
   }
 
@@ -250,15 +388,14 @@ export class ExtensionService extends Disposable implements IExtensionService {
     for (const description of this.extensions) {
       const { identifier, location, manifest } = description;
       const entry = manifest.browser && resolveExtensionEntry(location, manifest.browser);
-      if (!entry) {
-        continue;
-      }
       let key = this.extensionKeys.get(description);
       if (!key) {
         key = String(++this.nextExtensionKey);
         this.extensionKeys.set(description, key);
       }
-      result.set(key, { id: identifier.value, key, location, entry: entry.href, manifest,
+      result.set(key, { id: identifier.value, key, location, entry: entry ? entry.href : '', manifest,
+        isBuiltin: description.isBuiltin,
+        runtime: { locale: this.locale, workspaceId: this.workspaceId },
         activationEvents: [...this.extensionEvents.get(identifier.value) ?? []], views: this.viewHandler.viewIds(identifier.value) });
     }
     return result;
@@ -268,15 +405,26 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const registered = this.hostDescriptions();
     const worker = new WebWorkerExtensionHost([...registered.values()]);
     const host: HostSession = {
-      worker, registered, synchronized: worker.ready,
+      worker, registered, desired: new Set(registered.keys()), removing: new Map(), synchronized: worker.ready,
       proxy: worker.rpc.getProxy(ExtHostContext.ExtHostExtensionService),
       main: this.instantiation!.createInstance(MainThreadExtensionService, worker.rpc, {
         getExtension: key => this.host === host ? host.registered.get(key) : undefined,
         commandOwner: id => this.commandOwners.get(id),
-        activate: (event, origin) => this.activateByEvent(event, origin),
+        activate: (event, origin, probeUnadvertised) => this.activateByEvent(event, origin, probeUnadvertised),
         setStatus: (key, status) => {
           const id = host.registered.get(key)?.id;
           if (this.host === host && id) {
+            const finishRemoval = host.removing.get(key);
+            if (finishRemoval && status.state === 'inactive') {
+              host.registered.delete(key);
+              host.removing.delete(key);
+              host.main.remove(key);
+              finishRemoval();
+              return;
+            }
+            if (finishRemoval) {
+              return;
+            }
             this.activationStatus.set(id, status);
             if (status.state === 'failed') {
               host.main.remove(key);
@@ -298,14 +446,27 @@ export class ExtensionService extends Disposable implements IExtensionService {
     return host;
   }
 
-  private stopHost(): void {
+  private releaseHost(): HostSession | undefined {
     const host = this.host;
     this.host = undefined;
     this.eventOperations.clear();
     this.completedEvents.clear();
     this.activationStatus.clear();
     host?.main.dispose();
+    return host;
+  }
+
+  /** Called once the worker has exited, so a removed package is not replaced while its old code runs. */
+  private finishRemovals(host: HostSession | undefined): void {
+    for (const finishRemoval of host?.removing.values() ?? []) {
+      finishRemoval();
+    }
+  }
+
+  private stopHost(): void {
+    const host = this.releaseHost();
     host?.worker.dispose();
+    this.finishRemovals(host);
   }
 
   private extensionsChanged(): void {
@@ -314,10 +475,21 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const host = this.host;
     if (host) {
       const next = this.hostDescriptions();
-      const removed = [...host.registered.keys()].filter(key => !next.has(key));
-      host.registered = next;
+      const removed = [...host.desired].filter(key => !next.has(key));
+      host.desired = new Set(next.keys());
       for (const key of removed) {
-        host.main.remove(key);
+        const { id } = host.registered.get(key)!;
+        const previous = this.removals.get(id);
+        const removal = new Promise<void>(resolve => host.removing.set(key, resolve));
+        const completed = Promise.all([previous, removal]).then(() => {
+          if (this.removals.get(id) === completed) {
+            this.removals.delete(id);
+          }
+        });
+        this.removals.set(id, completed);
+      }
+      for (const [key, description] of next) {
+        host.registered.set(key, description);
       }
       host.synchronized = host.synchronized.then(() => host.proxy.$deltaExtensions([...next.values()], removed));
       // A replay may match no event, so nothing else is sure to await this chain before the host stops.
@@ -332,6 +504,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
 
   override dispose(): void {
     this.stopping = true;
+    this.lifetime.abort();
     this.stopHost();
     super.dispose();
   }
@@ -358,10 +531,17 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.commandOwners.clear();
     const contributions = new DisposableStore();
     this.contributions.value = contributions;
-    const entries = this.extensions;
+    const entries = this.extensions.map(extension => this.localizedDescription(extension));
     for (const extension of entries) {
       const id = extension.identifier.value;
-      this.extensionEvents.set(id, new Set(extension.manifest.activationEvents));
+      const { manifest } = extension;
+      this.extensionEvents.set(id, new Set(manifest.activationEvents));
+      if (Array.isArray(manifest.enabledApiProposals) && manifest.enabledApiProposals.length) {
+        this.report({ extensionId: id, severity: 'info', path: 'enabledApiProposals', message: 'Proposed APIs are not supported.' });
+      }
+      if (manifest.main && !manifest.browser) {
+        this.report({ extensionId: id, severity: 'info', path: 'main', message: 'This extension has no web entry point. Only its contributions are available.' });
+      }
       const unsupported = Object.keys(extension.manifest.contributes ?? {}).filter(key => !ExtensionsRegistry.has(key));
       if (unsupported.length) {
         this.report({ extensionId: id, severity: 'info', path: 'contributes', message: 'Unsupported contributions: ' + unsupported.join(', ') });

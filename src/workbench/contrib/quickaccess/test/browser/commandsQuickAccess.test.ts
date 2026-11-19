@@ -44,6 +44,9 @@ beforeEach(() => {
       return items.find((item): item is T => item.type !== 'separator' && item.id === pickId);
     },
     async input() { return undefined; },
+    backButton: {},
+    createQuickPick: () => { throw new Error('Not used by the command palette.'); },
+    createInputBox: () => { throw new Error('Not used by the command palette.'); },
   };
   provider = new CommandsQuickAccessProvider(menus, context, new BrowserLayoutService(), quickInput, storage, new NullConfigurationService());
   pickId = undefined;

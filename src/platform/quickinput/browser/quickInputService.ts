@@ -1,11 +1,14 @@
 import { registerSingleton } from '../../instantiation/common/extensions.js';
 import { ILayoutService } from '../../layout/browser/layoutService.js';
 import { IQuickInputService } from '../common/quickInput.js';
-import type { IInputOptions, IPickOptions, IQuickPickItem, IQuickPickSeparator } from '../common/quickInput.js';
-import { QuickInputController } from './quickInputController.js';
+import type {
+  IInputBox, IInputOptions, IPickOptions, IQuickInputButton, IQuickPick, IQuickPickItem, IQuickPickSeparator,
+} from '../common/quickInput.js';
+import { backButton, QuickInputController } from './quickInputController.js';
 
 export class QuickInputService implements IQuickInputService {
   declare readonly _serviceBrand: undefined;
+  readonly backButton: IQuickInputButton = backButton;
   private readonly controller: QuickInputController;
 
   constructor(@ILayoutService layout: ILayoutService) {
@@ -19,6 +22,14 @@ export class QuickInputService implements IQuickInputService {
 
   input(options?: IInputOptions): Promise<string | undefined> {
     return this.controller.input(options);
+  }
+
+  createQuickPick<T extends IQuickPickItem>(): IQuickPick<T> {
+    return this.controller.createQuickPick<T>();
+  }
+
+  createInputBox(): IInputBox {
+    return this.controller.createInputBox();
   }
 
   dispose(): void {

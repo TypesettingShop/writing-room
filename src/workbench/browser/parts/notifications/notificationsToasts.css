@@ -1,6 +1,6 @@
 .extension-toasts {
   position: absolute;
-  z-index: 25;
+  z-index: 40;
   inset: auto 12px 30px auto;
   display: grid;
   gap: 8px;
@@ -37,4 +37,50 @@
   border-radius: 3px;
   padding: 3px 7px;
   cursor: pointer;
+}
+
+.extension-toast-source {
+  grid-column: 2 / -1;
+  color: #a9afbb;
+  font-size: 0.8rem;
+}
+
+.extension-toast-progress {
+  grid-column: 1 / -1;
+  height: 2px;
+  overflow: hidden;
+  background: #3a4252;
+}
+
+.extension-toast-progress[hidden] {
+  display: none;
+}
+
+.extension-toast-progress-bit {
+  height: 100%;
+  background: #4daafc;
+  transition: width 100ms linear;
+}
+
+.extension-toast-progress.infinite .extension-toast-progress-bit {
+  width: 30%;
+  animation: extension-toast-progress 1.2s linear infinite;
+}
+
+@keyframes extension-toast-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .extension-toast-progress.infinite .extension-toast-progress-bit {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.extension-toast button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
 }

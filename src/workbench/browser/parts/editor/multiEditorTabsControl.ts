@@ -9,7 +9,9 @@ import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolb
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { IEditorCommandsContext } from '../../../common/editor.js';
@@ -19,11 +21,15 @@ import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDro
 import type { DraggedEditorItem } from '../../dnd.js';
 import { mergeDroppedGroup } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView } from './editor.js';
+import { EditorTabIcon } from './editorTabIcon.js';
 import './media/multieditortabscontrol.css';
 
 interface ITab {
   readonly element: HTMLElement;
   readonly label: HTMLElement;
+  readonly name: HTMLElement;
+  readonly description: HTMLElement;
+  readonly readonly: HTMLElement;
   readonly close: HTMLButtonElement;
   readonly disposables: DisposableStore;
 }
@@ -83,6 +89,8 @@ export class MultiEditorTabsControl extends Disposable {
     @IInstantiationService instantiationService: IInstantiationService,
     @IModelService private readonly modelService: IModelService,
     @ILanguageService private readonly languageService: ILanguageService,
+    @IFileService private readonly files: IFileService,
+    @IThemeService private readonly themes: IThemeService,
   ) {
     super();
     const container = append(parent, $('.tabs-and-actions-container'));
@@ -220,6 +228,9 @@ export class MultiEditorTabsControl extends Disposable {
         this.updateActive();
         break;
       case GroupModelChangeKind.EDITOR_LABEL:
+        // Another tab's description may depend on this one's name.
+        this.updateTabs();
+        break;
       case GroupModelChangeKind.EDITOR_DIRTY:
         if (event.editor) {
           this.updateTab(event.editor);
@@ -244,14 +255,14 @@ export class MultiEditorTabsControl extends Disposable {
       if (!tab) {
         tab = this.createTab(editor);
         this.tabs.set(editor, tab);
-        // A tab that stays is kept current by its editor's label and dirty events.
-        this.updateTab(editor);
       }
       // Only move what is out of place, so a tab that keeps its place keeps its focus.
       if (this.tabsContainer.children[index] !== tab.element) {
         this.tabsContainer.insertBefore(tab.element, this.tabsContainer.children[index] ?? null);
       }
     });
+    // A tab that comes or goes can make another's name the same as a third's, or unique again.
+    this.updateTabs();
     this.updateActive();
   }
 
@@ -261,6 +272,14 @@ export class MultiEditorTabsControl extends Disposable {
     // children are presentational, so a button inside it would not be one.
     const element = $('.tab', { role: 'none' });
     const label = append(element, $('.tab-label', { role: 'tab' }));
+    if (editor.onDidChangeTabIcon || editor.getTabIcon()) {
+      disposables.add(new EditorTabIcon(label, editor, this.files, this.themes));
+    }
+    const name = append(label, $('span.tab-name'));
+    // The description and the lock are read out through the tab's description, not its name.
+    const description = append(label, $('span.tab-description', { 'aria-hidden': 'true', hidden: '' }));
+    const readonly = append(label, $('span.tab-readonly', { 'aria-hidden': 'true', hidden: '' }));
+    readonly.append(renderIcon({ id: 'lock-small' }) ?? '🔒');
     const close = append(element, $('button.tab-close', { type: 'button', tabindex: -1 }) as HTMLButtonElement);
     element.draggable = true;
     disposables.add(addDisposableListener(element, 'dragstart', (event: DragEvent) => {
@@ -342,21 +361,61 @@ export class MultiEditorTabsControl extends Disposable {
         getActions: () => withContext(actions, context),
       });
     }));
-    return { element, label, close, disposables };
+    return { element, label, name, description, readonly, close, disposables };
   }
 
-  private updateTab(editor: EditorInput): void {
+  private updateTabs(): void {
+    const descriptions = this.descriptionsByName();
+    for (const editor of this.tabs.keys()) {
+      this.updateTab(editor, descriptions);
+    }
+  }
+
+  /** The descriptions the tabs of each name have, read once for all the tabs rather than once per pair. */
+  private descriptionsByName(): Map<string, Set<string | undefined>> {
+    const byName = new Map<string, Set<string | undefined>>();
+    for (const editor of this.tabs.keys()) {
+      const name = editor.getName();
+      let descriptions = byName.get(name);
+      if (!descriptions) {
+        descriptions = new Set();
+        byName.set(name, descriptions);
+      }
+      descriptions.add(editor.getDescription());
+    }
+    return byName;
+  }
+
+  /**
+   * The editor's description when another tab of the group has the same name and a different
+   * description, as VS Code tells two `index.md` apart by their folders.
+   */
+  private getDuplicateDescription(
+    editor: EditorInput, name: string, descriptions: Map<string, Set<string | undefined>>,
+  ): string | undefined {
+    const description = editor.getDescription();
+    // The editor's own description is in the set: a second one means another tab differs.
+    return description && (descriptions.get(name)?.size ?? 0) > 1 ? description : undefined;
+  }
+
+  private updateTab(editor: EditorInput, descriptions = this.descriptionsByName()): void {
     const tab = this.tabs.get(editor);
     if (!tab) {
       return;
     }
     const name = editor.getName();
     const dirty = editor.isDirty();
-    tab.label.textContent = name;
-    tab.element.title = name;
+    const readonly = editor.isReadonly();
+    const description = this.getDuplicateDescription(editor, name, descriptions);
+    tab.name.textContent = name;
+    tab.description.textContent = description ?? '';
+    tab.description.hidden = description === undefined;
+    tab.readonly.hidden = !readonly;
+    tab.element.title = editor.getTitle();
     tab.element.classList.toggle('dirty', dirty);
-    if (dirty) {
-      tab.label.setAttribute('aria-description', 'Modified');
+    const notes = [description, dirty ? 'Modified' : undefined, readonly ? 'Read-only' : undefined].filter(Boolean);
+    if (notes.length) {
+      tab.label.setAttribute('aria-description', notes.join(', '));
     } else {
       tab.label.removeAttribute('aria-description');
     }

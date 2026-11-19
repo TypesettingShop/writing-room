@@ -1,3 +1,4 @@
+import { extensionActivation } from './extHostExtensionActivator.js';
 import { extHostApiRegistry, promiseApiMethod } from './extHostApiRegistry.js';
 import { MainThreadCommandsProxy, ExtHostCommandsProxy } from './extHost.protocol.commands.js';
 import type * as vscode from 'vscode';
@@ -7,6 +8,7 @@ import type { ExtHostCommandsShape, MainThreadCommandsShape } from './extHost.pr
 type Command = { callback: (...args: any[]) => unknown; thisArg: unknown };
 
 export class ExtHostCommands implements ExtHostCommandsShape {
+  private readonly identifiers = new Map<string, string>();
   private readonly commands = new Map<string, Map<string, Command>>();
   private readonly pending = new Map<string, Set<Promise<void>>>();
 
@@ -16,12 +18,20 @@ export class ExtHostCommands implements ExtHostCommandsShape {
     private readonly resolveArgument: (extension: string, argument: unknown) => unknown,
   ) {}
 
+  setExtensionIdentifier(key: string, id: string): void {
+    this.identifiers.set(key, id);
+  }
+
+  private extensionId(key: string): string {
+    return this.identifiers.get(key) ?? 'unknown extension';
+  }
+
   registerCommand(extension: string, id: string, callback: Command['callback'], thisArg?: unknown): vscode.Disposable {
     if (!id || typeof callback !== 'function') {
       throw new TypeError('A command needs an id and a handler.');
     }
     if (!this.isLive(extension)) {
-      throw new Error(`Extension '${extension}' is no longer active.`);
+      throw new Error(`Extension '${this.extensionId(extension)}' is no longer active.`);
     }
     const commands = this.commands.get(extension) ?? new Map<string, Command>();
     if (commands.has(id)) {
@@ -54,7 +64,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
       // A rejected registration stays pending so that flush() fails activation however early it settled.
       error => {
         if (this.isLive(extension)) {
-          console.error(`[${extension}] Command registration failed:`, error);
+          console.error(`[${this.extensionId(extension)}] Command registration failed:`, error);
         }
       },
     );
@@ -66,7 +76,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
 
   executeCommand<T>(extension: string, id: string, args: unknown[]): Promise<T> {
     if (!this.isLive(extension)) {
-      return Promise.reject(new Error(`Extension '${extension}' is no longer active.`));
+      return Promise.reject(new Error(`Extension '${this.extensionId(extension)}' is no longer active.`));
     }
     return (this.commands.get(extension)?.has(id)
       ? this.$executeContributedCommand(extension, id, args)
@@ -75,7 +85,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
 
   async $executeContributedCommand(extension: string, id: string, args: unknown[]): Promise<unknown> {
     if (!this.isLive(extension)) {
-      throw new Error(`Extension '${extension}' is no longer active.`);
+      throw new Error(`Extension '${this.extensionId(extension)}' is no longer active.`);
     }
     const command = this.commands.get(extension)?.get(id);
     if (!command) {
@@ -84,7 +94,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
     try {
       return await command.callback.apply(command.thisArg, args.map(argument => this.resolveArgument(extension, argument)));
     } catch (error) {
-      console.error(`[${extension}] Command '${id}' failed:`, error);
+      console.error(`[${this.extensionId(extension)}] Command '${id}' failed:`, error);
       throw error;
     }
   }
@@ -93,6 +103,7 @@ export class ExtHostCommands implements ExtHostCommandsShape {
     const commands = this.commands.get(extension);
     this.commands.delete(extension);
     this.pending.delete(extension);
+    this.identifiers.delete(extension);
     if (!commands) {
       return;
     }
@@ -110,15 +121,27 @@ extHostApiRegistry.register('commands', services => {
   services.rpc.set(ExtHostCommandsProxy, commands);
   return {
     service: commands,
-    create: ({ key }) => ({
-      types: { Disposable, EventEmitter },
-      namespaces: {
-        commands: {
-          registerCommand: (command, callback, thisArg) => commands.registerCommand(key, command, callback, thisArg),
-          executeCommand: promiseApiMethod(<T>(command: string, ...args: unknown[]) => commands.executeCommand<T>(key, command, args)),
-        } satisfies Pick<typeof vscode.commands, 'registerCommand' | 'executeCommand'>,
-      },
-    }),
+    create: extension => {
+      const { id, key } = extension;
+      const registered = extensionActivation.get(extension)?.commands;
+      commands.setExtensionIdentifier(key, id);
+      return {
+        types: { Disposable, EventEmitter },
+        namespaces: {
+          commands: {
+            registerCommand: (command, callback, thisArg) => {
+              const registration = commands.registerCommand(key, command, callback, thisArg);
+              registered?.add(command);
+              return new Disposable(() => {
+                registered?.delete(command);
+                registration.dispose();
+              });
+            },
+            executeCommand: promiseApiMethod(<T>(command: string, ...args: unknown[]) => commands.executeCommand<T>(key, command, args)),
+          } satisfies Pick<typeof vscode.commands, 'registerCommand' | 'executeCommand'>,
+        },
+      };
+    },
     flush: key => commands.flush(key),
     release: key => commands.remove(key),
   };
