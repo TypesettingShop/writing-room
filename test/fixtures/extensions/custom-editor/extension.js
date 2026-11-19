@@ -3,7 +3,7 @@ const vscode = require('vscode');
 /** What the tests read back through "Fixture: Probe Custom Editor". */
 const log = {
   activations: 0, closed: [], disposed: [], cancelled: [], lateResults: 0,
-  documentsOpened: [], documentsDisposed: [], saves: 0, reverts: 0,
+  documentsOpened: [], documentsDisposed: [], saves: 0, reverts: 0, undos: 0,
 };
 let releaseSlow;
 
@@ -70,6 +70,7 @@ function counterProvider(context) {
         <pre id="text">${document.value}</pre>
         <button id="append">Increment</button>
         <button id="fail">Fail Next Save</button>
+        <input id="field" aria-label="Field">
         <script src="${script}"></script>`;
       panel.webview.onDidReceiveMessage(message => {
         if (message && message.type === 'append') {
@@ -77,7 +78,7 @@ function counterProvider(context) {
           show(document);
           changed.fire({
             document, label: 'Increment',
-            undo: () => { document.value--; show(document); },
+            undo: () => { log.undos++; document.value--; show(document); },
             redo: () => { document.value++; show(document); },
           });
         } else if (message && message.type === 'fail') {

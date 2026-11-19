@@ -33,6 +33,7 @@ interface Probe {
   readonly documentsDisposed: string[];
   readonly saves: number;
   readonly reverts: number;
+  readonly undos: number;
 }
 
 /** What the fixture extension saw, as it reports it in a notification. */
@@ -266,6 +267,22 @@ test('an editable custom document undoes in order, saves through its provider an
   await expect(tab).toHaveAccessibleDescription('Modified');
   // A key pressed in the Webview reaches the workbench's Undo.
   await page.keyboard.press('ControlOrMeta+z');
+  await expect(counter.locator('#text')).toHaveText('1');
+  // In an input of the Webview the key is the input's own: the document is not undone with it.
+  const { undos } = await probe(page);
+  const field = counter.getByRole('textbox', { name: 'Field' });
+  await field.pressSequentially('ab');
+  await expect(field).toHaveValue('ab');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(field).not.toHaveValue('ab');
+  // The probe runs after any undo the key would have sent to the extension host.
+  expect((await probe(page)).undos).toBe(undos);
+  // Three toasts show at once: the probes make room for the ones below.
+  const probes = page.locator('section.extension-toast').filter({ hasText: /^Probe \{/ });
+  for (let left = await probes.count(); left > 0; left--) {
+    await probes.first().getByRole('button', { name: 'Dismiss message' }).click();
+    await expect(probes).toHaveCount(left - 1);
+  }
   await expect(counter.locator('#text')).toHaveText('1');
   await command(page, 'Edit: Undo');
   await expect(counter.locator('#text')).toHaveText('0');
