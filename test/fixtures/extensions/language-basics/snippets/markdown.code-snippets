@@ -1,0 +1,17 @@
+{
+  // Written for the fixture; the shape is VS Code's snippet file.
+  "Insert bold text": {
+    "prefix": "bold",
+    "body": "**${1:${TM_SELECTED_TEXT}}**$0",
+    "description": "Insert bold text"
+  },
+  "Insert fenced code block": {
+    "prefix": ["fenced", "codeblock"],
+    "body": ["```${1:language}", "${TM_SELECTED_TEXT}$0", "```"],
+    "description": "Insert fenced code block"
+  },
+  "Not a snippet": {
+    "prefix": 42,
+    "body": "dropped"
+  },
+}

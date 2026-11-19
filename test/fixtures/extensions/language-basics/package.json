@@ -1,0 +1,99 @@
+{
+  "name": "language-basics",
+  "publisher": "fixtures",
+  "displayName": "Language Basics Fixture",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "browser": "./extension.js",
+  "activationEvents": [
+    "onCommand:languageBasics.reportLanguages",
+    "onCommand:languageBasics.reportScopes",
+    "onCommand:languageBasics.fixtureAction"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "languageBasics.reportLanguages",
+        "title": "Report Language Ids",
+        "category": "Language Basics"
+      },
+      {
+        "command": "languageBasics.reportScopes",
+        "title": "Report Token Scopes",
+        "category": "Language Basics"
+      },
+      {
+        "command": "languageBasics.fixtureAction",
+        "title": "Fixture Language Action"
+      }
+    ],
+    "languages": [
+      {
+        "id": "fixturelang",
+        "aliases": [
+          "Fixture Language",
+          "fixturelang"
+        ],
+        "extensions": [
+          ".fxl",
+          ".fixture.md"
+        ],
+        "filenames": [
+          "FIXTUREFILE"
+        ],
+        "firstLine": "^#!fixture",
+        "configuration": "./fixturelang-configuration.json"
+      },
+      {
+        "id": "markdown",
+        "aliases": [
+          "Markdown",
+          "markdown"
+        ],
+        "extensions": [
+          ".md",
+          ".mkd"
+        ],
+        "configuration": "./markdown-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fixturelang",
+        "scopeName": "source.fixturelang",
+        "path": "./syntaxes/fixturelang.tmLanguage.json"
+      },
+      {
+        "language": "markdown",
+        "scopeName": "text.html.markdown",
+        "path": "./syntaxes/markdown.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.fixturelang": "fixturelang",
+          "meta.embedded.block.unregistered": "no-such-language"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "markdown",
+        "path": "./snippets/markdown.code-snippets"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "languageBasics.fixtureAction",
+          "when": "editorLangId == fixturelang"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "languageBasics.fixtureAction",
+          "when": "false"
+        }
+      ]
+    }
+  }
+}

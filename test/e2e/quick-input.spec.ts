@@ -131,6 +131,7 @@ test('recent commands survive reload and appear once above the other commands', 
   const recent = page.getByRole('group', { name: 'Recently Used' });
   await expect(recent.getByRole('option')).toHaveAccessibleName('View: Open Outline');
   await expect(page.getByRole('option', { name: 'View: Open Outline' })).toHaveCount(1);
+  // The workbench's Change Language Mode (wr-1ejz.31d) sorts before the harness's own commands.
   await expect(page.getByRole('group', { name: 'Other Commands' }).getByRole('option').first())
-    .toHaveAccessibleName('Document: Export Draft');
+    .toHaveAccessibleName('Change Language Mode');
 });
