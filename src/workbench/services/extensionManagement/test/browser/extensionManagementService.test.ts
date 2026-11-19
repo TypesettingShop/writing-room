@@ -2,7 +2,9 @@ import { expect, test, vi } from 'vitest';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
+import { ExtensionPackageStore } from '../../browser/extensionPackageStore.js';
 import { userExtensionsKey, WebExtensionsScannerService } from '../../browser/webExtensionsScannerService.js';
 import { ExtensionManagementService, normalizeExtensionLocation } from '../../common/extensionManagementService.js';
 
@@ -11,7 +13,8 @@ const manifest = { name: 'fixture', publisher: 'Example', version: '1.0.0', brow
 
 function setup(load: typeof fetch = async () => Response.json(manifest)) {
   const storage = new InMemoryStorageService();
-  const scanner = new WebExtensionsScannerService(storage);
+  const scanner = new WebExtensionsScannerService(null, storage);
+  const packages = new ExtensionPackageStore(Date.now, new FileService());
   const extensions: IExtensionDescription[] = [];
   const active = Object.assign(new NullExtensionService(), {
     extensions,
@@ -26,7 +29,7 @@ function setup(load: typeof fetch = async () => Response.json(manifest)) {
     }),
   });
   const fetch = vi.fn(load);
-  const service = new ExtensionManagementService(fetch, scanner, active);
+  const service = new ExtensionManagementService(fetch, scanner, active, packages);
   return { storage, scanner, fetch, active, service };
 }
 
@@ -72,7 +75,7 @@ test('serializes concurrent installs and removes both catalog and active registr
   expect(fetch).toHaveBeenCalledOnce();
   expect(active.addExtension).toHaveBeenCalledOnce();
   expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({
-    identifier: 'example.fixture', location, installedAt: expect.any(Number), manifest,
+    identifier: 'example.fixture', location, installedAt: expect.any(Number), manifest, source: 'location', version: '1.0.0',
   })]);
   await expect(service.installFromLocation(location, confirm)).rejects.toThrow('already installed');
   await expect(service.uninstall('EXAMPLE.FIXTURE')).resolves.toBe(true);
@@ -80,11 +83,13 @@ test('serializes concurrent installs and removes both catalog and active registr
   expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
 });
 
-test('starts no contribution when writing fails and restores the list when registration fails', async () => {
+test('leaves no contribution when writing fails and writes no list when registration fails', async () => {
   const { storage, scanner, active, service } = setup();
-  const write = vi.spyOn(scanner, 'write').mockRejectedValueOnce(new Error('write failed'));
+  const write = vi.spyOn(storage, 'storeImmediately').mockImplementationOnce(() => { throw new Error('write failed'); });
   await expect(service.installFromLocation(location, async () => true)).rejects.toThrow('write failed');
-  expect(active.addExtension).not.toHaveBeenCalled();
+  // A folder install registers before the cross-tab write and unregisters when that write fails.
+  expect(active.extensions).toEqual([]);
+  expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
   write.mockRestore();
   active.addExtension.mockReturnValueOnce(false);
   await expect(service.installFromLocation(location, async () => true)).rejects.toThrow('Could not register');
@@ -147,9 +152,9 @@ test('restores good saved records around invalid or corrupt data', () => {
   const { storage, scanner } = setup();
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
-    const record = { identifier: 'Example.Fixture', location, manifest, installedAt: 1 };
+    const record = { identifier: 'example.fixture', location, manifest, installedAt: 1, source: 'location', version: '1.0.0' };
     storage.store(userExtensionsKey, [null, { ...record, identifier: 'wrong.id' }, record], StorageScope.PROFILE, StorageTarget.USER);
-    expect(scanner.scanUserExtensions()).toEqual([{ ...record, identifier: 'example.fixture' }]);
+    expect(scanner.scanUserExtensions()).toEqual([record]);
     expect(warn).toHaveBeenCalledTimes(2);
     storage.store(userExtensionsKey, 'corrupt', StorageScope.PROFILE, StorageTarget.USER);
     expect(scanner.scanUserExtensions()).toEqual([]);

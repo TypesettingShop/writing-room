@@ -7,7 +7,8 @@ import { AbstractStorageService, IStorageService, parseStorageKey, WillSaveState
 
 export const STORAGE_PREFIX = 'writing-room:storage:';
 export const STORAGE_VERSION_KEY = STORAGE_PREFIX + 'version';
-export const STORAGE_SCHEMA_VERSION = 1;
+// 2: installed extension records carry their source and version (webExtensionsScannerService.ts migrates 1).
+export const STORAGE_SCHEMA_VERSION = 2;
 
 // Draft keys have the scope prefix produced by storageKey, with no browser prefix.
 type StorageMigration = (draft: Map<string, string>) => undefined;

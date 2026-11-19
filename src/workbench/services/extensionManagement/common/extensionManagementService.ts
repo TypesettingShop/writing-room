@@ -1,28 +1,143 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { fetchBoundedResource, ResourceRequestError } from '../../../../base/parts/request/common/boundedFetch.js';
-import { isRecord, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
+import { readVsix, vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { isRecord, isValidExtensionVersion, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription, IExtensionManifest } from '../../../../platform/extensions/common/extensions.js';
+import type { VsixFile, VsixPackage } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
-import { extensionResourceLimits, resolveExtensionPath } from '../../extensions/common/extensionResources.js';
+import { product } from '../../../../platform/product/common/product.js';
+import { extensionResourceLimits, resolveExtensionEntry, resolveExtensionPath } from '../../extensions/common/extensionResources.js';
 import { IExtensionService } from '../../extensions/common/extensions.js';
 
+export type ExtensionSource = 'location' | 'vsix' | 'gallery';
+export type ExtensionSignatureState = 'verified' | 'unsigned' | 'unverifiable';
+
+/** An installed extension record, storage schema 2. */
 export interface StoredWebExtension {
   readonly identifier: string;
   readonly location: string;
   readonly manifest: IExtensionManifest;
   readonly installedAt: number;
+  readonly source: ExtensionSource;
+  readonly version: string;
+  /** Lowercase hex SHA-256 of the package bytes; package sources only. */
+  readonly packageSha256?: string;
+  /** Package sources only. */
+  readonly signature?: ExtensionSignatureState;
+  readonly galleryUrl?: string;
+  readonly nls?: Readonly<Record<string, string>>;
 }
+
+/** Replaces the installed list while the caller holds the installed-list lock. */
+export type InstalledListWriter = (extensions: readonly StoredWebExtension[]) => Promise<void>;
 
 export const IWebExtensionsScannerService = createDecorator<IWebExtensionsScannerService>('webExtensionsScannerService');
 
 export interface IWebExtensionsScannerService extends BrandedService {
+  /** The list this tab last saw. It can lag behind a write in another tab. */
   scanUserExtensions(): readonly StoredWebExtension[];
-  write(extensions: readonly StoredWebExtension[]): Promise<() => Promise<void>>;
+  /**
+   * Runs `task` while this tab and every other tab of the origin are kept out of the installed list.
+   * `read` returns the persisted list, not this tab's cache. `locations` returns every location a persisted
+   * record names, invalid records included, or undefined when the list cannot be parsed. The lock is not reentrant.
+   */
+  locked<T>(task: (
+    read: () => readonly StoredWebExtension[], write: InstalledListWriter, locations: () => ReadonlySet<string> | undefined,
+  ) => Promise<T>): Promise<T>;
+}
+
+/** Extracted package files waiting under a temporary folder of the package store. */
+export interface StagedExtensionPackage {
+  readonly identifier: string;
+  readonly version: string;
+}
+
+export const IExtensionPackageStore = createDecorator<IExtensionPackageStore>('extensionPackageStore');
+
+export interface IExtensionPackageStore extends BrandedService {
+  /** False when the browser storage fell back to memory for this session. */
+  isPersistent(): Promise<boolean>;
+  /** Writes the package's files under a new temporary folder and checks that they all arrived. */
+  stage(pkg: VsixPackage, signal?: AbortSignal, preloaded?: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>): Promise<StagedExtensionPackage>;
+  /** Moves the staged files to their package folder in one storage transaction and returns its location. */
+  commit(staged: StagedExtensionPackage, overwrite: boolean): Promise<string>;
+  discard(staged: StagedExtensionPackage): Promise<void>;
+  /** Removes `location` and everything below it when it is a package folder. */
+  remove(location: string): Promise<void>;
+  /** Removes temporary folders and package folders missing from `recorded` that are older than an hour. */
+  cleanup(recorded: ReadonlySet<string>): Promise<void>;
 }
 
 export const IExtensionManagementService = createDecorator<ExtensionManagementService>('extensionManagementService');
+
+/** Where a package came from, as the confirmation shows it. */
+export interface PackageInstallSource {
+  readonly kind: 'vsix';
+  /** The file name or the URL the bytes came from. */
+  readonly label: string;
+}
+
+/** What the person confirms. Every value describes the bytes that are installed after confirmation. */
+export interface PackageInstallConfirmation {
+  readonly identifier: string;
+  readonly manifest: IExtensionManifest;
+  /** The display name with its `%key%` placeholder replaced from the package's localized strings. */
+  readonly displayName: string;
+  readonly source: PackageInstallSource;
+  /** Size of the package as received, in bytes. */
+  readonly size: number;
+  readonly sha256: string;
+  readonly signature: ExtensionSignatureState;
+  /** The `engines.vscode` range, which matched `product.version`. */
+  readonly engine: string;
+  /** False when the package has no `browser` entry: only its contributions apply. */
+  readonly isWebExtension: boolean;
+  /** The record this install replaces (another version) or reinstalls (the same version). */
+  readonly existing?: Pick<StoredWebExtension, 'version' | 'source'>;
+  /** False when browser storage keeps files for this session only. */
+  readonly persistent: boolean;
+  readonly warnings: readonly string[];
+}
+
+export interface PackageInstallOptions {
+  readonly signal?: AbortSignal;
+  /** The display language whose `package.nls.<language>.json` is read besides `package.nls.json`. */
+  readonly language?: string;
+}
+
+export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function readNlsBundle(bytes: Uint8Array, path: string): Record<string, string> {
+  const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  if (!isRecord(value)) {
+    throw new Error(path + ' must contain a JSON object.');
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const message = isRecord(entry) ? entry.message : entry;
+    if (typeof message === 'string') {
+      result[key] = message;
+    }
+  }
+  return result;
+}
+
+/** The folder that holds every package folder, as a location string. */
+export const extensionPackageRoot = 'vscode-userdata:/extensions/';
+
+/** The only place a package of this identifier and version may run from. */
+export function extensionPackageLocation(identifier: string, version: string): string {
+  return extensionPackageRoot + identifier.toLowerCase() + '-' + version + '/';
+}
+
+export function isExtensionPackageLocation(location: string): boolean {
+  return location.startsWith(extensionPackageRoot);
+}
 
 export function normalizeExtensionLocation(value: string): URL {
   let url: URL;
@@ -44,6 +159,38 @@ export function normalizeExtensionLocation(value: string): URL {
     url.pathname += '/';
   }
   return url;
+}
+
+/** The display name, with a `%key%` placeholder replaced from the extension's localized strings. */
+export function localizedDisplayName(manifest: IExtensionManifest, nls: Readonly<Record<string, string>> | undefined): string {
+  const name = manifest.displayName ?? manifest.name;
+  const key = /^%(.+)%$/.exec(name)?.[1];
+  return (key && nls?.[key]) || name;
+}
+
+/** Whether `value` names a `.vsix` file rather than an extension folder. */
+export function isPackageUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).pathname.toLowerCase().endsWith('.vsix');
+  } catch {
+    return false;
+  }
+}
+
+/** The folder URL rules, for a `.vsix` file: the query stays, as a download link may need it. */
+export function normalizePackageUrl(value: string): URL {
+  normalizeExtensionLocation(value);
+  const original = new URL(value.trim());
+  original.hash = '';
+  if (!original.pathname.toLowerCase().endsWith('.vsix')) {
+    throw new Error('Enter the URL of a .vsix file.');
+  }
+  return original;
+}
+
+/** Whether the manifest has `%key%` values that a `package.nls.json` replaces. */
+export function usesNlsPlaceholders(manifest: IExtensionManifest): boolean {
+  return /"%[^"%\\]+%"/.test(JSON.stringify(manifest));
 }
 
 export function validateInstalledManifest(input: unknown, location: string): IExtensionManifest {
@@ -70,20 +217,78 @@ export function validateInstalledManifest(input: unknown, location: string): IEx
   return manifest;
 }
 
-export function toExtensionDescription(extension: Pick<StoredWebExtension, 'identifier' | 'location' | 'manifest'>): IExtensionDescription {
-  const { identifier, location, manifest } = extension;
-  return { identifier: new ExtensionIdentifier(identifier), location, manifest, isBuiltin: false };
+const sources: ReadonlySet<unknown> = new Set<ExtensionSource>(['location', 'vsix', 'gallery']);
+const signatures: ReadonlySet<unknown> = new Set<ExtensionSignatureState>(['verified', 'unsigned', 'unverifiable']);
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every(entry => typeof entry === 'string');
+}
+
+/**
+ * Validates one saved record of schema 2. The location must be the record's own package folder, or a
+ * folder URL for a `location` install, so an edited record cannot point at another extension's code.
+ */
+export function validateStoredExtension(entry: unknown): StoredWebExtension {
+  if (!isRecord(entry) || typeof entry.identifier !== 'string' || typeof entry.location !== 'string'
+    || typeof entry.installedAt !== 'number' || !Number.isFinite(entry.installedAt) || entry.installedAt < 0
+    || !sources.has(entry.source) || typeof entry.version !== 'string') {
+    throw new Error('Invalid installed extension record.');
+  }
+  const source = entry.source as ExtensionSource;
+  let location: string;
+  if (source === 'location') {
+    location = normalizeExtensionLocation(entry.location).href;
+  } else {
+    if (entry.location !== extensionPackageLocation(entry.identifier, entry.version)
+      || typeof entry.packageSha256 !== 'string' || !/^[\da-f]{64}$/.test(entry.packageSha256)
+      || !signatures.has(entry.signature)) {
+      throw new Error(`Invalid package record for '${entry.identifier}'.`);
+    }
+    location = entry.location;
+  }
+  const manifest = validateInstalledManifest(entry.manifest, location);
+  const identifier = ExtensionIdentifier.fromManifest(manifest).value;
+  if (entry.identifier !== identifier || entry.version !== manifest.version) {
+    throw new Error(`The record of '${entry.identifier}' does not match its manifest.`);
+  }
+  if (entry.galleryUrl !== undefined && (source !== 'gallery' || typeof entry.galleryUrl !== 'string')) {
+    throw new Error(`Invalid gallery URL for '${identifier}'.`);
+  }
+  if (entry.nls !== undefined && !isStringRecord(entry.nls)) {
+    throw new Error(`Invalid localized strings for '${identifier}'.`);
+  }
+  return {
+    identifier, location, manifest, installedAt: entry.installedAt, source, version: entry.version,
+    ...(source === 'location' ? {} : {
+      packageSha256: entry.packageSha256 as string, signature: entry.signature as ExtensionSignatureState,
+    }),
+    ...(entry.galleryUrl === undefined ? {} : { galleryUrl: entry.galleryUrl as string }),
+    ...(entry.nls === undefined ? {} : { nls: entry.nls as Record<string, string> }),
+  };
+}
+
+export function toExtensionDescription(
+  extension: Pick<StoredWebExtension, 'identifier' | 'location' | 'manifest' | 'nls'>,
+): IExtensionDescription {
+  const { identifier, location, manifest, nls } = extension;
+  return { identifier: new ExtensionIdentifier(identifier), location, manifest, isBuiltin: false, ...(nls ? { nls } : {}) };
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export class ExtensionManagementService {
   declare readonly _serviceBrand: undefined;
   private readonly pendingLocations = new Map<string, Promise<IExtensionDescription | undefined>>();
-  private writes = Promise.resolve();
+  private readonly pendingPackages = new Map<string, Promise<IExtensionDescription | undefined>>();
+  private changes: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly fetchManifest: typeof fetch,
     @IWebExtensionsScannerService private readonly scanner: IWebExtensionsScannerService,
     @IExtensionService private readonly active: IExtensionService,
+    @IExtensionPackageStore private readonly packages: IExtensionPackageStore,
   ) {}
 
   get installed(): readonly IExtensionDescription[] {
@@ -112,24 +317,223 @@ export class ExtensionManagementService {
     const manifest = validateInstalledManifest(await this.loadManifest(location), location.href);
     const identifier = ExtensionIdentifier.fromManifest(manifest).value;
     this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
-    const stored = { identifier, location: location.href, manifest };
-    const description = toExtensionDescription(stored);
+    const nls = usesNlsPlaceholders(manifest) ? await this.loadNls(location) : undefined;
+    const description = toExtensionDescription({ identifier, location: location.href, manifest, nls });
     if (!await confirm(description)) {
       return undefined;
     }
-    return this.write(async () => {
-      const installed = this.scanner.scanUserExtensions();
-      this.ensureAvailable(identifier, installed);
-      const rollback = await this.scanner.write([...installed, { ...stored, installedAt: Date.now() }]);
+    const record: StoredWebExtension = {
+      identifier, location: location.href, manifest, installedAt: Date.now(), source: 'location', version: manifest.version,
+      ...(nls ? { nls } : {}),
+    };
+    return this.serialize(async () => {
+      // A folder install has no files to stage, so it registers first: its commands are there as soon as the
+      // confirmation closes, not only after the cross-tab lock is granted. A failed write unregisters it again.
+      this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
+      if (!this.active.addExtension?.(description)) {
+        throw new Error(`Could not register extension '${identifier}'.`);
+      }
       try {
-        if (!this.active.addExtension?.(description)) {
-          throw new Error(`Could not register extension '${identifier}'.`);
-        }
+        await this.scanner.locked(async (read, write) => {
+          const installed = read();
+          if (installed.some(entry => entry.identifier === identifier)) {
+            throw new Error(`'${identifier}' is already installed. Uninstall it before replacing it.`);
+          }
+          await write([...installed, record]);
+        });
       } catch (error) {
-        await rollback();
+        this.active.removeExtension?.(identifier);
         throw error;
       }
       return description;
+    });
+  }
+
+  /**
+   * Runs the part of an install or removal that changes records, folders and registrations, one at a time in
+   * this tab. Without it a removal could run between an install's record write and its registration.
+   */
+  private serialize<T>(change: () => Promise<T>): Promise<T> {
+    const result = this.changes.then(change);
+    this.changes = result.catch(() => {});
+    return result;
+  }
+
+  /**
+   * Installs a VSIX package from bytes already in memory. Nothing is written before `confirm` resolves to
+   * true, and what is written are these bytes, not a second download.
+   */
+  async installPackage(
+    bytes: Uint8Array<ArrayBuffer>,
+    source: PackageInstallSource,
+    confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
+    options: PackageInstallOptions = {},
+  ): Promise<IExtensionDescription | undefined> {
+    await this.active.whenInstalledExtensionsRegistered();
+    if (bytes.byteLength > vsixLimits.download) {
+      throw new Error(`The package is ${bytes.byteLength} bytes, more than the ${vsixLimits.download}-byte limit.`);
+    }
+    const sha256 = await sha256Hex(bytes);
+    const existing = this.pendingPackages.get(sha256);
+    if (existing) {
+      return existing;
+    }
+    const request = this.doInstallPackage(bytes, sha256, source, confirm, options)
+      .finally(() => this.pendingPackages.delete(sha256));
+    this.pendingPackages.set(sha256, request);
+    return request;
+  }
+
+  private async doInstallPackage(
+    bytes: Uint8Array<ArrayBuffer>, sha256: string, source: PackageInstallSource,
+    confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>, { signal, language = 'en' }: PackageInstallOptions,
+  ): Promise<IExtensionDescription | undefined> {
+    const pkg = await readVsix(bytes, signal);
+    const { identifier } = pkg;
+    const version = pkg.manifest.version;
+    const location = extensionPackageLocation(identifier, version);
+    const manifest = validateInstalledManifest(pkg.manifest, location);
+    const engine = manifest.engines?.vscode;
+    if (typeof engine !== 'string' || !isValidExtensionVersion(product.version, engine)) {
+      throw new Error(engine === undefined
+        ? `'${identifier}' does not declare engines.vscode.`
+        : `'${identifier}' requires VS Code ${engine}, which does not include ${product.version}.`);
+    }
+    if (manifest.browser !== undefined) {
+      const entry = resolveExtensionEntry(location, manifest.browser);
+      const path = entry && decodeURIComponent(entry.href.slice(location.length));
+      const file = pkg.files.find(candidate => candidate.path === path);
+      if (!file) {
+        throw new Error(`The browser entry '${manifest.browser}' of '${identifier}' is not in the package.`);
+      }
+      if (file.size > extensionResourceLimits.packageEntry) {
+        throw new Error(`The browser entry '${path}' is ${file.size} bytes, more than the ${extensionResourceLimits.packageEntry}-byte limit.`);
+      }
+    }
+    if (this.active.extensions?.some(entry => entry.isBuiltin && entry.identifier.value === identifier)) {
+      throw new Error(`'${identifier}' is a built-in extension.`);
+    }
+    const warnings = [...pkg.warnings];
+    // Files read before the confirmation are handed to the store, so no file is unpacked twice.
+    const preloaded = new Map<VsixFile, Uint8Array<ArrayBuffer>>();
+    const nls = usesNlsPlaceholders(manifest) ? await this.readPackageNls(pkg, language, warnings, preloaded, signal) : undefined;
+    const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
+    const confirmed = await confirm({
+      identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature: 'unsigned', engine,
+      isWebExtension: manifest.browser !== undefined,
+      existing: previous && { version: previous.version, source: previous.source },
+      persistent: await this.packages.isPersistent(), warnings,
+    });
+    if (!confirmed) {
+      return undefined;
+    }
+
+    const record: StoredWebExtension = {
+      identifier, location, manifest, installedAt: Date.now(), source: 'vsix', version,
+      packageSha256: sha256, signature: 'unsigned', ...(nls ? { nls } : {}),
+    };
+    return this.serialize(() => this.commitPackage(pkg, record, previous, preloaded, signal));
+  }
+
+  private async commitPackage(
+    pkg: VsixPackage, record: StoredWebExtension, previous: StoredWebExtension | undefined,
+    preloaded: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>, signal: AbortSignal | undefined,
+  ): Promise<IExtensionDescription> {
+    const { identifier, location } = record;
+    const staged = await this.packages.stage(pkg, signal, preloaded);
+    let committed = false;
+    try {
+      await this.scanner.locked(async (read, write) => {
+        const installed = read();
+        const current = installed.find(entry => entry.identifier === identifier);
+        if (current?.location !== previous?.location || current?.installedAt !== previous?.installedAt) {
+          throw new Error(`'${identifier}' changed in another window during the install. Try again.`);
+        }
+        // Only `current` can name this identifier and version. A folder there that it does not use is left
+        // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
+        await this.packages.commit(staged, true);
+        committed = true;
+        try {
+          await write([...installed.filter(entry => entry.identifier !== identifier), record]);
+        } catch (error) {
+          await this.removeUnreferenced(location, installed);
+          throw error;
+        }
+      });
+    } catch (error) {
+      if (!committed) {
+        await this.packages.discard(staged).catch(cleanup => console.warn('Could not remove a staged extension package.', cleanup));
+      }
+      throw error;
+    }
+
+    const description = toExtensionDescription(record);
+    const replaced = this.installed.find(extension => extension.identifier.value === identifier);
+    if (replaced) {
+      this.active.removeExtension?.(identifier);
+    }
+    try {
+      if (!this.active.addExtension?.(description)) {
+        throw new Error(`Could not register extension '${identifier}'.`);
+      }
+    } catch (error) {
+      if (previous?.location === location) {
+        // A reinstall already replaced the files that the previous record described. The new record matches them,
+        // so it stays, and the extension registers from it when the workbench starts again.
+        throw new Error(`${describe(error)} The reinstalled package is kept and loads after a reload.`, { cause: error });
+      }
+      await this.restore(record, previous).catch(cleanup => console.error(`Could not restore the record of '${identifier}'.`, cleanup));
+      if (replaced) {
+        this.registerAgain(replaced);
+      }
+      throw error;
+    }
+    if (previous && previous.location !== location) {
+      await this.scanner.locked(async read => this.removeUnreferenced(previous.location, read()))
+        .catch(error => console.warn(`Could not remove the replaced package of '${identifier}'.`, error));
+    }
+    return description;
+  }
+
+  private async readPackageNls(
+    pkg: VsixPackage, language: string, warnings: string[], preloaded: Map<VsixFile, Uint8Array<ArrayBuffer>>, signal?: AbortSignal,
+  ): Promise<Record<string, string> | undefined> {
+    let result: Record<string, string> | undefined;
+    const paths = ['package.nls.json'];
+    if (language.toLowerCase() !== 'en') {
+      paths.push('package.nls.' + language.toLowerCase() + '.json');
+    }
+    for (const path of paths) {
+      const file = pkg.files.find(candidate => candidate.path.toLowerCase() === path);
+      if (!file) {
+        continue;
+      }
+      if (file.size > extensionResourceLimits.nls) {
+        warnings.push(`Ignored ${file.path}: it is larger than ${extensionResourceLimits.nls} bytes.`);
+        continue;
+      }
+      try {
+        const bytes = await pkg.read(file, signal);
+        preloaded.set(file, bytes);
+        result = { ...result, ...readNlsBundle(bytes, file.path) };
+      } catch (error) {
+        warnings.push(`Ignored ${file.path}: ${describe(error)}`);
+      }
+    }
+    return result;
+  }
+
+  /** Puts `previous` back, or removes `record`, unless another write replaced `record` meanwhile. */
+  private restore(record: StoredWebExtension, previous: StoredWebExtension | undefined): Promise<void> {
+    return this.scanner.locked(async (read, write) => {
+      const installed = read();
+      const current = installed.find(entry => entry.identifier === record.identifier);
+      if (current?.location !== record.location || current.installedAt !== record.installedAt) {
+        return;
+      }
+      const restored = [...installed.filter(entry => entry !== current), ...previous ? [previous] : []];
+      await write(restored);
+      await this.removeUnreferenced(record.location, restored);
     });
   }
 
@@ -155,7 +559,7 @@ export class ExtensionManagementService {
       if (error instanceof ResourceRequestError) {
         throw new Error(`Cannot fetch the manifest from ${location.origin}. The server may be unavailable, may require a redirect, or may not allow cross-origin requests (CORS).`);
       }
-      throw new Error(`Could not read package.json from ${location.origin}: ${error instanceof Error ? error.message : error}`);
+      throw new Error(`Could not read package.json from ${location.origin}: ${describe(error)}`);
     }
     try {
       return JSON.parse(text) as unknown;
@@ -164,30 +568,91 @@ export class ExtensionManagementService {
     }
   }
 
-  async uninstall(identifier: string): Promise<boolean> {
-    return this.write(async () => {
-      const id = identifier.toLowerCase();
-      if (!this.installed.some(extension => extension.identifier.value === id)) {
-        return false;
-      }
-      const remaining = this.scanner.scanUserExtensions().filter(extension => extension.identifier !== id);
-      const rollback = await this.scanner.write(remaining);
-      try {
-        if (this.active.removeExtension?.(id)) {
-          return true;
-        }
-      } catch (error) {
-        await rollback();
-        throw error;
-      }
-      await rollback();
-      return false;
-    });
+  /** Reads `package.nls.json` next to a folder install's manifest. A missing or unreadable file is skipped. */
+  private async loadNls(location: URL): Promise<Record<string, string> | undefined> {
+    try {
+      const { bytes } = await fetchBoundedResource(new URL('package.nls.json', location), {
+        limit: extensionResourceLimits.nls, request: this.fetchManifest,
+      });
+      return readNlsBundle(bytes, 'package.nls.json');
+    } catch (error) {
+      console.warn(`Installing without localized manifest strings from ${location.href}.`, error);
+      return undefined;
+    }
   }
 
-  private write<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.writes.then(operation);
-    this.writes = result.then(() => {}, () => {});
-    return result;
+  /** Downloads a `.vsix` once, up to the package limit, and installs exactly those bytes. */
+  async installFromPackageUrl(
+    value: string,
+    confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
+    options: PackageInstallOptions = {},
+  ): Promise<IExtensionDescription | undefined> {
+    await this.active.whenInstalledExtensionsRegistered();
+    const url = normalizePackageUrl(value);
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      ({ bytes } = await fetchBoundedResource(url, {
+        limit: vsixLimits.download, request: this.fetchManifest, signal: options.signal,
+      }));
+    } catch (error) {
+      if (error instanceof ResourceRequestError) {
+        throw new Error(`Cannot download the package from ${url.origin}. The server may be unavailable, may require a redirect, or may not allow cross-origin requests (CORS).`);
+      }
+      throw new Error(`Could not download the package from ${url.origin}: ${describe(error)}`);
+    }
+    return this.installPackage(bytes, { kind: 'vsix', label: url.origin + url.pathname }, confirm, options);
+  }
+
+  /**
+   * Removes the extension from this tab, then its record, then its package folder. A failed record write
+   * registers the extension again; a failed folder removal is left to the startup cleanup.
+   */
+  uninstall(identifier: string): Promise<boolean> {
+    return this.serialize(() => this.remove(identifier));
+  }
+
+  private async remove(identifier: string): Promise<boolean> {
+    const id = identifier.toLowerCase();
+    const description = this.installed.find(extension => extension.identifier.value === id);
+    if (!description || !this.active.removeExtension?.(id)) {
+      return false;
+    }
+    try {
+      await this.scanner.locked(async (read, write) => {
+        const installed = read();
+        const record = installed.find(extension => extension.identifier === id);
+        const remaining = installed.filter(extension => extension.identifier !== id);
+        await write(remaining);
+        if (record) {
+          await this.removeUnreferenced(record.location, remaining);
+        }
+      });
+    } catch (error) {
+      this.registerAgain(description);
+      throw error;
+    }
+    return true;
+  }
+
+  /** Registers an extension again after a failed change. A failure here is logged so the change's error is the one reported. */
+  private registerAgain(description: IExtensionDescription): void {
+    try {
+      if (!this.active.addExtension?.(description)) {
+        console.error(`Could not register '${description.identifier.value}' again.`);
+      }
+    } catch (error) {
+      console.error(`Could not register '${description.identifier.value}' again.`, error);
+    }
+  }
+
+  /** Call while holding the installed-list lock, with the list just written. */
+  private async removeUnreferenced(location: string, installed: readonly StoredWebExtension[]): Promise<void> {
+    if (isExtensionPackageLocation(location) && !installed.some(extension => extension.location === location)) {
+      try {
+        await this.packages.remove(location);
+      } catch (error) {
+        console.warn(`Could not remove the extension package folder '${location}'. It is removed at a later start.`, error);
+      }
+    }
   }
 }
