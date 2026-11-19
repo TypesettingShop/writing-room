@@ -222,3 +222,73 @@ test.describe('TextMate grammars', () => {
     await expect.poll(() => tokenColor(page, 'alpha'), { timeout: 15_000 }).not.toBe(keywordColor);
   });
 });
+
+test.describe('snippets', () => {
+  const suggestions = (page: Page) => activeGroup(page).locator('.suggest-widget');
+  const snippetRow = (page: Page) => suggestions(page).getByRole('option').filter({ hasText: 'Insert bold text' });
+
+  async function suggest(page: Page): Promise<void> {
+    await page.keyboard.press('Control+Space');
+    await expect(suggestions(page)).toBeVisible({ timeout: 15_000 });
+  }
+
+  test('offers a contributed snippet in its language, with tab stops, and not in plain text', async ({ page }) => {
+    const reads = recordRequests(page, /\/language-basics\/snippets\/markdown\.code-snippets$/);
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await page.keyboard.type('bold');
+    await suggest(page);
+    await expect(snippetRow(page)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Delete');
+    await changeLanguage(page, 'Markdown');
+    await page.waitForTimeout(500);
+    expect(reads).toEqual([]);
+    await page.keyboard.type('bold');
+    await suggest(page);
+    await expect(snippetRow(page)).toBeVisible();
+    expect(reads).toHaveLength(1);
+    await snippetRow(page).click();
+    await expect.poll(() => editorText(page)).toBe('****');
+    await page.keyboard.type('x');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('y');
+    await expect.poll(() => editorText(page)).toBe('**x**y');
+  });
+
+  test('puts the selected text where the snippet says TM_SELECTED_TEXT', async ({ page }) => {
+    await openWithLanguageFixtures(page);
+    await newUntitled(page);
+    await changeLanguage(page, 'Markdown');
+    await pasteText(page, 'word');
+    await expect.poll(() => editorText(page)).toBe('word');
+    await activeEditor(page).focus();
+    await page.keyboard.press('End');
+    // Selected from the end back, so the cursor stands before the word and the list is not filtered by it.
+    await page.keyboard.press('Shift+Home');
+    await suggest(page);
+    await snippetRow(page).click();
+    await expect.poll(() => editorText(page)).toBe('**word**');
+  });
+
+  test('a broken snippet file of another extension does not hide these, and removal takes them away', async ({ page }) => {
+    await openWithLanguageFixtures(page, ['', 'broken/']);
+    await newUntitled(page);
+    await changeLanguage(page, 'Markdown');
+    await page.keyboard.type('bold');
+    await suggest(page);
+    await expect(snippetRow(page)).toHaveCount(1);
+    await page.keyboard.press('Escape');
+
+    await runCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /Language Basics Fixture/ }).click();
+    await activeEditor(page).focus();
+    await expect.poll(async () => {
+      await page.keyboard.press('Escape');
+      await suggest(page);
+      return snippetRow(page).count();
+    }, { timeout: 15_000 }).toBe(0);
+  });
+});
