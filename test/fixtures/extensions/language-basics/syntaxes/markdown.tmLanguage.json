@@ -1,0 +1,81 @@
+{
+  "name": "Markdown (fixture)",
+  "scopeName": "text.html.markdown",
+  "patterns": [
+    { "include": "#fenced_fixturelang" },
+    { "include": "#fenced_unregistered" },
+    { "include": "#fenced" },
+    { "include": "#heading" },
+    { "include": "#inline" }
+  ],
+  "repository": {
+    "heading": {
+      "name": "markup.heading.markdown",
+      "match": "^(#{1,6})[ \\t]+(.*)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.heading.markdown" },
+        "2": { "name": "entity.name.section.markdown", "patterns": [{ "include": "#inline" }] }
+      }
+    },
+    "inline": {
+      "patterns": [
+        {
+          "name": "markup.bold.markdown",
+          "match": "(\\*\\*)(?=\\S)(.+?)(?<=\\S)(\\*\\*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.bold.markdown" },
+            "3": { "name": "punctuation.definition.bold.markdown" }
+          }
+        },
+        {
+          "name": "meta.link.inline.markdown",
+          "match": "(\\[)([^\\]]*)(\\])(\\()([^)\\s]*)(\\))",
+          "captures": {
+            "1": { "name": "punctuation.definition.link.title.begin.markdown" },
+            "2": { "name": "string.other.link.title.markdown" },
+            "3": { "name": "punctuation.definition.link.title.end.markdown" },
+            "4": { "name": "punctuation.definition.metadata.markdown" },
+            "5": { "name": "markup.underline.link.markdown" },
+            "6": { "name": "punctuation.definition.metadata.markdown" }
+          }
+        }
+      ]
+    },
+    "fenced_fixturelang": {
+      "name": "markup.fenced_code.block.markdown",
+      "begin": "^(```)(fixturelang)[ \\t]*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.markdown" },
+        "2": { "name": "fenced_code.block.language.markdown" }
+      },
+      "end": "^(```)[ \\t]*$",
+      "endCaptures": { "1": { "name": "punctuation.definition.markdown" } },
+      "patterns": [
+        {
+          "begin": "(^|\\G)",
+          "while": "(^|\\G)(?![ \\t]*```[ \\t]*$)",
+          "contentName": "meta.embedded.block.fixturelang",
+          "patterns": [{ "include": "source.fixturelang" }]
+        }
+      ]
+    },
+    "fenced_unregistered": {
+      "name": "markup.fenced_code.block.markdown",
+      "begin": "^(```)(unregistered)[ \\t]*$",
+      "beginCaptures": { "1": { "name": "punctuation.definition.markdown" } },
+      "end": "^(```)[ \\t]*$",
+      "endCaptures": { "1": { "name": "punctuation.definition.markdown" } },
+      "contentName": "meta.embedded.block.unregistered"
+    },
+    "fenced": {
+      "name": "markup.fenced_code.block.markdown",
+      "begin": "^(```)([\\w-]*)[ \\t]*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.markdown" },
+        "2": { "name": "fenced_code.block.language.markdown" }
+      },
+      "end": "^(```)[ \\t]*$",
+      "endCaptures": { "1": { "name": "punctuation.definition.markdown" } }
+    }
+  }
+}
