@@ -93,8 +93,147 @@ Decided in: wr-efqx.n9k
 
 ## 트리 뷰
 
+`contributes.views`로 기여한 뷰에 `window.createTreeView`나 `window.registerTreeDataProvider`로 트리를 붙인다. v0.1.0의 동작(요소 단위 갱신, 전체 갱신, 컨텍스트 메뉴의 `viewItem`, 항목 커맨드의 기본 인자)은 그대로이고, 이 멤버가 아이콘·체크박스·선택·`reveal`·펼침 이벤트·제목류·드래그 앤 드롭·환영 문구를 더했다(wr-mk2j.uak).
+
+| 표면 | 지원하는 것 |
+| --- | --- |
+| `TreeItem` | `label`, `id`, `description`(문자열), `tooltip`, `command`, `collapsibleState`, `contextValue`, `iconPath`, `resourceUri`, `accessibilityInformation`, `checkboxState`, 생성자 `new TreeItem(resourceUri, collapsibleState)` |
+| `TreeDataProvider` | `getChildren`, `getTreeItem`, `onDidChangeTreeData`, `getParent`(`reveal`에 필요), `resolveTreeItem`(툴팁) |
+| `TreeViewOptions` | `treeDataProvider`, `showCollapseAll`, `canSelectMany`, `dragAndDropController`, `manageCheckboxStateManually` |
+| `TreeView` | `reveal`, `selection`, `onDidChangeSelection`, `visible`, `onDidChangeVisibility`, `onDidExpandElement`, `onDidCollapseElement`, `onDidChangeCheckboxState`, `title`, `description`, `message`, `badge`, `dispose` |
+| 기여 | `contributes.viewsWelcome`(`view`, `contents`, `when`, `enablement`) |
+| 타입 | `TreeItemCheckboxState`, `DataTransfer`, `DataTransferItem` |
+
+```js
+const vscode = require('vscode');
+
+const inbox = { name: 'Inbox', children: [] };
+const draft = { name: 'Draft', parent: inbox };
+inbox.children.push(draft);
+
+const view = vscode.window.createTreeView('notes.list', {
+  treeDataProvider: {
+    getChildren: element => element ? element.children ?? [] : [inbox],
+    getParent: element => element.parent,
+    getTreeItem: element => {
+      const item = new vscode.TreeItem(element.name, element.children
+        ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+      item.id = element.name;
+      item.iconPath = element.children
+        ? new vscode.ThemeIcon('inbox', new vscode.ThemeColor('charts.blue'))
+        : { light: vscode.Uri.joinPath(context.extensionUri, 'media/light.svg'),
+            dark: vscode.Uri.joinPath(context.extensionUri, 'media/dark.svg') };
+      if (!element.children) {
+        item.checkboxState = vscode.TreeItemCheckboxState.Unchecked;
+      }
+      return item;
+    },
+    resolveTreeItem: item => { item.tooltip = 'Loaded on hover'; return item; },
+  },
+  canSelectMany: true,
+  showCollapseAll: true,
+});
+view.onDidChangeSelection(event => console.log(event.selection[0] === draft)); // true: 원래 객체
+await view.reveal(draft, { select: true, focus: true, expand: false });
+view.title = 'Notebook';
+view.badge = { value: 3, tooltip: '3 unread notes' };
+```
+
+### 아이콘과 레이블
+
+- `ThemeIcon`: id가 codicon 이름 꼴(`[a-zA-Z0-9-]+`, 뒤에 `~spin`)일 때만 `codicon-…` 클래스로 그린다. 색(`ThemeIcon.color`)은 색 id 패턴을 지난 id만 `var(--vscode-…)`로 건다. 테마가 값을 주지 않는 id는 변수가 없어 행의 글자 색을 따른다. 색이 없는 `ThemeIcon`은 `icon.foreground`다.
+- `Uri`와 `{ light, dark }`: 메인 스레드가 그 확장의 설치 폴더나 워크스페이스 폴더 안인지 정규화한 뒤 확인한다. 밖이면(다른 확장의 폴더, 임의의 웹 주소, `%2e%2e`로 올라가는 경로) 아이콘을 버린다. 둘 가운데 하나라도 밖이면 쌍 전체를 버린다.
+- 그림은 `IFileService`로 256 KiB까지 읽고(넘으면 그리지 않는다), 확장자가 `svg`, `png`, `jpg`, `jpeg`, `gif`, `webp`인 것만 blob URL을 만들어 `<img>`로 넣는다. SVG를 문서 안에 넣지 않으므로 그림 속 스크립트나 스타일이 워크벤치에 닿지 않는다.
+- 밝은 종류(`vs`, `hc-light`)의 테마에서는 `light`, 그 밖에서는 `dark`를 그린다. 테마가 바뀌면 바로 다른 쪽으로 바꾼다.
+- blob URL은 그 아이콘을 쓰는 행이 없어지면(항목이 사라짐, 테마가 바뀌어 다른 쪽 그림을 씀) 다음 그리기에서 해제하고, 뷰가 닫히면 모두 해제한다. 읽기에 실패한 아이콘은 같은 행이 남아 있는 동안 다시 읽지 않는다.
+- 문자열 `iconPath`(파일 시스템 경로)는 브라우저에서 뜻이 없어 무시한다.
+- `resourceUri`: `label`이 없으면 그 URI의 마지막 경로 조각이 레이블이다.
+- `accessibilityInformation.label`은 행의 `aria-label`이 된다.
+
+### 선택, 펼침, 보임, `reveal`
+
+- 행을 누르면 그 행이 선택되고(항목 커맨드가 있으면 실행), 화살표 키는 초점과 선택을 함께 옮긴다. `canSelectMany`이면 Ctrl(맥은 Cmd)+클릭으로 더하거나 빼고 Shift+클릭이나 Shift+화살표로 범위를 고른다. 선택된 행은 `aria-selected="true"`다.
+- `onDidChangeSelection`, `onDidExpandElement`, `onDidCollapseElement`, `onDidChangeCheckboxState`가 주는 요소는 확장이 `getChildren`으로 준 원래 객체다. 메인 스레드는 핸들만 보내고 확장 호스트가 핸들에서 요소를 되살린다. 다른 확장은 이 뷰의 핸들로 이벤트를 일으킬 수 없다.
+- 펼침 이벤트는 사용자가 펼치거나 접었을 때, `reveal`이 조상을 펼쳤을 때, Collapse All을 눌렀을 때 난다. 제공자가 처음부터 `Expanded`로 준 항목은 이벤트를 내지 않는다.
+- `visible`과 `onDidChangeVisibility`: 뷰 본문이 화면에 크기를 가지고 있으면 보이는 것이다(다른 뷰 컨테이너로 바꾸거나 컨테이너를 패널로 옮겨 숨으면 `false`).
+- `reveal(element, { select, focus, expand })`: 제공자에 `getParent`가 없으면 `Required registered TreeDataProvider to implement 'getParent' method to access 'reveal' method`로 거절한다. 있으면 `getParent`로 뿌리까지 올라간 뒤 아직 읽지 않은 조상의 자식을 읽어 핸들을 정하고, 뷰를 열어(닫혀 있으면 그 컨테이너를 보이고) 조상을 위에서부터 펼친다. 기본값은 `select: true`, `focus: false`, `expand: false`. `expand`가 `true`면 한 단, 수면 그 단수만큼(최대 3) 요소 아래를 펼친다. 부모 사슬이 돌면 오류다.
+- `showCollapseAll`: 뷰 머리에 `Collapse All` 단추를 둔다.
+
+### 제목, 설명, 메시지, 배지
+
+- `title`의 처음 값은 매니페스트의 뷰 이름이다. 바꾸면 뷰 머리의 제목과 뷰 영역의 접근 가능한 이름이 바뀐다. 트리가 사라지면(제공자 해제, 확장 제거) 원래 이름으로 돌아간다.
+- `description`은 제목 옆에 흐린 글로, `badge`(`{ value, tooltip }`)는 그 옆에 숫자로 그린다. `value`는 절댓값의 정수 부분이고 0이면 숨긴다. `tooltip`은 배지의 접근 가능한 이름이다. 모양이 틀린 배지는 무시한다.
+- `message`는 트리 위에 글로 보인다. 확장이 준 글은 모두 텍스트 노드로 들어간다(HTML로 읽지 않는다). 메시지가 있으면 환영 문구를 보이지 않는다.
+
+### 환영 문구 (`contributes.viewsWelcome`)
+
+```json
+{
+  "contributes": {
+    "viewsWelcome": [
+      {
+        "view": "notes.list",
+        "contents": "No notes yet.\n[Create Note](command:notes.create)\nRead [the guide](https://example.com/guide).",
+        "when": "!notes.loading"
+      }
+    ]
+  }
+}
+```
+
+- 트리에 제공자가 없거나 뿌리 항목이 하나도 없고 `message`가 비었을 때, `when`이 참인 항목의 글을 보인다. 항목이 생기면 사라진다. `when`·`enablement`가 보는 컨텍스트 키가 바뀌면 다시 판단한다.
+- `contents`는 줄마다 문단이 된다. 링크 하나뿐인 줄은 단추가 된다. 글과 링크는 DOM 텍스트와 요소로만 만든다(`<b>`도 글자 그대로 보인다).
+- `[글](command:id)`: 그 확장이 `contributes.commands`에 선언한 커맨드만, 인자 없이 `IOpenerService`로 실행한다. 선언하지 않은 커맨드, `command:id?…`처럼 인자가 붙은 링크, `http(s)`가 아닌 주소는 링크가 아닌 글로 남는다. `[글](https://…)`는 주소 전체를 보여 주고 확인을 받은 뒤 새 탭에서 연다.
+- `enablement`가 거짓이면 단추를 끄고 링크는 눌러도 아무것도 하지 않는다. `group`은 받되 무시한다.
+
+### 체크박스
+
+- `checkboxState`가 있는 항목은 행 앞에 체크박스를 그린다. 수(`TreeItemCheckboxState`)나 `{ state, tooltip, accessibilityInformation }`를 받는다. 체크박스의 접근 가능한 이름은 `accessibilityInformation.label`, `tooltip`, 레이블 순으로 정한다.
+- 체크박스를 누르거나 행에서 Space를 치면 상태가 바뀌고, 확장 호스트가 그 항목의 `checkboxState`를 고쳐 둔 뒤(객체 꼴이면 `state`만 바꾼다) `onDidChangeCheckboxState`로 `[원래 요소, 새 상태]` 목록을 알린다.
+- `manageCheckboxStateManually`가 아니면 VS Code처럼 이어서 바뀐다: 불러온 자식들이 같은 상태가 되고, 체크박스를 가진 자식이 모두 체크면 부모도 체크, 아니면 해제다. 이어서 바뀐 항목도 같은 이벤트에 함께 들어간다. 아직 불러오지 않은 자식은 바뀌지 않는다.
+
+### 드래그 앤 드롭
+
+```js
+const type = 'application/vnd.code.tree.notes.list';
+vscode.window.createTreeView('notes.list', {
+  treeDataProvider,
+  dragAndDropController: {
+    dragMimeTypes: [type],
+    dropMimeTypes: [type, 'text/plain', 'files'],
+    handleDrag: (source, transfer) => transfer.set(type, new vscode.DataTransferItem(source)),
+    handleDrop: async (target, transfer) => {
+      const moved = transfer.get(type)?.value;      // handleDrag가 넣은 배열 그 자체
+      const file = transfer.get('application/octet-stream')?.asFile();
+      if (file) { console.log(file.name, (await file.data()).length); }
+    },
+  },
+});
+```
+
+- `dragAndDropController`가 있는 트리의 행은 끌 수 있다. 끄는 항목은 그 행이 선택에 들어 있으면 선택 전체, 아니면 그 행이다.
+- 드래그를 시작하면 바로 `handleDrag(원래 요소들, dataTransfer, token)`을 부른다. 채운 `DataTransfer`는 드래그가 끝날 때까지 확장 호스트에 남는다.
+- 드롭을 받는 트리는 `handleDrop`이 있어야 하고, 같은 뷰에서 온 드래그, `dropMimeTypes`에 끈 트리의 `application/vnd.code.tree.<뷰 id 소문자>`나 그 트리의 `dragMimeTypes`가 든 드래그, 또는 바깥에서 온 드래그 가운데 `dropMimeTypes`에 든 형식(파일은 `files`나 그 파일의 형식)이 있는 것만 받는다. 받을 수 있는 동안 아래 행(빈 곳이면 트리 전체)에 `list.dropBackground` 색이 칠해진다.
+- `handleDrop(대상 요소, dataTransfer, token)`의 `dataTransfer`에는 `application/vnd.code.tree.<원본 뷰>`(값은 `{"id", "itemHandles"}` JSON)이 늘 있고, 같은 확장의 트리에서 온 드래그면 `handleDrag`가 넣은 항목이 **값 그대로**(같은 객체) 들어 있다. 다른 확장의 트리에서 온 드래그는 그 항목의 `asString()` 결과 문자열만, 받는 트리의 `dropMimeTypes`에 든 형식만 받는다. 글로 바꿀 수 없는 값(서로 가리키는 객체)은 문자열 쪽에서 빠진다. 행이 아닌 빈 곳에 놓으면 대상은 `undefined`다.
+- 운영체제에서 끌어온 파일은 형식(없으면 `application/octet-stream`)으로 들어가고 `asFile()`이 `{ name, data() }`를 준다. 항목 하나당 50 MiB까지 읽으며, 넘는 파일의 `data()`는 `The file '<이름>' is too large to drop.`으로 거절한다. 문자열 형식(`text/plain` 등)은 `dropMimeTypes`에 들어 있을 때 그 글을 준다.
+- 드래그 세션은 v0.1.0의 규율을 따른다. 놓기, `dragend`, Escape, 창이 초점을 잃음, `pagehide` 가운데 먼저 오는 것에서 끝나고, 끝나면 드롭 표시와 창 안의 페이로드가 사라지며 놓지 않고 끝났다면 `handleDrag`의 토큰을 취소하고 확장 호스트가 쥔 값을 놓는다. 끄는 도중 그 트리의 제공자가 사라지면(확장 제거, 해제) 세션을 끝낸다.
+- 트리 드래그는 자기 표식(`application/x-writing-room-tree`)과 세션을 가진다. 에디터 영역, 탭 줄, 뷰 컨테이너는 자기 표식과 진행 중인 세션만 받으므로 트리 드래그를 받지 않는다. 거꾸로 트리는 에디터·에디터 그룹·뷰 컨테이너 드래그를 표식이나 진행 중인 세션으로 알아보고, `dropMimeTypes`에 `text/plain`이 있어도 받지 않는다.
+
+### 갱신과 안정적인 `id`
+
+- `onDidChangeTreeData`에 `undefined`(또는 `null`)를 주는 전체 갱신 뒤에는 `id`가 같은 항목이 다른 부모 아래로 옮겨 갈 수 있다(wr-5r5z). 확장 호스트는 전체 갱신마다 세대를 올려, 이전 세대에서 다른 부모에 있던 같은 `id`를 옮긴 것으로 보고, 옛 부모를 다시 읽을 때 옮겨 간 항목을 지우지 않는다. 화면도 새 부모를 먼저 읽든 옛 부모를 먼저 읽든 그 항목을 한 번만 보인다. 새 부모를 먼저 읽으면 펼침 상태도 따라간다.
+- 한 번의 목록 안에서(전체 갱신 없이) 같은 `id`가 두 부모에 나오면 v0.1.0처럼 `Tree view '<뷰>' has duplicate item id '<id>'.` 오류다.
+
+### 범위 밖
+
+파일 장식, 트리 필터(입력해 거르기), 여러 열, 제안 API(`activeItem`, `onDidChangeActiveItem`, 마크다운 `message`), `TreeItemLabel.highlights`의 강조 표시, `description: true`(리소스 경로를 설명으로).
+
 ## Deviations from VS Code
 
 - 색 테마 데이터를 새로고침 사이에 캐시하지 않는다. 확장 테마를 고른 채 새로고침하면 기본 어두운 테마로 그렸다가, 확장 기여가 올라오고 파일을 읽은 뒤 바뀐다(wr-mk2j.2j5).
 - 테마와 확장이 주는 색은 16진 표기 넷만 받는다. `.tmTheme`, 문자열 `tokenColors`, `semanticTokenColors`, `workbench.colorCustomizations`, 파일·제품 아이콘 테마는 지원하지 않는다(wr-mk2j.2j5).
 - Monaco에는 `tokenColors`의 단순 범위만 규칙으로 간다. 기본 어두운 테마의 Monaco는 v0.1.0처럼 `vs-dark` 그대로라 에디터 배경(`#1e1e1e`)이 워크벤치의 `editor.background`(`#171b24`)와 다르다(wr-mk2j.2j5).
+- 트리 아이콘은 그 확장의 설치 폴더와 워크스페이스 폴더 안의 `svg`·`png`·`jpg`·`jpeg`·`gif`·`webp`만, 256 KiB까지 `<img>`로 그린다. 문자열 `iconPath`(파일 경로)는 무시하고 `resourceUri`는 레이블에만 쓴다(파일 아이콘 테마, `description: true` 없음). VS Code는 아무 URI나 받는다. 브라우저에서 확장이 읽을 수 있는 범위를 지키기 위해서다(wr-mk2j.uak).
+- `viewsWelcome`의 `command:` 링크는 그 확장이 선언한 커맨드만 인자 없이 실행하고, 인자가 붙은 링크와 `http(s)`가 아닌 링크는 글로 남긴다. `group`은 무시한다. 뷰 배지는 뷰 머리에만 그리고 액티비티 바의 컨테이너 아이콘에 모으지 않는다(wr-mk2j.uak).
+- `resolveTreeItem`은 툴팁만 채운다(VS Code는 커맨드도 늦게 채운다). `accessibilityInformation.role`은 트리의 역할 구조를 지키려고 쓰지 않는다. `reveal`이 실패하면 VS Code처럼 로그에 남기지 않고 약속을 거절한다(wr-mk2j.uak).
+- 트리 드래그 앤 드롭: 같은 확장의 트리 사이(같은 뷰만이 아니다)에서는 `handleDrag`의 값 그대로, 다른 확장의 트리에는 문자열만 간다. 운영체제 파일은 놓을 때 50 MiB까지 미리 읽는다. 트리 드래그는 에디터 영역에 놓을 수 없다(VS Code는 `text/uri-list`가 있으면 에디터로 연다). 탭과 뷰 컨테이너의 드래그와 섞이지 않게 하기 위해서다(wr-mk2j.uak).
