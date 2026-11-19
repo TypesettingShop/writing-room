@@ -14,7 +14,10 @@ test('activates a seeded browser entry and forwards the target tab URI from its 
     await page.getByRole('menu', { name: 'File' }).getByRole('menuitem', { name: 'New Text File' }).click();
     await expect(page.getByRole('tab', { name: 'Untitled-' + index })).toBeVisible();
   }
-  await expect(page.getByRole('button', { name: 'Report Fixture Resource' })).toHaveCount(1);
+  const titleCommand = page.getByRole('button', { name: 'Report Fixture Resource' });
+  await expect(titleCommand).toHaveCount(1);
+  await titleCommand.click();
+  await expect(page.getByText('Fixture resource: Untitled-2', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Untitled-1' }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Report Fixture Resource' }).click();
   await expect(page.getByText('Fixture resource: Untitled-1', { exact: true })).toBeVisible();
