@@ -4,6 +4,12 @@ import { ILayoutService } from '../../layout/browser/layoutService.js';
 import { IMenuService, MenuItemAction, SubmenuItemAction } from '../common/actions.js';
 import type { IMenuContext, MenuActionGroup, MenuId } from '../common/actions.js';
 
+function preserveFocusOnLeftPress(event: MouseEvent): void {
+  if (event.button === 0) {
+    event.preventDefault();
+  }
+}
+
 export class MenuWorkbenchToolBar extends Disposable {
   private readonly popup = this._register(new MutableDisposable<Menu>());
 
@@ -66,7 +72,7 @@ export class MenuWorkbenchToolBar extends Disposable {
       this.popup.value.focus();
     };
 
-    overflow.addEventListener('mousedown', event => event.preventDefault());
+    overflow.addEventListener('mousedown', preserveFocusOnLeftPress);
     overflow.addEventListener('click', () => open(overflow, remaining));
 
     const update = () => {
@@ -104,7 +110,7 @@ export class MenuWorkbenchToolBar extends Disposable {
         if (action instanceof SubmenuItemAction) {
           button.setAttribute('aria-haspopup', 'menu');
           button.setAttribute('aria-expanded', 'false');
-          button.addEventListener('mousedown', event => event.preventDefault());
+          button.addEventListener('mousedown', preserveFocusOnLeftPress);
           button.addEventListener('click', () => open(button, action.groups));
         } else {
           button.addEventListener('click', () => {

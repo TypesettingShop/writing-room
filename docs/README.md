@@ -1,6 +1,6 @@
 # writing-room 문서
 
-writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치다. 액티비티 바, 사이드바, 탭 에디터, 패널, 상태 표시줄, 메뉴 바, 커맨드 팔레트, 확장 시스템, 드래그 도킹을 TypeScript와 Vite로 직접 구현한다(프레임워크 없음). 이 문서는 VS Code의 구현 방식을 조사한 결과이며, 코드 작성자와 리뷰어가 이 워크벤치를 VS Code와 대조해 볼 수 있도록 돕는다.
+writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치다. 액티비티 바, 사이드바, 탭 에디터, 패널, 상태 표시줄, 메뉴 바, 커맨드 팔레트, 확장 시스템, 드래그 도킹을 TypeScript와 Vite로 직접 구현한다(프레임워크 없음). 워크벤치를 실행하려면 시작하기를 읽는다. 조사 페이지는 코드 작성자와 리뷰어가 VS Code의 구현과 대조할 때 참고한다.
 
 ## 기준 VS Code 커밋
 
@@ -14,6 +14,7 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 
 | 페이지 | 다루는 것 |
 | --- | --- |
+| [getting-started.md](getting-started.md) | 설치, 조작, 설정, 확장 설치와 테스트 실행 |
 | [extension-api.md](extension-api.md) | Writing Room 확장 작성과 실행, 지원되는 매니페스트와 API |
 | [architecture.md](architecture.md) | VS Code 경로와 이 저장소 경로의 대응표, VS Code와 달라진 점 목록 |
 | [vscode-workbench-layout.md](vscode-workbench-layout.md) | 파트, 워크벤치 조립, 그리드·스플릿뷰·새시, 뷰 컨테이너 위치, 크기 제약 |
@@ -25,7 +26,6 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 
 ## 이 문서에 없는 것
 
-- 이 워크벤치의 실행 방법 가이드와 확장 작성 가이드는 다른 문서에서 다룬다(확장 API는 `extension-api.md`).
 - VS Code의 채팅, 세션, 노트북, 터미널, 디버그, 설정 에디터 UI, 원격, 데스크톱 빌드는 v0.1.0에서 다루지 않는다.
 
-Decided in: wr-e8v6, wr-ggyb
+Decided in: wr-e8v6, wr-ggyb, wr-cla6

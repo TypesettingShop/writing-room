@@ -596,6 +596,19 @@ describe('tabs', () => {
     expect([b.isDisposed(), c.isDisposed()]).toEqual([true, true]);
   });
 
+  test('a middle press on a tab cancels its own release wherever it lands, so Linux pastes nothing', async () => {
+    const group = part.activeGroup;
+    await open(group, 'a', 'b');
+    // `dispatchEvent` answers false when a listener canceled the event.
+    const middle = (target: EventTarget, type: string) =>
+      target.dispatchEvent(new MouseEvent(type, { button: 1, bubbles: true, cancelable: true }));
+    expect(middle(tab(group, 'a'), 'mousedown')).toBe(false);
+    expect(middle(document.body, 'mouseup')).toBe(false);
+    // Only the release that ends that press is held back.
+    expect(middle(document.body, 'mouseup')).toBe(true);
+    expect(middle(tab(group, 'a'), 'mouseup')).toBe(true);
+  });
+
   test('the arrows, Home and End reach the other tabs and keep focus in the strip', async () => {
     const group = part.activeGroup;
     const [a, b, c] = await open(group, 'a', 'b', 'c');
