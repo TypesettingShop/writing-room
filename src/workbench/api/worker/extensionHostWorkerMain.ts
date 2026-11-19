@@ -2,7 +2,9 @@ import { ExtensionHostMessage } from '../../services/extensions/common/extension
 import type { HostControlMessage } from '../../services/extensions/common/extensionHostProtocol.js';
 import { readPortMessageData, RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
 import { ExtHostExtensionService } from '../common/extHostExtensionService.js';
-import { loadCommonJSModule } from './extHostExtensionService.js';
+import { MainThreadRuntimeProxy } from '../common/extHost.protocol.runtime.js';
+import { extHostApiRegistry } from '../common/extHostApiRegistry.js';
+import { ExtensionGlobals } from './extHostGlobals.js';
 
 const scope = globalThis as unknown as DedicatedWorkerGlobalScope;
 const close = scope.close.bind(scope);
@@ -32,7 +34,13 @@ listen('message', ({ data, ports }) => {
     // Control messages stay behind this port when extension code runs in the same realm.
     const data = readPortMessageData(event) as HostControlMessage;
     if (data.kind === ExtensionHostMessage.Initialize && !service) {
-      service = new ExtHostExtensionService(rpc, loadCommonJSModule);
+      const globals = new ExtensionGlobals(rpc.getProxy(MainThreadRuntimeProxy));
+      globals.install();
+      extHostApiRegistry.register('workerGlobals', () => ({
+        release: key => globals.release(key),
+        dispose: () => globals.dispose(),
+      }));
+      service = new ExtHostExtensionService(rpc, (extension, api, signal) => globals.load(extension, api, signal));
       void service.$deltaExtensions(data.extensions, []).then(() => {
         // Initialization errors can still reach the workbench. Extension callbacks start after this handshake.
         listen('error', event => {
