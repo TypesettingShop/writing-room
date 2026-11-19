@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { afterEach, expect, test, vi } from 'vitest';
+import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { ZipArchive } from '../../../../../base/common/zip.js';
 import { URI } from '../../../../../base/common/uri.js';
+import type { GalleryDownload, GalleryExtensionVersion } from '../../../../../platform/extensionManagement/common/extensionGalleryService.js';
 import { createVsix, sampleManifest } from '../../../../../platform/extensionManagement/test/common/vsixTestUtils.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
 import { BrowserFileDatabase, IndexedDBFileSystemProvider } from '../../../../../platform/files/browser/indexedDBFileSystemProvider.js';
@@ -401,4 +403,135 @@ test.each(['1.0.0', '1.1.0'])('waits for the old generation before writing repla
   await service.installPackage(replacement, source, confirm);
   expect(deactivate).toHaveBeenCalledOnce();
   expect(records()[0]?.packageSha256).toBe(await sha256Hex(replacement));
+});
+
+
+const galleryRelease: GalleryExtensionVersion = {
+  id: 'tester.sample', namespace: 'tester', name: 'sample', version: '1.0.0',
+  displayName: 'Sample', description: '', downloadCount: 0, verifiedPublisher: false,
+  isWebExtension: true, dependencies: [], hasExtensionPack: false,
+  download: 'https://registry.example/api/tester/sample/file/sample.vsix',
+  sha256: 'https://registry.example/api/tester/sample/file/sample.sha256',
+};
+
+async function verifiedDownload(bytes: Uint8Array<ArrayBuffer>): Promise<GalleryDownload> {
+  return { bytes, sha256: await sha256Hex(bytes), signature: { state: 'verified', keyId: 'sample-key' }, host: 'cdn.example' };
+}
+
+test.each([
+  ['identifier', { id: 'tester.other' }],
+  ['version', { version: '2.0.0' }],
+] as const)('rejects a gallery %s that disagrees with the actual package', async (_field, release) => {
+  const { service, confirm, records, folders } = setup();
+  await expect(service.installFromGallery({ ...galleryRelease, ...release }, await verifiedDownload(createVsix()), confirm))
+    .rejects.toThrow(/package identifier or version/);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(records()).toEqual([]);
+  expect(await folders()).toEqual([]);
+});
+
+test.each([
+  { metadata: ['dep'], manifest: [] },
+  { metadata: [], manifest: ['tester.dep'] },
+])('rejects differing gallery and package dependency sets (%o)', async ({ metadata, manifest }) => {
+  const { service, confirm, records, folders } = setup();
+  const release = { ...galleryRelease, dependencies: metadata.map(name => ({ namespace: 'tester', name })) };
+  const download = await verifiedDownload(createVsix({ manifest: { ...sampleManifest, extensionDependencies: manifest } }));
+  await expect(service.installFromGallery(release, download, confirm)).rejects.toThrow(/package dependencies do not match/);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(records()).toEqual([]);
+  expect(await folders()).toEqual([]);
+});
+
+test('checks the actual installation bytes again against the gallery digest', async () => {
+  const { service, confirm, records, folders } = setup();
+  const download = await verifiedDownload(createVsix());
+  const replacement = createVsix({ manifest: { ...sampleManifest, displayName: 'Replaced bytes' } });
+  await expect(service.installFromGallery(galleryRelease, { ...download, bytes: replacement }, confirm))
+    .rejects.toThrow(/package bytes no longer match/);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(records()).toEqual([]);
+  expect(await folders()).toEqual([]);
+});
+
+test('local confirmation of the same bytes cannot settle a pending gallery install', async () => {
+  const { service, records } = setup();
+  const download = await verifiedDownload(createVsix());
+  const localPrompt = new DeferredPromise<void>();
+  const localAnswer = new DeferredPromise<boolean>();
+  const local = service.installPackage(download.bytes, source, async () => {
+    await localPrompt.complete();
+    return localAnswer.p;
+  });
+  await localPrompt.p;
+  const galleryAnswer = vi.fn(async () => true);
+  const gallery = service.installFromGallery(galleryRelease, download, galleryAnswer);
+  try {
+    await vi.waitFor(() => expect(galleryAnswer).toHaveBeenCalledWith(expect.objectContaining({
+      source: expect.objectContaining({ kind: 'gallery', label: 'registry.example', host: 'cdn.example' }),
+      signature: 'verified',
+    })));
+    await gallery;
+    expect(records()).toEqual([expect.objectContaining({ source: 'gallery', signature: 'verified' })]);
+  } finally {
+    await localAnswer.complete(false);
+    await Promise.allSettled([local, gallery]);
+  }
+});
+
+test('checks dependencies in the installed-list lock after staging', async () => {
+  const { service, scanner, packages, active, confirm, records, folders } = setup();
+  await service.installPackage(createVsix({ manifest: { ...sampleManifest, name: 'dep' } }), source, confirm);
+
+  const stage = packages.stage.bind(packages);
+  vi.spyOn(packages, 'stage').mockImplementationOnce(async (...args) => {
+    const staged = await stage(...args);
+    // Another tab drops the record after we have confirmed and staged the package. The live list is stale.
+    await scanner.locked(async (read, write) => write(read().filter(record => record.identifier !== 'tester.dep')));
+    return staged;
+  });
+  const release = { ...galleryRelease, dependencies: [{ namespace: 'tester', name: 'dep' }] };
+  const download = await verifiedDownload(createVsix({ manifest: { ...sampleManifest, extensionDependencies: ['tester.dep'] } }));
+  await expect(service.installFromGallery(release, download, confirm)).rejects.toThrow(/tester.dep.*no longer installed/);
+  expect(active.extensions.map(extension => extension.identifier.value)).toEqual(['tester.dep']);
+  expect(records()).toEqual([]);
+  expect(await folders()).toEqual(['tester.dep-1.0.0']);
+});
+
+test('a package reinstall waits for queued removal before deciding which version is installed', async () => {
+  const { service, active, records, confirm } = setup();
+  const bytes = createVsix({ vsixManifest: null, manifest: null, files: {},
+    entries: [{ name: 'extension/package.json', method: 'store', data: JSON.stringify(sampleManifest) },
+      { name: 'extension/dist/web.js', method: 'store', data: 'exports.activate = () => {};' }],
+  });
+  await service.installPackage(bytes, source, confirm);
+  const removing = new DeferredPromise<void>();
+  const deactivated = new DeferredPromise<void>();
+  Object.assign(active, { whenExtensionRemoved: async () => {
+    await removing.complete();
+    await deactivated.p;
+  } });
+  const removal = service.uninstall('tester.sample');
+  await removing.p;
+
+  const opened = new DeferredPromise<void>();
+  const open = ZipArchive.open.bind(ZipArchive);
+  vi.spyOn(ZipArchive, 'open').mockImplementationOnce((...args) => {
+    void opened.complete();
+    return open(...args);
+  });
+  const reinstallConfirm = vi.fn(async (_confirmation: PackageInstallConfirmation) => true);
+  const reinstall = service.installPackage(bytes, source, reinstallConfirm);
+  try {
+    await opened.p;
+    // The stored manifest above is decoded in microtasks after open. Keep deactivation pending until those settle.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(reinstallConfirm).not.toHaveBeenCalled();
+  } finally {
+    await deactivated.complete();
+    await Promise.allSettled([removal, reinstall]);
+  }
+  await expect(reinstall).resolves.toMatchObject({ location });
+  expect(reinstallConfirm).toHaveBeenCalledWith(expect.objectContaining({ existing: undefined }));
+  expect(records()).toEqual([expect.objectContaining({ identifier: 'tester.sample' })]);
 });
