@@ -738,14 +738,19 @@ describe('draft backups', () => {
   test('startup preserves malformed, mismatched, unsupported and newer drafts and keeps scanning', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const workspaceId = 'validation';
-    const blocked = ['http://example.test/remote', 'https://example.test/remote', 'vscode-userdata:/User/draft', 'untitled:/Untitled-1'];
+    const blocked = [
+      'http://example.test/remote', 'https://example.test/remote', 'HTTPS://example.test/remote',
+      'vscode-userdata:/User/draft', 'untitled:/Untitled-1',
+    ];
     const future = file('/future.txt');
     const valid = file('/valid.txt');
+    const unreadable = legacyBackup(file('/unreadable.txt'), workspaceId);
     const root = URI.from({ scheme: 'vscode-userdata', path: `/User/workspaceStorage/${workspaceId}/backups` });
     const entries: [URI, Uint8Array][] = [
       [legacyBackup(file('/malformed.txt'), workspaceId), bytes('no header')],
       [legacyBackup(file('/wrong.txt'), workspaceId), stored(file('/other.txt'), 'mismatched')],
       [legacyBackup(future, workspaceId), stored(future, 'future', 2)],
+      [unreadable, stored(file('/unreadable.txt'), 'temporarily unreadable')],
       [joinPath(root, 'invalid-session', hashResource(valid.toString())), stored(valid, 'invalid session')],
       [joinPath(root, sessionId(4), 'invalid-name'), stored(valid, 'invalid name')],
       ...blocked.map((value): [URI, Uint8Array] => {
@@ -758,8 +763,16 @@ describe('draft backups', () => {
     }
     const validLocation = legacyBackup(valid, workspaceId);
     await files.writeFile(validLocation, stored(valid, 'our draft'));
+    const read = userData.readFileWithStat.bind(userData);
+    const reading = vi.spyOn(userData, 'readFileWithStat').mockImplementation(async (resource, options) => {
+      if (resource.toString() === unreadable.toString()) {
+        throw new Error('The draft cannot be read right now');
+      }
+      return read(resource, options);
+    });
     const backups = new TextFileBackups(files, workspaceId, sessionId(1));
     expect(await backups.listRestorable()).toEqual([valid]);
+    reading.mockRestore();
     expect(warn).toHaveBeenCalledTimes(entries.length - 2); // The unknown version and invalid directory are skipped.
     for (const [location, content] of entries) {
       expect(Array.from((await files.readFile(location)).value)).toEqual(Array.from(content));

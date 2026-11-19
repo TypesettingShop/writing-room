@@ -245,6 +245,11 @@ export class TextFileBackups implements ITextFileBackups {
   }
 
   private async readBackup(location: URI): Promise<IStoredBackup | undefined> {
+    const name = basename(location);
+    if (!BACKUP_NAME.test(name)) {
+      console.warn(`Invalid draft backup name ${location}.`);
+      return {};
+    }
     let bytes: Uint8Array;
     try {
       bytes = (await this.fileService.readFile(location)).value;
@@ -266,7 +271,7 @@ export class TextFileBackups implements ITextFileBackups {
         if (version === BACKUP_FORMAT && typeof resource === 'string'
           && (etag === null || typeof etag === 'string') && typeof bom === 'boolean') {
           const uri = URI.parse(resource, true);
-          if (isTextFileScheme(uri.scheme) && hashResource(uri.toString()) === basename(location)) {
+          if (isTextFileScheme(uri.scheme) && hashResource(uri.toString()) === name) {
             return { draft: { resource: uri, bytes: bytes.subarray(newline + 1), meta: { etag: etag ?? undefined, bom } } };
           }
         }
