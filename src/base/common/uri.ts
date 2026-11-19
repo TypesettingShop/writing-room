@@ -1,19 +1,43 @@
+import { Schemas } from './network.js';
+import { join } from './path.js';
+
 export interface UriComponents {
   readonly scheme: string;
   readonly authority?: string;
   readonly path?: string;
   readonly query?: string;
   readonly fragment?: string;
+  /** Carries path ambiguity across structured cloning and RPC. */
+  readonly hasEncodedPathSeparator?: boolean;
 }
 
-// RFC 3986, appendix B.
-const uriPattern = /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/;
+const uriPattern = /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#([\s\S]*))?$/;
+const encodedSeparator = /%(?:25)*(?:2f|5c)/i;
 
-/**
- * A resource identifier. Unlike VS Code's `URI` this one does not percent-encode: it keeps the
- * components as given and `toString` joins them, which is enough for the generated resources
- * (`untitled:Untitled-1`, `vscode-userdata:/User/settings.json`) the workbench has in v0.1.0.
- */
+function decode(value = ''): string {
+  return value.replace(/(?:%[\da-fA-F]{2})+/g, run => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      // Keep invalid bytes intact while decoding the valid characters around them.
+      return run.replace(/%(?:[0-7][\da-f]|[cd][\da-f](?:%[89ab][\da-f])|e[\da-f](?:%[89ab][\da-f]){2}|f[0-4](?:%[89ab][\da-f]){3})/gi, sequence => {
+        try { return decodeURIComponent(sequence); } catch { return sequence; }
+      });
+    }
+  });
+}
+
+function encode(value: string, allowed = ''): string {
+  return value.replace(/[^\w.~\-]/ug, character => {
+    if (allowed.includes(character)) {
+      return character;
+    }
+    return /[!'()*]/.test(character)
+      ? '%' + character.charCodeAt(0).toString(16).toUpperCase()
+      : encodeURIComponent(character);
+  });
+}
+
 export class URI implements Required<UriComponents> {
   private constructor(
     readonly scheme: string,
@@ -21,46 +45,106 @@ export class URI implements Required<UriComponents> {
     readonly path: string,
     readonly query: string,
     readonly fragment: string,
+    readonly hasEncodedPathSeparator: boolean,
   ) {}
 
-  static from(components: UriComponents): URI {
-    if (!/^[a-z][\w+.-]*$/i.test(components.scheme)) {
-      throw new Error(`Invalid URI scheme: ${components.scheme}`);
+  static from(components: UriComponents, strict = false): URI {
+    const { authority = '', query = '', fragment = '', hasEncodedPathSeparator = false } = components;
+    const scheme = components.scheme || (strict ? '' : Schemas.file);
+    let path = components.path ?? '';
+    if (!/^\w[\w+.-]*$/.test(scheme)) {
+      throw new Error(`Invalid URI scheme: ${scheme}`);
     }
-    const { scheme, authority = '', path = '', query = '', fragment = '' } = components;
-    // Without percent-encoding these would print as a different URI than the one they describe.
-    if (/[/?#]/.test(authority) || /[?#]/.test(path) || query.includes('#')
-      || (authority && path && !path.startsWith('/')) || (!authority && path.startsWith('//'))) {
-      throw new Error(`Invalid URI components: ${JSON.stringify(components)}`);
+    if ((scheme === Schemas.file || scheme === Schemas.http || scheme === Schemas.https) && !path.startsWith('/')) {
+      path = '/' + path;
     }
-    return new URI(scheme, authority, path, query, fragment);
+    if ((authority && path && !path.startsWith('/')) || (!authority && path.startsWith('//'))) {
+      throw new Error(`Invalid URI path: ${path}`);
+    }
+    return new URI(scheme, authority, path, query, fragment, hasEncodedPathSeparator === true);
   }
 
-  static parse(value: string): URI {
+  static parse(value: string, strict = false): URI {
     const match = uriPattern.exec(value);
-    if (!match?.[1]) {
+    if (!match || (strict && !match[1])) {
       throw new Error(`Invalid URI: ${value}`);
     }
-    return URI.from({ scheme: match[1], authority: match[2], path: match[3], query: match[4], fragment: match[5] });
+    const [, scheme, authority, path, query, fragment] = match;
+    return URI.from({
+      scheme, authority: decode(authority), path: decode(path), query: decode(query), fragment: decode(fragment),
+      hasEncodedPathSeparator: encodedSeparator.test(path),
+    }, strict);
+  }
+
+  static file(path: string): URI {
+    const unc = /^\/\/([^/]+)(\/.*)?$/s.exec(path);
+    return URI.from({ scheme: Schemas.file, authority: unc?.[1], path: unc ? unc[2] : path });
+  }
+
+  static joinPath(resource: URI, ...fragments: string[]): URI {
+    if (!resource.path) {
+      throw new Error('Cannot join a URI without a path');
+    }
+    return resource.with({ path: join(resource.path, ...fragments) });
+  }
+
+  static revive(value: URI | UriComponents): URI;
+  static revive<T extends URI | UriComponents | undefined | null>(value: T): URI | Extract<T, undefined | null>;
+  static revive(value: URI | UriComponents | undefined | null): URI | undefined | null {
+    return value == null || URI.isUri(value) ? value : URI.from(value);
   }
 
   static isUri(value: unknown): value is URI {
     return value instanceof URI;
   }
 
-  with(change: Partial<UriComponents>): URI {
-    return URI.from({ ...this, ...change });
+  get fsPath(): string {
+    if (this.scheme === Schemas.file && this.authority && this.path.length > 1) {
+      return `//${this.authority}${this.path}`;
+    }
+    return this.path.replace(/^\/([a-z]):/i, (_, drive: string) => drive.toLowerCase() + ':');
+  }
+
+  with(change?: { [K in keyof UriComponents]?: UriComponents[K] | null }): URI {
+    if (!change) {
+      return this;
+    }
+    const resource = URI.from({
+      scheme: change.scheme === undefined ? this.scheme : change.scheme ?? '',
+      authority: change.authority === undefined ? this.authority : change.authority ?? '',
+      path: change.path === undefined ? this.path : change.path ?? '',
+      query: change.query === undefined ? this.query : change.query ?? '',
+      fragment: change.fragment === undefined ? this.fragment : change.fragment ?? '',
+      hasEncodedPathSeparator: this.hasEncodedPathSeparator,
+    }, true);
+    return resource.scheme === this.scheme && resource.authority === this.authority && resource.path === this.path
+      && resource.query === this.query && resource.fragment === this.fragment ? this : resource;
   }
 
   toString(): string {
+    let host = this.authority;
+    let userInfo = '';
+    const at = host.indexOf('@');
+    if (at >= 0) {
+      const credentials = host.slice(0, at);
+      const colon = credentials.lastIndexOf(':');
+      userInfo = (colon < 0 ? encode(credentials)
+        : encode(credentials.slice(0, colon)) + ':' + encode(credentials.slice(colon + 1), '[]:')) + '@';
+      host = host.slice(at + 1);
+    }
+    const path = /^https?$/i.test(this.scheme) ? this.path
+      : this.path.replace(/^(\/?)([A-Z]):/, (_, slash: string, drive: string) => slash + drive.toLowerCase() + ':');
+
     return this.scheme + ':'
-      + (this.authority ? '//' + this.authority : '')
-      + this.path
-      + (this.query ? '?' + this.query : '')
-      + (this.fragment ? '#' + this.fragment : '');
+      + (this.authority || this.scheme === Schemas.file ? '//' + userInfo + encode(host.toLowerCase(), '[]:') : '')
+      + encode(path, '/')
+      + (this.query ? '?' + encode(this.query) : '')
+      + (this.fragment ? '#' + encode(this.fragment) : '');
   }
 
-  toJSON(): UriComponents {
-    return { scheme: this.scheme, authority: this.authority, path: this.path, query: this.query, fragment: this.fragment };
+  toJSON(): UriComponents & { $mid: 1 } {
+    const { scheme, authority, path, query, fragment, hasEncodedPathSeparator } = this;
+    return { $mid: 1, scheme, authority, path, query, fragment,
+      ...(hasEncodedPathSeparator ? { hasEncodedPathSeparator } : {}) };
   }
 }
