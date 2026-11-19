@@ -1,0 +1,64 @@
+.markers-view {
+  height: 100%;
+  overflow: auto;
+}
+
+.markers-message {
+  margin: 0;
+  padding: 8px 12px;
+  opacity: 0.8;
+}
+
+.markers-row {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  gap: 6px;
+  padding-inline-end: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.markers-row:hover {
+  background: #ffffff12;
+}
+
+.markers-row:focus-visible {
+  outline: 1px solid #80a8ff;
+  outline-offset: -1px;
+}
+
+.markers-twistie {
+  flex: 0 0 18px;
+  text-align: center;
+}
+
+.markers-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.markers-message-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.markers-description,
+.markers-source,
+.markers-position {
+  opacity: 0.65;
+}
+
+.markers-count {
+  min-width: 14px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ffffff26;
+  text-align: center;
+  font-size: 11px;
+}
+
+.markers-severity-error { color: #f14c4c; }
+.markers-severity-warning { color: #cca700; }
+.markers-severity-info,
+.markers-severity-hint { color: #3794ff; }
