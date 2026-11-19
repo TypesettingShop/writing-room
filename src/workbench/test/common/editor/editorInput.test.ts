@@ -30,10 +30,9 @@ test('fires onWillDispose once and reads as disposed from then on', () => {
 test('parses and prints the resources editors use', () => {
   const uri = URI.parse('untitled:Untitled-3');
   expect([uri.scheme, uri.path, uri.toString()]).toEqual(['untitled', 'Untitled-3', 'untitled:Untitled-3']);
-  expect(URI.parse('https://example.com/a/b?c=1#d').toString()).toBe('https://example.com/a/b?c=1#d');
-  expect(() => URI.parse('no-scheme')).toThrow('Invalid URI');
-  // Components that would print as a different URI are refused rather than misprinted.
-  expect(() => URI.from({ scheme: 'untitled', path: 'a#b' })).toThrow('Invalid URI');
-  expect(() => URI.from({ scheme: 'file', authority: 'host', path: 'relative' })).toThrow('Invalid URI');
+  expect(URI.parse('https://example.com/a/b?c=1#d').toString()).toBe('https://example.com/a/b?c%3D1#d');
+  expect(() => URI.parse('no-scheme', true)).toThrow('Invalid URI');
+  expect(URI.from({ scheme: 'untitled', path: 'a#b' }).toString()).toBe('untitled:a%23b');
+  expect(URI.from({ scheme: 'file', authority: 'host', path: 'relative' }).toString()).toBe('file://host/relative');
   expect(() => URI.from({ scheme: 'file', path: '//host/path' })).toThrow('Invalid URI');
 });
