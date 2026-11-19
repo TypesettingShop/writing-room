@@ -80,6 +80,8 @@ test('one extension cannot clear another extension\'s collection of the same nam
   expect(markers.read()).toEqual([]);
 
   await expect(main.$changeMany('9', 'lint', [])).rejects.toThrow('The extension is not registered.');
+  // The collections of a removed extension are disposed after its markers are gone: nothing to clear.
+  await expect(main.$clear('9', 'lint')).resolves.toBeUndefined();
   await expect(main.$changeMany('1', 'x'.repeat(300), [])).rejects.toThrow('Expected a diagnostic collection name.');
   // Entries without a usable resource are skipped, the rest still land.
   await main.$changeMany('1', 'lint', [[{ scheme: 'not a scheme' } as never, [marker('lost')]], 'junk' as never, [resource, [marker('kept')]]]);

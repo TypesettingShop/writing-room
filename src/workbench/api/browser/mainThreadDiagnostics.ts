@@ -171,6 +171,10 @@ export class MainThreadDiagnostics implements MainThreadDiagnosticsShape, IDispo
   }
 
   async $clear(extension: string, collection: string): Promise<void> {
+    // A removed extension's collections are disposed after `remove` already cleared what it owned.
+    if (typeof extension === 'string' && !this.extensionId(extension)) {
+      return;
+    }
     this.markers.changeAll(this.owner(extension, collection), []);
   }
 
