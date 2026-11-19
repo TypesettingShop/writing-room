@@ -119,7 +119,6 @@ export class TreeViewPane extends Disposable implements IViewBody {
   private visible = false;
   private visibilityScheduled = false;
   private disposed = false;
-  private welcomeShown = false;
 
   constructor(
     parent: HTMLElement,
@@ -149,8 +148,11 @@ export class TreeViewPane extends Disposable implements IViewBody {
     this._register(this.icons.onDidLoad(() => this.render()));
     this._register(themes.onDidColorThemeChange(() => this.render()));
     this._register(viewWelcomeContributions.onDidChange(() => this.render()));
-    this._register(context.onDidChangeContext(() => {
-      if (this.welcomeShown || this.hasWelcome()) {
+    this._register(context.onDidChangeContext(event => {
+      // Only the keys the welcome entries test: rendering can move focus, which changes other keys.
+      const keys = new Set(viewWelcomeContributions.current.filter(entry => entry.view === this.viewId)
+        .flatMap(entry => [...entry.when?.keys() ?? [], ...entry.enablement?.keys() ?? []]));
+      if (keys.size && event.affectsSome(keys)) {
         this.render();
       }
     }));
@@ -216,10 +218,6 @@ export class TreeViewPane extends Disposable implements IViewBody {
     this.render();
   }
 
-  private hasWelcome(): boolean {
-    return viewWelcomeContributions.current.some(entry => entry.view === this.viewId);
-  }
-
   private paragraph(text: string, className: string): HTMLElement {
     const message = this.content.ownerDocument.createElement('p');
     message.className = className;
@@ -241,7 +239,6 @@ export class TreeViewPane extends Disposable implements IViewBody {
     const rows = model?.rows ?? [];
     const empty = !source || (model!.loaded && rows.length === 0);
     const welcome = empty && !state?.message ? this.renderWelcome() : undefined;
-    this.welcomeShown = !!welcome;
     const used = new Set<string>();
     let rendered: HTMLElement[] = [];
     const document = this.content.ownerDocument;
@@ -447,6 +444,9 @@ export class TreeViewPane extends Disposable implements IViewBody {
     element.title = item.tooltip ?? '';
     if (item.accessibilityInformation) {
       element.setAttribute('aria-label', item.accessibilityInformation.label);
+    } else if (item.checkbox) {
+      // The check box has a name of its own, which would otherwise join the row's.
+      element.setAttribute('aria-label', [item.label, item.description].filter(Boolean).join(' '));
     }
     const twistie = document.createElement('span');
     twistie.className = 'extension-tree-twistie';

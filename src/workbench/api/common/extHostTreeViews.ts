@@ -602,7 +602,11 @@ export class ExtHostTreeViews implements ExtHostTreeViewsShape {
       const items: DataTransferItemDto[] = [];
       for (const [mimeType, item] of result ?? []) {
         if (!item.asFile()) {
-          items.push({ mimeType, value: await item.asString() });
+          // A value with no text form, such as objects that refer to each other, still reaches a drop in this extension.
+          const value = await Promise.resolve().then(() => item.asString()).catch(() => undefined);
+          if (typeof value === 'string') {
+            items.push({ mimeType, value });
+          }
         }
       }
       return items;

@@ -1,0 +1,31 @@
+{
+  "name": "tree-view",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Tree View Fixture",
+  "browser": "./browser/extension",
+  "activationEvents": ["onView:treeFixture.notes", "onView:treeFixture.empty"],
+  "contributes": {
+    "commands": [
+      { "command": "treeFixture.create", "title": "Tree Fixture: Create Note" },
+      { "command": "treeFixture.reveal", "title": "Tree Fixture: Reveal Deep" },
+      { "command": "treeFixture.decorate", "title": "Tree Fixture: Decorate" },
+      { "command": "treeFixture.move", "title": "Tree Fixture: Move Draft" }
+    ],
+    "viewsContainers": {
+      "activitybar": [{ "id": "treeFixture", "title": "Tree Fixture", "icon": "$(list-tree)" }]
+    },
+    "views": {
+      "treeFixture": [
+        { "id": "treeFixture.notes", "name": "Notes" },
+        { "id": "treeFixture.empty", "name": "Empty Notes" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "treeFixture.empty",
+        "contents": "No notes <b>yet</b>.\n[Create Note](command:treeFixture.create)\nOr [save](command:workbench.action.files.save) or read [the guide](https://example.com/guide)."
+      }
+    ]
+  }
+}

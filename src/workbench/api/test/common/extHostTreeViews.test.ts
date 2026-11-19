@@ -246,7 +246,7 @@ test('a check box change updates the item and reports the extension\'s element',
 
 test('handleDrop gets what handleDrag put in for the same extension, and strings for another', async () => {
   const proxy = mainThread();
-  const trees = new ExtHostTreeViews(proxy, () => ['source', 'target', 'foreign']);
+  const trees = new ExtHostTreeViews(proxy, () => ['source', 'target', 'foreign', 'cyclic']);
   const payload = { kind: 'notes', count: 2 };
   const dropped: { target: unknown; values: [string, unknown][] }[] = [];
   const controller = (name: string): vscode.TreeDragAndDropController<string> => ({
@@ -296,11 +296,23 @@ test('handleDrop gets what handleDrag put in for the same extension, and strings
   ], undefined);
   expect(dropped[3].values).toEqual([['text/plain', 3], ['image/png', "The file 'huge.png' is too large to drop."]]);
 
+  // A value with no text form stays out of the strings but reaches a drop in the same extension.
+  const cyclic: { self?: unknown } = {};
+  cyclic.self = cyclic;
+  const cyclicController = controller('cyclic');
+  trees.createTreeView('e', 'cyclic', provider(['c']), {
+    dragAndDropController: { ...cyclicController, handleDrag: (_source, transfer) => transfer.set('application/vnd.test.notes', new DataTransferItem(cyclic)) },
+  });
+  const [c] = await trees.$getChildren('e', 'cyclic');
+  expect(await trees.$handleDrag('e', 'cyclic', [c.handle], 'drag-c')).toEqual([]);
+  await trees.$handleDrop('e', 'target', undefined, [], 'drag-c');
+  expect(dropped[4].values[0][1]).toBe(cyclic);
+
   // Releasing the extension forgets its drags.
   await trees.$handleDrag('e', 'source', [a.handle], 'drag-3');
   trees.remove('e');
   trees.createTreeView('e', 'target', provider(['t']), { dragAndDropController: controller('target') });
   const [again] = await trees.$getChildren('e', 'target');
   await trees.$handleDrop('e', 'target', again.handle, [], 'drag-3');
-  expect(dropped[4].values).toEqual([]);
+  expect(dropped[5].values).toEqual([]);
 });
