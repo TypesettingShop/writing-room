@@ -372,3 +372,89 @@
 {"ts":"2026-11-19T02:41:47Z","id":"wr-510x","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Next: 없음. docs/maintainability.md가 milestone/wr-zjt4에 병합됨."}
 {"ts":"2026-11-19T02:42:26Z","id":"wr-510x.gmi","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: anthropic/claude-sonnet-5-5 (low — docs: 유지보수·확장 가이드 페이지)"}
 {"ts":"2026-11-19T02:42:26Z","id":"wr-510x","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Report-checked: 2f10901"}
+{"ts":"2026-11-19T07:52:30Z","id":"wr-mq3n","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"v0.2.0"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jbmd","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"v0.2.0 확장성: 공용 계약과 실제 확장 인수"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jbmd.tg5","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"실제 확장 픽스처와 API 사용 탐침"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jbmd.eke","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"인수: Markdown 언어 기본과 테마"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jbmd.xwh","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"인수: markdownlint"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jbmd.g9f","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"인수: Markdown 미리보기와 언어 서버"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jbmd.uub","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"호환 표와 릴리스 문서"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-lv5h","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"기반: URI·파일 서비스·브라우저 저장소"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-lv5h.rly","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"URI 인코딩·경로·glob"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-lv5h.mag","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"파일 서비스 코어와 읽기 전용 제공자"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-lv5h.123","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"IndexedDB 파일 시스템 제공자"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-lv5h.9hh","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"워크스페이스 서비스와 기본 폴더"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-h23m","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"기반: 에디터·모델 이음매와 컨텍스트 키"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-h23m.6ti","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"모델·코드 에디터·언어·테마 서비스 이음매"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-h23m.4hq","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"에디터 서비스 확장·에디터 해석기·저장 계약"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-h23m.gek","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"컨텍스트 키 식 확장과 에디터·리소스 키"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-efqx","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"기반: 확장 API 조립 이음매와 RPC"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-efqx.7kg","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"취소·비동기 유틸과 RPC 확장"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-efqx.n9k","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"API 조립 이음매와 영역 스텁"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-efqx.zed","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"공용 API 타입과 변환기"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-efqx.yfb","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"API 표면 적합성 검사"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-efqx.x8c","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"메뉴·서브메뉴 기여와 픽스처 확장 도구"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-j641","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"문서·에디터 API"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-j641.44i","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"문서 동기화와 TextDocument"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-j641.3v7","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"TextEditor: 선택·편집·표시"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-j641.gq8","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"WorkspaceEdit와 장식"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-j641.naj","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"내장 커맨드·탭 그룹·에디터 컨텍스트 메뉴"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-1ejz","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"언어 기여: languages·grammars·snippets"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-1ejz.31d","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"언어 레지스트리와 언어 모드"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-1ejz.t0z","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"TextMate 문법 토큰화"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-1ejz.bav","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"스니펫 기여"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-dt90","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"진단과 Problems 뷰"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-dt90.731","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"마커 서비스와 DiagnosticCollection"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-dt90.jok","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Problems 뷰와 상태 표시줄 집계"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-8a5f","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"파일 시스템·워크스페이스 API"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-8a5f.e74","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"workspace.fs와 워크스페이스 폴더 API"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-8a5f.7bx","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"파일 감시·파일 이벤트·findFiles"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-8a5f.1ph","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"확장이 제공하는 FileSystemProvider"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jrhv","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"파일 편집: 텍스트 파일 모델·저장·Explorer"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jrhv.q50","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"텍스트 파일 모델과 FileEditorInput"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jrhv.r4v","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"파일 커맨드·저장 확인·파일 대화상자"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jrhv.02j","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Explorer 파일 트리"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jrhv.y8q","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"파일 가져오기와 내보내기"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-cpnc","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Webview와 WebviewPanel"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-cpnc.hs9","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Webview 요소와 별도 오리진 셸"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-cpnc.hmr","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"포워딩 주소의 Webview 오리진 설정"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-cpnc.flj","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"WebviewPanel API와 에디터 입력"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-cpnc.t0m","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Webview 직렬화와 복원"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-cpnc.6ly","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"WebviewView"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-k5o0","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"설정 기여와 getConfiguration"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-k5o0.242","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"설정 레지스트리와 모델 확장"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-k5o0.xqs","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"configuration·configurationDefaults 기여 지점"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-k5o0.ze2","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"getConfiguration API와 변경 이벤트"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-x0vf","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"창 UI: QuickPick·InputBox·Output·진행"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-x0vf.6wt","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"QuickPick과 InputBox API"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-x0vf.jgz","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"OutputChannel과 Output 뷰"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-x0vf.hyt","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"메시지 옵션·진행 표시·알림 서비스"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mk2j","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"테마·색·트리 뷰·상태 표시줄"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mk2j.2j5","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"색 레지스트리와 색 테마 기여"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mk2j.2xb","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"colors 기여·ThemeColor·테마 API·상태 표시줄 색"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mk2j.uak","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"트리 뷰 확장: 아이콘·선택·reveal·드래그"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mn1x","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"확장 런타임: 컨텍스트·env·l10n·수명"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mn1x.zpa","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"ExtensionContext 저장소와 경로"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mn1x.xvd","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"env·extensions·version"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mn1x.6p0","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"l10n과 매니페스트 지역화"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mn1x.8i5","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"활성화 수명과 의존 순서"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-mn1x.9je","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"호스트 전역: 리소스 로딩·중첩 Worker·범위 밖 API"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-l3ch","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"VSIX 설치와 패키지 저장소"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-l3ch.285","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"ZIP 판독기와 VSIX 검증"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-l3ch.amu","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"패키지 저장소와 설치 기록"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-l3ch.9fi","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"VSIX 파일·URL 설치"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"언어 기능 제공자"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8.7u8","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"제공자 등록 이음매와 문서 선택자"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8.w6j","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"완성·호버·시그니처 도움말"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8.08x","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"서식·코드 액션·이름 바꾸기"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8.rj2","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"탐색 제공자: 기호·링크·정의·접기 등"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8.qq0","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"워크스페이스 기호 검색 화면"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-c9d8.kxn","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Monaco에 대응이 없는 제공자"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-ibv9","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Custom Editor와 Reopen With"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-ibv9.7gr","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"customEditors 기여와 에디터 선택"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-ibv9.nl3","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"CustomTextEditorProvider"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-ibv9.f1u","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"읽기 전용·바이너리 Custom Editor"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jfx7","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Open VSX 갤러리와 Extensions 뷰"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jfx7.up8","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Open VSX 클라이언트와 서명 검증"}
+{"ts":"2026-11-19T08:10:08Z","id":"wr-jfx7.1cf","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"Extensions 뷰: 검색·설치·제거"}
+{"ts":"2026-11-19T08:10:46Z","id":"wr-jbmd","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: anthropic/claude-fable-5-2 (high — plan: interview and detailed plan)"}
