@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-sxeONo4sHlcWCgDLTgIm+4CqbBkBNBdOYhZ5l8M4xLk='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Webview</title>
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+</style>
+<script type="module">
+  const url = new URL(location.href);
+  const token = url.hash.slice(1);
+  const parentOrigin = url.searchParams.get('parentOrigin');
+  const shellId = url.searchParams.get('id');
+  const parentWindow = window.parent;
+  if (parentWindow !== window && parentWindow === window.top && parentOrigin && parentOrigin !== location.origin
+      && /^https?:\/\//.test(parentOrigin) && /^[\da-f-]{36}$/.test(token) && /^[\da-f-]{36}$/.test(shellId)) {
+    window.addEventListener('message', function attach(event) {
+      if (event.source !== parentWindow || event.origin !== parentOrigin || event.data?.type !== 'attach'
+          || event.data.token !== token || event.ports.length !== 1) {
+        return;
+      }
+      window.removeEventListener('message', attach);
+      void start(event.ports[0]);
+    });
+    parentWindow.postMessage({ type: 'connect', token }, parentOrigin);
+  }
+
+  async function start(port) {
+    let frame;
+    let content;
+    let theme;
+    let loaded = false;
+    let disposed = false;
+    let sequence = 0;
+    let loadTimer;
+    let queue = [];
+    const reads = new Map();
+    const send = port.postMessage.bind(port);
+
+    function removeContent() {
+      loaded = false;
+      clearTimeout(loadTimer);
+      for (const { finish } of reads.values()) {
+        finish({ status: 404 });
+      }
+      for (const { id } of queue) {
+        send({ type: 'ack', id, accepted: false });
+      }
+      queue = [];
+      frame?.remove();
+      frame = undefined;
+    }
+
+    function relayMessage({ id, value }) {
+      const target = frame?.contentWindow;
+      if (target) {
+        target.postMessage(value, location.origin);
+      }
+      send({ type: 'ack', id, accepted: Boolean(target) });
+    }
+
+    // Treat the content document as data until the service worker serves it in the inner frame.
+    function buildHtml() {
+      const document = new DOMParser().parseFromString(content.html, 'text/html');
+      if (content.scripts) {
+        const bridge = document.createElement('script');
+        const state = JSON.stringify(content.state ?? null).replaceAll('<', '\\u003c');
+        bridge.textContent = '(' + installApi.toString() + ')(' + JSON.stringify(content.bridge) + ',' + state + ');';
+        document.head.prepend(bridge);
+      }
+      setTheme(document);
+      return '<!doctype html>\n' + document.documentElement.outerHTML;
+    }
+
+    function setTheme(document) {
+      if (!theme || !document.body) {
+        return;
+      }
+      document.body.classList.remove('vscode-light', 'vscode-dark', 'vscode-high-contrast');
+      document.body.classList.add(theme.kind);
+      for (const [name, value] of Object.entries(theme.colors)) {
+        document.documentElement.style.setProperty(name, value);
+      }
+    }
+
+    function attachContentListeners(document) {
+      const capture = { capture: true };
+      document.addEventListener('click', followLink, capture);
+      document.addEventListener('auxclick', followLink, capture);
+      document.addEventListener('keydown', event => {
+        if (!event.isTrusted || event.defaultPrevented || event.isComposing) {
+          return;
+        }
+        const { key, code, ctrlKey, altKey, shiftKey, metaKey } = event;
+        send({ type: 'key', revision: content.revision, key, code, ctrlKey, altKey, shiftKey, metaKey });
+      });
+      document.addEventListener('contextmenu', event => {
+        if (!event.isTrusted || event.defaultPrevented) {
+          return;
+        }
+        event.preventDefault();
+        const context = Object.create(null);
+        const ancestors = event.composedPath().reverse();
+        for (const element of ancestors) {
+          const data = element.getAttribute?.('data-vscode-context');
+          if (data && data.length <= 4096) {
+            try {
+              const values = JSON.parse(data);
+              for (const [key, value] of Object.entries(values)) {
+                if (['boolean', 'number', 'string'].includes(typeof value)) {
+                  context[key] = value;
+                }
+              }
+            } catch {
+              // Ignore malformed context attributes.
+            }
+          }
+        }
+        send({ type: 'context-menu', revision: content.revision, x: event.clientX, y: event.clientY, context });
+      });
+    }
+
+    function followLink(event) {
+      const link = event.composedPath().find(element => element.localName === 'a' && element.hasAttribute('href'));
+      if (!link) {
+        return;
+      }
+      if (link.getAttribute('href').startsWith('#') && (!link.target || link.target === '_self')) {
+        return;
+      }
+      event.preventDefault();
+      if (event.isTrusted) {
+        send({ type: 'link', revision: content.revision, href: String(link.href.baseVal ?? link.href) });
+      }
+    }
+
+    function render(data) {
+      removeContent();
+      content = { ...data, bridge: crypto.randomUUID() };
+      const current = frame = document.createElement('iframe');
+      current.title = 'Webview content';
+      current.sandbox.add('allow-same-origin');
+      if (data.scripts) {
+        current.sandbox.add('allow-scripts');
+      }
+      if (data.forms) {
+        current.sandbox.add('allow-forms');
+      }
+      current.addEventListener('load', () => {
+        if (current !== frame || !current.contentDocument) {
+          return;
+        }
+        clearTimeout(loadTimer);
+        setTheme(current.contentDocument);
+        attachContentListeners(current.contentDocument);
+        loaded = true;
+        for (const message of queue.splice(0)) {
+          relayMessage(message);
+        }
+      });
+      current.src = '/webview/content/' + shellId + '/' + content.revision;
+      document.body.append(current);
+      loadTimer = setTimeout(() => {
+        removeContent();
+        send({ type: 'content-error' });
+      }, 10000);
+    }
+
+    window.addEventListener('message', event => {
+      if (!content || event.source !== frame?.contentWindow || event.origin !== location.origin
+          || event.data?.bridge !== content.bridge) {
+        return;
+      }
+      if (event.data.type === 'message' || event.data.type === 'state') {
+        send({ type: event.data.type, revision: content.revision, value: event.data.value });
+      }
+    });
+
+    const onServiceMessage = event => {
+      if (event.source !== navigator.serviceWorker.controller || !event.ports[0] || !content
+          || event.data?.revision !== content.revision) {
+        event.ports[0]?.close();
+        return;
+      }
+      const reply = event.ports[0];
+      if (event.data.type === 'load-content') {
+        if (!content.client && event.data.client) {
+          content.client = event.data.client;
+          reply.postMessage({ html: buildHtml() });
+        }
+        reply.close();
+      } else if (event.data.type === 'resource' && event.data.client === content.client) {
+        const id = ++sequence;
+        const revision = content.revision;
+        const finish = result => {
+          reads.delete(id);
+          clearTimeout(timer);
+          if (result) {
+            reply.postMessage(result, result.bytes ? [result.bytes.buffer] : []);
+          }
+          reply.close();
+        };
+        const cancel = () => {
+          send({ type: 'cancel-resource', revision, id });
+          finish();
+        };
+        const timer = setTimeout(cancel, 9500);
+        reads.set(id, { finish });
+        reply.onmessage = cancel;
+        send({ type: 'resource', revision, id, path: event.data.path });
+      } else {
+        reply.postMessage({ status: 401 });
+        reply.close();
+      }
+    };
+
+    port.onmessage = ({ data }) => {
+      if (disposed) {
+        return;
+      }
+      switch (data.type) {
+        case 'content':
+          render(data);
+          break;
+        case 'message':
+          if (loaded) {
+            relayMessage(data);
+          } else {
+            queue.push(data);
+          }
+          break;
+        case 'theme':
+          theme = data;
+          if (frame?.contentDocument) {
+            setTheme(frame.contentDocument);
+          }
+          break;
+        case 'focus':
+          frame?.focus();
+          break;
+        case 'resource-result':
+          reads.get(data.id)?.finish(data);
+          break;
+        case 'dispose':
+          disposed = true;
+          removeContent();
+          navigator.serviceWorker?.removeEventListener('message', onServiceMessage);
+          port.close();
+          break;
+      }
+    };
+
+    try {
+      await navigator.serviceWorker.register('/webview/service-worker.js', { scope: '/webview/' });
+      await navigator.serviceWorker.ready;
+      while (!disposed && !navigator.serviceWorker.controller) {
+        await new Promise(resolve => setTimeout(resolve, 30));
+      }
+      if (!disposed) {
+        navigator.serviceWorker.addEventListener('message', onServiceMessage);
+        send({ type: 'ready' });
+      }
+    } catch (error) {
+      console.error('Webview service worker could not start.', error);
+    }
+  }
+
+  function installApi(bridge, seed) {
+    const shell = window.parent;
+    const send = shell.postMessage.bind(shell);
+    const origin = window.location.origin;
+    let acquired = false;
+    let state = seed === null ? undefined : JSON.parse(seed);
+    Object.defineProperty(window, 'acquireVsCodeApi', {
+      value: () => {
+        if (acquired) {
+          throw new Error('An instance of the VS Code API has already been acquired');
+        }
+        acquired = true;
+        return Object.freeze({
+          postMessage: value => send({ type: 'message', bridge, value }, origin),
+          getState: () => state,
+          setState: value => {
+            try {
+              const json = JSON.stringify(value);
+              if (json !== undefined) {
+                state = value;
+                send({ type: 'state', bridge, value: json }, origin);
+              }
+            } catch {
+              // The workbench persists JSON values only.
+            }
+            return value;
+          },
+        });
+      },
+    });
+  }
+</script>
+<body></body>
+</html>

@@ -1,6 +1,52 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { defineConfig } from 'vite';
+import type { Connect, Plugin } from 'vite';
+
+const webviewAssets = new Map([
+  ['/webview/index.html', 'text/html; charset=utf-8'],
+  ['/webview/service-worker.js', 'text/javascript; charset=utf-8'],
+]);
+
+function webviewShell(): Plugin {
+  function readAsset(path: string): Buffer {
+    return readFileSync(new URL('./src/workbench/contrib/webview/browser/pre/' + path.split('/').at(-1), import.meta.url));
+  }
+
+  const serve: Connect.NextHandleFunction = (request, response, next) => {
+    const path = request.url?.split('?', 1)[0] ?? '';
+    const type = webviewAssets.get(path);
+    if (!type) {
+      if (path.startsWith('/webview/')) {
+        response.writeHead(404).end();
+      } else {
+        next();
+      }
+      return;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405, { Allow: 'GET, HEAD' }).end();
+      return;
+    }
+    response.writeHead(200, {
+      'Content-Type': type,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    }).end(request.method === 'GET' ? readAsset(path) : undefined);
+  };
+
+  return {
+    name: 'webview-shell',
+    configureServer(server) {
+      server.middlewares.use(serve);
+    },
+    generateBundle() {
+      for (const path of webviewAssets.keys()) {
+        this.emitFile({ type: 'asset', fileName: path.slice(1), source: readAsset(path) });
+      }
+    },
+  };
+}
 
 const require = createRequire(import.meta.url);
 const codiconModule = 'virtual:codicon-names';
@@ -8,7 +54,10 @@ const resolvedCodiconModule = '\0' + codiconModule;
 
 export default defineConfig({
   appType: 'mpa',
+  server: { host: '127.0.0.1' },
+  preview: { host: '127.0.0.1' },
   plugins: [
+    webviewShell(),
     {
       name: 'codicon-names',
       resolveId(id) {
