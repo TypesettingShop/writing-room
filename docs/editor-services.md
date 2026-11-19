@@ -38,7 +38,7 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 
 - `IEditorService.openEditor({ resource, options })`가 에디터 해석기로 입력을 만든다. 옵션은 `preserveFocus`, `selection`(1부터 세는 줄과 열), `override`(에디터 id)다.
 - 해석기 등록: `registerEditor(glob, { id, label, priority }, { canSupportResource }, factory)`. 우선순위는 `exclusive` > `default` > `builtin` > `option`이고 같으면 긴 glob이 이긴다. 사용자의 `workbench.editorAssociations`(파일 이름 패턴 → 에디터 id)는 `exclusive`가 아닌 한 우선한다. `override`는 glob과 관계없이 그 id를 쓴다. id `default`는 텍스트 에디터이며 다른 후보가 없을 때의 대체다.
-- glob에 `/`가 있으면 `scheme:path`에, 없으면 파일 이름에 대소문자 없이 맞춘다. `**`, `*`, `?`, `{a,b}`, `[...]`를 읽는다.
+- glob에 `/`가 있으면 `scheme:path`에, 없으면 파일 이름에 대소문자 없이 맞춘다. 매처는 공용 `base/common/glob.ts`이고 `**`, `*`, `?`, 겹친 `{a,{b,c}}`, `[...]`/`[!...]`를 읽는다.
 - 맞는 등록이 없으면 빈 페인이 아니라 이유를 적은 오류 에디터가 열린다(`role="alert"`).
 - 보이는 에디터: `visibleEditors`, `visibleEditorPanes`, `onDidVisibleEditorsChange`(바뀔 때마다 한 번). `findEditors(resource)`는 모든 그룹에서 찾는다. `onDidCloseEditor`는 에디터가 그룹을 떠날 때 난다.
 - 뷰 열 번호는 `editorGroupColumn.ts`가 바꾼다: 0이 화면 순서의 첫 그룹이다(API의 `ViewColumn.One`). 그룹 수를 넘는 열(아홉째까지)은 마지막 그룹 오른쪽에 그룹 하나를 만든다. `ACTIVE_GROUP`, `SIDE_GROUP`은 그대로 간다.
@@ -81,7 +81,7 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 
 - 테마 색은 `Color` 객체가 아니라 CSS 색 문자열이다(`getColor`). 파일 아이콘 테마와 제품 아이콘 테마는 없다 (wr-h23m.6ti)
 - `IModelService.createModel`은 비동기이고 `setModelLanguage`를 서비스에 둔다. Monaco 독립 실행형의 모델에는 `setLanguage`가 공개되어 있지 않다 (wr-h23m.6ti)
-- 에디터 해석기의 glob 매처는 이 서비스 안에 있다. URI·glob 에픽의 `glob.ts`가 머지되면 그것으로 바꾼다. `explicit` 우선순위, 차이·병합 에디터 연관은 없다 (wr-h23m.4hq)
+- `explicit` 우선순위, 차이·병합 에디터 연관은 없다 (wr-h23m.4hq). 에디터 해석기의 glob은 공용 `base/common/glob.ts`로 맞추고(VS Code처럼 패턴과 대상을 소문자로 바꾼다), 그 매처가 거부하는 패턴(4 KiB 초과, 대안 100개 초과)은 아무것도 받지 않는다 (wr-jrhv)
 - 뷰 열 번호가 그룹 수를 넘으면 그룹을 하나만 만든다. VS Code는 그 열까지 채운다 (wr-h23m.4hq)
 - 닫을 때 묻는 것은 `closeHandler`가 있는 입력뿐이다. VS Code는 dirty한 입력이면 기본 저장 대화상자를 연다 — 저장할 곳(파일)이 아직 없다 (wr-h23m.4hq)
 - 외부 주소의 확인은 모달 대화상자가 아니라 퀵 픽이다(마스터 본문의 확인 대화상자 규칙) (wr-h23m.4hq)
