@@ -1,6 +1,6 @@
 import type * as vscode from 'vscode';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
-import { URI } from '../../../base/common/uri.js';
+import { Uri } from './extHostTypes.js';
 import { dispose } from '../../../base/common/lifecycle.js';
 import type { MainThreadExtensionServiceShape } from './extHost.protocol.js';
 
@@ -24,7 +24,7 @@ class Activation {
   constructor(public description: HostExtensionDescription) {
     this.context = {
       subscriptions: this.subscriptions,
-      extensionUri: URI.parse(description.location),
+      extensionUri: Uri.parse(description.location),
       extension: { id: description.id, packageJSON: structuredClone(description.manifest) },
     };
   }
