@@ -19,7 +19,19 @@ interface PendingMessage {
   readonly resolve: (accepted: boolean) => void;
 }
 
+interface QueuedRead {
+  readonly id: number;
+  readonly path: string;
+}
+
 const shellTimeout = 10_000;
+const concurrentReads = 16;
+const queuedReadLimit = 1024;
+
+function sameRoots(first: readonly URI[] | undefined, second: readonly URI[] | undefined): boolean {
+  return first === second || (!!first && !!second && first.length === second.length
+    && first.every((root, index) => root.toString() === second[index].toString()));
+}
 
 export class WebviewElement extends Disposable {
   private readonly contentReady = this._register(new Emitter<void>());
@@ -36,6 +48,8 @@ export class WebviewElement extends Disposable {
   private readonly window: Window;
   private readonly pending = new Map<number, PendingMessage>();
   private readonly reads = new Map<number, AbortController>();
+  /** A page asks for its resources at once; reads past the concurrent limit wait here instead of failing. */
+  private readonly queuedReads: QueuedRead[] = [];
   private readonly readyTimeout: number | undefined;
   private port: MessagePort | undefined;
   private disposed = false;
@@ -101,8 +115,9 @@ export class WebviewElement extends Disposable {
     const reload = this.html !== html || this.options.enableScripts !== options.enableScripts
       || this.options.enableForms !== options.enableForms;
     this.html = html;
-    if (this.options.localResourceRoots !== options.localResourceRoots) {
-      this.abortReads();
+    if (!sameRoots(this.options.localResourceRoots, options.localResourceRoots)) {
+      // Queued reads start under the new roots; a read already running answers as refused.
+      this.abortActiveReads();
     }
     this.options = options;
     if (reload && this.ready) {
@@ -220,11 +235,11 @@ export class WebviewElement extends Disposable {
           break;
         case 'resource':
           if (typeof data.path === 'string' && Number.isSafeInteger(data.id)) {
-            void this.readResource(data.id, data.path);
+            this.requestResource(data.id, data.path);
           }
           break;
         case 'cancel-resource':
-          this.reads.get(data.id)?.abort();
+          this.cancelRead(data.id);
           break;
         case 'link':
           if (typeof data.href === 'string' && /^https?:\/\//i.test(data.href)) {
@@ -250,27 +265,50 @@ export class WebviewElement extends Disposable {
     }
   }
 
-  private async readResource(id: number, path: string): Promise<void> {
-    if (this.reads.has(id) || this.reads.size >= 16) {
+  private requestResource(id: number, path: string): void {
+    if (this.reads.has(id) || this.queuedReads.some(read => read.id === id) || this.queuedReads.length >= queuedReadLimit) {
       this.port?.postMessage({ type: 'resource-result', id, status: 401 });
-      return;
+    } else if (this.reads.size >= concurrentReads) {
+      this.queuedReads.push({ id, path });
+    } else {
+      void this.readResource(id, path);
     }
+  }
+
+  private cancelRead(id: number): void {
+    this.reads.get(id)?.abort();
+    const index = this.queuedReads.findIndex(read => read.id === id);
+    if (index >= 0) {
+      this.queuedReads.splice(index, 1);
+    }
+  }
+
+  private async readResource(id: number, path: string): Promise<void> {
     const abort = new AbortController();
     this.reads.set(id, abort);
     try {
       const result = await loadWebviewResource(this.files, path, this.options.localResourceRoots ?? [], abort.signal);
-      if (!abort.signal.aborted) {
-        if (result.status === 200) {
-          const bytes = result.bytes.slice();
-          this.port?.postMessage({ type: 'resource-result', id, ...result, bytes }, [bytes.buffer]);
-        } else {
-          this.port?.postMessage({ type: 'resource-result', id, ...result });
-        }
+      if (abort.signal.aborted) {
+        // The shell ignores an answer for a read it has already finished; otherwise it would wait for its timeout.
+        this.port?.postMessage({ type: 'resource-result', id, status: 401 });
+      } else if (result.status === 200) {
+        const bytes = result.bytes.slice();
+        this.port?.postMessage({ type: 'resource-result', id, ...result, bytes }, [bytes.buffer]);
+      } else {
+        this.port?.postMessage({ type: 'resource-result', id, ...result });
       }
     } finally {
       if (this.reads.get(id) === abort) {
         this.reads.delete(id);
       }
+      this.startQueuedReads();
+    }
+  }
+
+  private startQueuedReads(): void {
+    while (!this.disposed && this.reads.size < concurrentReads && this.queuedReads.length) {
+      const { id, path } = this.queuedReads.shift()!;
+      void this.readResource(id, path);
     }
   }
 
@@ -281,6 +319,11 @@ export class WebviewElement extends Disposable {
   }
 
   private abortReads(): void {
+    this.queuedReads.length = 0;
+    this.abortActiveReads();
+  }
+
+  private abortActiveReads(): void {
     for (const read of this.reads.values()) {
       read.abort();
     }

@@ -1,4 +1,5 @@
 import type * as vscode from 'vscode';
+import { raceCancellation } from '../../../base/common/async.js';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
@@ -95,7 +96,8 @@ class ExtHostWebviewViews implements ExtHostWebviewViewsShape {
         if (!entries.size) {
           this.providers.delete(extension);
         }
-        void registration.ready.then(() => this.proxy.$unregisterProvider(extension, id)).catch(() => {});
+        // Sent now so that it precedes a registration for the same view made right after this disposal.
+        void this.proxy.$unregisterProvider(extension, id).catch(() => {});
       }
     });
   }
@@ -117,20 +119,14 @@ class ExtHostWebviewViews implements ExtHostWebviewViewsShape {
       (label, value) => { void send(() => this.proxy.$setViewLabel(extension, handle, label, value), undefined).catch(console.error); },
       preserve => { void send(() => this.proxy.$showView(extension, handle, preserve), undefined).catch(console.error); });
     this.views.set(handle, { extension, view });
-    let listener: vscode.Disposable | undefined;
-    const cancelled = new Promise<void>(resolve => {
-      listener = token.onCancellationRequested(() => {
-        this.drop(extension, handle);
-        resolve();
-      });
-    });
     try {
-      await Promise.race([registration.provider.resolveWebviewView(view, { state }, token), cancelled]);
+      await raceCancellation(Promise.resolve(registration.provider.resolveWebviewView(view, { state }, token)), token);
     } catch (error) {
       this.drop(extension, handle);
       throw error;
-    } finally {
-      listener?.dispose();
+    }
+    if (token.isCancellationRequested) {
+      this.drop(extension, handle);
     }
   }
 
@@ -149,8 +145,8 @@ class ExtHostWebviewViews implements ExtHostWebviewViewsShape {
   remove(extension: string): void {
     const entries = this.providers.get(extension);
     this.providers.delete(extension);
-    for (const [id, registration] of entries ?? []) {
-      void registration.ready.then(() => this.proxy.$unregisterProvider(extension, id)).catch(() => {});
+    for (const id of entries?.keys() ?? []) {
+      void this.proxy.$unregisterProvider(extension, id).catch(() => {});
     }
     entries?.clear();
     for (const [handle, entry] of this.views) {

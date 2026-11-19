@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-mZYZBdmeJ7nFwfOFNK7KszWnakliQVQ+9b3q3KU8acc='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-gH4rhd5st8Qxn7O9he6vccvXuekLXqC98yLvO5HZhO8='; style-src 'unsafe-inline'; frame-src 'self'; worker-src 'self'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Webview</title>
 <style>
@@ -15,7 +15,7 @@
   const shellId = url.searchParams.get('id');
   const parentWindow = window.parent;
   if (parentWindow !== window && parentWindow === window.top && parentOrigin && parentOrigin !== location.origin
-      && /^https?:\/\//.test(parentOrigin) && /^[\da-f-]{36}$/.test(token) && /^[\da-f-]{36}$/.test(shellId)) {
+      && isAllowedParent(parentOrigin) && /^[\da-f-]{36}$/.test(token) && /^[\da-f-]{36}$/.test(shellId)) {
     window.addEventListener('message', function attach(event) {
       if (event.source !== parentWindow || event.origin !== parentOrigin || event.data?.type !== 'attach'
           || event.data.token !== token || event.ports.length !== 1) {
@@ -25,6 +25,18 @@
       void start(event.ports[0]);
     });
     parentWindow.postMessage({ type: 'connect', token }, parentOrigin);
+  }
+
+  // A loopback shell is served by the development server itself, so only a loopback workbench may drive it.
+  function isAllowedParent(origin) {
+    const loopback = /^(?:localhost|127\.0\.0\.1)$/;
+    try {
+      const parent = new URL(origin);
+      return parent.origin === origin && /^https?:$/.test(parent.protocol)
+        && (!loopback.test(location.hostname) || (parent.protocol === 'http:' && loopback.test(parent.hostname)));
+    } catch {
+      return false;
+    }
   }
 
   async function start(port) {
@@ -126,16 +138,28 @@
     document.addEventListener('keydown', forwardKey);
 
     function followLink(event) {
-      const link = event.composedPath().find(element => element.localName === 'a' && element.hasAttribute('href'));
+      const xlink = 'http://www.w3.org/1999/xlink';
+      const link = event.composedPath().find(element => (element.localName === 'a' || element.localName === 'area')
+        && (element.hasAttribute('href') || element.hasAttributeNS?.(xlink, 'href')));
       if (!link) {
         return;
       }
-      if (link.getAttribute('href').startsWith('#') && (!link.target || link.target === '_self')) {
+      const target = String(link.target?.baseVal ?? link.target ?? '');
+      let resolved;
+      try {
+        resolved = new URL(String(link.href?.baseVal ?? link.href), link.ownerDocument.baseURI);
+      } catch {
+        resolved = undefined;
+      }
+      // Only a jump inside this document stays in the frame; a base element can send '#' links elsewhere.
+      const here = new URL(link.ownerDocument.URL);
+      if (resolved && resolved.href.includes('#') && resolved.origin === here.origin && resolved.pathname === here.pathname
+          && resolved.search === here.search && (!target || target === '_self')) {
         return;
       }
       event.preventDefault();
-      if (event.isTrusted) {
-        send({ type: 'link', revision: content.revision, href: String(link.href.baseVal ?? link.href) });
+      if (event.isTrusted && resolved) {
+        send({ type: 'link', revision: content.revision, href: resolved.href });
       }
     }
 

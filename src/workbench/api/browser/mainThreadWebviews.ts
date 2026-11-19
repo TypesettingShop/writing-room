@@ -12,6 +12,7 @@ import { IWebviewStateStore } from '../../contrib/webview/browser/webviewStateSt
 import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResourceScope.js';
 import { WebviewOverlay } from '../../contrib/webview/browser/webviewOverlay.js';
 import { resolveWebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
+import type { WebviewForwardingPorts } from '../../contrib/webview/common/webviewOrigin.js';
 import { WebviewEditorInput } from '../../contrib/webviewPanel/browser/webviewEditorInput.js';
 import { IWebviewPanelRestoreService } from '../../contrib/webviewPanel/browser/webviewPanelRestoreService.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
@@ -38,6 +39,8 @@ interface PanelEntry {
 export class MainThreadWebviews extends Disposable implements MainThreadWebviewsShape {
   private readonly panels = new Map<string, PanelEntry>();
   private readonly serializers = new Map<string, Map<string, IDisposable>>();
+  /** Restores that have not bound their panel yet, with the generation each one serves. */
+  private readonly restoring = new Map<WebviewEditorInput, number>();
   private scheduled = false;
   private stopped = false;
 
@@ -192,6 +195,16 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
         input.dispose();
       }
     }
+    // A restore still waiting for this host starts again in the next one instead of reporting success.
+    for (const [input, generation] of this.restoring) {
+      if (!input.isDisposed() && input.restoreGeneration === generation) {
+        input.markForRestore();
+        if (input.webview.isVisible) {
+          this.restore.show(input);
+        }
+      }
+    }
+    this.restoring.clear();
     for (const extension of this.serializers.keys()) {
       this.removeSerializers(extension);
     }
@@ -200,15 +213,28 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
 
   private async restorePanel(extension: string, input: WebviewEditorInput, generation: number): Promise<void> {
     const owner = this.getExtension(extension);
-    const isCurrent = () => !this.stopped && !input.isDisposed()
-      && input.restoreGeneration === generation && !!owner && this.getExtension(extension) === owner;
-    if (!owner || owner.id !== input.extensionId || !isCurrent()) {
-      return;
-    }
-    const handle = crypto.randomUUID();
-    const forwarding = await this.proxy.$getForwardingPorts();
+    const isCurrent = () => !this.stopped && !input.isDisposed() && input.restoreGeneration === generation;
     if (!isCurrent()) {
       return;
+    }
+    if (!owner || owner.id !== input.extensionId) {
+      throw new Error('The extension that provides this Webview is unavailable.');
+    }
+    const handle = crypto.randomUUID();
+    this.restoring.set(input, generation);
+    let forwarding: WebviewForwardingPorts | undefined;
+    try {
+      forwarding = await this.proxy.$getForwardingPorts();
+    } finally {
+      if (this.restoring.get(input) === generation) {
+        this.restoring.delete(input);
+      }
+    }
+    if (!isCurrent()) {
+      return;
+    }
+    if (this.getExtension(extension) !== owner) {
+      throw new Error('The extension that provides this Webview is unavailable.');
     }
     const entry = this.bindPanel(extension, handle, owner, input, input.contentOptions);
     const saved = this.states.get(input.id, owner.id);

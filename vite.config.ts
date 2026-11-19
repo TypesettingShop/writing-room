@@ -63,8 +63,14 @@ function webviewShell(): Plugin {
       if (!app || port === requestedPort) {
         throw new Error('WRITING_ROOM_WEBVIEW_PORT requires a listener on a port distinct from the app port.');
       }
-      const secondary = createServer((request, response) =>
-        serve(request, response, () => response.writeHead(404).end()));
+      // A bare Node listener has no error middleware: a read failure must not end the server process.
+      const secondary = createServer((request, response) => {
+        try {
+          serve(request, response, () => response.writeHead(404).end());
+        } catch {
+          response.writeHead(500).end();
+        }
+      });
       await new Promise<void>((resolve, reject) => {
         secondary.once('error', error => reject(new Error(
           'WRITING_ROOM_WEBVIEW_PORT could not listen on ' + loopback + ':' + port + '. ' + error.message, { cause: error },

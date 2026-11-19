@@ -3,6 +3,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../../platform/files/common/files.js';
 import type { IFileService } from '../../../../../platform/files/common/files.js';
 import { loadWebviewResource } from '../../browser/resourceLoading.js';
+import { scopeWebviewOptions } from '../../browser/webviewResourceScope.js';
 import { asWebviewUri } from '../../common/webviewUri.js';
 
 const root = URI.parse('https://example.test:5173/extension/media');
@@ -64,4 +65,21 @@ it('allows resources in the installed package but refuses user storage and priva
   expect(await loadWebviewResource(files, new URL(asWebviewUri(origin, privateResource).toString()).pathname,
     [privateRoot, root], signal)).toEqual({ status: 401 });
   expect(readFile).toHaveBeenCalledOnce();
+});
+
+it('keeps requested roots only inside the workspace folders and the extension install folder', () => {
+  const extension = 'https://extensions.example.test/first/';
+  const workspace = URI.parse('vscode-vfs://workspace/project');
+  const inside = [URI.joinPath(workspace, 'media'), URI.parse('https://extensions.example.test/first/media')];
+  const outside = [
+    URI.parse('https://extensions.example.test/second/media'),
+    URI.parse('https://extensions.example.test/first-other/media'),
+    URI.parse('vscode-vfs://workspace/project-other'),
+    URI.parse('vscode-userdata:/extensions/'),
+    URI.parse('vscode-userdata:/User/globalStorage/first'),
+  ];
+  const scoped = scopeWebviewOptions(extension, [workspace], { localResourceRoots: [...inside, ...outside] });
+  expect(scoped.localResourceRoots?.map(String)).toEqual(inside.map(String));
+  expect(scopeWebviewOptions(extension, [workspace], {}).localResourceRoots?.map(String))
+    .toEqual([workspace.toString(), 'https://extensions.example.test/first']);
 });

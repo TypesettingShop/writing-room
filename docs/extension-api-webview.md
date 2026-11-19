@@ -68,7 +68,8 @@ panel.webview.html = `<!doctype html>
 
 - wr-cpnc.hs9, wr-cpnc.hmr. 개발과 프리뷰의 루프백 경로와 포워딩 모드는 워크벤치와 웹뷰의 오리진을 분리한다. 같은 웹뷰 오리진에 여러 문서가 뜨는 모드에서는 그 문서들이 브라우저의 같은 오리진 권한을 공유한다. 웹뷰마다 다른 오리진이 필요한 배포는 호스트 이름에 `{{uuid}}`가 들어간 HTTPS 주소 틀을 사용한다.
 - wr-cpnc.flj. 찾기와 `portMapping`은 옵션을 받되 동작하지 않는다. `enableCommandUris`도 옵션을 받으며 링크 처리는 HTTP와 HTTPS를 지원한다.
-- wr-cpnc.flj. 로컬 파일과 확장 리소스는 메인 스레드의 파일 서비스를 통해 읽는다. 원격 URL도 확장의 설치 루트에 있으면 `asWebviewUri`가 웹뷰 리소스 주소를 만든다.
+- wr-cpnc.flj. 로컬 파일과 확장 리소스는 메인 스레드의 파일 서비스를 통해 읽는다. `asWebviewUri`는 `http(s)` 주소도 웹뷰 리소스 주소로 바꾼다. VS Code는 이런 주소를 그대로 돌려준다. 바뀐 주소는 `localResourceRoots` 안에 있을 때만 읽히므로 CDN 같은 외부 주소는 `asWebviewUri`를 거치지 않고 그대로 쓴다.
+- wr-cpnc.flj. `localResourceRoots`에는 워크스페이스 폴더와 그 확장의 설치 폴더 안쪽 루트만 남는다. 다른 확장의 폴더나 `globalStorageUri` 같은 사용자 저장소 루트는 경고 없이 빠진다.
 - wr-cpnc.6ly. 뷰 배지는 이 에픽의 범위 밖이다.
 
 Decided in: wr-efqx.n9k, wr-cpnc

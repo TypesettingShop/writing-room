@@ -1,5 +1,6 @@
 import './extHostWebviewView.js';
 import type * as vscode from 'vscode';
+import { raceCancellation } from '../../../base/common/async.js';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
 import type { URI } from '../../../base/common/uri.js';
@@ -277,7 +278,8 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
         if (owned.size === 0) {
           this.serializers.delete(extension);
         }
-        void registration.ready.then(() => this.proxy.$unregisterPanelSerializer(extension, viewType)).catch(() => {});
+        // Sent now so that it precedes a registration for the same type made right after this disposal.
+        void this.proxy.$unregisterPanelSerializer(extension, viewType).catch(() => {});
       }
     });
   }
@@ -299,20 +301,14 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
     const panel = this.attachPanel(extension, handle, {
       ...data, contentOptions: data.contentOptions as vscode.WebviewOptions,
     }, Promise.resolve());
-    let listener: vscode.Disposable | undefined;
-    const cancelled = new Promise<void>(resolve => {
-      listener = token.onCancellationRequested(() => {
-        this.drop(extension, handle);
-        resolve();
-      });
-    });
     try {
-      await Promise.race([serializer.deserializeWebviewPanel(panel, data.state), cancelled]);
+      await raceCancellation(Promise.resolve(serializer.deserializeWebviewPanel(panel, data.state)), token);
     } catch (error) {
       this.drop(extension, handle);
       throw error;
-    } finally {
-      listener?.dispose();
+    }
+    if (token.isCancellationRequested) {
+      this.drop(extension, handle);
     }
   }
 
@@ -331,8 +327,8 @@ class ExtHostWebviews implements ExtHostWebviewsShape {
   remove(extension: string): void {
     const owned = this.serializers.get(extension);
     this.serializers.delete(extension);
-    for (const [type, { ready }] of owned ?? []) {
-      void ready.then(() => this.proxy.$unregisterPanelSerializer(extension, type)).catch(() => {});
+    for (const type of owned?.keys() ?? []) {
+      void this.proxy.$unregisterPanelSerializer(extension, type).catch(() => {});
     }
     owned?.clear();
     for (const [id, entry] of this.panels) {
