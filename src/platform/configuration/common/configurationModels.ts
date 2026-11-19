@@ -1,4 +1,4 @@
-import { overrideIdentifiersFromKey, validateConfigurationValue } from './configurationRegistry.js';
+import { overrideIdentifiersFromKey, acceptsConfigurationValue } from './configurationRegistry.js';
 import type { IConfigurationPropertySchema } from './configurationRegistry.js';
 import { deepClone, equals, isPlainObject } from './configurationValues.js';
 
@@ -104,7 +104,7 @@ export class Configuration {
       }
       for (const [key, value] of Object.entries(contents)) {
         const schema = properties.get(key);
-        if (schema && validateConfigurationValue(schema, value)) {
+        if (schema && acceptsConfigurationValue(schema, value)) {
           const languages = userLanguages.get(key) ?? new Map<string, unknown>();
           userLanguages.set(key, languages);
           for (const identifier of identifiers) {
@@ -125,7 +125,7 @@ export class Configuration {
     for (const [key, schema] of properties) {
       const value = Object.hasOwn(user, key) ? user[key] : undefined;
       const entry: { -readonly [K in keyof IConfigurationKeyData]: IConfigurationKeyData[K] } = { default: schema.default };
-      if (validateConfigurationValue(schema, value)) {
+      if (acceptsConfigurationValue(schema, value)) {
         entry.user = value;
       }
       const defaults = sortedEntries(defaultLanguages.get(key));
