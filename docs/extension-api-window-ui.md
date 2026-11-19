@@ -2,6 +2,28 @@
 
 선택과 입력, 출력 채널과 진행 표시의 지원 범위는 이 페이지에 기록한다. 현재 공개된 API와 기여는 [확장 API](extension-api.md)에 있다.
 
+## QuickPick과 InputBox
+
+```js
+const fruit = await vscode.window.showQuickPick(
+  [{ label: 'Apple', description: 'red' }, { label: 'Citrus', kind: vscode.QuickPickItemKind.Separator }, { label: 'Lemon' }],
+  { placeHolder: 'Pick a fruit', matchOnDescription: true });
+const drinks = await vscode.window.showQuickPick(['Tea', 'Coffee'], { canPickMany: true });
+const name = await vscode.window.showInputBox({ prompt: 'Name the note', validateInput: v => v.length < 3 ? 'Too short' : undefined });
+```
+
+- `showQuickPick(items, options?, token?)`: 항목은 문자열 배열이거나 `QuickPickItem` 배열이고, 그 배열을 주는 약속(`Thenable`)이어도 된다. 약속이면 목록이 올 때까지 바쁨 표시가 돈다. 그사이 닫히면 결과는 `undefined`이고 나중에 온 목록은 화면에 쓰지 않는다. 고른 항목은 확장이 넘긴 바로 그 객체(문자열이면 그 문자열)로 돌아온다. `canPickMany: true`면 배열이 돌아오고 `picked: true`인 항목이 처음부터 체크되어 있다. `onDidSelectItem`은 하이라이트가 옮겨 갈 때마다 불린다. `title`, `placeHolder`, `prompt`, `matchOnDescription`, `matchOnDetail`, `ignoreFocusOut`을 받는다.
+- `showInputBox(options?, token?)`: `title`, `value`, `valueSelection`, `prompt`, `placeHolder`, `password`, `ignoreFocusOut`, `validateInput`을 받는다. 검증은 문자열이나 `{ message, severity }`(`InputBoxValidationSeverity.Info`/`Warning`/`Error`)를 돌려줄 수 있고, 오류(문자열이나 `Error`)만 Enter를 막는다. 검증은 값이 바뀔 때마다와 Enter 때 다시 돌고, 그 사이 값이 바뀌었으면 예전 값의 결과는 보이지도 수락에 쓰이지도 않는다.
+- `createQuickPick()`과 `createInputBox()`는 객체를 돌려준다. 속성은 upstream과 같다: 공통으로 `title`, `step`, `totalSteps`, `enabled`, `busy`, `ignoreFocusOut`, `buttons`, `show()`, `hide()`, `dispose()`, `onDidHide`, `onDidTriggerButton`. 퀵 픽은 `value`, `placeholder`, `prompt`, `items`, `canSelectMany`, `matchOnDescription`, `matchOnDetail`, `activeItems`, `selectedItems`와 `onDidChangeValue`, `onDidAccept`, `onDidChangeActive`, `onDidChangeSelection`. 입력 상자는 `value`, `valueSelection`, `placeholder`, `prompt`, `password`, `validationMessage`(문자열 또는 `{ message, severity }`)와 `onDidChangeValue`, `onDidAccept`. 버튼은 `QuickInputButtons.Back`과 `ThemeIcon` 아이콘의 버튼이다.
+- 한 번에 하나의 퀵 인풋만 보인다. 새것(다른 확장의 것이나 커맨드 팔레트 포함)이 뜨면 지금 것이 숨고 `onDidHide`가 나며, `showQuickPick`/`showInputBox`는 `undefined`로 끝난다. Esc, 다른 곳 클릭, 다른 요소로 옮긴 포커스도 같다(`ignoreFocusOut`이면 포커스를 잃어도 남는다). 닫히면 포커스는 열기 전의 요소로 돌아가고, `showQuickPick`/`showInputBox`의 약속은 그다음에 풀린다.
+- 걸러 내기는 워크벤치에서 한다. 낱말마다 부분 문자열로 찾고(커맨드 팔레트와 같은 규칙), 대소문자를 가리지 않는다. 설명과 상세는 `matchOnDescription`/`matchOnDetail`일 때만 본다. `alwaysShow` 항목은 걸러 내기와 상관없이 보인다. 구분선(`QuickPickItemKind.Separator`)은 고를 수 없고 그 아래 항목들의 묶음 이름이 된다. 다중 선택은 행을 클릭하거나 Ctrl+Space(macOS Cmd+Space)로 체크하고 Enter나 **OK**로 받는다.
+- 항목을 바꿔도(`items`에 새 배열) 하이라이트된 항목이 새 목록에 같은 객체로 있으면 하이라이트가 그대로다. 사용자가 타자를 치면 하이라이트는 첫 결과로 간다.
+- 항목은 확장 호스트에 남는다. 워크벤치에는 표시할 글과 핸들만 가고, 고른 결과는 핸들로 돌아와 원래 객체가 된다. 항목의 다른 속성(함수, 큰 데이터)은 건너가지 않는다. 확장이 `value`나 `activeItems`, `selectedItems`를 바꾼 뒤에 도착한 그 이전의 사용자 이벤트는 버린다 — 확장이 바꾼 값이 이긴다.
+- 항목 1만 개를 한 번에 주어도 목록은 보이는 근처의 행만 만들고 스크롤과 화살표에 따라 더 만든다.
+- 확장을 비활성화하거나 제거하면 그 확장의 퀵 인풋이 닫힌다. 비밀번호 입력 상자의 값은 화면에 가려지고 로그에 남지 않는다.
+
+플랫폼의 `IQuickInputService`는 `pick`, `input`(기존)과 `createQuickPick`, `createInputBox`, `backButton`을 가진다. 기존 `pick`은 설명까지 걸러 낸다(`matchOnDescription: true`). 「언어 기능 제공자」의 기호 검색 화면이 이 객체 모델 위에 퀵 액세스를 얹는다.
+
 ## OutputChannel과 Output 뷰
 
 ```js
@@ -36,8 +58,37 @@ log.trace('기본 수준(Info)에서는 나오지 않는다');
 - 채널 하나는 1 MiB(1,048,576 UTF-16 코드 유닛, 줄마다 줄바꿈 하나를 1로 센다)까지 둔다. 넘으면 오래된 줄부터 버린다. 한 줄이 한도보다 길면 그 줄의 끝부분만 남긴다. 줄바꿈은 `\n`이고 그 앞의 `\r`은 버린다. 확장 호스트가 보낸 양과 상관없이 워크벤치가 이 한도를 지킨다.
 - 목록에 보이는 채널 이름은 256자까지다.
 
+## 메시지, 진행 표시, 상태 표시줄 메시지
+
+```js
+const choice = await vscode.window.showWarningMessage('Delete the note?', { modal: true, detail: 'It cannot be undone.' },
+  { title: 'Delete' }, { title: 'Keep', isCloseAffordance: true });
+await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Exporting', cancellable: true },
+  async (progress, token) => { progress.report({ message: 'half', increment: 50 }); /* ... */ });
+vscode.window.setStatusBarMessage('$(sync~spin) Syncing', syncPromise);
+```
+
+- `showInformationMessage`, `showWarningMessage`, `showErrorMessage`는 둘째 인자로 `MessageOptions`(`modal`, `detail`)를 받는다. 고른 항목은 넘긴 그 객체로 돌아오고, 닫으면 `undefined`다.
+  - 모달이 아니면 오른쪽 아래의 토스트다. 한 번에 셋까지 보이고 나머지는 차례를 기다린다. 기다리는 토스트는 보낸 쪽(확장)마다 열 개, 모두 쉰 개까지이고, 넘치면 그 쪽의 가장 오래 기다린 것부터 `undefined`로 닫힌다. 토스트에는 보낸 확장의 이름(`Source: <displayName>`)이 나온다. `detail`과 `isCloseAffordance`는 모달에서만 쓴다(VS Code와 같다).
+  - `modal: true`면 대화상자(`role="dialog"`, `aria-modal="true"`)다. 떠 있는 동안 뒤의 워크벤치는 포커스와 클릭을 받지 않고, Tab은 버튼 사이를 돈다. 첫 `isCloseAffordance` 항목이 취소 버튼(맨 끝)이 되고, 없으면 `Cancel`(항목이 없으면 `OK`) 버튼이 붙는다. Esc와 취소 버튼은 닫기 항목이 있으면 그것을, 없으면 `undefined`를 돌려준다. 닫히면 포커스가 원래 자리로 돌아간다. 대화상자는 한 번에 하나이고 나머지는 차례를 기다린다.
+  - 메시지와 상세는 텍스트로만 들어간다. 마크다운이나 HTML로 그리지 않는다.
+- `withProgress(options, task)`: `location`이 `ProgressLocation.Notification`이면 진행 막대가 있는 토스트, `Window`면 상태 표시줄 왼쪽의 도는 아이콘과 글이다. `SourceControl`과 `{ viewId }`도 `Window`로 보인다. `progress.report({ message, increment })`의 증분은 더해져 100에서 멈추고, 증분이 오기 전에는 막대가 끝없이 돈다. 보고는 100밀리초에 한 번으로 모아 보내지만 마지막 보고는 반드시 보인다. `cancellable`이면 토스트에 **Cancel**이 있고, 누르면 토큰이 한 번 취소된다. 작업이 토큰을 무시해도 표시는 작업이 끝날 때까지 남는다. 작업이 끝나거나 던지면 표시가 사라지고, 결과나 오류는 그대로 호출자에게 간다.
+- `setStatusBarMessage(text, hideAfterTimeout | hideWhenDone?)`: 상태 표시줄 왼쪽 끝에 글을 보이고 `Disposable`을 돌려준다. 시간이 지나거나 약속이 끝나거나 `dispose()`하면 사라진다. 여러 개면 가장 새것이 보이고, 그것이 사라지면 그 앞의 것이 다시 보인다.
+- 아이콘 글의 `$(이름~spin)`은 어느 codicon이든 돌게 한다(사용자가 움직임 줄이기를 켜면 돌지 않는다).
+- 확장을 비활성화하거나 제거하면 그 확장의 토스트, 대화상자, 진행 표시, 상태 표시줄 메시지가 사라지고 진행 중인 작업의 토큰이 취소된다.
+
+워크벤치 쪽에는 `INotificationService`(`notify`, `info`, `warn`, `error`, `prompt`; `src/platform/notification/common/notification.ts`, 구현은 `notificationsToasts.ts`)와 `IDialogService`(`prompt`; `src/platform/dialogs/`)가 있다. 워크벤치 자신의 확인은 v0.1.0처럼 퀵 픽으로 하고, 대화상자는 확장의 모달 메시지에만 쓴다.
+
 ## Deviations from VS Code
 
+- 퀵 픽 항목의 아이콘(`iconPath`), 항목 버튼(`buttons`, `onDidTriggerItemButton`), `resourceUri`, `keepScrollPosition`, 버튼의 `location`과 `toggle`, `showWorkspaceFolderPick`은 없다 — 범위 밖이다 (wr-x0vf.6wt).
+- 걸러 내기는 낱말마다 부분 문자열을 찾는 v0.1.0의 규칙이고 VS Code의 퍼지 점수와 결과 정렬은 없다. 결과는 확장이 준 순서다 (wr-jbmd, wr-x0vf.6wt).
+- 다중 선택에 "모두 선택" 체크 상자가 없다. 체크는 행 클릭과 Ctrl+Space로 한다 (wr-x0vf.6wt).
+- 확장이 `value`, `activeItems`, `selectedItems`를 바꾼 뒤에 도착한, 그 이전의 사용자 이벤트는 확장에 전하지 않는다. VS Code는 늦은 이벤트도 그대로 전해 확장의 변경을 덮을 수 있다 — 오래된 비동기 응답을 받아들이지 않는다는 계약을 따른다 (wr-jbmd, wr-x0vf.6wt).
+- 확장의 `hide()`는 `onDidHide`를 바로 낸다. VS Code는 워크벤치가 숨긴 뒤에 낸다 (wr-x0vf.6wt).
+- `withProgress`의 `ProgressLocation.SourceControl`과 `{ viewId }`는 `Window`로 보인다. 소스 제어와 뷰 안의 진행 표시가 없다 (wr-x0vf.hyt).
+- 기다리는 토스트는 보낸 쪽마다 열 개, 모두 쉰 개까지이고 넘치면 오래된 것부터 닫힌다. 알림 센터(모아 보기)와 방해 금지가 없어 닫힌 토스트는 다시 볼 수 없다 (wr-x0vf.hyt).
+- 모달 메시지는 브라우저 안의 대화상자이고, 운영 체제의 대화상자를 쓰지 않는다 (wr-x0vf.hyt).
 - 채널의 글은 로그 파일이 아니라 메모리의 고리 버퍼에 있다. 페이지를 새로 고치면 사라지고, 채널을 문서로 열거나 파일로 저장할 수 없다. VS Code는 채널마다 로그 파일에 쓰고 Output 뷰는 그 파일을 읽는다 — 브라우저에는 로그 디렉터리가 없고, 버퍼가 끝없이 자라지 않게 1 MiB로 묶었다 (wr-x0vf.jgz).
 - `LogOutputChannel`의 수준은 늘 `Info`이고 `onDidChangeLogLevel`은 일어나지 않는다. VS Code는 `Developer: Set Log Level`과 채널별 설정을 따른다 — 수준을 고르는 UI와 설정이 이 릴리스에 없다 (wr-x0vf.jgz).
 - Output 뷰는 읽기 전용 에디터가 아니라 줄의 목록이다. 문법 색, 찾기, 링크, 필터가 없고, 10,000 코드 유닛보다 긴 줄은 화면에서 잘린다. 채널은 드롭다운이 아니라 목록(`listbox`)에서 고른다 — 에디터와 링크는 범위 밖이고, 콤보 상자는 커맨드 팔레트와 이름이 겹친다 (wr-x0vf.jgz).
