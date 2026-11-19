@@ -33,7 +33,7 @@ export function createExtensionApi(
   contributions: ReadonlyMap<string, ExtHostApiContribution>,
   extension: HostExtensionDescription,
   isLive: () => boolean,
-  baseContext: vscode.ExtensionContext,
+  baseContext: object,
 ): { api: typeof vscode; context: vscode.ExtensionContext } {
   const top = new Map<string, Property>();
   const namespaces = new Map<string, Map<string, Property>>();

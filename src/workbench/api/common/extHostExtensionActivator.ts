@@ -13,10 +13,14 @@ export type ExtensionLoader = (
   extension: HostExtensionDescription, api: typeof vscode, signal: AbortSignal,
 ) => Promise<IExtensionModule>;
 
+type BaseExtensionContext = Pick<vscode.ExtensionContext, 'subscriptions' | 'extensionUri'> & {
+  readonly extension: Pick<vscode.Extension<unknown>, 'id' | 'packageJSON'>;
+};
+
 class Activation {
   readonly abort = new AbortController();
   readonly subscriptions: vscode.ExtensionContext['subscriptions'] = [];
-  readonly context: vscode.ExtensionContext;
+  readonly context: BaseExtensionContext;
   module?: IExtensionModule;
   operation?: Promise<void>;
   state: 'inactive' | 'activating' | 'active' | 'failed' = 'inactive';
@@ -37,7 +41,7 @@ export class ExtensionsActivator {
     private readonly main: MainThreadExtensionServiceShape,
     private readonly load: ExtensionLoader,
     private readonly createApi: (
-      extension: HostExtensionDescription, isLive: () => boolean, context: vscode.ExtensionContext,
+      extension: HostExtensionDescription, isLive: () => boolean, context: BaseExtensionContext,
     ) => { api: typeof vscode; context: vscode.ExtensionContext },
     private readonly flush: (key: string) => Promise<void>,
     private readonly release: (key: string) => void,

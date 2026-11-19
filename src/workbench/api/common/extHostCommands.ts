@@ -115,7 +115,7 @@ extHostApiRegistry.register('commands', services => {
         commands: {
           registerCommand: (command, callback, thisArg) => commands.registerCommand(key, command, callback, thisArg),
           executeCommand: promiseApiMethod(<T>(command: string, ...args: unknown[]) => commands.executeCommand<T>(key, command, args)),
-        } satisfies typeof vscode.commands,
+        } satisfies Pick<typeof vscode.commands, 'registerCommand' | 'executeCommand'>,
       },
     }),
     flush: key => commands.flush(key),
