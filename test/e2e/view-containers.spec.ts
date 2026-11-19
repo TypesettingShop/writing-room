@@ -144,7 +144,7 @@ test('drops on a part body and moves a container by its sidebar title', async ({
   await expect(activitybar.getByRole('button').nth(0)).toHaveAccessibleName('Explorer');
   await expect(activitybar.getByRole('button').nth(1)).toHaveAccessibleName('Hello World');
   await expect(activitybar.getByRole('button').nth(2)).toHaveAccessibleName('Output');
-  await expect(sidebar.getByText('No output yet')).toBeVisible();
+  await expect(sidebar.getByRole('listbox', { name: 'Output Channels' })).toBeVisible();
   await expect(panel.getByRole('tab')).toHaveText(['Problems']);
 
   await startDrag(page, activitybar.getByRole('button', { name: 'Output' }));

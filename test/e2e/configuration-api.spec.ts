@@ -40,6 +40,11 @@ test('an extension reads contributed settings for a language, writes one key and
   expect(persisted).toBe('{\n  // keep this comment\n  "configurationApi.greeting": "hi",\n  "unknown.key": [1,],\n'
     + '  "configurationApi.count": 5,\n}\n');
 
+  // Three toasts show at once (wr-x0vf.hyt): dismiss these so the next one is not left waiting.
+  const dismiss = page.getByRole('button', { name: 'Dismiss message' });
+  while (await dismiss.count()) {
+    await dismiss.first().click();
+  }
   await command(page, 'Update Fixture Workspace Configuration');
   await expect(page.getByText(/^Workspace update refused: .*does not support workspace settings/)).toBeVisible();
 });
