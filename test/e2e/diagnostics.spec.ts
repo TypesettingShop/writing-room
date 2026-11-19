@@ -12,11 +12,13 @@ test('diagnostics set before the document opens draw in the editor, and one exte
   await openWithDiagnosticsFixtures(page);
   await runCommand(page, 'Set Fixture Diagnostics');
   await runCommand(page, 'Set Other Fixture Diagnostics');
+  // Both sets reached the workbench before the report asks: each command activates its extension first.
+  await expect(problemsStatus(page, '3 errors, 1 warning')).toBeVisible({ timeout: 20_000 });
   // Every owner's diagnostics are visible to an extension.
   await runCommand(page, 'Report Fixture Diagnostics');
   await expect(page.getByText(
     'Fixture diagnostics: Fixture error, Fixture note, Fixture warning, Other fixture error, Second fixture error',
-    { exact: true })).toBeVisible({ timeout: 20_000 });
+    { exact: true })).toBeVisible();
 
   await openSettings(page);
   await expect(squiggles(page, 'error')).toHaveCount(3);
