@@ -40,8 +40,8 @@ export function extname(path: string): string {
 }
 
 export function relative(from: string, to: string): string {
-  const origin = normalize(from).split('/').filter(Boolean);
-  const target = normalize(to).split('/').filter(Boolean);
+  const origin = normalize('/' + from).split('/').filter(Boolean);
+  const target = normalize('/' + to).split('/').filter(Boolean);
   let common = 0;
   while (common < origin.length && origin[common] === target[common]) {
     common++;

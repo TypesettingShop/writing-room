@@ -41,16 +41,16 @@ export class FetchFileSystemProvider implements IFileSystemProvider {
     throw new FileSystemProviderError('Remote directory listing is unavailable', Code.Unavailable);
   }
 
-  async writeFile(): Promise<never> { return this.readonly(); }
-  async mkdir(): Promise<never> { return this.readonly(); }
-  async rename(): Promise<never> { return this.readonly(); }
-  async delete(): Promise<never> { return this.readonly(); }
+  async writeFile(): Promise<never> { return this.denyWrite(); }
+  async mkdir(): Promise<never> { return this.denyWrite(); }
+  async rename(): Promise<never> { return this.denyWrite(); }
+  async delete(): Promise<never> { return this.denyWrite(); }
 
   watch(): typeof Disposable.None {
     return Disposable.None;
   }
 
-  private readonly(): never {
+  private denyWrite(): never {
     throw new FileSystemProviderError('Remote file system is read-only', Code.NoPermissions);
   }
 
@@ -89,8 +89,7 @@ function toURL(resource: URI): URL {
   try {
     const url = new URL(`${resource.scheme}://${resource.authority}`);
     url.pathname = resource.path.split('/').map(encodeURIComponent).join('/');
-    // URI identity escapes all query delimiters. HTTP uses them as part of the request syntax.
-    url.search = encodeURI(resource.query).replaceAll('#', '%23');
+    url.search = resource.query ? '?' + resource.encodedHttpQuery : '';
     return url;
   } catch (error) {
     throw new FileSystemProviderError('Invalid remote resource URL', Code.NoPermissions, { cause: error });

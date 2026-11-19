@@ -67,6 +67,7 @@ function expandBraces(pattern: string): string[] {
 
 function braceGroup(pattern: string): { start: number; end: number; alternatives: string[] } | undefined {
   const openings: { start: number; commas: number[] }[] = [];
+  let match: { start: number; end: number; commas: number[] } | undefined;
   for (let index = 0; index < pattern.length; index++) {
     const character = pattern[index];
     if (character === '[') {
@@ -80,14 +81,19 @@ function braceGroup(pattern: string): { start: number; end: number; alternatives
       openings.at(-1)?.commas.push(index);
     } else if (character === '}') {
       const group = openings.pop();
-      if (group?.commas.length) {
-        const { start, commas } = group;
-        const starts = [start, ...commas];
-        return { start, end: index, alternatives: [...commas, index].map((end, i) => pattern.slice(starts[i] + 1, end)) };
+      if (group?.commas.length && (!match || group.start < match.start)) {
+        match = { ...group, end: index };
+      }
+      if (match && !openings.length) {
+        break;
       }
     }
   }
-  return undefined;
+  if (match) {
+    const { start, end, commas } = match;
+    const starts = [start, ...commas];
+    return { start, end, alternatives: [...commas, end].map((stop, i) => pattern.slice(starts[i] + 1, stop)) };
+  }
 }
 
 function compileSegment(segment: string): Segment {

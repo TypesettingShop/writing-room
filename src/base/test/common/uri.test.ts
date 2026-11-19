@@ -24,6 +24,7 @@ describe('URI', () => {
     expect(URI.revive(wire)).toEqual(file);
     expect(URI.revive(URI.parse('vscode-vfs://writing-room/workspace/a%2Fb').toJSON()).hasEncodedPathSeparator).toBe(true);
     expect(URI.parse('relative').fsPath).toBe('/relative');
+    expect(relativePath(URI.parse('test:.'), URI.parse('test:child'))).toBe('child');
   });
 
   test('joins at the root and compares complete path segments', () => {
@@ -57,6 +58,8 @@ describe('glob', () => {
     expect(markdown('/workspace/project/../a.md')).toBe(false);
     expect(() => parse('한'.repeat(1366))).toThrow(RangeError);
     expect(() => parse('{a,b}'.repeat(7))).toThrow(RangeError);
+    const alternatives = Array.from({ length: 99 }, (_, index) => index).join(',');
+    expect(match(`{extra,{${alternatives}}}`, '98')).toBe(true);
     expect(match('*a'.repeat(1000) + 'b', 'a'.repeat(1000))).toBe(false);
   });
 });

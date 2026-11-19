@@ -53,3 +53,11 @@ test('maps rejected CORS or redirect requests and HTTP status without hanging', 
   await expect(provider.stat(resource)).resolves.toMatchObject({ size: 100 });
   expect(request.mock.calls[3][1]?.method).toBe('HEAD');
 });
+
+test('preserves encoded HTTP query delimiters when requesting a parsed URL', async () => {
+  const request = vi.fn<typeof fetch>().mockResolvedValue(new Response('ok'));
+  const url = 'https://example.test/a?value=b%26c%3Dd%2Bf';
+  const uri = URI.parse(url).with({ fragment: 'anchor' });
+  await new FetchFileSystemProvider(request).readFile(uri, limits);
+  expect(request).toHaveBeenCalledWith(new URL(url), expect.any(Object));
+});

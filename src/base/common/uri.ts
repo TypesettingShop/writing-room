@@ -39,6 +39,8 @@ function encode(value: string, allowed = ''): string {
 }
 
 export class URI implements Required<UriComponents> {
+  #originalQuery: string | undefined;
+
   private constructor(
     readonly scheme: string,
     readonly authority: string,
@@ -70,10 +72,12 @@ export class URI implements Required<UriComponents> {
       throw new Error(`Invalid URI: ${value}`);
     }
     const [, scheme, authority, path, query, fragment] = match;
-    return URI.from({
+    const uri = URI.from({
       scheme, authority: decode(authority), path: decode(path), query: decode(query), fragment: decode(fragment),
       hasEncodedPathSeparator: encodedSeparator.test(path),
     }, strict);
+    uri.#originalQuery = query;
+    return uri;
   }
 
   static file(path: string): URI {
@@ -105,7 +109,12 @@ export class URI implements Required<UriComponents> {
     return this.path.replace(/^\/([a-z]):/i, (_, drive: string) => drive.toLowerCase() + ':');
   }
 
-  with(change?: { [K in keyof UriComponents]?: UriComponents[K] | null }): URI {
+  /** HTTP query syntax preserves escaped delimiters from the parsed URL. */
+  get encodedHttpQuery(): string {
+    return this.#originalQuery ?? encodeURI(this.query).replaceAll('#', '%23');
+  }
+
+  with(change?: { [K in Exclude<keyof UriComponents, 'hasEncodedPathSeparator'>]?: UriComponents[K] | null }): URI {
     if (!change) {
       return this;
     }
@@ -117,6 +126,9 @@ export class URI implements Required<UriComponents> {
       fragment: change.fragment === undefined ? this.fragment : change.fragment ?? '',
       hasEncodedPathSeparator: this.hasEncodedPathSeparator,
     }, true);
+    if (change.query === undefined) {
+      resource.#originalQuery = this.#originalQuery;
+    }
     return resource.scheme === this.scheme && resource.authority === this.authority && resource.path === this.path
       && resource.query === this.query && resource.fragment === this.fragment ? this : resource;
   }
