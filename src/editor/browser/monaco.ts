@@ -1,6 +1,7 @@
 // The one file that imports `monaco-editor`. The package is large and has workers of its own, so it
 // is loaded on demand: the first text editor that opens pays for it, the first paint does not.
 import type * as Monaco from 'monaco-editor';
+import { announceEditorLoaded } from '../../platform/theme/browser/editorThemeHook.js';
 
 export type MonacoNamespace = typeof Monaco;
 export type IStandaloneCodeEditor = Monaco.editor.IStandaloneCodeEditor;
@@ -43,7 +44,8 @@ async function load(): Promise<MonacoNamespace> {
     },
   };
   const monaco = await import('monaco-editor');
-  monaco.editor.setTheme('vs-dark');
+  // The theme service gives Monaco the workbench's color theme here, before the first editor exists.
+  announceEditorLoaded(monaco);
   // F1 belongs to the workbench's command palette, not to Monaco's own.
   monaco.editor.addKeybindingRule({ keybinding: monaco.KeyCode.F1, command: '-editor.action.quickCommand' });
   return monaco;

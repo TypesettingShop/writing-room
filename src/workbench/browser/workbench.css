@@ -38,6 +38,12 @@ body {
   color-scheme: dark;
 }
 
+/* The theme service sets every color as a variable on the container, with a kind class. */
+.workbench.vs,
+.workbench.hc-light {
+  color-scheme: light;
+}
+
 .workbench .part {
   box-sizing: border-box;
   overflow: hidden;
@@ -73,7 +79,7 @@ body {
 }
 
 .workbench-title .codicon {
-  color: #a9caff;
+  color: var(--vscode-titleBar-iconForeground);
 }
 
 .workbench .activitybar {
@@ -125,7 +131,7 @@ body {
 
 .view-placeholder {
   margin: 12px;
-  color: #a7b6cb;
+  color: var(--vscode-descriptionForeground);
 }
 
 .composite-bar {
@@ -223,9 +229,12 @@ body {
   background: var(--vscode-menu-selectionBackground);
 }
 
-.workbench .wr-menu button[aria-disabled='true'],
+.workbench .wr-menu button[aria-disabled='true'] {
+  color: var(--vscode-disabledForeground);
+}
+
 .workbench .wr-menu-shortcut {
-  color: #a7b6cb;
+  color: var(--vscode-descriptionForeground);
 }
 
 .workbench .wr-menu [role='separator'] {

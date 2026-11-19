@@ -1,0 +1,17 @@
+{
+  "name": "color-theme",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Theming Fixture Themes",
+  "contributes": {
+    "themes": [
+      { "label": "Fixture Paper", "uiTheme": "vs", "path": "./themes/paper.json" },
+      { "id": "fixture-night", "label": "Fixture Night", "uiTheme": "vs-dark", "path": "./themes/night.json" },
+      { "label": "Fixture Contrast", "uiTheme": "hc-black", "path": "./themes/contrast.json" },
+      { "label": "Fixture Hostile", "uiTheme": "vs-dark", "path": "./themes/hostile.json" },
+      { "label": "Fixture Cycle", "uiTheme": "vs-dark", "path": "./themes/cycle.json" },
+      { "label": "Fixture Escape", "uiTheme": "vs-dark", "path": "../outside-theme.json" },
+      { "label": "Fixture Plist", "uiTheme": "vs", "path": "./themes/old.tmTheme" }
+    ]
+  }
+}
