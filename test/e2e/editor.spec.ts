@@ -59,10 +59,15 @@ test('tabs switch content and close without activating background tabs', async (
   await expect(g.getByRole('tab', { name: 'Untitled-1' })).toHaveAttribute('aria-selected', 'true');
 
   await openAndType(page, 'gamma');
+  await expect.poll(() => renderedText(g)).toBe('gamma');
+  // Selecting text can populate the Linux primary selection. Closing a tab must preserve the draft.
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('End');
   await g.getByRole('tab', { name: 'Untitled-2' }).click({ button: 'middle' });
   await expect(g.getByRole('tab', { name: 'Untitled-2' })).toHaveCount(0);
   await expect(g.getByRole('tab', { name: 'Untitled-3' })).toHaveAttribute('aria-selected', 'true');
   await expect.poll(() => renderedText(g)).toBe('gamma');
+  await expect(textbox(g)).toBeFocused();
   await expect(g.getByRole('tab')).toHaveCount(2);
 
   // The close button also closes a background tab without activating it.

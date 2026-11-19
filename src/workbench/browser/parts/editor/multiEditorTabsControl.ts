@@ -264,12 +264,15 @@ export class MultiEditorTabsControl extends Disposable {
     }));
 
     const editorIndex = () => this.group.getIndexOfEditor(editor);
-    disposables.add(addDisposableListener(element, 'mousedown', (event: MouseEvent) => {
-      // The middle button would start autoscroll; closing happens on its click.
+    const preventMiddleButtonDefault = (event: MouseEvent) => {
+      // The press can start autoscroll. Releasing can paste the primary selection on Linux.
+      // The tab still closes on auxclick.
       if (event.button === 1) {
         event.preventDefault();
       }
-    }));
+    };
+    disposables.add(addDisposableListener(element, 'mousedown', preventMiddleButtonDefault));
+    disposables.add(addDisposableListener(element, 'mouseup', preventMiddleButtonDefault));
     disposables.add(addDisposableListener(element, 'click', (event: MouseEvent) => {
       if (event.button === 0 && !close.contains(event.target as Node)) {
         void this.group.openEditor(editor);
