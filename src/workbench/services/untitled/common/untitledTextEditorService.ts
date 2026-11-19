@@ -1,4 +1,4 @@
-import { Event } from '../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -23,10 +23,14 @@ export interface IUntitledTextEditorService extends BrandedService {
   /** Restores a named input's model with its initial text, without reusing its number later. */
   restore(resource: URI, initialValue: string): UntitledTextEditorModel;
   get(resource: URI): UntitledTextEditorModel | undefined;
+  /** One of the models gained or lost unsaved text. */
+  readonly onDidChangeDirty: Event<UntitledTextEditorModel>;
 }
 
 export class UntitledTextEditorService implements IUntitledTextEditorService {
   declare readonly _serviceBrand: undefined;
+  private readonly _onDidChangeDirty = new Emitter<UntitledTextEditorModel>();
+  readonly onDidChangeDirty = this._onDidChangeDirty.event;
   private readonly models = new Map<string, UntitledTextEditorModel>();
   /** Resources of disposed models whose text model is still being created, and so still taken. */
   private readonly releasing = new Set<string>();
@@ -53,6 +57,8 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     const key = resource.toString();
     const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, initialValue, languageId);
     this.models.set(key, model);
+    // The model's own emitter goes with it, and this listener with that.
+    model.onDidChangeDirty(() => this._onDidChangeDirty.fire(model));
     // Disposing the model gives its number back, unless it was restored — once a text model still
     // on its way for the resource is gone too, or the next model with that number could not get one.
     Event.once(model.onWillDispose)(() => {

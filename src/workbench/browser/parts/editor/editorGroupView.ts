@@ -11,6 +11,7 @@ import type { GroupIdentifier } from '../../../common/editor.js';
 import { EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
 import { EditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { EditorInputWriter, IGroupModelChangeEvent, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
+import { ConfirmResult } from '../../../common/editor/editorInput.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type {
   ICloseEditorsFilter, IEditorGroup, IEditorMoveOptions, IEditorOpenOptions,
@@ -58,6 +59,8 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private dimension: Dimension | undefined;
   private readonly editorsCount: IContextKey<number>;
   private _disposed = false;
+  /** The open close questions, by editor; a second close of one waits for the same answer. */
+  private readonly pendingConfirmations = new Map<EditorInput, Promise<boolean>>();
   /** Set while `openEditor` changes the model: it shows the editor itself, with its options. */
   private opening = false;
 
@@ -212,16 +215,87 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     }
   }
 
-  closeEditor(editor: EditorInput | undefined = this.activeEditor ?? undefined): boolean {
-    return editor ? this.doCloseEditor(editor) : false;
+  closeEditor(editor: EditorInput | undefined = this.activeEditor ?? undefined): Promise<boolean> {
+    return editor ? this.closeEditors([editor]) : Promise.resolve(false);
   }
 
-  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): boolean {
-    const toClose = Array.isArray(editors)
+  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): Promise<boolean> {
+    const requested = Array.isArray(editors)
       ? editors as readonly EditorInput[]
       : this.editors.filter(editor => editor !== (editors as ICloseEditorsFilter).except);
+    // The editors as this group holds them: a request may name an input that only matches one.
+    const held = [...new Set(requested.flatMap(editor => this.model.findEditor(editor)?.[0] ?? []))];
+    const asking = held.filter(editor => this.shouldConfirmClose(editor));
+    if (asking.length === 0) {
+      // Nothing to ask: the editors are gone before this returns, as a close always was.
+      return Promise.resolve(this.doCloseEditors(held));
+    }
+    return this.closeEditorsAfterConfirm(held, asking);
+  }
+
+  closeAllEditors(): Promise<boolean> {
+    return this.closeEditors(this.editors);
+  }
+
+  /** Whether closing `editor` here needs its close handler's answer: it wants to ask, and no other group shows it. */
+  private shouldConfirmClose(editor: EditorInput): boolean {
+    if (!editor.closeHandler?.showConfirm()) {
+      return false;
+    }
+    return !this.groupsView.groups.some(group => group !== this && !group.disposed && group.contains(editor, { matches: true }));
+  }
+
+  private async closeEditorsAfterConfirm(held: readonly EditorInput[], asking: readonly EditorInput[]): Promise<boolean> {
+    for (const editor of asking) {
+      if (!await this.confirmClose(editor)) {
+        return false;
+      }
+    }
+    // The answers took time: the group may be gone, and editors may have closed or moved meanwhile.
+    if (this._disposed) {
+      return false;
+    }
+    const remaining = held.filter(editor => this.model.contains(editor));
+    return this.doCloseEditors(remaining) || remaining.length < held.length;
+  }
+
+  /**
+   * Asks `editor`'s close handler, once: a close of the same editor that comes while the question is
+   * open shares its answer. `true` lets the close go on.
+   */
+  private confirmClose(editor: EditorInput): Promise<boolean> {
+    let pending = this.pendingConfirmations.get(editor);
+    if (!pending) {
+      pending = this.doConfirmClose(editor).finally(() => this.pendingConfirmations.delete(editor));
+      this.pendingConfirmations.set(editor, pending);
+    }
+    return pending;
+  }
+
+  private async doConfirmClose(editor: EditorInput): Promise<boolean> {
+    try {
+      switch (await editor.closeHandler!.confirm([{ groupId: this.id, editor }])) {
+        case ConfirmResult.SAVE:
+          // A save that fails or is cancelled keeps the editor open; the input told the user why.
+          return !editor.isDisposed() && await editor.save(this.id, { reason: 'explicit' }) !== undefined;
+        case ConfirmResult.DONT_SAVE:
+          if (!editor.isDisposed()) {
+            await editor.revert(this.id, { soft: true });
+          }
+          return true;
+        default:
+          return false;
+      }
+    } catch (error) {
+      console.error(`Could not ask whether to close ${editor.getName()}.`, error);
+      return false;
+    }
+  }
+
+  /** Closes the editors without asking. */
+  private doCloseEditors(editors: readonly EditorInput[]): boolean {
     // The active editor goes last, so the pane does not show each editor that is about to close.
-    const ordered = [...toClose].sort((a, b) => Number(this.model.isActive(a)) - Number(this.model.isActive(b)));
+    const ordered = [...editors].sort((a, b) => Number(this.model.isActive(a)) - Number(this.model.isActive(b)));
     let closed = false;
     for (const editor of ordered) {
       if (this._disposed) {
@@ -230,10 +304,6 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       closed = this.doCloseEditor(editor) || closed;
     }
     return closed;
-  }
-
-  closeAllEditors(): boolean {
-    return this.closeEditors(this.editors);
   }
 
   private doCloseEditor(editor: EditorInput): boolean {
@@ -317,7 +387,10 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       this.activePaneEntry = entry;
       this.layoutPane();
     }
-    const shown = entry.pane.setInput(editor, { preserveFocus: options.preserveFocus, viewState: options.viewState } as IEditorOpenOptions);
+    // The pane gets what it shows the editor with, not where the group put it.
+    const shown = entry.pane.setInput(editor, {
+      preserveFocus: options.preserveFocus, viewState: options.viewState, selection: options.selection,
+    } as IEditorOpenOptions);
     if (!options.preserveFocus) {
       entry.pane.focus();
     }

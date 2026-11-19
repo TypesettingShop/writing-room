@@ -15,7 +15,7 @@ import { configurationRegistry } from '../../../../platform/configuration/common
 import type { IConfigurationPropertySchema } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
-import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
+import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorPane } from './editorPane.js';
 import './media/textEditor.css';
@@ -67,6 +67,8 @@ interface IShownModel {
   readonly model: IMonacoTextModel;
   /** View state to restore once the model is attached. */
   viewState: object | undefined;
+  /** A selection to make once the model is attached, after the view state. */
+  selection: ITextEditorSelection | undefined;
 }
 
 /**
@@ -126,6 +128,9 @@ export class TextEditorPane extends EditorPane {
       if (options?.viewState) {
         this.editor!.restoreViewState(options.viewState as ICodeEditorViewState);
       }
+      if (options?.selection) {
+        this.applySelection(options.selection);
+      }
       return;
     }
 
@@ -169,7 +174,7 @@ export class TextEditorPane extends EditorPane {
       return;
     }
     this.monaco = monaco;
-    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state };
+    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state, selection: options?.selection };
     this.ensureEditor();
     this.attach();
   }
@@ -265,10 +270,26 @@ export class TextEditorPane extends EditorPane {
       this.editor.restoreViewState(shown.viewState as ICodeEditorViewState);
       shown.viewState = undefined;
     }
+    if (shown.selection) {
+      this.applySelection(shown.selection);
+      shown.selection = undefined;
+    }
     if (this.pendingFocus) {
       this.pendingFocus = false;
       this.editor.focus();
     }
+  }
+
+  /** Selects `selection` (a cursor without an end) and scrolls it into the middle of the view. */
+  private applySelection(selection: ITextEditorSelection): void {
+    const range = {
+      startLineNumber: selection.startLineNumber,
+      startColumn: selection.startColumn,
+      endLineNumber: selection.endLineNumber ?? selection.startLineNumber,
+      endColumn: selection.endColumn ?? selection.startColumn,
+    };
+    this.editor!.setSelection(range);
+    this.editor!.revealRangeInCenter(range);
   }
 
   private updateTabSize(): void {

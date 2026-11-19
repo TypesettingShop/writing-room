@@ -4,6 +4,7 @@ import { IModelService } from '../../../../../editor/common/services/model.js';
 import { TestModelService } from '../../../../../editor/test/common/testTextModel.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
+import { ITextFileService, UntitledTextFileService } from '../../../textfile/common/textfiles.js';
 import { UntitledTextEditorInput } from '../../../untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService, UntitledTextEditorService } from '../../../untitled/common/untitledTextEditorService.js';
 import { TextModelResolverService } from '../../common/textModelResolverService.js';
@@ -18,6 +19,7 @@ beforeEach(() => {
   const instantiation = new InstantiationService(services);
   untitled = instantiation.createInstance(UntitledTextEditorService);
   services.set(IUntitledTextEditorService, untitled);
+  services.set(ITextFileService, instantiation.createInstance(UntitledTextFileService));
   resolver = instantiation.createInstance(TextModelResolverService);
 });
 

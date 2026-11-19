@@ -52,6 +52,9 @@ export class FakeCodeEditor {
   focus(): void { this.setTextFocus(true); }
   saveViewState(): object | null { return this.model ? { of: this.model.uri.toString() } : null; }
   restoreViewState(): void {}
+  readonly selections: unknown[] = [];
+  setSelection(selection: unknown): void { this.selections.push(selection); }
+  revealRangeInCenter(): void {}
   layout(): void {}
   updateOptions(): void {}
   dispose(): void { this.disposed = true; }

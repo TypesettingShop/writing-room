@@ -134,3 +134,13 @@ test('the default theme gives the colors workbench.css draws', () => {
   expect(theme.getColor('toString')).toBeUndefined();
   expect(theme.tokenColors.length).toBeGreaterThan(0);
 });
+
+test('a selection in the open options is made once the model is attached, and again on a reopen', async () => {
+  const input = newUntitled();
+  const group = part.activeGroup;
+  await group.openEditor(input, { selection: { startLineNumber: 2, startColumn: 3 } });
+  const editor = (monaco.current as FakeMonaco).liveEditors()[0];
+  expect(editor.selections).toEqual([{ startLineNumber: 2, startColumn: 3, endLineNumber: 2, endColumn: 3 }]);
+  await group.openEditor(input, { selection: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 4 } });
+  expect(editor.selections.at(-1)).toEqual({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 4 });
+});

@@ -1,7 +1,6 @@
 import { Event } from '../../../../base/common/event.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
-import { Schemas } from '../../../../base/common/network.js';
 import type { URI } from '../../../../base/common/uri.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -10,7 +9,7 @@ import type {
   IReference, IResolvedTextEditorModel, ITextModelContentProvider,
 } from '../../../../editor/common/services/resolverService.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { IUntitledTextEditorService } from '../../untitled/common/untitledTextEditorService.js';
+import { ITextFileService } from '../../textfile/common/textfiles.js';
 
 interface IResolved {
   readonly object: IResolvedTextEditorModel;
@@ -40,7 +39,7 @@ export class TextModelResolverService implements ITextModelService {
 
   constructor(
     @IModelService private readonly modelService: IModelService,
-    @IUntitledTextEditorService private readonly untitledService: IUntitledTextEditorService,
+    @ITextFileService private readonly textFileService: ITextFileService,
   ) {}
 
   createModelReference(resource: URI): Promise<IReference<IResolvedTextEditorModel>> {
@@ -101,18 +100,9 @@ export class TextModelResolverService implements ITextModelService {
   }
 
   private async resolve(resource: URI): Promise<IResolved> {
-    // Untitled text belongs to its input; a reference never disposes it.
-    if (resource.scheme === Schemas.untitled) {
-      const untitled = this.untitledService.get(resource);
-      if (!untitled) {
-        throw new Error(`Unable to resolve resource ${resource}: no such untitled text.`);
-      }
-      await untitled.resolve();
-      const model = untitled.textEditorModel;
-      if (!model) {
-        throw new Error(`Unable to resolve resource ${resource}: the untitled text was disposed.`);
-      }
-      return { object: borrowed(model), owned: false };
+    // Text the text file service holds (untitled text, files) belongs to it; a reference never disposes it.
+    if (this.textFileService.canHandleResource(resource)) {
+      return { object: await this.textFileService.resolve(resource), owned: false };
     }
 
     // A model that already exists belongs to whoever created it (the settings editor, say).
@@ -146,7 +136,7 @@ export class TextModelResolverService implements ITextModelService {
   }
 
   canHandleResource(resource: URI): boolean {
-    return resource.scheme === Schemas.untitled || this.providers.has(resource.scheme)
+    return this.textFileService.canHandleResource(resource) || this.providers.has(resource.scheme)
       || this.modelService.getModel(resource) !== null;
   }
 }

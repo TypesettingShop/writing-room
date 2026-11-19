@@ -289,13 +289,13 @@ export class MultiEditorTabsControl extends Disposable {
     disposables.add(addDisposableListener(element, 'auxclick', (event: MouseEvent) => {
       if (event.button === 1) {
         event.preventDefault();
-        this.group.closeEditor(editor);
+        void this.group.closeEditor(editor);
       }
     }));
     disposables.add(addDisposableListener(close, 'mousedown', (event: MouseEvent) => event.preventDefault()));
     disposables.add(addDisposableListener(close, 'click', (event: MouseEvent) => {
       event.stopPropagation();
-      this.group.closeEditor(editor);
+      void this.group.closeEditor(editor);
     }));
     disposables.add(addDisposableListener(label, 'keydown', (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
