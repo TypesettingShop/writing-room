@@ -1,4 +1,5 @@
 import type { IDisposable } from '../../base/common/lifecycle.js';
+import { IConfigurationService } from '../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../platform/contextkey/common/contextkey.js';
 import { InstantiationService } from '../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../platform/instantiation/common/serviceCollection.js';
@@ -40,6 +41,7 @@ export class Workbench extends Layout {
     const storage = instantiation.invokeFunction(accessor => accessor.get(IStorageService));
     this.layoutState.load(storage, this.initialState);
     this._register(storage.onWillSaveState(() => this.layoutState.save(storage)));
+    this._register(instantiation.invokeFunction(accessor => accessor.get(IConfigurationService)));
 
     const context = this._register(instantiation.invokeFunction(accessor => accessor.get(IContextKeyService)));
     const keybindings = instantiation.invokeFunction(accessor => accessor.get(IKeybindingService));

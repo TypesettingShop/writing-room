@@ -156,7 +156,7 @@ export class SettingsEditorInput extends EditorInput implements ITextEditorModel
 export const ISettingsEditorInputService = createDecorator<ISettingsEditorInputService>('settingsEditorInputService');
 
 export interface ISettingsEditorInputService extends BrandedService {
-  getOrCreate(): SettingsEditorInput;
+  getOrCreate(restoredDraft?: string): SettingsEditorInput;
 }
 
 class SettingsEditorInputService implements ISettingsEditorInputService {
@@ -167,9 +167,9 @@ class SettingsEditorInputService implements ISettingsEditorInputService {
 
   constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {}
 
-  getOrCreate(): SettingsEditorInput {
+  getOrCreate(restoredDraft?: string): SettingsEditorInput {
     if (!this.input) {
-      const input = this.instantiation.createInstance(SettingsEditorInput, this.draft, this.releasing);
+      const input = this.instantiation.createInstance(SettingsEditorInput, this.draft ?? restoredDraft, this.releasing);
       this.input = input;
       this.draft = undefined;
       Event.once(input.onWillDispose)(() => {

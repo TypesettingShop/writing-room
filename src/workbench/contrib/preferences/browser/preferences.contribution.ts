@@ -26,11 +26,20 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPan
 class SettingsEditorSerializer implements IEditorSerializer {
   canSerialize(editor: EditorInput): boolean { return editor instanceof SettingsEditorInput; }
   serialize(editor: EditorInput): string | undefined {
-    return this.canSerialize(editor) ? SettingsEditorInput.resource.toString() : undefined;
+    if (editor instanceof SettingsEditorInput) {
+      const resource = SettingsEditorInput.resource.toString();
+      const draft = editor.draft;
+      return draft === undefined ? resource : resource + '\n' + draft;
+    }
+    return undefined;
   }
+
   deserialize(instantiation: IInstantiationService, text: string): EditorInput | undefined {
-    if (text === SettingsEditorInput.resource.toString()) {
-      return instantiation.invokeFunction(accessor => accessor.get(ISettingsEditorInputService).getOrCreate());
+    const separator = text.indexOf('\n');
+    const resource = separator === -1 ? text : text.slice(0, separator);
+    if (resource === SettingsEditorInput.resource.toString()) {
+      const draft = separator === -1 ? undefined : text.slice(separator + 1);
+      return instantiation.invokeFunction(accessor => accessor.get(ISettingsEditorInputService).getOrCreate(draft));
     }
     return undefined;
   }
@@ -43,7 +52,6 @@ Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!.registerEdi
 class PreferencesEditorOptions extends Disposable {
   constructor(@IConfigurationService configuration: IConfigurationService) {
     super();
-    this._register(configuration);
     this._register(setEditorPartOptionsProvider(() => ({
       closeEmptyGroups: configuration.getValue<boolean>(closeEmptyGroupsSetting),
     })));

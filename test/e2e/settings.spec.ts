@@ -92,6 +92,38 @@ test('opens one settings tab from File and the palette and applies saved options
   expect(await page.evaluate(() => Reflect.get(window, 'firstSettingsEditorSizes'))).not.toContain('14px');
 });
 
+test('restores an open settings tab and its unsaved draft on reload', async ({ appPage: page }) => {
+  const pane = groups(page).first();
+  const saved = '{\n  "editor.fontSize": 18,\n}\n';
+  const draft = '{\n  // unsaved draft\n  "editor.fontSize": 27,\n}\n';
+
+  await openSettings(page);
+  await replaceText(page, saved);
+  await save(page);
+  await expect.poll(() => persistedSettings(page)).toBe(saved);
+  await page.reload();
+  await expect(settingsTab(page)).toHaveAttribute('aria-selected', 'true');
+  await expect(settingsTab(page)).not.toHaveAccessibleDescription('Modified');
+  await expect.poll(async () => (await renderedText(pane)).trimEnd()).toBe(saved.trimEnd());
+  await expect(visibleEditors(page)).toHaveCSS('font-size', '18px');
+
+  await activeEditor(page).focus();
+  await replaceText(page, draft);
+  await expect(settingsTab(page)).toHaveAccessibleDescription('Modified');
+  await page.reload();
+  await expect(settingsTab(page)).toHaveAttribute('aria-selected', 'true');
+  await expect(settingsTab(page)).toHaveAccessibleDescription('Modified');
+  await expect.poll(async () => (await renderedText(pane)).trimEnd()).toBe(draft.trimEnd());
+  expect(await persistedSettings(page)).toBe(saved);
+  await expect(visibleEditors(page)).toHaveCSS('font-size', '18px');
+
+  await activeEditor(page).focus();
+  await save(page);
+  await expect.poll(() => persistedSettings(page)).toBe(draft);
+  await expect(settingsTab(page)).not.toHaveAccessibleDescription('Modified');
+  await expect(visibleEditors(page)).toHaveCSS('font-size', '27px');
+});
+
 test('retains exact invalid JSON while keeping the last applied settings', async ({ appPage: page }) => {
   await openSettings(page);
   const editor = groups(page).first();
