@@ -307,6 +307,17 @@ describe('choosing the editor', () => {
     await settle();
     expect(part.activeGroup.activeEditor).toBe(input);
   });
+
+  test('a contribution list replaced while the provider wakes still opens the custom editor', async () => {
+    contribute(extension('pub.one', [{ viewType: 'one.md', displayName: 'One', selector: [{ filenamePattern: '*.md' }] }]));
+    await settle();
+    provide('one.md');
+    // Another extension came in meanwhile: the extension point puts equal, new entries in place.
+    onActivate = () => contributions.set(contributions.editors.map(info => ({ ...info })));
+    const result = await opened('a.md');
+    expect(result.editor).toBeInstanceOf(CustomEditorInput);
+    expect(notices).toEqual([]);
+  });
 });
 
 describe('the open editors', () => {

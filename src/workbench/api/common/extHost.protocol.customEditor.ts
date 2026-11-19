@@ -1,10 +1,23 @@
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import type { URI } from '../../../base/common/uri.js';
+import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
 import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import type {
   MainThreadWebviewContent, WebviewContentOptions, WebviewPanelOptions, WebviewPanelViewState, WebviewShowOptions,
 } from './extHost.protocol.webview.js';
+
+/** Names the document of a custom editor: one per `viewType` and resource, on both sides. */
+export function customDocumentKey(viewType: string, resource: URI): string {
+  return JSON.stringify([viewType, resource.toString()]);
+}
+
+/** Whether `extension`'s manifest lists `viewType` in `contributes.customEditors`. */
+export function contributesCustomEditor(extension: HostExtensionDescription, viewType: string): boolean {
+  const editors = extension.manifest.contributes?.customEditors;
+  return Array.isArray(editors) && editors.some(entry => typeof entry === 'object' && entry !== null
+    && (entry as { viewType?: unknown }).viewType === viewType);
+}
 
 /** What the extension host needs to hand a custom text editor to its provider. */
 export interface CustomTextEditorResolveData {
@@ -60,6 +73,8 @@ export interface ExtHostCustomEditorsShape {
   $resolveCustomEditor(extension: string, handle: string, data: CustomEditorResolveData, origin: WebviewOrigin,
     token: CancellationToken): Promise<void>;
   $undo(extension: string, viewType: string, resource: URI, editId: number): Promise<void>;
+  /** The edits fell out of the document's history (a new edit came after undo): the host lets go of them. */
+  $disposeEdits(extension: string, viewType: string, resource: URI, editIds: readonly number[]): Promise<void>;
   $redo(extension: string, viewType: string, resource: URI, editId: number): Promise<void>;
   $save(extension: string, viewType: string, resource: URI, token: CancellationToken): Promise<void>;
   $saveAs(extension: string, viewType: string, resource: URI, target: URI, token: CancellationToken): Promise<void>;

@@ -36,7 +36,8 @@ export class CustomEditorWebview extends WebviewOverlay {
   }
 }
 
-function describe(error: unknown): string {
+/** The message of `error`, for a notification. */
+export function describeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }
 
@@ -165,7 +166,7 @@ export class CustomEditorInput extends EditorInput {
 
   override async revert(_group: GroupIdentifier, options?: IRevertOptions): Promise<void> {
     if (this.kind === 'custom') {
-      await this.document?.model.revert().catch(error => this.notifications.error(`Failed to revert '${this.getName()}': ${describe(error)}`));
+      await this.document?.model.revert().catch(error => this.notifications.error(`Failed to revert '${this.getName()}': ${describeError(error)}`));
       return;
     }
     await this.textFiles.revert(this.resource, options);
@@ -190,7 +191,7 @@ export class CustomEditorInput extends EditorInput {
       await save(model);
       return true;
     } catch (error) {
-      this.notifications.error(`Failed to save '${this.getName()}': ${describe(error)}`);
+      this.notifications.error(`Failed to save '${this.getName()}': ${describeError(error)}`);
       return false;
     }
   }
@@ -302,9 +303,12 @@ export class CustomEditorInput extends EditorInput {
    */
   private isShownElsewhere(): boolean {
     const groups = this.services.invokeFunction(accessor => accessor.get(IEditorGroupsService));
+    // A custom editor over a document of its own does not hold the text, nor another viewType's document.
     return groups.groups.some(group => group.editors.some(editor => editor !== this && !editor.matches(this)
       && isEqual(editor.resource, this.resource)
-      && (this.kind === 'text' || (editor instanceof CustomEditorInput && editor.kind === 'custom' && editor.viewType === this.viewType))));
+      && (editor instanceof CustomEditorInput
+        ? editor.kind === this.kind && (this.kind === 'text' || editor.viewType === this.viewType)
+        : this.kind === 'text')));
   }
 
   override dispose(): void {

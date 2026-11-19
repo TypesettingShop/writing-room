@@ -21,8 +21,10 @@ import type { IEditorPaneRegistry } from '../../../browser/editor.js';
 import { resolveCommandsContext } from '../../../browser/parts/editor/editorCommands.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import type { IEditorFactoryRegistry } from '../../../common/editor.js';
+import { ConfirmResult } from '../../../common/editor/editorInput.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import type { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import {
   DEFAULT_EDITOR_ID, EDITOR_ASSOCIATIONS_SETTING, IEditorResolverService,
 } from '../../../services/editor/common/editorResolverService.js';
@@ -78,6 +80,36 @@ interface EditorPick extends IQuickPickItem {
   readonly id: string;
 }
 
+/**
+ * A custom document goes with its last editor, and its unsaved changes with it. Before another editor
+ * takes its place, ask as closing it would; `false` keeps the editor.
+ */
+async function confirmReplace(groups: IEditorGroupsService, group: IEditorGroup, editor: EditorInput): Promise<boolean> {
+  if (!(editor instanceof CustomEditorInput) || editor.kind !== 'custom' || !editor.closeHandler.showConfirm()
+    || groups.groups.some(other => other !== group && other.contains(editor))) {
+    return true;
+  }
+  switch (await editor.closeHandler.confirm([{ groupId: group.id, editor }])) {
+    case ConfirmResult.SAVE:
+      return await editor.save(group.id, { reason: 'explicit' }) !== undefined;
+    case ConfirmResult.DONT_SAVE:
+      await editor.revert(group.id, { soft: true });
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Disposes a custom editor made for a replacement that did not happen (it holds a Webview), unless a
+ * group shows it. Text inputs are left alone: an untitled one takes its text along when disposed.
+ */
+function disposeUnplaced(groups: IEditorGroupsService, editor: EditorInput): void {
+  if (editor instanceof CustomEditorInput && !editor.isDisposed() && !groups.groups.some(group => group.contains(editor))) {
+    editor.dispose();
+  }
+}
+
 registerAction2(class ReopenWithEditorAction extends Action2 {
   constructor() {
     super({ id: REOPEN_WITH_COMMAND_ID, title: 'Reopen Editor With...', category: 'View', f1: true });
@@ -90,6 +122,7 @@ registerAction2(class ReopenWithEditorAction extends Action2 {
   override async run(accessor: ServicesAccessor, context?: unknown): Promise<void> {
     const resolver = accessor.get(IEditorResolverService);
     const quickInput = accessor.get(IQuickInputService);
+    const groups = accessor.get(IEditorGroupsService);
     const target = resolveCommandsContext(accessor, context);
     const editor = target?.editor;
     const resource = editor?.resource;
@@ -106,9 +139,14 @@ registerAction2(class ReopenWithEditorAction extends Action2 {
       return;
     }
     const { group } = target;
+    if (!await confirmReplace(groups, group, editor) || editor.isDisposed() || !group.contains(editor)) {
+      return;
+    }
     const resolved = await resolver.resolveEditor({ resource, options: { override: picked.id } }, group);
     if (!editor.isDisposed() && group.contains(editor)) {
       await group.replaceEditors([{ editor, replacement: resolved.editor, options: { preserveFocus: false } }]);
+    } else {
+      disposeUnplaced(groups, resolved.editor);
     }
   }
 });

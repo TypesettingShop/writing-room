@@ -20,13 +20,9 @@ import { IExtensionService } from '../../../services/extensions/common/extension
 import { isTextFileResource } from '../../../services/textfile/common/textfiles.js';
 import { CONTEXT_ACTIVE_CUSTOM_EDITOR_ID, customEditorContributions, customEditorMatches } from '../common/customEditor.js';
 import type { CustomEditorContributions, CustomEditorInfo } from '../common/customEditor.js';
-import { CustomEditorInput, CustomEditorResolution } from './customEditorInput.js';
+import { CustomEditorInput, CustomEditorResolution, describeError } from './customEditorInput.js';
 import { ICustomEditorService } from './customEditorService.js';
 import type { ICustomEditorProvider } from './customEditorService.js';
-
-function describeError(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : String(error);
-}
 
 /**
  * Puts the contributed custom editors in the editor resolver and resolves their inputs with the
@@ -237,7 +233,8 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
   private async createEditor(info: CustomEditorInfo, { resource, options }: IResourceEditorInput, group: IEditorGroup): Promise<EditorInputWithOptions> {
     await this.extensions.whenInstalledExtensionsRegistered();
     const provider = await this.activateProvider(info.id);
-    if (!provider || this.contributions.get(info.id) !== info) {
+    // Asked by id: the extension point puts new (equal) entries in place whenever any contribution changes.
+    if (!provider || !this.contributions.get(info.id)) {
       this.reportMissing(info.id, info.displayName);
       const text = await this.resolver.resolveEditor({ resource, options: { ...options, override: DEFAULT_EDITOR_ID } }, group);
       return { editor: text.editor, options: text.options };

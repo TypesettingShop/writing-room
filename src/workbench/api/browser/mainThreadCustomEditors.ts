@@ -7,8 +7,9 @@ import { isTooLargeForSyncing } from '../../../editor/common/model.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { CustomDocumentModel } from '../../contrib/customEditor/browser/customDocumentModel.js';
-import { CustomEditorInput, CustomEditorResolution } from '../../contrib/customEditor/browser/customEditorInput.js';
+import { CustomEditorInput } from '../../contrib/customEditor/browser/customEditorInput.js';
 import { ICustomEditorService } from '../../contrib/customEditor/browser/customEditorService.js';
+import { customEditorContributions } from '../../contrib/customEditor/common/customEditor.js';
 import { IWebviewOriginService } from '../../contrib/webview/browser/webviewOriginService.js';
 import { scopeWebviewOptions } from '../../contrib/webview/browser/webviewResourceScope.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
@@ -16,7 +17,9 @@ import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../service
 import type { IEditorGroup } from '../../services/editor/common/editorGroupsService.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../services/editor/common/editorService.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
-import { ExtHostCustomEditorsProxy, MainThreadCustomEditorsProxy } from '../common/extHost.protocol.customEditor.js';
+import {
+  contributesCustomEditor, customDocumentKey, ExtHostCustomEditorsProxy, MainThreadCustomEditorsProxy,
+} from '../common/extHost.protocol.customEditor.js';
 import type {
   CustomEditorResolveData, ExtHostCustomEditorsShape, MainThreadCustomEditorsShape,
 } from '../common/extHost.protocol.customEditor.js';
@@ -44,16 +47,6 @@ interface DocumentEntry {
   resolved?: CustomDocumentModel;
 }
 
-function documentKey(viewType: string, resource: URI): string {
-  return JSON.stringify([viewType, resource.toString()]);
-}
-
-function declares(extension: HostExtensionDescription, viewType: string): boolean {
-  const editors = extension.manifest.contributes?.customEditors;
-  return Array.isArray(editors) && editors.some(entry => typeof entry === 'object' && entry !== null
-    && (entry as { viewType?: unknown }).viewType === viewType);
-}
-
 /**
  * Custom text editors of one extension host. A provider registers here for a `viewType` its
  * extension contributes, and the custom editor service calls it to resolve an editor: this side
@@ -64,8 +57,11 @@ function declares(extension: HostExtensionDescription, viewType: string): boolea
 export class MainThreadCustomEditors extends Disposable implements MainThreadCustomEditorsShape {
   private readonly editors = new Map<string, EditorEntry>();
   private readonly providers = new Map<string, { readonly owner: string; readonly registration: IDisposable }>();
-  /** Editors this host is resolving: when the host stops, they start over in the next one. */
-  private readonly resolving = new Set<CustomEditorInput>();
+  /**
+   * Editors this host is resolving, with the extension each is resolved by: when the host stops, or
+   * that extension goes, they start over. The latest resolution of an input owns its entry.
+   */
+  private readonly resolving = new Map<CustomEditorInput, { readonly owner: string }>();
   /** The documents of custom (not text) editors, opened by this host's extensions. */
   private readonly documents = new Map<string, DocumentEntry>();
   private scheduled = false;
@@ -106,7 +102,11 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     extension: string, viewType: string, options: WebviewPanelOptions, multiple: boolean, kind: 'text' | 'custom', editable: boolean,
   ): void {
     const owner = this.getExtension(extension);
-    if (!owner || typeof viewType !== 'string' || !viewType || !declares(owner, viewType)) {
+    // The manifest alone is not enough: of two extensions that contribute one viewType, only the
+    // first one's entry is taken, and only that extension provides it.
+    const contributed = typeof viewType === 'string' ? customEditorContributions.get(viewType) : undefined;
+    if (!owner || typeof viewType !== 'string' || !viewType || !contributesCustomEditor(owner, viewType)
+      || (contributed !== undefined && contributed.extensionId !== owner.id)) {
       throw new Error(`The custom editor '${String(viewType)}' is not contributed by this extension.`);
     }
     if (this.stopped) {
@@ -121,7 +121,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
         enableFindWidget: options?.enableFindWidget === true,
       },
       supportsMultipleEditorsPerDocument: multiple === true,
-      resolve: (input, token) => this.track(input, kind === 'text'
+      resolve: (input, token) => this.track(input, extension, kind === 'text'
         ? this.resolveText(extension, owner, input, token)
         : this.resolveCustom(extension, owner, input, editable, token)),
     });
@@ -142,7 +142,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     if (typeof viewType !== 'string' || !URI.isUri(resource)) {
       return undefined;
     }
-    const entry = this.documents.get(documentKey(viewType, resource));
+    const entry = this.documents.get(customDocumentKey(viewType, resource));
     return entry?.owner === extension ? entry.resolved : undefined;
   }
 
@@ -208,6 +208,14 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
         this.release(handle, entry);
       }
     }
+    // Editors on their way to the extension, before it has a handle for them: left alone, they would
+    // find it gone and end up resolved with nothing in them.
+    for (const [input, { owner }] of this.resolving) {
+      if (owner === extension) {
+        this.resolving.delete(input);
+        this.restart(input);
+      }
+    }
   }
 
   /** The extension host stops: every editor waits and resolves again in the next host. */
@@ -218,7 +226,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
       this.release(handle, entry);
     }
     // A request this host never answers would leave the editor waiting.
-    for (const input of this.resolving) {
+    for (const input of this.resolving.keys()) {
       this.restart(input);
     }
     this.resolving.clear();
@@ -262,12 +270,16 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
     }
   }
 
-  private async track(input: CustomEditorInput, resolution: Promise<void>): Promise<void> {
-    this.resolving.add(input);
+  private async track(input: CustomEditorInput, owner: string, resolution: Promise<void>): Promise<void> {
+    const entry = { owner };
+    this.resolving.set(input, entry);
     try {
       await resolution;
     } finally {
-      this.resolving.delete(input);
+      // A resolution that was started over leaves the entry of the one that replaced it.
+      if (this.resolving.get(input) === entry) {
+        this.resolving.delete(input);
+      }
     }
   }
 
@@ -287,7 +299,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
   private async resolveCustom(
     extension: string, owner: HostExtensionDescription, input: CustomEditorInput, editable: boolean, token: CancellationToken,
   ): Promise<void> {
-    const key = documentKey(input.viewType, input.resource);
+    const key = customDocumentKey(input.viewType, input.resource);
     let entry = this.documents.get(key);
     if (!entry) {
       const created: DocumentEntry = {
@@ -299,6 +311,7 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
             save: () => this.proxy.$save(extension, input.viewType, input.resource, CancellationToken.None),
             saveAs: target => this.proxy.$saveAs(extension, input.viewType, input.resource, target, CancellationToken.None),
             revert: () => this.proxy.$revert(extension, input.viewType, input.resource, CancellationToken.None),
+            disposeEdits: editIds => void this.proxy.$disposeEdits(extension, input.viewType, input.resource, editIds).catch(() => {}),
           });
           if (this.documents.get(key) !== created) {
             // Nobody holds it any more, or the host went meanwhile.
@@ -411,10 +424,8 @@ export class MainThreadCustomEditors extends Disposable implements MainThreadCus
       this.scheduled = true;
       queueMicrotask(() => {
         this.scheduled = false;
+        // An editor still resolving has its panel already: the request that made it came first.
         for (const [handle, entry] of this.editors) {
-          if (entry.input.resolutionState !== CustomEditorResolution.Resolved) {
-            continue;
-          }
           const state = this.viewState(entry.input);
           const before = entry.state;
           if (!before || before.active !== state.active || before.visible !== state.visible || before.viewColumn !== state.viewColumn) {

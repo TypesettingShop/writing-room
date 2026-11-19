@@ -5,7 +5,9 @@ import { Emitter } from '../../../base/common/event.js';
 import { URI } from '../../../base/common/uri.js';
 import type { WebviewOrigin } from '../../contrib/webview/common/webviewOrigin.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
-import { ExtHostCustomEditorsProxy, MainThreadCustomEditorsProxy } from './extHost.protocol.customEditor.js';
+import {
+  contributesCustomEditor, customDocumentKey, ExtHostCustomEditorsProxy, MainThreadCustomEditorsProxy,
+} from './extHost.protocol.customEditor.js';
 import type {
   CustomEditorResolveData, CustomTextEditorResolveData, ExtHostCustomEditorsShape, MainThreadCustomEditorsShape,
 } from './extHost.protocol.customEditor.js';
@@ -98,10 +100,6 @@ interface DocumentEntry {
   readonly edits: Map<number, vscode.CustomDocumentEditEvent>;
 }
 
-function documentKey(viewType: string, resource: URI): string {
-  return JSON.stringify([viewType, resource.toString()]);
-}
-
 function isEditable(provider: object): provider is vscode.CustomEditorProvider {
   const candidate = provider as Partial<vscode.CustomEditorProvider>;
   return typeof candidate.onDidChangeCustomDocument === 'function' && typeof candidate.saveCustomDocument === 'function'
@@ -111,12 +109,6 @@ function isEditable(provider: object): provider is vscode.CustomEditorProvider {
 interface EditorEntry {
   readonly extension: string;
   readonly panel: CustomEditorPanel;
-}
-
-function contributes(extension: HostExtensionDescription, viewType: string): boolean {
-  const editors = extension.manifest.contributes?.customEditors;
-  return Array.isArray(editors) && editors.some(entry => typeof entry === 'object' && entry !== null
-    && (entry as { viewType?: unknown }).viewType === viewType);
 }
 
 export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
@@ -144,7 +136,7 @@ export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
     if (!text && !custom) {
       throw new TypeError('A custom editor provider needs resolveCustomTextEditor, or openCustomDocument and resolveCustomEditor.');
     }
-    if (!contributes(extension, viewType)) {
+    if (!contributesCustomEditor(extension, viewType)) {
       throw new Error(`The custom editor '${viewType}' is not contributed by ${extension.id}.`);
     }
     if (this.providers.has(viewType)) {
@@ -212,7 +204,7 @@ export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
     extension: string, handle: string, data: CustomEditorResolveData, origin: WebviewOrigin, token: CancellationToken,
   ): Promise<void> {
     const entry = this.provider(extension, data.viewType, 'custom');
-    const document = this.documentEntries.get(documentKey(data.viewType, URI.revive(data.resource)));
+    const document = this.documentEntries.get(customDocumentKey(data.viewType, URI.revive(data.resource)));
     if (!document || document.extension !== extension) {
       throw new Error('The custom document is unavailable.');
     }
@@ -274,7 +266,7 @@ export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
   async $createCustomDocument(extension: string, viewType: string, resource: URI, token: CancellationToken): Promise<void> {
     const entry = this.provider(extension, viewType, 'custom');
     const uri = URI.revive(resource);
-    const key = documentKey(viewType, uri);
+    const key = customDocumentKey(viewType, uri);
     if (this.documentEntries.has(key)) {
       throw new Error('The custom document is already open.');
     }
@@ -291,7 +283,7 @@ export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
   }
 
   async $disposeCustomDocument(extension: string, viewType: string, resource: URI): Promise<void> {
-    const key = documentKey(viewType, URI.revive(resource));
+    const key = customDocumentKey(viewType, URI.revive(resource));
     const entry = this.documentEntries.get(key);
     if (entry?.extension === extension) {
       this.documentEntries.delete(key);
@@ -305,6 +297,15 @@ export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
 
   async $redo(extension: string, viewType: string, resource: URI, editId: number): Promise<void> {
     await this.lookupEdit(extension, viewType, resource, editId).redo();
+  }
+
+  async $disposeEdits(extension: string, viewType: string, resource: URI, editIds: readonly number[]): Promise<void> {
+    const document = this.documentEntries.get(customDocumentKey(viewType, URI.revive(resource)));
+    if (document?.extension === extension && Array.isArray(editIds)) {
+      for (const id of editIds) {
+        document.edits.delete(id);
+      }
+    }
   }
 
   async $save(extension: string, viewType: string, resource: URI, token: CancellationToken): Promise<void> {
@@ -325,7 +326,7 @@ export class ExtHostCustomEditors implements ExtHostCustomEditorsShape {
 
   private editableDocument(extension: string, viewType: string, resource: URI) {
     const entry = this.provider(extension, viewType, 'custom');
-    const document = this.documentEntries.get(documentKey(viewType, URI.revive(resource)));
+    const document = this.documentEntries.get(customDocumentKey(viewType, URI.revive(resource)));
     if (!document || document.extension !== extension || !isEditable(entry.provider)) {
       throw new Error('The custom document is unavailable.');
     }

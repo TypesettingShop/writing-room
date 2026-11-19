@@ -2,6 +2,7 @@ import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { Emitter } from '../../../../base/common/event.js';
 import type { Event } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
 
 /** What the extension's `CustomEditorProvider` does for a document; the main thread calls it in order. */
@@ -11,6 +12,8 @@ export interface ICustomDocumentBackend {
   save(): Promise<void>;
   saveAs(target: URI): Promise<void>;
   revert(): Promise<void>;
+  /** The edits can no longer be undone or redone: the extension may let go of them. */
+  disposeEdits(editIds: readonly number[]): void;
 }
 
 /** Dirty documents of custom editors; while there is one, the browser asks before the page goes. */
@@ -61,25 +64,21 @@ export class CustomDocumentModel extends Disposable {
     return this.editable && (this.changedWithoutUndo || this.index !== this.savePoint);
   }
 
-  get canUndo(): boolean {
-    return this.index >= 0;
-  }
-
-  get canRedo(): boolean {
-    return this.index < this.edits.length - 1;
-  }
-
   /** The extension made an edit it can undo (`CustomDocumentEditEvent`). */
   acceptEdit(editId: number): void {
+    let dropped: number[] = [];
     this.change(() => {
       // What was undone is gone; a save point among it can no longer be reached.
-      this.edits.splice(this.index + 1);
+      dropped = this.edits.splice(this.index + 1);
       if (this.savePoint > this.index) {
         this.savePoint = -2;
       }
       this.edits.push(editId);
       this.index++;
     });
+    if (dropped.length) {
+      this.backend.disposeEdits(dropped);
+    }
   }
 
   /** The extension changed the document without an undo (`CustomDocumentContentChangeEvent`). */
@@ -87,13 +86,25 @@ export class CustomDocumentModel extends Disposable {
     this.change(() => { this.changedWithoutUndo = true; });
   }
 
+  /**
+   * The position moves before the extension answers, so an edit that comes meanwhile lands after the
+   * undone one (and cuts it off). A failed undo moves back unless that happened.
+   */
   undo(): Promise<void> {
     return this.enqueue(async () => {
       if (this.index < 0) {
         return;
       }
-      await this.backend.undo(this.edits[this.index]!);
+      const edit = this.edits[this.index]!;
       this.change(() => { this.index--; });
+      try {
+        await this.backend.undo(edit);
+      } catch (error) {
+        if (this.edits[this.index + 1] === edit) {
+          this.change(() => { this.index++; });
+        }
+        throw error;
+      }
     });
   }
 
@@ -102,8 +113,16 @@ export class CustomDocumentModel extends Disposable {
       if (this.index >= this.edits.length - 1) {
         return;
       }
-      await this.backend.redo(this.edits[this.index + 1]!);
+      const edit = this.edits[this.index + 1]!;
       this.change(() => { this.index++; });
+      try {
+        await this.backend.redo(edit);
+      } catch (error) {
+        if (this.edits[this.index] === edit) {
+          this.change(() => { this.index--; });
+        }
+        throw error;
+      }
     });
   }
 
@@ -119,9 +138,21 @@ export class CustomDocumentModel extends Disposable {
     });
   }
 
-  /** Writes the document to `target`; this document keeps its state, as its editor makes way for the target's. */
+  /**
+   * Writes the document to `target`; this document keeps its state, as its editor makes way for the
+   * target's. Written over its own resource, it is saved there.
+   */
   saveAs(target: URI): Promise<void> {
-    return this.enqueue(() => this.backend.saveAs(target));
+    return this.enqueue(async () => {
+      const at = this.index;
+      await this.backend.saveAs(target);
+      if (isEqual(target, this.resource)) {
+        this.change(() => {
+          this.savePoint = at;
+          this.changedWithoutUndo = false;
+        });
+      }
+    });
   }
 
   /** Goes back to the saved document, forgetting the edits. */

@@ -47,7 +47,7 @@ Custom Editor는 파일을 확장의 Webview로 연다. 확장은 어떤 파일 
 
 ## 에디터 바꾸기
 
-- **View: Reopen Editor With...**(`workbench.action.reopenWithEditor`)는 활성 에디터의 파일을 열 수 있는 에디터(텍스트 에디터와 맞는 Custom Editor 전부)를 퀵 픽으로 보인다. 지금 에디터에는 `Active`가 붙는다. 고르면 같은 그룹, 같은 자리에서 탭이 바뀐다. 텍스트는 그대로라 저장하지 않은 글과 dirty 표시가 남는다.
+- **View: Reopen Editor With...**(`workbench.action.reopenWithEditor`)는 활성 에디터의 파일을 열 수 있는 에디터(텍스트 에디터와 맞는 Custom Editor 전부)를 퀵 픽으로 보인다. 지금 에디터에는 `Active`가 붙는다. 고르면 같은 그룹, 같은 자리에서 탭이 바뀐다. 텍스트는 그대로라 저장하지 않은 글과 dirty 표시가 남는다. 자기 문서를 가진 에디터(아래)는 문서가 에디터와 함께 닫히므로, dirty하면 닫을 때처럼 저장할지 먼저 묻는다.
 - 확장은 `vscode.commands.executeCommand('vscode.openWith', uri, viewType, columnOrOptions?)`로 연다. `viewType`이 `default`면 텍스트 에디터다. 셋째 인자는 뷰 열(`ViewColumn.Beside` 포함)이나 `{ viewColumn, preserveFocus }`다.
 - 컨텍스트 키 `activeCustomEditorId`는 활성 에디터가 Custom Editor일 때 그 `viewType`이다(메뉴의 `when`에 쓴다).
 

@@ -270,6 +270,13 @@ test('an editable custom document undoes in order, saves through its provider an
   await (await dialog).dismiss();
   await expect(tab).toHaveAccessibleDescription('Modified');
 
+  // Reopen With asks before the document, and its unsaved changes, would go with the editor.
+  await command(page, 'View: Reopen Editor With...');
+  await chooseOption(page, 'Text Editor');
+  await answerCloseQuestion(page, 'c.count', 'Cancel');
+  await expect(counter.locator('#text')).toHaveText('2');
+  await expect(tab).toHaveAccessibleDescription('Modified');
+
   await page.getByRole('button', { name: 'Close c.count' }).click();
   await answerCloseQuestion(page, 'c.count', "Don't Save");
   await expect(page.getByRole('tab', { name: 'c.count' })).toHaveCount(0);
