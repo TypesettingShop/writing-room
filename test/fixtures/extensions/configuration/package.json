@@ -1,0 +1,376 @@
+{
+  "name": "configuration",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Configuration Fixture",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "Fixture Markdown",
+      "order": 20,
+      "properties": {
+        "fixtureMarkdown.preview.fontFamily": {
+          "type": "string",
+          "default": "-apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif",
+          "description": "Controls the font family used in the Markdown preview.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.doubleClickToSwitchToEditor.mode": {
+          "type": "string",
+          "default": "source",
+          "enum": [
+            "source",
+            "preview"
+          ],
+          "enumDescriptions": [
+            "Open the source.",
+            "Stay in the preview."
+          ],
+          "description": "Chooses what a double click in the preview does.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.scrollEditorWithPreview.mode": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "both",
+            "editor",
+            "preview"
+          ],
+          "markdownDescription": "Which side follows the other when scrolling. Uses `editor` or `preview`.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.suggest.paths.includeWorkspaceHeaderCompletions": {
+          "type": "string",
+          "default": "onSingleOrDoubleHash",
+          "enum": [
+            "never",
+            "onDoubleHash",
+            "onSingleOrDoubleHash"
+          ],
+          "description": "Enable workspace header suggestions.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.occurrencesHighlight.mode": {
+          "type": "string",
+          "default": "headers",
+          "enum": [
+            "off",
+            "headers"
+          ],
+          "description": "Highlights occurrences of the header under the cursor.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.editor.drop.copyIntoWorkspace": {
+          "type": "string",
+          "default": "mediaFiles",
+          "enum": [
+            "mediaFiles",
+            "never"
+          ],
+          "description": "Whether dropped files are copied into the workspace.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.editor.pasteUrlAsFormattedLink.enabled": {
+          "type": "string",
+          "default": "smartWithSelection",
+          "enum": [
+            "always",
+            "smart",
+            "smartWithSelection",
+            "never"
+          ],
+          "description": "Paste a URL over a selection as a link.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.ignoredLinksPattern": {
+          "type": "string",
+          "default": "",
+          "description": "A pattern for links the validator skips.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.referenceLinks.enabled": {
+          "type": "string",
+          "default": "warning",
+          "enum": [
+            "ignore",
+            "warning",
+            "error"
+          ],
+          "description": "Validate reference links.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.fragmentLinks.enabled": {
+          "type": "string",
+          "default": "warning",
+          "enum": [
+            "ignore",
+            "warning",
+            "error"
+          ],
+          "description": "Validate fragment links.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.fileLinks.enabled": {
+          "type": "string",
+          "default": "warning",
+          "enum": [
+            "ignore",
+            "warning",
+            "error"
+          ],
+          "description": "Validate file links.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.fileLinks.markdownFragmentLinks": {
+          "type": "string",
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "ignore",
+            "warning",
+            "error"
+          ],
+          "description": "Validate fragments in links to other files.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.unusedLinkDefinitions.enabled": {
+          "type": "string",
+          "default": "hint",
+          "enum": [
+            "ignore",
+            "hint",
+            "warning",
+            "error"
+          ],
+          "description": "Validate link definitions that are not used.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.duplicateLinkDefinitions.enabled": {
+          "type": "string",
+          "default": "warning",
+          "enum": [
+            "ignore",
+            "warning",
+            "error"
+          ],
+          "description": "Validate duplicate link definitions.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.updateLinksOnFileMove.enabled": {
+          "type": "string",
+          "default": "never",
+          "enum": [
+            "prompt",
+            "always",
+            "never"
+          ],
+          "markdownDescription": "Update links when a file moves. Choose `prompt` to be asked.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.updateLinksOnFileMove.include": {
+          "type": "string",
+          "default": "",
+          "description": "Glob of files whose links are updated.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.preview.theme": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "light",
+            "dark"
+          ],
+          "description": "Theme of the preview.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.server.log": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "debug",
+            "trace"
+          ],
+          "description": "Log level of the language server.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.copyFiles.destination": {
+          "type": "string",
+          "default": "",
+          "description": "Where copied files go.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.copyFiles.overwriteBehavior": {
+          "type": "string",
+          "default": "nameIncrementally",
+          "enum": [
+            "nameIncrementally",
+            "overwrite"
+          ],
+          "description": "What to do when a file exists.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.lineEnding": {
+          "type": "string",
+          "default": "lf",
+          "enum": [
+            "lf",
+            "crlf"
+          ],
+          "description": "Line ending of exported text.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.title": {
+          "type": "string",
+          "default": "Preview",
+          "description": "Title of the preview tab.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.editor.filePaste.copyIntoWorkspace": {
+          "type": "string",
+          "default": "mediaFiles",
+          "enum": [
+            "mediaFiles",
+            "never"
+          ],
+          "description": "Whether pasted files are copied into the workspace.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.breaks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Sets how line-breaks are rendered in the Markdown preview.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.linkify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Convert URL-like text to links in the preview.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.typographer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable replacement of common text patterns.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.markEditorSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark the current editor selection in the preview.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.scrollPreviewWithEditor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scroll the preview with the editor.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.openMarkdownLinks.inEditor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open links to Markdown files in the editor.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.links.openLocation.ignored": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ignore the open location of links.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.validate.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable all error reporting in Markdown files.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.editor.updateLinksOnPaste.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Update links when pasting.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.suggest.paths.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable path suggestions while writing links.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.experimental.footnotes": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable `footnotes` syntax. *Experimental.*",
+          "scope": "window"
+        },
+        "fixtureMarkdown.preview.lineNumbers": {
+          "type": [
+            "boolean",
+            "integer"
+          ],
+          "default": false,
+          "description": "Show line numbers: a flag or a first number.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.styles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "A list of URLs or local paths to CSS style sheets.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.validate.ignoredLinks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Links the validator skips.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.server.extraPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra paths for the language server.",
+          "scope": "window"
+        },
+        "fixtureMarkdown.preview.fontSize": {
+          "type": "number",
+          "default": 14,
+          "minimum": 6,
+          "description": "Controls the font size in pixels used in the preview.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.preview.lineHeight": {
+          "type": "number",
+          "default": 1.6,
+          "minimum": 0,
+          "description": "Controls the line height used in the preview.",
+          "scope": "resource"
+        },
+        "fixtureMarkdown.copyFiles.destinations": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Glob to destination path pairs. Use `${fileName}` in a path.",
+          "scope": "resource"
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[markdown]": {
+        "editor.wordWrap": "on"
+      }
+    }
+  }
+}
