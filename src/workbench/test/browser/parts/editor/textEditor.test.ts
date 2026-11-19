@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { Dimension } from '../../../../../base/browser/dom.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { CodeEditorService } from '../../../../../editor/browser/services/codeEditorService.js';
 import type { ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { NullConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
@@ -35,6 +36,12 @@ const fake = vi.hoisted(() => {
     onDidBlurEditorText = this.on(this.blurText);
     onDidFocusEditorWidget = this.on(this.focusWidget);
     onDidBlurEditorWidget = this.on(this.blurWidget);
+    readonly selectionChanged = new Set<(event: { selection: { isEmpty(): boolean } }) => void>();
+    onDidChangeCursorSelection = (listener: (event: { selection: { isEmpty(): boolean } }) => void) => {
+      this.selectionChanged.add(listener);
+      return { dispose: () => this.selectionChanged.delete(listener) };
+    };
+    getSelection() { return { isEmpty: () => true }; }
     setModel(model: unknown) {
       this.setModelCalls.push(model);
       this.model = model;
@@ -122,6 +129,7 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
 }
 
 let contextKeys: ContextKeyService;
+let codeEditors: CodeEditorService;
 const panes: TextEditorPane[] = [];
 
 class TestConfiguration implements IConfigurationService {
@@ -147,7 +155,7 @@ function createPane(
   size = new Dimension(300, 200), configuration: IConfigurationService = new NullConfigurationService(),
 ): { pane: TextEditorPane; parent: HTMLElement } {
   const parent = document.body.appendChild(document.createElement('div'));
-  const pane = new TextEditorPane(contextKeys, configuration);
+  const pane = new TextEditorPane(contextKeys, configuration, codeEditors);
   pane.create(parent);
   if (size.width > 0) {
     pane.layout(size);
@@ -162,6 +170,7 @@ function editorOf(pane: TextEditorPane): FakeEditor {
 
 beforeEach(() => {
   contextKeys = new ContextKeyService();
+  codeEditors = new CodeEditorService();
   fake.state.editors.length = 0;
   fake.state.models.length = 0;
   fake.state.failures = 0;
@@ -224,7 +233,7 @@ test('creates the Monaco editor once, on the first real layout, without a model 
 });
 
 test('waits for a pane that is not in the document', async () => {
-  const pane = new TextEditorPane(contextKeys, new NullConfigurationService());
+  const pane = new TextEditorPane(contextKeys, new NullConfigurationService(), codeEditors);
   panes.push(pane);
   const parent = document.createElement('div');
   pane.create(parent);

@@ -1,5 +1,6 @@
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { CommandsRegistry } from '../../commands/common/commands.js';
 import { registerSingleton } from '../../instantiation/common/extensions.js';
 import { IContextKeyService } from '../common/contextkey.js';
 import type {
@@ -86,3 +87,40 @@ export class ContextKeyService extends ScopedContextKeyService {
 }
 
 registerSingleton(IContextKeyService, ContextKeyService);
+
+/**
+ * Whether `value` is something a context key may hold: a string, number, boolean, `null` or
+ * `undefined`, or arrays and plain objects of those. Anything else (a function, a class instance, a
+ * cycle) could not cross from an extension and is refused.
+ */
+export function isContextKeyValue(value: unknown, seen = new Set<object>()): value is ContextKeyValue {
+  if (value === null || value === undefined || ['string', 'number', 'boolean'].includes(typeof value)) {
+    return true;
+  }
+  if (typeof value !== 'object' || seen.has(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+    return false;
+  }
+  seen.add(value);
+  const valid = Object.values(value).every(item => isContextKeyValue(item, seen));
+  seen.delete(value);
+  return valid;
+}
+
+/**
+ * `setContext(key, value)`, as VS Code has it: sets a key in the workbench's own scope. A key an
+ * extension sets this way stays after the extension is removed, as in VS Code.
+ */
+CommandsRegistry.registerCommand('setContext', (accessor, key: unknown, value: unknown) => {
+  if (typeof key !== 'string' || key.length === 0) {
+    throw new Error('setContext needs a context key name.');
+  }
+  if (!isContextKeyValue(value)) {
+    throw new Error(`setContext cannot set '${key}' to a value that is not plain data.`);
+  }
+  // A copy, so the caller changing its object later does not change the key behind the menus' backs.
+  accessor.get(IContextKeyService).createKey(key, value === undefined ? undefined : structuredClone(value));
+});

@@ -1,5 +1,6 @@
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import type { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import type { IEditorPane } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
@@ -30,6 +31,14 @@ export abstract class EditorPane extends Disposable implements IEditorPane {
 
   get options(): IEditorOptions | undefined {
     return this._options;
+  }
+
+  /**
+   * The pane's own context key scope, a child of its group's, when it has one. The group's title
+   * menu is evaluated in it, so a `when` clause there sees the keys of the editor it shows.
+   */
+  get scopedContextKeyService(): IContextKeyService | undefined {
+    return undefined;
   }
 
   getContainer(): HTMLElement | undefined {
