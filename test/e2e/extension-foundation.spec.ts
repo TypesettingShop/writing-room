@@ -52,6 +52,8 @@ test('URL installation keeps commands with icon pairs and commands whose icons f
   await page.getByRole('option', { name: /Report Fixture Code Action Kind/ }).click();
   await expect(page.getByText('Fixture code action kind: quickfix', { exact: true })).toBeVisible();
   await expect.poll(() => requested.some(path => path === '/foundation/icons/dark.svg')).toBe(true);
+  const restoredIcon = page.getByRole('button', { name: 'Report Fixture Resource' }).locator('.wr-deferred-icon');
+  await expect(restoredIcon).toHaveCSS('background-image', /url\("blob:/);
   expect(requested).not.toContain('/outside.svg');
 });
 
