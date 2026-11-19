@@ -1,3 +1,5 @@
+import { Event } from '../../../../../base/common/event.js';
+import { MenuCommandContext, MenuId } from '../../../../../platform/actions/common/actions.js';
 import { expect, test, vi } from 'vitest';
 import { CommandsRegistry, ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
@@ -36,7 +38,10 @@ test('waits for extension activation before looking up the handler and passes ac
   };
   services.set(IExtensionService, extension);
   const commands = new InstantiationService(services).invokeFunction(accessor => accessor.get(ICommandService));
-  const result = commands.executeCommand('test.activation', 'value', 7);
+  const context = new MenuCommandContext(MenuId.EditorTitle, {
+    contextMatchesRules: () => true, onDidChangeContext: Event.None,
+  });
+  const result = commands.executeCommand('test.activation', context, 'value', 7);
   expect(activateByEvent).toHaveBeenCalledExactlyOnceWith('onCommand:test.activation');
   const handle = CommandsRegistry.registerCommand('test.activation', (accessor, ...args) =>
     [accessor.get(IExtensionService) === extension, ...args]);

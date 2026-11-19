@@ -1,12 +1,13 @@
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Event } from '../../../../base/common/event.js';
-import { MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { loadMonaco } from '../../../../editor/browser/monaco.js';
 import type {
   ICodeEditorViewState, IMonacoTextModel, IStandaloneCodeEditor, IStandaloneEditorConstructionOptions, MonacoNamespace,
 } from '../../../../editor/browser/monaco.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 import { isTextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -14,7 +15,7 @@ import { configurationRegistry } from '../../../../platform/configuration/common
 import type { IConfigurationPropertySchema } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
-import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
+import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorPane } from './editorPane.js';
 import './media/textEditor.css';
@@ -66,6 +67,8 @@ interface IShownModel {
   readonly model: IMonacoTextModel;
   /** View state to restore once the model is attached. */
   viewState: object | undefined;
+  /** A selection to make once the model is attached, after the view state. */
+  selection: ITextEditorSelection | undefined;
 }
 
 /**
@@ -87,6 +90,11 @@ export class TextEditorPane extends EditorPane {
   private request = 0;
   private readonly inputListener = this._register(new MutableDisposable());
   private readonly viewStates = new Map<EditorInput, { state: object; listener: IDisposable }>();
+  private scoped: IContextKeyService | undefined;
+  private readonly modelListener = this._register(new MutableDisposable());
+  private editorLanguage!: IContextKey<string>;
+  private editorReadonly!: IContextKey<boolean>;
+  private editorHasSelection!: IContextKey<boolean>;
   private editorTextFocus!: IContextKey<boolean>;
   private editorFocus!: IContextKey<boolean>;
   private textInputFocus!: IContextKey<boolean>;
@@ -94,6 +102,7 @@ export class TextEditorPane extends EditorPane {
   constructor(
     @IContextKeyService private readonly contextKeyService: IContextKeyService,
     @IConfigurationService private readonly configuration: IConfigurationService,
+    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
   ) {
     super(TextEditorPane.ID);
     this._register(configuration.onDidChangeConfiguration(event => {
@@ -108,8 +117,13 @@ export class TextEditorPane extends EditorPane {
     parent.classList.add('text-editor');
     this.editorContainer = append(parent, $('.text-editor-container'));
     this.messageElement = append(parent, $('.text-editor-message', { role: 'alert', hidden: '' }));
-    // The keys live in the pane's own scope, so they hold for what has focus inside it.
-    const scoped = this._register(this.contextKeyService.createScoped(parent));
+    // The keys live in the pane's own scope, so they hold for what has focus inside it. The scope is
+    // a child of the group's (the nearest scope around the pane), as in VS Code, so the group's keys
+    // hold inside it too.
+    const scoped = this.scoped = this._register(this.contextKeyService.getScopedContextKeyService(parent).createScoped(parent));
+    this.editorLanguage = EditorContextKeys.languageId.bindTo(scoped);
+    this.editorReadonly = EditorContextKeys.readOnly.bindTo(scoped);
+    this.editorHasSelection = EditorContextKeys.hasNonEmptySelection.bindTo(scoped);
     this.editorTextFocus = EditorContextKeys.editorTextFocus.bindTo(scoped);
     this.editorFocus = EditorContextKeys.focus.bindTo(scoped);
     this.textInputFocus = EditorContextKeys.textInputFocus.bindTo(scoped);
@@ -123,6 +137,9 @@ export class TextEditorPane extends EditorPane {
       void super.setInput(input, options);
       if (options?.viewState) {
         this.editor!.restoreViewState(options.viewState as ICodeEditorViewState);
+      }
+      if (options?.selection) {
+        this.applySelection(options.selection);
       }
       return;
     }
@@ -167,7 +184,7 @@ export class TextEditorPane extends EditorPane {
       return;
     }
     this.monaco = monaco;
-    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state };
+    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state, selection: options?.selection };
     this.ensureEditor();
     this.attach();
   }
@@ -207,6 +224,10 @@ export class TextEditorPane extends EditorPane {
     return input && (this.currentViewState(input) ?? this.viewStates.get(input)?.state);
   }
 
+  override get scopedContextKeyService(): IContextKeyService | undefined {
+    return this.scoped;
+  }
+
   /** The Monaco editor, once the pane has had a real size and the package has loaded. */
   getControl(): IStandaloneCodeEditor | undefined {
     return this.editor;
@@ -227,12 +248,16 @@ export class TextEditorPane extends EditorPane {
     }
     const { width, height } = this.dimension;
     // Without `model: null` Monaco creates an empty model of its own that nothing would dispose.
-    this.editor = this.monaco.editor.create(this.editorContainer, {
+    const editor = this.editor = this.monaco.editor.create(this.editorContainer, {
       ...getTextEditorOptions(this.configuration),
       model: null,
       dimension: { width, height },
     });
-    this._register(this.editor);
+    // The editor stays registered while the pane lives, whatever model it shows; it leaves the
+    // service before it is disposed.
+    this.codeEditorService.addCodeEditor(editor);
+    this._register(toDisposable(() => this.codeEditorService.removeCodeEditor(editor)));
+    this._register(editor);
     this._register(this.editor.onDidFocusEditorText(() => {
       this.editorTextFocus.set(true);
       this.textInputFocus.set(true);
@@ -241,6 +266,7 @@ export class TextEditorPane extends EditorPane {
       this.editorTextFocus.set(false);
       this.textInputFocus.set(false);
     }));
+    this._register(editor.onDidChangeCursorSelection(({ selection }) => this.editorHasSelection.set(!selection.isEmpty())));
     this._register(this.editor.onDidFocusEditorWidget(() => this.editorFocus.set(true)));
     this._register(this.editor.onDidBlurEditorWidget(() => this.editorFocus.set(false)));
   }
@@ -254,15 +280,40 @@ export class TextEditorPane extends EditorPane {
     if (this.editor.getModel() !== shown.model) {
       this.updateTabSize();
       this.editor.setModel(shown.model);
+      this.editorLanguage.set(shown.model.getLanguageId());
+      this.editorReadonly.set(shown.input.isReadonly());
+      this.editorHasSelection.set(!(this.editor.getSelection()?.isEmpty() ?? true));
+      const model = shown.model;
+      this.modelListener.value = model.onDidChangeLanguage(({ newLanguage }) => {
+        if (this.shown?.model === model) {
+          this.editorLanguage.set(newLanguage);
+        }
+      });
     }
     if (shown.viewState) {
       this.editor.restoreViewState(shown.viewState as ICodeEditorViewState);
       shown.viewState = undefined;
     }
+    if (shown.selection) {
+      this.applySelection(shown.selection);
+      shown.selection = undefined;
+    }
     if (this.pendingFocus) {
       this.pendingFocus = false;
       this.editor.focus();
     }
+  }
+
+  /** Selects `selection` (a cursor without an end) and scrolls it into the middle of the view. */
+  private applySelection(selection: ITextEditorSelection): void {
+    const range = {
+      startLineNumber: selection.startLineNumber,
+      startColumn: selection.startColumn,
+      endLineNumber: selection.endLineNumber ?? selection.startLineNumber,
+      endColumn: selection.endColumn ?? selection.startColumn,
+    };
+    this.editor!.setSelection(range);
+    this.editor!.revealRangeInCenter(range);
   }
 
   private updateTabSize(): void {
@@ -277,6 +328,11 @@ export class TextEditorPane extends EditorPane {
     this.shown = undefined;
     this.hideMessage();
     this.editor?.setModel(null);
+    // The pane is reused: what described the last model must not stay for the next one.
+    this.modelListener.clear();
+    this.editorLanguage?.reset();
+    this.editorReadonly?.reset();
+    this.editorHasSelection?.reset();
   }
 
   /** The view state `input` has in this pane right now: shown, waiting for the editor, or loading. */

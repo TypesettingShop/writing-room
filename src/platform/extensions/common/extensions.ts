@@ -10,20 +10,6 @@ export class ExtensionIdentifier {
   }
 }
 
-export interface ICommandContribution {
-  readonly command: string;
-  readonly title: string;
-  readonly category?: string;
-  readonly icon?: string;
-  readonly enablement?: string;
-}
-
-export interface IMenuContribution {
-  readonly command: string;
-  readonly when?: string;
-  readonly group?: string;
-}
-
 export interface IKeybindingContribution {
   readonly command: string;
   readonly key: string;
@@ -34,25 +20,7 @@ export interface IKeybindingContribution {
   readonly args?: unknown;
 }
 
-export interface IViewContainerContribution {
-  readonly id: string;
-  readonly title: string;
-  readonly icon: string;
-}
-
-export interface IViewContribution {
-  readonly id: string;
-  readonly name: string;
-  readonly when?: string;
-}
-
-export interface IExtensionContributions {
-  readonly commands?: readonly ICommandContribution[];
-  readonly menus?: Readonly<Record<string, readonly IMenuContribution[]>>;
-  readonly keybindings?: readonly IKeybindingContribution[];
-  readonly viewsContainers?: Readonly<Record<string, readonly IViewContainerContribution[]>>;
-  readonly views?: Readonly<Record<string, readonly IViewContribution[]>>;
-}
+export type IExtensionContributions = Readonly<Record<string, unknown>>;
 
 export interface IExtensionManifest {
   readonly name: string;
@@ -60,6 +28,16 @@ export interface IExtensionManifest {
   readonly version: string;
   readonly displayName?: string;
   readonly browser?: string;
+  readonly main?: string;
+  readonly extensionKind?: 'ui' | 'workspace' | 'web' | readonly ('ui' | 'workspace' | 'web')[];
+  readonly engines?: { readonly vscode?: string; readonly [engine: string]: string | undefined };
+  readonly extensionDependencies?: readonly string[];
+  readonly extensionPack?: readonly string[];
+  readonly enabledApiProposals?: readonly string[];
+  readonly capabilities?: Readonly<Record<string, unknown>>;
+  readonly l10n?: string;
+  readonly license?: string;
+  readonly description?: string;
   readonly icon?: string;
   readonly activationEvents?: readonly string[];
   readonly contributes?: IExtensionContributions;
@@ -70,6 +48,7 @@ export interface IExtensionDescription {
   readonly location: string;
   readonly manifest: IExtensionManifest;
   readonly isBuiltin: boolean;
+  readonly nls?: Readonly<Record<string, string>>;
 }
 
 export interface IExtensionMessage {

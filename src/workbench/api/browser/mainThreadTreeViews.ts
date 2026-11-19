@@ -1,3 +1,5 @@
+import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { MainThreadTreeViewsProxy, ExtHostTreeViewsProxy } from '../common/extHost.protocol.treeViews.js';
 import { Emitter } from '../../../base/common/event.js';
 import type { Event } from '../../../base/common/event.js';
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
@@ -98,3 +100,10 @@ export class MainThreadTreeViews implements MainThreadTreeViewsShape, IDisposabl
     }
   }
 }
+
+mainThreadCustomers.register('treeViews', ({ rpc, treeViews, getExtension }) => {
+  const trees = new MainThreadTreeViews(rpc.getProxy(ExtHostTreeViewsProxy), treeViews,
+    (key, viewId) => getExtension(key)?.views?.includes(viewId) ?? false);
+  rpc.set(MainThreadTreeViewsProxy, trees);
+  return trees;
+});

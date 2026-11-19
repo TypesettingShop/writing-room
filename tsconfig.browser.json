@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
   "include": ["src/**/*", "test/**/*"],
-  "exclude": ["src/**/test/**", "test/e2e/**", "src/workbench/api/worker/**"]
+  "exclude": ["src/**/test/**", "test/e2e/**", "src/workbench/api/worker/**", "test/fixtures/vscode-api/vscode.d.ts"]
 }

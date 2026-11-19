@@ -1,16 +1,20 @@
 import { $, addDisposableListener, append, Dimension } from '../../../../base/browser/dom.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import type { IViewSize } from '../../../../base/browser/ui/grid/grid.js';
-import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
+import type { IMenuContext } from '../../../../platform/actions/common/actions.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import type { IContextKey, IContextKeyChangeEvent } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
-import { EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
+import { ActiveEditorContextKeys, EditorGroupEditorsCountContext } from '../../../common/contextkeys.js';
 import { EditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { EditorInputWriter, IGroupModelChangeEvent, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
+import { ConfirmResult } from '../../../common/editor/editorInput.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type {
   ICloseEditorsFilter, IEditorGroup, IEditorMoveOptions, IEditorOpenOptions,
@@ -49,6 +53,17 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private readonly _onWillDispose = this._register(new Emitter<void>());
   readonly onWillDispose = this._onWillDispose.event;
 
+  private readonly _onDidChangeTitleContext = this._register(new Emitter<IContextKeyChangeEvent>());
+  private readonly titleContextListener = this._register(new MutableDisposable());
+  /**
+   * The title menu's context follows the active pane, as VS Code's `createEditorActions` evaluates
+   * in the pane's scope: `editorLangId == markdown` shows a button over a markdown editor only.
+   */
+  readonly titleMenuContext: IMenuContext = {
+    contextMatchesRules: rules => this.titleContextKeyService().contextMatchesRules(rules),
+    onDidChangeContext: this._onDidChangeTitleContext.event,
+  };
+
   private readonly model: EditorGroupModel;
   readonly titleContainer: HTMLElement;
   private readonly editorContainer: HTMLElement;
@@ -57,7 +72,10 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private activePaneEntry: IPaneEntry | undefined;
   private dimension: Dimension | undefined;
   private readonly editorsCount: IContextKey<number>;
+  private readonly activeEditorContext: ActiveEditorContextKeys;
   private _disposed = false;
+  /** The open close questions, by editor; a second close of one waits for the same answer. */
+  private readonly pendingConfirmations = new Map<EditorInput, Promise<boolean>>();
   /** Set while `openEditor` changes the model: it shows the editor itself, with its options. */
   private opening = false;
 
@@ -74,7 +92,13 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     this._register(toDisposable(() => this.element.remove()));
     this.scopedContextKeyService = this._register(contextKeyService.createScoped(this.element));
     this.editorsCount = EditorGroupEditorsCountContext.bindTo(this.scopedContextKeyService);
+    // The group's own active editor, as VS Code's group binds them: the title menu of a group that is
+    // not the active one reads these, not the workbench's keys for the active group's editor.
+    const scoped = this.scopedContextKeyService;
+    this.activeEditorContext = this._register(instantiationService.invokeFunction(accessor =>
+      new ActiveEditorContextKeys(scoped, true, accessor.get(IModelService), accessor.get(ILanguageService))));
     this.updateContextKeys();
+    this.listenToTitleContext();
 
     this.titleContainer = append(this.element, $('.title'));
     this.titleContainer.style.height = `${this.titleHeight}px`;
@@ -212,16 +236,89 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     }
   }
 
-  closeEditor(editor: EditorInput | undefined = this.activeEditor ?? undefined): boolean {
-    return editor ? this.doCloseEditor(editor) : false;
+  closeEditor(editor: EditorInput | undefined = this.activeEditor ?? undefined): Promise<boolean> {
+    return editor ? this.closeEditors([editor]) : Promise.resolve(false);
   }
 
-  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): boolean {
-    const toClose = Array.isArray(editors)
+  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): Promise<boolean> {
+    const requested = Array.isArray(editors)
       ? editors as readonly EditorInput[]
       : this.editors.filter(editor => editor !== (editors as ICloseEditorsFilter).except);
+    // The editors as this group holds them: a request may name an input that only matches one.
+    const held = [...new Set(requested.flatMap(editor => this.model.findEditor(editor)?.[0] ?? []))];
+    const asking = held.filter(editor => this.shouldConfirmClose(editor));
+    if (asking.length === 0) {
+      // Nothing to ask: the editors are gone before this returns, as a close always was.
+      return Promise.resolve(this.doCloseEditors(held));
+    }
+    return this.closeEditorsAfterConfirm(held, asking);
+  }
+
+  closeAllEditors(): Promise<boolean> {
+    return this.closeEditors(this.editors);
+  }
+
+  /** Whether closing `editor` here needs its close handler's answer: it wants to ask, and no other group shows it. */
+  private shouldConfirmClose(editor: EditorInput): boolean {
+    if (!editor.closeHandler?.showConfirm()) {
+      return false;
+    }
+    return !this.groupsView.groups.some(group => group !== this && !group.disposed && group.contains(editor, { matches: true }));
+  }
+
+  private async closeEditorsAfterConfirm(held: readonly EditorInput[], asking: readonly EditorInput[]): Promise<boolean> {
+    for (const editor of asking) {
+      if (!await this.confirmClose(editor)) {
+        return false;
+      }
+    }
+    // The answers took time: the group may be gone, and editors may have closed or moved meanwhile.
+    if (this._disposed) {
+      return false;
+    }
+    const remaining = held.filter(editor => this.model.contains(editor));
+    return this.doCloseEditors(remaining) || remaining.length < held.length;
+  }
+
+  /**
+   * Asks `editor`'s close handler, once: a close of the same editor that comes while the question is
+   * open shares its answer. `true` lets the close go on.
+   */
+  private confirmClose(editor: EditorInput): Promise<boolean> {
+    let pending = this.pendingConfirmations.get(editor);
+    if (!pending) {
+      pending = this.doConfirmClose(editor).finally(() => this.pendingConfirmations.delete(editor));
+      this.pendingConfirmations.set(editor, pending);
+    }
+    return pending;
+  }
+
+  private async doConfirmClose(editor: EditorInput): Promise<boolean> {
+    try {
+      switch (await editor.closeHandler!.confirm([{ groupId: this.id, editor }])) {
+        case ConfirmResult.SAVE:
+          // A save that fails or is cancelled keeps the editor open; the input told the user why. An
+          // input disposed while the question was open has already left, as after `DONT_SAVE`, and
+          // does not hold back the other editors of the close.
+          return editor.isDisposed() || await editor.save(this.id, { reason: 'explicit' }) !== undefined;
+        case ConfirmResult.DONT_SAVE:
+          if (!editor.isDisposed()) {
+            await editor.revert(this.id, { soft: true });
+          }
+          return true;
+        default:
+          return false;
+      }
+    } catch (error) {
+      console.error(`Could not ask whether to close ${editor.getName()}.`, error);
+      return false;
+    }
+  }
+
+  /** Closes the editors without asking. */
+  private doCloseEditors(editors: readonly EditorInput[]): boolean {
     // The active editor goes last, so the pane does not show each editor that is about to close.
-    const ordered = [...toClose].sort((a, b) => Number(this.model.isActive(a)) - Number(this.model.isActive(b)));
+    const ordered = [...editors].sort((a, b) => Number(this.model.isActive(a)) - Number(this.model.isActive(b)));
     let closed = false;
     for (const editor of ordered) {
       if (this._disposed) {
@@ -230,10 +327,6 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       closed = this.doCloseEditor(editor) || closed;
     }
     return closed;
-  }
-
-  closeAllEditors(): boolean {
-    return this.closeEditors(this.editors);
   }
 
   private doCloseEditor(editor: EditorInput): boolean {
@@ -312,17 +405,33 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       return undefined;
     }
     if (this.activePaneEntry !== entry) {
-      this.clearPane();
+      // The title menu moves to the new pane's scope below, once.
+      this.clearPane(false);
       entry.container.hidden = false;
       this.activePaneEntry = entry;
       this.layoutPane();
+      this.listenToTitleContext();
     }
-    const shown = entry.pane.setInput(editor, { preserveFocus: options.preserveFocus, viewState: options.viewState } as IEditorOpenOptions);
+    // The pane gets what it shows the editor with, not where the group put it.
+    const shown = entry.pane.setInput(editor, {
+      preserveFocus: options.preserveFocus, viewState: options.viewState, selection: options.selection,
+    } as IEditorOpenOptions);
     if (!options.preserveFocus) {
       entry.pane.focus();
     }
     await shown;
     return entry.pane;
+  }
+
+  private titleContextKeyService(): IContextKeyService {
+    return this.activePaneEntry?.pane.scopedContextKeyService ?? this.scopedContextKeyService;
+  }
+
+  /** Forwards the changes of the scope the title menu reads; a switch to another scope changes every key. */
+  private listenToTitleContext(): void {
+    const scope = this.titleContextKeyService();
+    this.titleContextListener.value = scope.onDidChangeContext(event => this._onDidChangeTitleContext.fire(event));
+    this._onDidChangeTitleContext.fire({ affectsSome: () => true });
   }
 
   private getPane(editor: EditorInput): IPaneEntry | undefined {
@@ -342,12 +451,15 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     return entry;
   }
 
-  private clearPane(): void {
+  private clearPane(followTitleContext = true): void {
     const entry = this.activePaneEntry;
     if (entry) {
       this.activePaneEntry = undefined;
       entry.pane.clearInput();
       entry.container.hidden = true;
+      if (followTitleContext && !this._disposed) {
+        this.listenToTitleContext();
+      }
     }
   }
 
@@ -363,6 +475,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
 
   private updateContextKeys(): void {
     this.editorsCount.set(this.model.count);
+    this.activeEditorContext.set(this.model.activeEditor ?? undefined);
   }
 
   // --- grid view

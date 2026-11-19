@@ -86,21 +86,26 @@ flowchart LR
 
 ## 6. 확장 시스템
 
-- 무엇: 확장은 `package.json`의 `contributes`로 기능을 선언하고, 코드는 앱과 같은 오리진의 전용 Worker 하나에서 돈다. 워크벤치 쪽(메인 스레드)과 Worker 쪽은 `src/workbench/api/common/extHost.protocol.ts`에 선언한 `Shape` 인터페이스와 `MainContext`/`ExtHostContext` 식별자로만 RPC(`src/workbench/services/extensions/common/rpcProtocol.ts`)를 주고받는다. 건너가는 것은 식별자와 구조화 복제 가능한 데이터뿐이고, 사용자 객체(트리 요소 등)는 Worker에 남는다. 지원되는 매니페스트와 API 목록은 [extension-api.md](extension-api.md)가 정본이다.
-- 기여 지점: `ExtensionService`(`src/workbench/services/extensions/browser/extensionService.ts`)가 `ExtensionsRegistry.registerExtensionPoint`로 `commands`, `menus`, `keybindings`, `viewsContainers`, `views` 다섯 개를 만들고, 각 지점의 `setHandler`가 매니페스트 값을 위 3절의 레지스트리에 옮긴다(`menusExtensionPoint.ts`, `keybindingService.ts`, `viewsExtensionPoint.ts`). 값이 틀리면 `ExtensionMessageCollector`로 경고를 남기고 그 항목만 건너뛴다. 확장 기여는 내장 기능과 같은 레지스트리를 쓰므로 키바인딩 우선순위에는 `KeybindingWeight.BuiltinExtension`/`ExternalExtension`이 쓰인다.
-- Worker 격리와 한도: Worker 진입점(`src/workbench/api/worker/extensionHostWorkerMain.ts`)은 `postMessage`, `close` 등 통신 슬롯을 지우고, 제어 메시지는 전용 `MessagePort` 뒤에 둔다. Worker 쪽 코드는 DOM에 접근하지 않으며 `tsconfig.extension-worker.json`이 Worker 라이브러리 타입만으로 `src/workbench/api/worker/**`와 `src/vscode-dts/vscode.d.ts`를 검사한다. 읽기 한도는 `extensionResources.ts`에 있다(매니페스트 256 KiB, 진입 파일 5 MiB, 아이콘 256 KiB). 호스트 시작 제한 60초, 응답 확인 주기 2초와 제한 8초는 `webWorkerExtensionHost.ts`에 있다. 확장은 Worker 전역과 실행 자원을 공유하므로 동기 무한 루프를 막지는 못한다(알려진 한계, [extension-api.md](extension-api.md)).
-- 새 기여 지점을 더하는 순서:
-  1. `src/platform/extensions/common/extensions.ts`의 `IExtensionContributions`에 타입을 더한다.
-  2. `ExtensionService`에 `registerExtensionPoint('이름')`을 더하고 `setHandler`에서 레지스트리로 옮기는 함수를 연결한다. 검증은 `contributionValidation.ts`의 도우미를 쓴다.
-  3. 제거와 재설치 때 등록이 정리되도록 핸들러가 받는 `registrations`(`DisposableStore`)에 등록 결과를 넣는다.
-  4. `docs/extension-api.md`의 기여 지점 표를 갱신한다.
-- 새 API(`vscode.*`)를 더하는 순서:
-  1. `src/vscode-dts/vscode.d.ts`에 선언한다.
-  2. `extHost.protocol.ts`에 두 `Shape` 인터페이스와 식별자를 더한다.
-  3. Worker 쪽 구현을 ``src/workbench/api/common/` 아래의 `extHost` 접두 파일`에, 메인 스레드 쪽을 `src/workbench/api/browser/` 아래의 `mainThread` 접두 파일에 만든다.
-  4. `extHostExtensionService.ts`에서 프록시를 연결하고 `extHost.api.impl.ts`의 `createApiFactory`가 돌려주는 객체에 노출한다. 확장이 비활성화된 뒤 호출하면 `checkLive`가 오류를 낸다. 메인 스레드 쪽은 `mainThreadExtensionService.ts`에서 `rpc.set(MainContext.…, …)`로 등록한다.
-  5. 메인 스레드 구현은 확장이 보낸 값을 신뢰하지 않고 검증하며, 확장 소유 여부(`ownsView` 같은 접근 함수)를 확인한다.
-- 개념과 VS Code 쪽 근거는 [vscode-extensions.md](vscode-extensions.md)를 본다.
+확장은 `package.json`의 `contributes`에 기능을 선언한다. 한 오리진의 전용 Worker에서 확장 코드를 실행하고, 영역별 `extHost.protocol.<영역>.ts`의 식별자와 `Shape` 인터페이스로 워크벤치와 통신한다. RPC는 구조화 복제와 URI 복원을 지원한다. 요청 끝에 취소 토큰을 붙일 수 있고, 명시적으로 감싼 버퍼는 소유권을 이전한다. 사용자 객체인 트리 요소 등은 Worker에 남는다.
+
+### 기여 지점 추가
+
+1. 기여 지점 타입과 검사 함수를 영역 파일에 둔다. `IExtensionContributions`는 문자열 키를 받는 레코드다.
+2. 영역 파일이 import될 때 `ExtensionsRegistry.registerExtensionPoint`를 호출한다. 먼저 적용할 지점이 있다면 `after`로 이름을 선언한다. 예를 들어 `menus`는 `commands` 뒤, `views`는 `viewsContainers` 뒤에 적용한다. 초기화 뒤 추가한 지점도 이미 읽은 확장에 적용된다.
+3. `ExtensionMessageCollector`에 문제가 있는 항목의 경로를 기록한다. 각 지점의 `DisposableStore`에 등록 결과를 넣어 확장 제거와 재설치 때 정리한다.
+
+### 확장 API 추가
+
+1. 영역의 `src/vscode-dts/vscode.<영역>.d.ts`에서 `declare module 'vscode'`를 확장한다. 세부 영역별 파일과 문서는 [확장 API 색인](extension-api.md#영역별-문서)에서 찾는다.
+2. 그 영역의 프로토콜 파일에서 필요한 양쪽 프록시를 `createProxyIdentifier`로 만든다.
+3. `extHostApiRegistry.register`에 호스트당 한 번 생성할 기여를 등록한다. `create`가 확장마다 API 네임스페이스, 공개 타입, 컨텍스트 조각을 만들고 조립기가 중복 이름을 검사한다. 비활성 확장의 동기 함수는 던진다. 거부된 Promise를 돌려줄 메서드는 `promiseApiMethod`로 표시한다.
+4. 메인 스레드 진입 파일은 `mainThreadCustomers.register`로 세션별 고객을 생성하고 `rpc.set`으로 프록시를 연결한다. RPC 인자와 `getExtension(key)`로 얻은 확장 소유권을 검사한다. 확장별 리소스는 `remove`와 `release`에서 정리하며 세션 전체의 리소스는 `dispose`에서 해제한다.
+
+영역 팩토리는 `{ service, create, dispose }`를 반환해 호스트 객체를 자기 영역 키에 공개할 수 있다. 소비자는 제공 영역의 타입을 가져오고 `services.getService<T>('documents')`처럼 조회한다. 필요한 팩토리는 조회 시 초기화되므로 가져오기 순서와 무관하다. 조회는 호스트 세션 하나에 한정된다. 서비스가 없거나 초기화 도중 순환하면 영역 이름을 포함한 오류가 발생한다. 두 영역이 서로 필요하면 한쪽은 API 생성 또는 메서드 호출 시점으로 조회를 늦춘다. API 조립과 해제는 영역 등록 순서를 따른다. 네임스페이스 조각의 메서드와 접근자는 클로저로 호스트 객체를 읽는다. 뷰 본문 종류는 확장을 읽기 전에 영역 진입점에서 등록한다.
+
+API 타입 `RelativePattern`을 RPC 인자로 넘기면 `pattern`, `base`, `baseUri` 필드를 받는다. `baseUri`는 기반 URI 클래스로 복원된다.
+
+Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`를 포함한다. Worker의 제어 메시지는 전용 `MessagePort`로 전송한다. 리소스 크기 한도는 `extensionResources.ts`에 두고, 스킴별 진입 파일 읽기 전략을 등록할 수 있다. 호스트 시작 제한 60초, 응답 확인 주기 2초와 제한 8초는 `webWorkerExtensionHost.ts`에 있다.
 
 ## 7. 상태와 저장
 
@@ -119,6 +124,7 @@ flowchart LR
 
 - 단위: Vitest(jsdom), `src/**/test/**/*.test.ts`(`vitest.config.ts`). 테스트는 대상 옆 `test/` 폴더에 두고, 서비스는 가짜 서비스로 주입해 검사한다. jsdom에는 레이아웃이 없으므로 크기에 의존하는 검증은 브라우저 테스트에서 한다. 레이어링 테스트도 이 스위트에 속한다.
 - 브라우저: Playwright(`test/e2e/*.spec.ts`, `playwright.config.ts`). 개발 서버(`npm run test:e2e`)와 프로덕션 빌드의 프리뷰(`E2E_TARGET=preview`) 양쪽에서 같은 스펙을 돌린다. 빌드에서만 깨지는 문제(워커 번들, 내장 확장 복사)를 잡기 위해서다. 앱과 원격 확장 픽스처 서버(`test/fixtures/serve-extensions.mjs`)를 Playwright가 각각 시작한다. 알려진 병렬 시간 초과 때문에 `--workers=2`로 돌리기를 권장한다([getting-started.md](getting-started.md)).
+- 확장 브라우저 픽스처는 `test/fixtures/extensions/<이름>/`에 둔다. `seedInstalledExtensions`로 앱 초기화 전에 설치 기록을 심을 수 있다. 별도 응답이 필요한 픽스처는 `test/fixtures/routes/<이름>.mjs`에서 절대 경로를 HTTP 핸들러에 매핑한 객체를 기본 내보내기로 제공한다. 단위 테스트는 `createTestExtensionApi`로 Worker 없이 API를 조립하고 실제 구조화 복제 경계를 사용할 수 있다.
 - 하니스: `test/harness/*.html`, `*.ts`는 개별 서브시스템(그리드, 인스턴스화, 키바인딩, 메뉴, 퀵 인풋, 스토리지, 텍스트 에디터, 확장 호스트)을 워크벤치 없이 띄우는 페이지다. 개발 서버에서만 열리고 빌드에는 들어가지 않는다(`test/e2e/smoke.spec.ts`가 확인한다).
 - 원칙:
   - 되돌리면 실패하는 테스트를 쓴다. 고친 코드를 되돌렸을 때 빨개지지 않는 테스트는 무엇도 지키지 못한다.
@@ -131,6 +137,7 @@ flowchart LR
 ## 9. VS Code와의 차이를 기록하는 규칙
 
 - 이 저장소는 VS Code를 참고하되 그대로 복사하지 않는다. 의도적으로 달라진 점은 [architecture.md](architecture.md)의 "Deviations from VS Code" 절이 유일한 기록이다. 항목은 해당 영역 아래에 "무엇을 어떻게 했다. VS Code는 이렇다 — 왜 다른가"로 적고, 결정한 이슈 id를 괄호로 붙인다. 사용자가 보는 동작이 바뀌면 같은 PR에서 이 목록과 [getting-started.md](getting-started.md)나 [extension-api.md](extension-api.md)도 고친다.
+- 확장 API는 고정 커밋의 선언과 비교한다. 의도해서 다른 선언은 사유와 결정 이슈를 적합성 검사의 예외 파일에 기록하고, 구조의 차이는 [확장 호스트](architecture.md#extension-host)에 적는다.
 - 페이지 끝에는 그 내용을 정한 이슈를 `Decided in:` 뒤에 이슈 id를 쓴 한 줄 한 줄로 적는다. VS Code 쪽 근거는 [README.md](README.md)의 고정 커밋을 기준으로 하고 줄 번호 대신 심볼 이름을 적는다.
 - 같은 실수를 다시 하지 않도록 리뷰나 작업에서 얻은 규칙은 `docs/lessons/<슬러그>.md`에 `What happened`, `Why`, `Do this instead`와 `Learned in:`으로 적는다. 새 규칙을 만들기 전에 `moai wiki search`로 같은 교훈이 있는지 본다.
 
@@ -142,7 +149,9 @@ v0.1.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 - 스토리지: 버전 표식 없이 접두 키가 남은 오리진의 처리(wr-a5aw), 쓰기 오류 뒤 메모리 모드 전환 범위(wr-vthy), 뒤로/앞으로 캐시 복귀 때 다른 탭의 스토리지 변경 반영 확인(wr-jg40).
 - 에디터: Welcome 시작 판단이 워크벤치 기여가 아니라 워크벤치 본체에 있다(wr-pz63). 여러 그룹에 열린 같은 입력을 그룹마다 직렬화한다(wr-67xb).
 - 뷰 컨테이너: 여러 브라우저 탭에서 위치와 순서를 저장할 때 다른 탭의 변경을 보존하는 일(wr-44tg), 패널 복합 파트 서비스의 구독 수명 관리(wr-4449).
-- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 확장 식별자 대신 설치 세대 키가 남는 문제(wr-m57b), 편집기 제목 도구 모음의 대체 경로 제거(wr-sgqe).
+- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 확장 식별자 대신 설치 세대 키가 남는 문제(wr-m57b).
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
 Decided in: wr-510x
+
+Decided in: wr-efqx

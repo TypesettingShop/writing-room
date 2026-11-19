@@ -1,3 +1,5 @@
+import { extHostApiRegistry } from './extHostApiRegistry.js';
+import { MainThreadStatusBarProxy } from './extHost.protocol.statusBar.js';
 import type * as vscode from 'vscode';
 import { StatusBarAlignment, tooltipText } from './extHostTypes.js';
 import type { MainThreadStatusBarShape } from './extHost.protocol.js';
@@ -103,3 +105,19 @@ export class ExtHostStatusBar {
     this.entries.delete(extension);
   }
 }
+
+extHostApiRegistry.register('statusBar', ({ rpc }) => {
+  const status = new ExtHostStatusBar(rpc.getProxy(MainThreadStatusBarProxy));
+  return {
+    service: status,
+    create: ({ key }) => ({
+      types: { StatusBarAlignment },
+      namespaces: {
+        window: {
+          createStatusBarItem: (alignment, priority) => status.createStatusBarItem(key, alignment, priority),
+        } satisfies Pick<typeof vscode.window, 'createStatusBarItem'>,
+      },
+    }),
+    release: key => status.remove(key),
+  };
+});

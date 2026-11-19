@@ -102,13 +102,28 @@ test('rejects duplicate built-ins and manifests with invalid fields or paths bef
     { ...manifest, version: undefined },
     { ...manifest, browser: '../entry.js' },
     { ...manifest, icon: 'https://other-origin.test/icon.png' },
-    { ...manifest, contributes: { commands: [{ command: 'test', title: 'Test', icon: '%2E%2e/icon.png' }] } },
+    { ...manifest, contributes: { viewsContainers: {
+      activitybar: [{ id: 'test', title: 'Test', icon: '%2E%2e/icon.png' }],
+    } } },
   ]) {
     const { storage, service } = setup(async () => Response.json(input));
     await expect(service.installFromLocation(location, confirm)).rejects.toThrow();
     expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
   }
   expect(confirm).not.toHaveBeenCalled();
+});
+
+test('preserves command icon metadata through installation and a saved manifest rescan', async () => {
+  const commands = [
+    { command: 'test.valid', title: 'Valid icon', icon: { light: 'light.svg', dark: 'dark.svg' } },
+    { command: 'test.invalid', title: 'Invalid icon', icon: '%2E%2e/icon.png' },
+  ];
+  const input = { ...manifest, contributes: { commands } };
+  const { active, scanner, fetch, service } = setup(async () => Response.json(input));
+  await service.installFromLocation(location, async () => true);
+  expect(active.extensions[0].manifest.contributes?.commands).toEqual(commands);
+  expect(scanner.scanUserExtensions()[0].manifest.contributes?.commands).toEqual(commands);
+  expect(fetch).toHaveBeenCalledOnce();
 });
 
 test('cancels a streamed manifest at the limit and reports invalid JSON', async () => {
