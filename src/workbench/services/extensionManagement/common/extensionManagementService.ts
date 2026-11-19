@@ -470,6 +470,9 @@ export class ExtensionManagementService {
     // Files read before the confirmation are handed to the store, so no file is unpacked twice.
     const preloaded = new Map<VsixFile, Uint8Array<ArrayBuffer>>();
     const nls = usesNlsPlaceholders(manifest) ? await this.readPackageNls(pkg, language, warnings, preloaded, signal) : undefined;
+    // As for a folder install: a queued removal still has its record, which would be shown as the version this
+    // install replaces and then fail the commit as a change from another window.
+    await this.changes;
     const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
     const confirmed = await confirm({
       identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature, engine,

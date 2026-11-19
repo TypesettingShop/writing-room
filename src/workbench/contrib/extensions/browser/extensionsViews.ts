@@ -161,8 +161,11 @@ export class ExtensionsSearchView extends ExtensionList {
       (next ?? this.input).focus();
     }
 
-    const urls = new Set(results.flatMap(result => result.icon ? [result.icon] : []));
-    this.clearUnusedIcons(urls);
+    // A new query empties the results until its page arrives. Keep the icons until then, so a refined query
+    // does not download (and spend the gallery quota on) the icons it shares with the previous one again.
+    if (service.status !== 'searching') {
+      this.clearUnusedIcons(new Set(results.flatMap(result => result.icon ? [result.icon] : [])));
+    }
     this.renderList(results.map(result => this.renderResult(result, installed.get(result.id))), this.input);
   }
 

@@ -249,11 +249,12 @@ export class ExtensionsWorkbenchService extends Disposable {
     if (ancestors.includes(id)) {
       throw new Error('Open VSX dependency cycle: ' + [...ancestors, id].join(' → '));
     }
-    if (ancestors.length > dependencyDepthLimit) {
-      throw new Error('Open VSX extension dependencies are nested more than three levels deep.');
-    }
     if (ancestors.length && this.installed.some(extension => extension.id === id) && !this.operations.has(id)) {
       return true;
+    }
+    // Only a dependency that still has to be installed counts against the depth limit.
+    if (ancestors.length > dependencyDepthLimit) {
+      throw new Error('Open VSX extension dependencies are nested more than three levels deep.');
     }
     if (this.operations.has(id)) {
       throw new Error(`'${id}' has another operation in progress. Try again when it finishes.`);

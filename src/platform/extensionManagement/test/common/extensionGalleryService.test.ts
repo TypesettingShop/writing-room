@@ -134,6 +134,28 @@ it('rejects wrong identity, non-web metadata, and foreign download origins befor
   expect(other.request).toHaveBeenCalledTimes(1);
 });
 
+it('accepts assets the service host serves itself without listing it as a download host', async () => {
+  const { request } = fixture({ unsigned: true });
+  const direct = vi.fn<typeof fetch>(async (input, init) => {
+    if (!String(input).endsWith('.vsix')) {
+      return request(input, init);
+    }
+    const response = new Response(bytes);
+    Object.defineProperty(response, 'url', { value: String(input) });
+    return response;
+  });
+  const service = new ExtensionGalleryService({ serviceUrl: origin, allowedDownloadHosts: [] }, direct);
+  expect((await service.download(await service.getExtension(id))).host).toBe('open-vsx.org');
+});
+
+it('keeps a search row whose description spans lines', async () => {
+  const request = vi.fn<typeof fetch>(async () => Response.json({ offset: 0, totalSize: 1, extensions: [
+    { name: 'gallery', namespace: 'test', version: '1.0.0', description: 'first\r\n\tsecond' },
+  ] }));
+  const page = await new ExtensionGalleryService(config, request).search('gallery');
+  expect(page.extensions.map(extension => extension.description)).toEqual(['first second']);
+});
+
 it.each([200, 429])('blocks further network requests after quota exhaustion (HTTP %s)', async status => {
   const request = vi.fn<typeof fetch>(async () => Response.json({ offset: 0, totalSize: 0, extensions: [] },
     { status, headers: { 'X-RateLimit-Remaining': '0' } }));

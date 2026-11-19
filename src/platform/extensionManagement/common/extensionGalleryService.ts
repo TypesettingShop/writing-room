@@ -1,5 +1,5 @@
 import { fetchBoundedResource, ResourceRequestError, ResourceResponseError } from '../../../base/parts/request/common/boundedFetch.js';
-import { isRecord } from '../../extensions/common/extensionValidator.js';
+import { identifierPart as identifierPattern, isRecord } from '../../extensions/common/extensionValidator.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { parseExtensionGalleryUrl } from '../../product/common/product.js';
 import type { ProductConfiguration } from '../../product/common/product.js';
@@ -63,7 +63,7 @@ function text(value: unknown, limit: number): value is string {
 }
 
 function identifierPart(value: unknown): value is string {
-  return text(value, 128) && /^[a-z\d][a-z\d-]*$/i.test(value);
+  return text(value, 128) && identifierPattern.test(value);
 }
 
 function versionPart(value: unknown): value is string {
@@ -108,7 +108,10 @@ export class ExtensionGalleryService {
       base.pathname = base.pathname.replace(/\/+$/, '') + '/';
       this.base = base;
     }
-    this.hosts = configuration?.allowedDownloadHosts ?? [];
+    // Asset URLs are already confined to the service origin, so a response that was not redirected away from the
+    // service host is as trusted as its metadata. Without this a gallery that serves its own files is unusable
+    // unless its host is also listed.
+    this.hosts = base ? [...new Set([base.hostname, ...configuration?.allowedDownloadHosts ?? []])] : [];
   }
 
   get enabled(): boolean {
@@ -218,9 +221,14 @@ export class ExtensionGalleryService {
   }
 
   private summary(input: unknown): GalleryExtension | undefined {
-    if (!isRecord(input) || !identifierPart(input.namespace) || !identifierPart(input.name) || !versionPart(input.version)
+    if (!isRecord(input)) {
+      return undefined;
+    }
+    // A manifest description may span lines. Line breaks and tabs are whitespace, not a reason to drop the extension.
+    const description = typeof input.description === 'string' ? input.description.replace(/[\t\n\r]+/g, ' ') : input.description;
+    if (!identifierPart(input.namespace) || !identifierPart(input.name) || !versionPart(input.version)
       || (input.displayName != null && !text(input.displayName, 256))
-      || (input.description != null && !text(input.description, 4096))
+      || (description != null && !text(description, 4096))
       || (input.downloadCount !== undefined && !count(input.downloadCount))
       || (input.verified !== undefined && typeof input.verified !== 'boolean')) {
       return undefined;
@@ -229,7 +237,7 @@ export class ExtensionGalleryService {
     const icon = isRecord(input.files) ? this.assetUrl(input.files.icon)?.href : undefined;
     return {
       ...identifier, id: galleryId(identifier), version: input.version,
-      displayName: input.displayName || input.name, description: input.description ?? '',
+      displayName: input.displayName || input.name, description: description ?? '',
       downloadCount: input.downloadCount ?? 0, verifiedPublisher: input.verified === true, ...(icon ? { icon } : {}),
     };
   }

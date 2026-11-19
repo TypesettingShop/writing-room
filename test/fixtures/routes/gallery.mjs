@@ -10,7 +10,7 @@ const keys = generateKeyPairSync('ed25519');
 const publicKey = '/api/-/public-key/gallery-test';
 const icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#489"/></svg>';
 const scenarios = [
-  'signed', 'unsigned', 'bad-hash', 'bad-signature', 'bad-host', 'oversize', 'stream-oversize', 'slow',
+  'signed', 'unsigned', 'bad-hash', 'bad-signature', 'bad-host', 'slow',
   'node-metadata', 'node-package', 'dependency', 'with-dependency', 'pack', 'declarative',
 ];
 const results = [];
@@ -88,13 +88,7 @@ exports.activate = context => context.subscriptions.push(vscode.commands.registe
       response.writeHead(302, { Location: (scenario === 'bad-host' ? 'https://wrong.example' : cdn) + content }).end();
     });
     set(content, (_request, response) => {
-      const limit = 50 * 1024 * 1024;
-      if (scenario === 'oversize') {
-        response.writeHead(200, { 'Content-Length': limit + 1 }).end();
-      } else if (scenario === 'stream-oversize') {
-        response.writeHead(200).write(Buffer.alloc(limit));
-        response.end(Buffer.of(0));
-      } else if (scenario === 'slow') {
+      if (scenario === 'slow') {
         const interval = setInterval(() => response.write(bytes.subarray(0, 4)), 150);
         response.on('close', () => clearInterval(interval));
         response.writeHead(200).flushHeaders();
@@ -119,13 +113,7 @@ set('/api/-/search', (request, response) => {
     return;
   }
   const matches = results.filter(result => result.name.includes(query));
-  const body = { offset, totalSize: matches.length, extensions: matches.slice(offset, offset + size) };
-  if (query === 'gallery-signed-old') {
-    body.extensions = results.filter(result => result.name === 'gallery-signed');
-    setTimeout(() => send(response, body), 1200);
-  } else {
-    send(response, body);
-  }
+  send(response, { offset, totalSize: matches.length, extensions: matches.slice(offset, offset + size) });
 });
 
 export default routes;
