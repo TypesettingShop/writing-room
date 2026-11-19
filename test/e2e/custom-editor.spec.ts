@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures.js';
+import { expect as baseExpect, test } from './fixtures.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { treeItem } from './explorer.helpers.js';
 import {
@@ -9,6 +9,15 @@ import {
 import manifest from '../fixtures/extensions/custom-editor/package.json' with { type: 'json' };
 
 const editorStateKey = 'writing-room:storage:1:memento/workbench.parts.editor';
+
+// The first custom text editor of a page waits for Monaco, as the first text editor does: its text
+// model is a Monaco model, and Monaco loads with the first one (in the dev server, as hundreds of
+// modules). Until then the pane says "Restoring Webview…". Measured: 1-4 seconds on a loaded machine
+// before the provider is even asked, on top of waking the extension and loading the Webview's two
+// frames, so expect's default 5 seconds ran out (wr-epmc, wr-9i4l). The text editor's helpers give
+// the same wait 20 seconds (`expectEditorText`); so does every wait here, and each test more room.
+const expect = baseExpect.configure({ timeout: 20_000 });
+test.describe.configure({ timeout: 120_000 });
 
 const content = (page: Page) =>
   page.frameLocator('iframe[title="Webview"]:visible').frameLocator('iframe[title="Webview content"]');
