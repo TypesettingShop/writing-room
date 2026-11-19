@@ -1,0 +1,138 @@
+{
+  "comment": "Third-party VSIX packages are downloaded into cache/ by scripts/fetch-real-extensions.mjs and are never committed. Every file below is checked against its sha256 after download and before each use.",
+  "publicKeys": {
+    "14ccb407-4e79-41ed-be5a-6d608325c45a": {
+      "url": "https://open-vsx.org/api/-/public-key/14ccb407-4e79-41ed-be5a-6d608325c45a",
+      "sha256": "ef5759c51be559f00443ab7d568d26304430bdd422592bfa63e6ac584bfe983b",
+      "size": 113
+    }
+  },
+  "extensions": [
+    {
+      "id": "vscode.markdown",
+      "namespace": "vscode",
+      "name": "markdown",
+      "version": "1.95.3",
+      "role": "primary",
+      "vsix": {
+        "url": "https://open-vsx.org/api/vscode/markdown/1.95.3/file/vscode.markdown-1.95.3.vsix",
+        "sha256": "53591b889e8941db812f263d8e5eaa34ec83718e399ecd7a1e178410bd3877a9",
+        "size": 11560
+      },
+      "sha256File": {
+        "url": "https://open-vsx.org/api/vscode/markdown/1.95.3/file/vscode.markdown-1.95.3.sha256"
+      },
+      "signature": {
+        "url": "https://open-vsx.org/api/vscode/markdown/1.95.3/file/vscode.markdown-1.95.3.sigzip",
+        "sha256": "7a6f1486823da9e1e1d9b5505f65598209c5b8e26e2e7f2e5f61a7437d3fd4b0",
+        "size": 1128
+      },
+      "publicKey": "14ccb407-4e79-41ed-be5a-6d608325c45a"
+    },
+    {
+      "id": "DavidAnson.vscode-markdownlint",
+      "namespace": "DavidAnson",
+      "name": "vscode-markdownlint",
+      "version": "0.62.1",
+      "role": "primary",
+      "vsix": {
+        "url": "https://open-vsx.org/api/DavidAnson/vscode-markdownlint/0.62.1/file/DavidAnson.vscode-markdownlint-0.62.1.vsix",
+        "sha256": "b6baf90037c903aa21b9c525972910561a903b82e12fe8d67220740ec15b1aa0",
+        "size": 352061
+      },
+      "sha256File": {
+        "url": "https://open-vsx.org/api/DavidAnson/vscode-markdownlint/0.62.1/file/DavidAnson.vscode-markdownlint-0.62.1.sha256"
+      },
+      "signature": {
+        "url": "https://open-vsx.org/api/DavidAnson/vscode-markdownlint/0.62.1/file/DavidAnson.vscode-markdownlint-0.62.1.sigzip",
+        "sha256": "6bc8744a6046f1c6471899cc8b2dfb820e5827be401e3220da766b8507d2602e",
+        "size": 1402
+      },
+      "publicKey": "14ccb407-4e79-41ed-be5a-6d608325c45a"
+    },
+    {
+      "id": "vscode.markdown-language-features",
+      "namespace": "vscode",
+      "name": "markdown-language-features",
+      "version": "1.95.3",
+      "role": "primary",
+      "vsix": {
+        "url": "https://open-vsx.org/api/vscode/markdown-language-features/1.95.3/file/vscode.markdown-language-features-1.95.3.vsix",
+        "sha256": "d2ba7aa2c1265e349862aa542a35daa45f81f2efbec8b51184d672999204d09e",
+        "size": 4102719
+      },
+      "sha256File": {
+        "url": "https://open-vsx.org/api/vscode/markdown-language-features/1.95.3/file/vscode.markdown-language-features-1.95.3.sha256"
+      },
+      "signature": {
+        "url": "https://open-vsx.org/api/vscode/markdown-language-features/1.95.3/file/vscode.markdown-language-features-1.95.3.sigzip",
+        "sha256": "95c834d9ad1661991536cbc59ca342223baddb110a284cd1e83ca5b8c4d33b01",
+        "size": 1813
+      },
+      "publicKey": "14ccb407-4e79-41ed-be5a-6d608325c45a"
+    },
+    {
+      "id": "GitHub.github-vscode-theme",
+      "namespace": "GitHub",
+      "name": "github-vscode-theme",
+      "version": "6.3.5",
+      "role": "floor",
+      "vsix": {
+        "url": "https://open-vsx.org/api/GitHub/github-vscode-theme/6.3.5/file/GitHub.github-vscode-theme-6.3.5.vsix",
+        "sha256": "a85236a58ad490b1600ec5a0fd0cea7eec56fb9d33660a1ac82c6da639ad3af4",
+        "size": 91023
+      },
+      "sha256File": {
+        "url": "https://open-vsx.org/api/GitHub/github-vscode-theme/6.3.5/file/GitHub.github-vscode-theme-6.3.5.sha256"
+      },
+      "signature": {
+        "url": "https://open-vsx.org/api/GitHub/github-vscode-theme/6.3.5/file/GitHub.github-vscode-theme-6.3.5.sigzip",
+        "sha256": "fabe4f4b563c91d489d2e260e777a3df51312425c245ed3681b4abc599e0b632",
+        "size": 1839
+      },
+      "publicKey": "14ccb407-4e79-41ed-be5a-6d608325c45a"
+    },
+    {
+      "id": "Tyriar.sort-lines",
+      "namespace": "Tyriar",
+      "name": "sort-lines",
+      "version": "1.12.0",
+      "role": "floor",
+      "vsix": {
+        "url": "https://open-vsx.org/api/Tyriar/sort-lines/1.12.0/file/Tyriar.sort-lines-1.12.0.vsix",
+        "sha256": "feecf004b40c9a9e73ba81347d61b69bb231f24df72d01b6b9a17435542deec9",
+        "size": 183660
+      },
+      "sha256File": {
+        "url": "https://open-vsx.org/api/Tyriar/sort-lines/1.12.0/file/Tyriar.sort-lines-1.12.0.sha256"
+      },
+      "signature": {
+        "url": "https://open-vsx.org/api/Tyriar/sort-lines/1.12.0/file/Tyriar.sort-lines-1.12.0.sigzip",
+        "sha256": "d340086c5df6ff8c71820d28e008142a8ba93b7707e605c8f505065e9abba7e6",
+        "size": 3209
+      },
+      "publicKey": "14ccb407-4e79-41ed-be5a-6d608325c45a"
+    },
+    {
+      "id": "vscode.simple-browser",
+      "namespace": "vscode",
+      "name": "simple-browser",
+      "version": "1.95.3",
+      "role": "floor",
+      "vsix": {
+        "url": "https://open-vsx.org/api/vscode/simple-browser/1.95.3/file/vscode.simple-browser-1.95.3.vsix",
+        "sha256": "9c3694e2707ce18863d49b7447955e36f9faf9c98ca8035170795d08fa9844cb",
+        "size": 80166
+      },
+      "sha256File": {
+        "url": "https://open-vsx.org/api/vscode/simple-browser/1.95.3/file/vscode.simple-browser-1.95.3.sha256"
+      },
+      "signature": {
+        "url": "https://open-vsx.org/api/vscode/simple-browser/1.95.3/file/vscode.simple-browser-1.95.3.sigzip",
+        "sha256": "88eb9cdcbb47ad78e513c66a02bc91727907c881c062c0e13c7e9df018dc8165",
+        "size": 1446
+      },
+      "publicKey": "14ccb407-4e79-41ed-be5a-6d608325c45a"
+    }
+  ]
+}
