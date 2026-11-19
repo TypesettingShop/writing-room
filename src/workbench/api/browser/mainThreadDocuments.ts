@@ -36,6 +36,8 @@ interface TrackedModel {
   readonly listeners: DisposableStore;
   mirrored: boolean;
   dirty: boolean;
+  generation: number;
+  pendingContent: number;
 }
 
 interface Provider {
@@ -47,6 +49,8 @@ interface Provider {
 export class MainThreadDocuments extends Disposable implements MainThreadDocumentsShape {
   private readonly mirrorChanges = this._register(new Emitter<void>());
   readonly onDidChangeMirrors = this.mirrorChanges.event;
+  private readonly ready = this._register(new Emitter<void>());
+  readonly onDidStartSync = this.ready.event;
   private readonly tracked = new Map<string, TrackedModel>();
   private readonly references = new Map<string, { model: ITextModel; release: IDisposable }>();
   private readonly providers = new Map<number, Provider>();
@@ -55,6 +59,7 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
   private readonly saves = new Map<number, { id: string; deadline: number }>();
   private nextSave = 0;
   private stopped = false;
+  private started = false;
 
   constructor(
     private readonly proxy: ExtHostDocumentsShape,
@@ -73,7 +78,11 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     this._register(models.onModelRemoved(model => this.removeModel(model)));
     this._register(models.onModelLanguageChanged(({ model, newLanguageId }) => {
       if (this.isMirrored(model.id)) {
-        this.send(proxy.$acceptDocumentLanguage(model.id, newLanguageId));
+        queueMicrotask(() => {
+          if (this.isMirrored(model.id)) {
+            this.send(proxy.$acceptDocumentLanguage(model.id, newLanguageId));
+          }
+        });
       }
     }));
     this._register(files.onDidChangeDirty(uri => {
@@ -90,7 +99,7 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     this._register(files.onWillSave(event => {
       const model = this.models.getModel(event.resource);
       if (model && this.isMirrored(model.id)) {
-        event.waitUntil(this.participate(model, event));
+        event.waitUntil(Promise.resolve().then(() => this.participate(model, event)));
       }
     }));
     for (const model of models.getModels()) {
@@ -98,6 +107,19 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
     }
   }
 
+
+  get isReady(): boolean { return this.started && !this.stopped; }
+
+  async $startDocumentSync(): Promise<void> {
+    if (this.started || this.stopped) {
+      return;
+    }
+    this.started = true;
+    for (const entry of this.tracked.values()) {
+      this.updateMirror(entry);
+    }
+    this.ready.fire();
+  }
 
   isMirrored(id: string): boolean {
     return this.tracked.get(id)?.mirrored === true;
@@ -124,24 +146,32 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
       return;
     }
     const uri = URI.parse(model.uri.toString(), true);
-    const entry = { model, uri, listeners: new DisposableStore(), mirrored: false, dirty: false };
+    const entry: TrackedModel = { model, uri, listeners: new DisposableStore(), mirrored: false, dirty: false, generation: 0, pendingContent: 0 };
     this.tracked.set(model.id, entry);
     this.updateMirror(entry);
     entry.listeners.add(model.onDidChangeContent(event => {
       if (this.updateMirror(entry)) {
-        entry.dirty = this.files.isDirty(uri);
-        this.send(this.proxy.$acceptDocumentChanges(model.id, event, entry.dirty));
+        const generation = entry.generation;
+        entry.pendingContent++;
+        queueMicrotask(() => {
+          entry.pendingContent--;
+          if (entry.mirrored && generation === entry.generation && this.tracked.get(model.id) === entry) {
+            entry.dirty = this.files.isDirty(uri);
+            this.send(this.proxy.$acceptDocumentChanges(model.id, event, entry.dirty));
+          }
+        });
       }
     }));
   }
 
   /** Returns whether an existing mirror can accept an incremental change. */
   private updateMirror(entry: TrackedModel): boolean {
-    const eligible = !isTooLargeForSyncing(entry.model);
+    const eligible = this.isReady && !isTooLargeForSyncing(entry.model);
     if (entry.mirrored === eligible) {
       return eligible;
     }
     entry.mirrored = eligible;
+    entry.generation++;
     const { model, uri } = entry;
     if (eligible) {
       entry.dirty = this.files.isDirty(uri);
@@ -173,7 +203,7 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
   private sendDirty(resource: URI): void {
     const model = this.models.getModel(resource);
     const entry = model && this.tracked.get(model.id);
-    if (entry?.mirrored) {
+    if (entry?.mirrored && entry.pendingContent === 0) {
       const dirty = this.files.isDirty(resource);
       if (entry.dirty !== dirty) {
         entry.dirty = dirty;

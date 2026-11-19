@@ -3,6 +3,7 @@ import { URI } from '../../../base/common/uri.js';
 import { ICodeEditorService } from '../../../editor/browser/services/codeEditorService.js';
 import type { ICodeEditor } from '../../../editor/browser/services/codeEditorService.js';
 import { loadMonaco } from '../../../editor/browser/monaco.js';
+import { ITextModelService } from '../../../editor/common/services/resolverService.js';
 import type { IRange } from '../../../editor/common/model.js';
 import type { IEditorPane } from '../../common/editor.js';
 import { columnToEditorGroup, editorGroupToColumn } from '../../services/editor/common/editorGroupColumn.js';
@@ -15,6 +16,7 @@ import type {
 } from '../common/extHost.protocol.documents.js';
 import { MainThreadDocuments } from './mainThreadDocuments.js';
 import { validateDocumentEdit, validateModelRange } from './mainThreadDocumentEdits.js';
+import { DocumentContentEditorInput } from './mainThreadEditorInput.js';
 import { editorStyles, MainThreadEditor } from './mainThreadEditor.js';
 import type { EditorSnippetController } from './mainThreadEditor.js';
 
@@ -34,12 +36,13 @@ function fixedSize(value: unknown): number | undefined {
 
 export class MainThreadEditors extends Disposable implements MainThreadEditorsShape {
   private readonly controls = new Map<ICodeEditor, DisposableStore>();
+  private readonly virtualReadonly = new Map<ICodeEditor, boolean>();
   private readonly visible = new Map<ICodeEditor, MainThreadEditor>();
   private readonly entries = new Map<string, MainThreadEditor>();
   private visibleIds: string[] = [];
   private activeId: string | null = null;
   private nextId = 0;
-  private pending = false;
+  private pending: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
 
   constructor(
@@ -48,8 +51,10 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
     @IEditorGroupsService private readonly groups: IEditorGroupsService,
     @IEditorService private readonly service: IEditorService,
     @ICodeEditorService controls: ICodeEditorService,
+    @ITextModelService private readonly resolver: ITextModelService,
   ) {
     super();
+    this._register(documents.onDidStartSync(() => this.update()));
     this._register(documents.onDidChangeMirrors(() => this.schedule()));
     this._register(groups.onDidActiveEditorChange(() => this.schedule()));
     this._register(groups.onDidAddGroup(() => this.schedule()));
@@ -58,6 +63,7 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
     this._register(service.onDidVisibleEditorsChange(() => this.schedule()));
     this._register(controls.onCodeEditorAdd(control => this.watch(control)));
     this._register(controls.onCodeEditorRemove(control => {
+      this.restoreReadonly(control);
       this.controls.get(control)?.dispose();
       this.controls.delete(control);
       this.schedule();
@@ -87,23 +93,45 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
 
   private watch(control: ICodeEditor): void {
     const listeners = new DisposableStore();
-    listeners.add(control.onDidChangeModel(() => this.schedule()));
+    listeners.add(control.onDidChangeModel(() => {
+      this.updateReadonly(control);
+      this.schedule();
+    }));
+    this.updateReadonly(control);
     this.controls.set(control, listeners);
     this.schedule();
   }
 
+  private updateReadonly(control: ICodeEditor): void {
+    const model = control.getModel();
+    if (!model || !this.documents.isReadOnly(model)) {
+      this.restoreReadonly(control);
+    } else if (!this.virtualReadonly.has(control)) {
+      this.virtualReadonly.set(control, control.getRawOptions().readOnly === true);
+      control.updateOptions({ readOnly: true });
+    }
+  }
+
+  private restoreReadonly(control: ICodeEditor): void {
+    const previous = this.virtualReadonly.get(control);
+    if (previous !== undefined) {
+      this.virtualReadonly.delete(control);
+      control.updateOptions({ readOnly: previous });
+    }
+  }
+
   private schedule(): void {
-    if (!this.pending) {
-      this.pending = true;
-      queueMicrotask(() => {
-        this.pending = false;
+    // A reused pane briefly detaches its old Monaco model while loading the next input.
+    if (this.pending === undefined) {
+      this.pending = setTimeout(() => {
+        this.pending = undefined;
         this.update();
-      });
+      }, 0);
     }
   }
 
   private update(): void {
-    if (this.stopped) {
+    if (this.stopped || !this.documents.isReady) {
       return;
     }
     const newVisible = new Map<ICodeEditor, MainThreadEditor>();
@@ -165,10 +193,13 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
       preserveFocus: options.preserveFocus === true,
       selection: options.selection && validateModelRange(model, options.selection),
     };
-    const existing = this.service.findEditors(resource)[0]?.editor;
+    const existing = this.service.findEditors(resource).find(({ editor }) =>
+      !('viewType' in editor) && (this.documents.isReadOnly(model) ? editor.typeId === DocumentContentEditorInput.ID : true))?.editor;
     const pane = existing
       ? await this.service.openEditor(existing, showOptions, group)
-      : await this.service.openEditor({ resource, options: showOptions }, group);
+      : this.documents.isReadOnly(model)
+        ? await this.service.openEditor(new DocumentContentEditorInput(resource, await this.resolver.createModelReference(resource)), showOptions, group)
+        : await this.service.openEditor({ resource, options: showOptions }, group);
     this.update();
     const control = paneControl(pane);
     const editor = control && this.visible.get(control);
@@ -299,6 +330,10 @@ export class MainThreadEditors extends Disposable implements MainThreadEditorsSh
 
   override dispose(): void {
     this.stopped = true;
+    clearTimeout(this.pending);
+    for (const control of this.virtualReadonly.keys()) {
+      this.restoreReadonly(control);
+    }
     for (const entry of this.entries.values()) {
       entry.dispose();
     }

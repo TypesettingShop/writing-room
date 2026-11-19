@@ -38,3 +38,23 @@ test('workspace edit preflights every target and editor decorations dispose', as
   await page.getByRole('option', { name: /Clear Fixture Decoration/ }).click();
   await expect(page.locator('.monaco-editor [class*="wr-extension-decoration-"]')).toHaveCount(0);
 });
+
+test('tab groups, built-in commands and editor context actions use the target editor', async ({ page }) => {
+  await seedInstalledExtensions(page, [{ location: extensionFixtureLocation('documents'), manifest }]);
+  await page.goto('/');
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Check Tab Groups API');
+  await page.getByRole('option', { name: /Check Tab Groups API/ }).click();
+  await expect(page.getByText('Tab Groups API verified', { exact: true })).toBeVisible({ timeout: 15000 });
+  const editor = page.locator('.monaco-editor').filter({ visible: true }).first();
+  await editor.getByText('tab content', { exact: true }).click({ button: 'right' });
+  const action = page.getByRole('menuitem', { name: 'Fixture Actions: Report Fixture Editor Resource' });
+  await expect(action).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Different Language Fixture Action' })).toHaveCount(0);
+  await action.click();
+  await expect(page.getByText('Editor menu resource: Untitled-1', { exact: true })).toBeVisible();
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Check Reference Command');
+  await page.getByRole('option', { name: /Check Reference Command/ }).click();
+  await expect(page.getByRole('tree', { name: 'References' })).toBeVisible();
+});

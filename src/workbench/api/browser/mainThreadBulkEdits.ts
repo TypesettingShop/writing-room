@@ -3,10 +3,10 @@ import { Schemas } from '../../../base/common/network.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
 import type { URI } from '../../../base/common/uri.js';
 import type { IMonacoTextModel } from '../../../editor/browser/monaco.js';
-import { ICodeEditorService } from '../../../editor/browser/services/codeEditorService.js';
 import type { ITextModel } from '../../../editor/common/model.js';
 import { ITextModelService } from '../../../editor/common/services/resolverService.js';
 import { FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, IFileService, toFileSystemProviderErrorCode } from '../../../platform/files/common/files.js';
+import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ITextFileService } from '../../services/textfile/common/textfiles.js';
 import type { DocumentEdit, MainThreadBulkEditsShape, WorkspaceEditOperation } from '../common/extHost.protocol.documents.js';
 import { applyDocumentEdit, validateDocumentEdit } from './mainThreadDocumentEdits.js';
@@ -110,7 +110,7 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
     private readonly documents: MainThreadDocuments,
     private readonly editors: MainThreadEditors,
     @ITextModelService private readonly resolver: ITextModelService,
-    @ICodeEditorService private readonly controls: ICodeEditorService,
+    @IEditorService private readonly editorService: IEditorService,
     @IFileService private readonly files: IFileService,
     @ITextFileService private readonly textFiles: ITextFileService,
   ) {}
@@ -122,6 +122,7 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
     const references = new DisposableStore();
     const versions = new Map<ITextModel, number>();
     const fileStates = new Map<string, FileState | null>();
+    const writtenEtags = new Map<string, string>();
     const getFile = async (uri: URI): Promise<FileState | null> => {
       const key = uri.toString();
       if (fileStates.has(key)) {
@@ -170,14 +171,18 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
             const bytes = state.contents ?? (await this.files.readFile(state.origin)).value;
             const contents = editContents(bytes, combinedEdits(entries, true));
             fileStates.set(key, { ...state, contents });
-            writes.push(async () => { await this.files.writeFile(uri, contents); });
+            writes.push(async () => {
+              const { etag } = await this.files.writeFile(uri, contents, { etag: writtenEtags.get(key) });
+              writtenEtags.set(key, etag);
+            });
             continue;
           }
 
           const reference = references.add(await this.resolver.createModelReference(uri));
           const model = reference.object.textEditorModel as IMonacoTextModel;
           const current = model.getVersionId();
-          if (this.documents.isReadOnly(model) || entries.some(entry => entry.version !== undefined && current !== entry.version)) {
+          const showing = this.editorService.findEditors(uri);
+          if (this.documents.isReadOnly(model) || showing.some(({ editor }) => editor.isReadonly()) || entries.some(entry => entry.version !== undefined && current !== entry.version)) {
             throw new Error('Workspace edit conflicts with a document version or read-only resource.');
           }
           if (!versions.has(model)) {
@@ -205,7 +210,7 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
               versions.set(model, model.getVersionId());
             });
           }
-          if (uri.scheme !== Schemas.untitled && !this.controls.listCodeEditors().some(editor => editor.getModel() === model)) {
+          if (uri.scheme !== Schemas.untitled && !showing.length) {
             saves.add(uri);
           }
         }
@@ -233,6 +238,9 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
         const uri = this.documents.authorizeResource(extension, operation.uri, !untitled);
         const key = uri.toString();
         if (kind === 'text') {
+          if (!untitled) {
+            await this.requireWritable(uri);
+          }
           const entries = text.get(key) ?? [];
           entries.push({ ...operation, uri });
           text.set(key, entries);
@@ -252,7 +260,10 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
           }
           const contents = operation.contents ?? new Uint8Array();
           fileStates.set(key, { origin: uri, type: FileType.File, contents });
-          steps.push(async () => { await this.files.createFile(uri, contents, { overwrite }); });
+          steps.push(async () => {
+            const { etag } = await this.files.createFile(uri, contents, { overwrite });
+            writtenEtags.set(key, etag);
+          });
         } else if (kind === 'rename') {
           const target = this.documents.authorizeResource(extension, operation.target, true);
           await this.requireWritable(target);
@@ -269,12 +280,17 @@ export class MainThreadBulkEdits implements MainThreadBulkEditsShape {
           }
           fileStates.set(key, null);
           fileStates.set(target.toString(), existing);
-          steps.push(async () => { await this.files.move(uri, target, overwrite); });
+          steps.push(async () => {
+            const { etag } = await this.files.move(uri, target, overwrite);
+            writtenEtags.delete(key);
+            writtenEtags.set(target.toString(), etag);
+          });
         } else if (kind === 'delete') {
           if (!existing && operation.ignoreIfNotExists === true) {
             continue;
           }
-          if (!existing || (existing.type === FileType.Directory && operation.recursive !== true)) {
+          if (!existing || (existing.type === FileType.Directory && operation.recursive !== true
+            && (await this.files.resolve(existing.origin)).children?.length)) {
             return false;
           }
           fileStates.set(key, null);

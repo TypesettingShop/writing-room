@@ -58,7 +58,8 @@ export class MainThreadEditor extends Disposable {
   schedule(): void {
     if (!this.pending) {
       this.pending = true;
-      queueMicrotask(() => this.refresh());
+      // The document change includes the settled dirty state and crosses RPC first.
+      queueMicrotask(() => queueMicrotask(() => this.refresh()));
     }
   }
 

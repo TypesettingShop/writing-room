@@ -45,6 +45,9 @@ exports.activate = context => {
       const event = await change;
       assert(virtual.getText() === text && event.contentChanges.length === 1, 'Expected provider update in mirror');
       assert(!(await virtual.save()), 'Saving a virtual document must return false');
+      const view = await window.showTextDocument(virtual);
+      assert(view.document === virtual && !(await view.edit(builder => builder.insert(new Position(0, 0), 'unauthorized'))),
+        'The displayed content-provider document must remain read-only');
       await window.showInformationMessage('Document API verified');
     } finally {
       provider.dispose();
@@ -143,4 +146,52 @@ exports.activate = context => {
     await window.showInformationMessage('Workspace Edit API verified');
   }));
   context.subscriptions.push(vscode.commands.registerCommand('documents.clearDecoration', () => decoration?.dispose()));
+
+  context.subscriptions.push(vscode.commands.registerCommand('documents.checkTabs', async () => {
+    const document = await workspace.openTextDocument({ content: 'tab content\nnext' });
+    const textEditor = await window.showTextDocument(document);
+    const group = window.tabGroups.activeTabGroup;
+    assert(group.activeTab.input instanceof vscode.TabInputText && group.activeTab.input.uri instanceof Uri,
+      'Expected a text tab exposing a real Uri');
+    assert(!(group.activeTab.input instanceof vscode.TabInputTextDiff), 'Expected unused input class to be exported');
+    const changes = [];
+    const subscription = window.tabGroups.onDidChangeTabs(event => changes.push(event));
+    try {
+      await vscode.commands.executeCommand('vscode.open', document.uri, { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
+      const side = window.tabGroups.all.find(candidate => candidate.viewColumn === vscode.ViewColumn.Two);
+      assert(side.activeTab.input.uri.toString() === document.uri.toString() && window.tabGroups.activeTabGroup === group,
+        'vscode.open must open in the requested group without stealing focus');
+      const tab = side.activeTab;
+      assert(await window.tabGroups.close(tab), 'The duplicate tab must close');
+      assert(window.tabGroups.all.every(candidate => candidate.tabs.every(candidateTab => candidateTab !== tab))
+        && window.activeTextEditor === textEditor, 'Closing a duplicate must preserve the original editor');
+      assert(changes.filter(change => change.opened.some(tab => tab.group === side)).length === 1
+        && changes.filter(change => change.closed.some(tab => tab.group === side)).length === 1, 'Expected one tab event for each open and close');
+
+      await vscode.commands.executeCommand('revealLine', { lineNumber: 1, at: 'center' });
+      await vscode.commands.executeCommand('editor.action.insertLineAfter');
+      assert(document.lineCount === 3, 'Expected a Monaco action on the active editor');
+      let unknown = false;
+      try {
+        await vscode.commands.executeCommand('editor.action.fixtureMissing');
+      } catch (error) {
+        unknown = error.message.includes('not found');
+      }
+      assert(unknown, 'Missing Monaco action must reject');
+      await window.showInformationMessage('Tab Groups API verified');
+    } finally {
+      subscription.dispose();
+    }
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('documents.checkResource', uri => {
+    assert(uri instanceof Uri && uri.scheme === 'untitled', 'The menu must pass the editor resource');
+    return window.showInformationMessage('Editor menu resource: ' + uri.path);
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('documents.checkReferences', async () => {
+    const document = window.activeTextEditor.document;
+    await vscode.commands.executeCommand('editor.action.showReferences', document.uri, new Position(0, 0), [
+      new vscode.Location(document.uri, new Range(2, 0, 2, 4)),
+    ]);
+  }));
 };

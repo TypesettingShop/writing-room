@@ -79,9 +79,7 @@ declare module 'vscode' {
   export namespace languages {
     export function setTextDocumentLanguage(document: TextDocument, languageId: string): Thenable<TextDocument>;
   }
-}
 
-declare module 'vscode' {
   export enum TextEditorSelectionChangeKind { Keyboard = 1, Mouse = 2, Command = 3 }
   export enum TextEditorCursorStyle { Line = 1, Block = 2, Underline = 3, LineThin = 4, BlockOutline = 5, UnderlineThin = 6 }
   export enum TextEditorLineNumbersStyle { Off = 0, On = 1, Relative = 2, Interval = 3 }
@@ -152,8 +150,8 @@ declare module 'vscode' {
   }
 
   export namespace window {
-    export const activeTextEditor: TextEditor | undefined;
-    export const visibleTextEditors: readonly TextEditor[];
+    export let activeTextEditor: TextEditor | undefined;
+    export let visibleTextEditors: readonly TextEditor[];
     export const onDidChangeActiveTextEditor: Event<TextEditor | undefined>;
     export const onDidChangeVisibleTextEditors: Event<readonly TextEditor[]>;
     export const onDidChangeTextEditorSelection: Event<TextEditorSelectionChangeEvent>;
@@ -164,19 +162,15 @@ declare module 'vscode' {
     export function showTextDocument(document: TextDocument, options?: TextDocumentShowOptions): Thenable<TextEditor>;
     export function showTextDocument(uri: Uri, options?: TextDocumentShowOptions): Thenable<TextEditor>;
   }
-}
 
-declare module 'vscode' {
   export interface WorkspaceEditMetadata {
-    readonly isRefactoring?: boolean;
+    isRefactoring?: boolean;
   }
 
   export namespace workspace {
     export function applyEdit(edit: WorkspaceEdit, metadata?: WorkspaceEditMetadata): Thenable<boolean>;
   }
-}
 
-declare module 'vscode' {
   export interface TextEditorDecorationType {
     readonly key: string;
     dispose(): void;
@@ -258,5 +252,87 @@ declare module 'vscode' {
 
   export namespace window {
     export function createTextEditorDecorationType(options: DecorationRenderOptions): TextEditorDecorationType;
+  }
+
+  export class TabInputText {
+    readonly uri: Uri;
+    constructor(uri: Uri);
+  }
+
+  export class TabInputTextDiff {
+    readonly original: Uri;
+    readonly modified: Uri;
+    constructor(original: Uri, modified: Uri);
+  }
+
+  export class TabInputCustom {
+    readonly uri: Uri;
+    readonly viewType: string;
+    constructor(uri: Uri, viewType: string);
+  }
+
+  export class TabInputWebview {
+    readonly viewType: string;
+    constructor(viewType: string);
+  }
+
+  export class TabInputNotebook {
+    readonly uri: Uri;
+    readonly notebookType: string;
+    constructor(uri: Uri, notebookType: string);
+  }
+
+  export class TabInputNotebookDiff {
+    readonly original: Uri;
+    readonly modified: Uri;
+    readonly notebookType: string;
+    constructor(original: Uri, modified: Uri, notebookType: string);
+  }
+
+  export class TabInputTerminal {
+    constructor();
+  }
+
+  export interface Tab {
+    readonly label: string;
+    readonly group: TabGroup;
+    readonly input: TabInputText | TabInputTextDiff | TabInputCustom | TabInputWebview | TabInputNotebook
+      | TabInputNotebookDiff | TabInputTerminal | unknown;
+    readonly isActive: boolean;
+    readonly isDirty: boolean;
+    readonly isPinned: boolean;
+    readonly isPreview: boolean;
+  }
+
+  export interface TabChangeEvent {
+    readonly opened: readonly Tab[];
+    readonly closed: readonly Tab[];
+    readonly changed: readonly Tab[];
+  }
+
+  export interface TabGroupChangeEvent {
+    readonly opened: readonly TabGroup[];
+    readonly closed: readonly TabGroup[];
+    readonly changed: readonly TabGroup[];
+  }
+
+  export interface TabGroup {
+    readonly isActive: boolean;
+    readonly viewColumn: ViewColumn;
+    readonly activeTab: Tab | undefined;
+    readonly tabs: readonly Tab[];
+  }
+
+  export interface TabGroups {
+    readonly all: readonly TabGroup[];
+    readonly activeTabGroup: TabGroup;
+    readonly onDidChangeTabGroups: Event<TabGroupChangeEvent>;
+    readonly onDidChangeTabs: Event<TabChangeEvent>;
+    close(tab: Tab | readonly Tab[], preserveFocus?: boolean): Thenable<boolean>;
+    close(tabGroup: TabGroup | readonly TabGroup[], preserveFocus?: boolean): Thenable<boolean>;
+  }
+
+  export namespace window {
+    export const tabGroups: TabGroups;
   }
 }

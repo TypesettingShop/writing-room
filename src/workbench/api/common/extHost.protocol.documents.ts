@@ -32,6 +32,7 @@ export interface OpenDocumentOptions {
 }
 
 export interface MainThreadDocumentsShape {
+  $startDocumentSync(): Promise<void>;
   $openDocument(extension: string, target: URI | OpenDocumentOptions): Promise<string>;
   $saveDocument(id: string): Promise<boolean>;
   $setDocumentLanguage(extension: string, id: string, language: string): Promise<void>;
@@ -153,3 +154,35 @@ export interface MainThreadDecorationsShape {
 }
 
 export const MainThreadDecorationsProxy = createProxyIdentifier<MainThreadDecorationsShape>('MainThreadEditorDecorations');
+
+export type TabInputData =
+  | { readonly kind: 'text'; readonly uri: URI }
+  | { readonly kind: 'custom'; readonly uri: URI; readonly viewType: string }
+  | { readonly kind: 'webview'; readonly viewType: string };
+
+export interface TabData {
+  readonly id: number;
+  readonly label: string;
+  readonly dirty: boolean;
+  readonly active: boolean;
+  readonly input?: TabInputData;
+}
+
+export interface TabGroupData {
+  readonly id: number;
+  readonly column: number;
+  readonly active: boolean;
+  readonly tabs: TabData[];
+}
+
+export interface MainThreadEditorTabsShape {
+  $closeTabs(ids: number[], preserveFocus: boolean): Promise<boolean>;
+  $closeTabGroups(ids: number[], preserveFocus: boolean): Promise<boolean>;
+}
+
+export interface ExtHostEditorTabsShape {
+  $acceptTabGroups(groups: TabGroupData[]): Promise<void>;
+}
+
+export const MainThreadEditorTabsProxy = createProxyIdentifier<MainThreadEditorTabsShape>('MainThreadEditorTabs');
+export const ExtHostEditorTabsProxy = createProxyIdentifier<ExtHostEditorTabsShape>('ExtHostEditorTabs');

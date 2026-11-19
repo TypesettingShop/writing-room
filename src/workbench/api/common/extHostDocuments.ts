@@ -2,6 +2,7 @@ import type * as vscode from 'vscode';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
+import { Schemas } from '../../../base/common/network.js';
 import { URI } from '../../../base/common/uri.js';
 import type { IModelContentChangedEvent } from '../../../editor/common/model.js';
 import { ExtHostDocumentData, fromModelRange } from './extHostDocumentData.js';
@@ -13,6 +14,7 @@ export enum TextDocumentChangeReason { Undo = 1, Redo = 2 }
 export enum TextDocumentSaveReason { Manual = 1, AfterDelay = 2, FocusOut = 3 }
 
 export class ExtHostDocuments extends Disposable {
+  private readonly extensionIds = new Map<string, string>();
   private readonly documents = new Map<string, ExtHostDocumentData>();
   private readonly byResource = new Map<string, string>();
   private readonly subscriptions = new Map<string, DisposableStore>();
@@ -28,8 +30,24 @@ export class ExtHostDocuments extends Disposable {
     super();
   }
 
-  get all(): readonly vscode.TextDocument[] {
-    return [...this.documents.values()].map(data => data.document);
+  associateExtension(key: string, id: string): void {
+    this.extensionIds.set(key, id.toLowerCase());
+  }
+
+  canRead(extension: string, document: vscode.TextDocument): boolean {
+    const { scheme, path } = document.uri;
+    if (scheme !== Schemas.vscodeUserData || path === '/User/settings.json'
+      || path === '/extensions' || path.startsWith('/extensions/')) {
+      return true;
+    }
+    const owner = this.extensionIds.get(extension);
+    const [, user, area, first, second] = path.split('/');
+    return owner !== undefined && user === 'User'
+      && ((area === 'globalStorage' && first === owner) || (area === 'workspaceStorage' && second === owner));
+  }
+
+  allFor(extension: string): readonly vscode.TextDocument[] {
+    return [...this.documents.values()].map(data => data.document).filter(document => this.canRead(extension, document));
   }
 
   get(id: string): vscode.TextDocument | undefined {
@@ -58,7 +76,7 @@ export class ExtHostDocuments extends Disposable {
 
   async setLanguage(extension: string, document: vscode.TextDocument, language: string): Promise<vscode.TextDocument> {
     const id = this.getId(document);
-    if (id === undefined) {
+    if (id === undefined || !this.canRead(extension, document)) {
       throw new Error('The text document is no longer available.');
     }
     await this.proxy.$setDocumentLanguage(extension, id, language);
@@ -74,10 +92,10 @@ export class ExtHostDocuments extends Disposable {
     return new ApiDisposable(() => store.delete(disposable));
   }
 
-  event<T>(extension: string, event: vscode.Event<T>): vscode.Event<T> {
+  event<T>(extension: string, event: vscode.Event<T>, filter: (value: T) => boolean = () => true): vscode.Event<T> {
     return (listener, thisArg, disposables) => {
       const registration = this.own(extension, event(value => {
-        if (this.isLive(extension)) {
+        if (this.isLive(extension) && filter(value)) {
           listener.call(thisArg, value);
         }
       }));
@@ -87,12 +105,13 @@ export class ExtHostDocuments extends Disposable {
   }
 
   events(extension: string) {
+    const readable = (document: vscode.TextDocument) => this.canRead(extension, document);
     return {
-      onDidOpenTextDocument: this.event(extension, this.opened.event),
-      onDidCloseTextDocument: this.event(extension, this.closed.event),
-      onDidChangeTextDocument: this.event(extension, this.changed.event),
-      onDidSaveTextDocument: this.event(extension, this.saved.event),
-      onWillSaveTextDocument: this.event(extension, this.saveParticipant.event(extension)),
+      onDidOpenTextDocument: this.event(extension, this.opened.event, readable),
+      onDidCloseTextDocument: this.event(extension, this.closed.event, readable),
+      onDidChangeTextDocument: this.event(extension, this.changed.event, event => readable(event.document)),
+      onDidSaveTextDocument: this.event(extension, this.saved.event, readable),
+      onWillSaveTextDocument: this.event(extension, this.saveParticipant.event(extension), event => readable(event.document)),
     };
   }
 
@@ -123,6 +142,7 @@ export class ExtHostDocuments extends Disposable {
   release(extension: string): void {
     this.subscriptions.get(extension)?.dispose();
     this.subscriptions.delete(extension);
+    this.extensionIds.delete(extension);
   }
 
   override dispose(): void {
@@ -132,6 +152,7 @@ export class ExtHostDocuments extends Disposable {
     for (const data of this.documents.values()) {
       data.close();
     }
+    this.extensionIds.clear();
     this.documents.clear();
     this.byResource.clear();
     super.dispose();
