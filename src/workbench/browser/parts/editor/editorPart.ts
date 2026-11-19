@@ -75,6 +75,8 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
   private restoredState = false;
 
   private readonly untitledListeners = new Map<UntitledTextEditorInput, IDisposable>();
+  /** Each listened untitled input's serialized text, until its content changes. */
+  private readonly serializedUntitled = new Map<UntitledTextEditorInput, string>();
   /** In insertion order, least recently active first. */
   private readonly recentUntitled = new Set<UntitledTextEditorInput>();
   private readonly beforeUnload = this._register(new MutableDisposable<IDisposable>());
@@ -291,7 +293,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
       if (written.has(editor)) {
         return editor.getName();
       }
-      const value = serializeEditorInput(editor);
+      const value = this.serializeUntitledEditor(editor);
       if (typeof value === 'string') {
         written.add(editor);
       }
@@ -489,6 +491,21 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
     return editors;
   }
 
+  /** Encodes an untitled text once per content change instead of on every save. */
+  private serializeUntitledEditor(editor: UntitledTextEditorInput): string | undefined {
+    // Only an input whose content changes this part hears about can reuse its last text.
+    const cacheable = this.untitledListeners.has(editor);
+    const cached = cacheable ? this.serializedUntitled.get(editor) : undefined;
+    if (cached !== undefined) {
+      return cached;
+    }
+    const value = serializeEditorInput(editor);
+    if (cacheable && typeof value === 'string') {
+      this.serializedUntitled.set(editor, value);
+    }
+    return value;
+  }
+
   private touchUntitledEditor(editor: EditorInput | null): void {
     if (editor instanceof UntitledTextEditorInput) {
       this.recentUntitled.delete(editor);
@@ -504,12 +521,16 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
       if (!open.has(editor)) {
         listener.dispose();
         this.untitledListeners.delete(editor);
+        this.serializedUntitled.delete(editor);
         this.recentUntitled.delete(editor);
       }
     }
     for (const editor of open) {
       if (!this.untitledListeners.has(editor)) {
-        this.untitledListeners.set(editor, editor.model.onDidChangeContent(() => this.updateBeforeUnload()));
+        this.untitledListeners.set(editor, editor.model.onDidChangeContent(() => {
+          this.serializedUntitled.delete(editor);
+          this.updateBeforeUnload();
+        }));
       }
     }
     this.updateBeforeUnload();
@@ -636,6 +657,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
       listener.dispose();
     }
     this.untitledListeners.clear();
+    this.serializedUntitled.clear();
     this.recentUntitled.clear();
     super.dispose();
     for (const editor of editors) {

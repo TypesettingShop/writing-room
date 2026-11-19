@@ -40,12 +40,12 @@ function decodeText(encoded: string): string | undefined {
 export class UntitledTextEditorInputSerializer implements IEditorSerializer {
   private readonly restoredInputs = new WeakMap<UntitledTextEditorModel, UntitledTextEditorInput>();
 
-  canSerialize(editor: EditorInput): editor is UntitledTextEditorInput {
+  canSerialize(editor: EditorInput): boolean {
     return editor instanceof UntitledTextEditorInput && editor.model.getValueLength() <= UNTITLED_TEXT_LIMIT;
   }
 
   serialize(editor: EditorInput): string | undefined {
-    if (this.canSerialize(editor)) {
+    if (editor instanceof UntitledTextEditorInput && this.canSerialize(editor)) {
       return editor.getName() + '\n' + encodeText(editor.model.getValue());
     }
     return undefined;

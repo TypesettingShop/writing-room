@@ -12,6 +12,7 @@ import { KeybindingResolver } from '../../../../../platform/keybinding/common/ke
 import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
+import { InMemoryStorageService, IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { Registry } from '../../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../../browser/editor.js';
@@ -93,7 +94,7 @@ let instantiation: InstantiationService;
 beforeEach(() => {
   disposables.add(registry.registerEditorPane(EditorPaneDescriptor.create(TestPane, PANE_ID, 'Test'), [INPUT_ID]));
   disposables.add(registry.registerEditorPane(EditorPaneDescriptor.create(OtherPane, OTHER_PANE_ID, 'Other'), [OTHER_INPUT_ID]));
-  const services = new ServiceCollection();
+  const services = new ServiceCollection([IStorageService, disposables.add(new InMemoryStorageService())]);
   instantiation = new InstantiationService(services);
   part = instantiation.createInstance(EditorPart);
   services.set(IEditorGroupsService, part);

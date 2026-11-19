@@ -33,7 +33,6 @@ export abstract class PaneCompositePart extends Part {
   private refreshing = false;
   private refreshPending = false;
   private initialized = false;
-  private hiddenWhenEmpty = false;
   private transferring = false;
 
   protected constructor(
@@ -216,17 +215,7 @@ export abstract class PaneCompositePart extends Part {
     const available = new Map<ViewContainer, readonly IViewDescriptor[]>();
     this.relevantContextKeys = new Set();
     const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location);
-    if (!descriptors.length) {
-      // A part the person had already hidden stays hidden when containers come back through a reset or a
-      // registration. A container moved into it still opens it (updateContainerLocations).
-      if (this.layoutService.isVisible(this.id)) {
-        this.hiddenWhenEmpty = true;
-        this.layoutService.setPartHidden(true, this.id);
-      }
-    } else if (this.hiddenWhenEmpty) {
-      this.hiddenWhenEmpty = false;
-      this.layoutService.setPartHidden(false, this.id);
-    }
+    this.layoutService.setPartHidden(descriptors.length === 0, this.id, { automatic: true });
     for (const container of descriptors) {
       const views = viewsRegistry.getViews(container).filter(view => {
         view.when?.keys().forEach(key => this.relevantContextKeys.add(key));

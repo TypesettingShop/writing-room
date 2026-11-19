@@ -86,7 +86,10 @@ export class EditorGroupModel extends Disposable {
   private readonly _onDidModelChange = this._register(new Emitter<IGroupModelChangeEvent>());
   readonly onDidModelChange: Event<IGroupModelChangeEvent> = this._onDidModelChange.event;
 
-  /** Increasing and never reused, across every model of the page. */
+  /**
+   * Unique among the page's models. A new model takes the next number; a restored one keeps its
+   * saved id and moves the counter past it.
+   */
   readonly id: GroupIdentifier;
 
   private editors: EditorInput[] = [];
@@ -289,8 +292,9 @@ export class EditorGroupModel extends Disposable {
   }
 
   /**
-   * The group as data. Each editor is written by the serializer registered for its `typeId`; an
-   * editor without one, or whose serializer declines it, is left out of `editors` and `mru` alike.
+   * The group as data. Each editor is written by `writeEditor`, by default the serializer registered
+   * for its `typeId`; an editor it writes no string for, or that throws, is left out of `editors` and
+   * `mru` alike.
    */
   serialize(writeEditor: EditorInputWriter = serializeEditorInput): ISerializedEditorGroupModel {
     const serialized = new Map<EditorInput, number>();

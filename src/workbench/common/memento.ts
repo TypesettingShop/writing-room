@@ -27,7 +27,8 @@ export class Memento<T extends object> extends Disposable {
         console.warn('Invalid workbench memento.', { key: this.key, scope });
       }
       const value = stored && !Array.isArray(stored) ? stored : {};
-      entry = { value, target, lastSaved: JSON.stringify(value) };
+      // A memento that saves unchanged snapshots never compares against the last one.
+      entry = { value, target, lastSaved: this.options.saveUnchanged ? '' : JSON.stringify(value) };
       this.scopes.set(scope, entry);
     }
     return entry.value;
@@ -36,8 +37,9 @@ export class Memento<T extends object> extends Disposable {
   saveMemento(): void {
     for (const [scope, entry] of this.scopes) {
       const text = JSON.stringify(entry.value);
-      // Editors intentionally save their full session snapshot when this tab is hidden.
-      // Other components leave unchanged snapshots alone because they may be stale.
+      // Editors intentionally save their full session snapshot on every save — when this tab is
+      // hidden and at idle while it is visible — so the last tab to save wins. Other components
+      // leave unchanged snapshots alone because they may be stale.
       if (!this.options.saveUnchanged && text === entry.lastSaved) {
         continue;
       }
@@ -46,7 +48,9 @@ export class Memento<T extends object> extends Disposable {
       } else {
         this.storageService.store(this.key, text, scope, entry.target);
       }
-      entry.lastSaved = text;
+      if (!this.options.saveUnchanged) {
+        entry.lastSaved = text;
+      }
     }
   }
 }

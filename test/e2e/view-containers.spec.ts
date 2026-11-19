@@ -187,6 +187,29 @@ test('moves from the keyboard context menu and resets with the command palette',
   await expect(sidebar.getByText('No folder opened')).toBeVisible();
 });
 
+test('reveals the auto-hidden sidebar when resetting view locations after reload', async ({ appPage: page }) => {
+  const activitybar = part(page, 'activitybar');
+  const sidebar = part(page, 'sidebar');
+  const panel = part(page, 'panel');
+  const explorer = activitybar.getByRole('button', { name: 'Explorer' });
+
+  await moveSampleToPanel(page);
+  await explorer.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Move to Panel' }).click();
+  await expect(sidebar).toBeHidden();
+  await expect(panel.getByRole('tab', { name: 'Explorer' })).toBeVisible();
+
+  await page.reload();
+  await expect(sidebar).toBeHidden();
+  await expect(panel.getByRole('tab', { name: 'Explorer' })).toBeVisible();
+
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Reset View Locations');
+  await page.getByRole('option', { name: /Reset View Locations/ }).click();
+  await expect(explorer).toHaveAttribute('aria-pressed', 'true');
+  await expect(sidebar.getByText('No folder opened')).toBeVisible();
+});
+
 test('ignores a non-container drag from the editor', async ({ appPage: page }) => {
   const editor = part(page, 'editor');
   const explorer = part(page, 'activitybar').getByRole('button', { name: 'Explorer' });

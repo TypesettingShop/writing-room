@@ -88,6 +88,8 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
   readonly mainContainer: HTMLElement;
   readonly layoutState: LayoutStateModel;
   private readonly parts = new Map<Parts, Part>();
+  // Availability is computed from the current containers; saved flags represent user choices.
+  private readonly automaticHidden: Partial<Record<(typeof hiddenKey)[OptionalPart], boolean>> = {};
   private grid!: SerializableGrid<Part>;
 
   private readonly didChangePartVisibility = this._register(new Emitter<IPartVisibilityChangeEvent>());
@@ -116,35 +118,48 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
   }
 
   isVisible(part: Parts): boolean {
-    return !isOptionalPart(part) || !this.layoutState[hiddenKey[part]];
+    return !isOptionalPart(part) || (!this.layoutState[hiddenKey[part]] && !this.automaticHidden[hiddenKey[part]]);
   }
 
-  setPartHidden(hidden: boolean, part: Parts): void {
-    if (!isOptionalPart(part) || this.layoutState[hiddenKey[part]] === hidden) {
+  setPartHidden(hidden: boolean, part: Parts, options?: { readonly automatic: boolean }): void {
+    if (!isOptionalPart(part)) {
+      return;
+    }
+    const state = options?.automatic ? this.automaticHidden : this.layoutState;
+    const key = hiddenKey[part];
+    const wasHidden = state[key] ?? false;
+    if (wasHidden === hidden) {
       return;
     }
     const view = this.getPart(part);
     if (!hidden && !view.canShow()) {
       return;
     }
-    const document = view.element.ownerDocument;
-    const moveFocus = hidden && view.element.contains(document.activeElement);
-    // The state changes first so the layout the grid runs records no size for a part being hidden.
-    this.layoutState[hiddenKey[part]] = hidden;
-    try {
-      this.grid.setViewVisible(view, !hidden);
-    } catch (error) {
-      this.layoutState[hiddenKey[part]] = !hidden;
-      throw error;
+    const wasVisible = this.isVisible(part);
+    // Set visibility before running the grid layout so a newly hidden part keeps its previous size.
+    state[key] = hidden;
+    const visible = this.isVisible(part);
+    if (visible === wasVisible) {
+      return;
     }
-    if (moveFocus) {
-      const editor = this.parts.get(Parts.EDITOR_PART)?.element;
-      editor?.focus({ preventScroll: true });
-      if (!editor || document.activeElement !== editor) {
-        this.mainContainer.focus({ preventScroll: true });
+    if (this.grid) {
+      const document = view.element.ownerDocument;
+      const moveFocus = !visible && view.element.contains(document.activeElement);
+      try {
+        this.grid.setViewVisible(view, visible);
+      } catch (error) {
+        state[key] = wasHidden;
+        throw error;
+      }
+      if (moveFocus) {
+        const editor = this.parts.get(Parts.EDITOR_PART)?.element;
+        editor?.focus({ preventScroll: true });
+        if (!editor || document.activeElement !== editor) {
+          this.mainContainer.focus({ preventScroll: true });
+        }
       }
     }
-    this.didChangePartVisibility.fire({ partId: part, visible: !hidden });
+    this.didChangePartVisibility.fire({ partId: part, visible });
   }
 
   protected registerPart(part: Part): void {
@@ -165,6 +180,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
   protected createWorkbenchLayout(): void {
     const sideBar = this.getPart(Parts.SIDEBAR_PART);
     const panel = this.getPart(Parts.PANEL_PART);
+    for (const part of [sideBar, panel]) {
+      this.setPartHidden(!part.canShow(), part.id, { automatic: true });
+    }
     this._register(sideBar.onDidLayout(({ width }) => {
       if (this.isVisible(sideBar.id)) {
         this.layoutState.sideBarSize = width;

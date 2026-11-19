@@ -13,7 +13,10 @@ export interface INewUntitledTextEditorOptions {
 }
 
 export interface IUntitledTextEditorService extends BrandedService {
-  /** Creates the model of a new untitled editor, `Untitled-N` with the lowest `N` not in use. */
+  /**
+   * Creates the model of a new untitled editor, `Untitled-N` with the lowest `N` that is not in use
+   * and was not restored on this page.
+   */
   create(options?: INewUntitledTextEditorOptions): UntitledTextEditorModel;
   /** Restores a named input's model with its initial text, without reusing its number later. */
   restore(resource: URI, initialValue: string): UntitledTextEditorModel;
@@ -25,6 +28,7 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
   private readonly models = new Map<string, UntitledTextEditorModel>();
   /** Resources of disposed models whose text model is still being created, and so still taken. */
   private readonly releasing = new Set<string>();
+  /** Resources restored on this page. Their numbers stay taken after their models are disposed. */
   private readonly restored = new Set<string>();
 
   constructor(@IInstantiationService private readonly instantiationService: IInstantiationService) {}
@@ -47,8 +51,8 @@ export class UntitledTextEditorService implements IUntitledTextEditorService {
     const key = resource.toString();
     const model = this.instantiationService.createInstance(UntitledTextEditorModel, resource, initialValue);
     this.models.set(key, model);
-    // Disposing the model gives its number back — once a text model still on its way for the
-    // resource is gone too, or the next model with that number could not get one.
+    // Disposing the model gives its number back, unless it was restored — once a text model still
+    // on its way for the resource is gone too, or the next model with that number could not get one.
     Event.once(model.onWillDispose)(() => {
       this.models.delete(key);
       const pending = model.whenCreationSettles();

@@ -265,6 +265,41 @@ test('budgets UTF-16 units across groups in activation order and guards text lef
   expect(inputs.reduce((length, input) => length + input.model.getValueLength(), 0)).toBe(UNTITLED_TEXT_LIMIT);
 });
 
+test('restores the untitled activation order across groups, not the groups’ own order', async () => {
+  const { groups, storage, untitled } = start();
+  const left = groups.activeGroup;
+  const welcome = left.activeEditor!;
+  const older = new UntitledTextEditorInput(untitled.create({ initialValue: 'older' }));
+  const newer = new UntitledTextEditorInput(untitled.create({ initialValue: 'newer' }));
+  await left.openEditor(older);
+  await left.openEditor(welcome);
+  const right = groups.addGroup(left, GroupDirection.RIGHT);
+  await right.openEditor(newer);
+  groups.activateGroup(right);
+  // The left group is now the most recently active one, but its last untitled text is the older one.
+  groups.activateGroup(left);
+  await storage.flush();
+  const order = [newer.getName(), older.getName()];
+  expect(snapshot(storage).mostRecentUntitledEditors).toEqual(order);
+
+  const restored = start();
+  await restored.storage.flush();
+  expect(snapshot(restored.storage).mostRecentUntitledEditors).toEqual(order);
+});
+
+test('saves untitled text edited after an earlier save', async () => {
+  const { groups, storage, untitled } = start();
+  const input = new UntitledTextEditorInput(untitled.create({ initialValue: 'before' }));
+  await groups.activeGroup.openEditor(input);
+  await input.resolve();
+  await storage.flush();
+  input.model.textEditorModel!.setValue('after');
+  await storage.flush();
+
+  const restored = start();
+  expect((restored.groups.activeGroup.activeEditor as UntitledTextEditorInput).model.getValue()).toBe('after');
+});
+
 test('continues saving the other parts when a component throws', async () => {
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   const { storage, layout } = start();
