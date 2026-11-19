@@ -13,6 +13,8 @@ export interface IExtensionService extends BrandedService {
   initialize?(): void;
   addExtension?(extension: IExtensionDescription): boolean;
   removeExtension?(identifier: string): boolean;
+  clearExtensionStorage?(identifier: string): Promise<void>;
+  whenExtensionRemoved?(identifier: string): Promise<void>;
   restartExtensionHost?(): Promise<void>;
   dispose?: IDisposable['dispose'];
   activateByEvent(event: string): Promise<void>;

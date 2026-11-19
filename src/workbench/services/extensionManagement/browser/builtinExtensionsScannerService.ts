@@ -1,9 +1,12 @@
+import { readManifestNls } from '../../../../platform/extensionManagement/common/extensionNls.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import type { IExtensionDescription, IExtensionMessage } from '../../../../platform/extensions/common/extensions.js';
-import { resolveExtensionPath } from '../../extensions/common/extensionResources.js';
+import { extensionResourceLimits, resolveExtensionPath } from '../../extensions/common/extensionResources.js';
 
 const manifests = import.meta.glob<unknown>('/extensions/*/package.json', { eager: true, import: 'default' });
+
+const manifestNls = import.meta.glob<string>('/extensions/*/package.nls.json', { eager: true, query: '?raw', import: 'default' });
 
 export function scanBuiltinExtensions(): {
   extensions: IExtensionDescription[];
@@ -20,7 +23,20 @@ export function scanBuiltinExtensions(): {
     if (!manifest) {
       continue;
     }
-    extensions.push({ identifier: ExtensionIdentifier.fromManifest(manifest), location, manifest, isBuiltin: true });
+    const identifier = ExtensionIdentifier.fromManifest(manifest);
+    let nls: Record<string, string> | undefined;
+    const text = manifestNls[folder + 'package.nls.json'];
+    if (text !== undefined) {
+      try {
+        if (new TextEncoder().encode(text).byteLength > extensionResourceLimits.nls) {
+          throw new Error('Localized manifest strings exceed 256 KiB.');
+        }
+        nls = readManifestNls(JSON.parse(text));
+      } catch (error) {
+        messages.push({ extensionId: identifier.value, path: 'package.nls.json', severity: 'warn', message: String(error) });
+      }
+    }
+    extensions.push({ identifier, location, manifest, isBuiltin: true, nls });
   }
   return { extensions, messages };
 }

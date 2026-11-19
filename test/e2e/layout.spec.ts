@@ -103,16 +103,16 @@ test('Explorer exposes an icon and opens or closes the sidebar, and tabs switch 
   const output = panel.getByRole('tab', { name: 'Output' });
   const problems = panel.getByRole('tab', { name: 'Problems' });
   await expect(output).toHaveAttribute('aria-selected', 'true');
-  await expect(panel.getByText('No output yet')).toBeVisible();
+  await expect(panel.getByRole('listbox', { name: 'Output Channels' })).toBeVisible();
   await problems.click();
   await expect(problems).toHaveAttribute('aria-selected', 'true');
   await expect(panel.getByText('No problems detected')).toBeVisible();
-  await expect(panel.getByText('No output yet')).toBeHidden();
+  await expect(panel.getByRole('listbox', { name: 'Output Channels' })).toBeHidden();
 
   await problems.press('ArrowLeft');
   await expect(output).toBeFocused();
   await expect(output).toHaveAttribute('aria-selected', 'true');
-  await expect(panel.getByText('No output yet')).toBeVisible();
+  await expect(panel.getByRole('listbox', { name: 'Output Channels' })).toBeVisible();
 });
 
 test('a late sidebar registration appears in the Activity Bar and can be opened', async ({ appPage: page }) => {

@@ -1,5 +1,8 @@
 import { expect, test, vi } from 'vitest';
-import { NotificationsToasts } from '../../../browser/parts/notifications/notificationsToasts.js';
+import { DialogService } from '../../../../platform/dialogs/browser/dialogService.js';
+import type { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
+import { NotificationService } from '../../../browser/parts/notifications/notificationsToasts.js';
+import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
 import { MainThreadMessageService } from '../../browser/mainThreadMessageService.js';
 import { MainThreadStatusBar } from '../../browser/mainThreadStatusBar.js';
 import { ExtensionTreeViews, MainThreadTreeViews } from '../../browser/mainThreadTreeViews.js';
@@ -7,8 +10,10 @@ import { StatusbarAlignment } from '../../../services/statusbar/browser/statusba
 
 test('message selections and dismissal settle independent requests', async () => {
   const layout = document.createElement('main');
-  const toasts = new NotificationsToasts(layout);
-  const messages = new MainThreadMessageService(toasts, () => true);
+  const layoutService = { mainContainer: layout } as ILayoutService;
+  const toasts = new NotificationService(layoutService);
+  const describe = (key: string) => ({ id: 'test.' + key, key, manifest: {} }) as HostExtensionDescription;
+  const messages = new MainThreadMessageService(toasts, new DialogService(layoutService), describe);
   const first = messages.$showMessage('a', 'warning', 'Choose', ['First', 'Second']);
   const second = messages.$showMessage('b', 'info', 'Dismiss', ['OK']);
   const elements = layout.querySelectorAll<HTMLElement>('.extension-toast');

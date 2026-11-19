@@ -115,3 +115,62 @@ test('while a quick input has focus, the focus it reports is the element it will
   press('Escape');
   await expect(pick).resolves.toBeUndefined();
 });
+
+test('ten thousand items open with a window of rows that grows toward the highlight', async () => {
+  const items = Array.from({ length: 10_000 }, (_, index) => ({ label: 'Item ' + index }));
+  const pick = service.pick(items);
+  const rendered = document.querySelectorAll('[role=option]');
+  expect(rendered.length).toBeLessThan(500);
+  expect(rendered[0].getAttribute('aria-setsize')).toBe('10000');
+  for (let index = 0; index < 25; index++) {
+    press('PageDown');
+  }
+  const active = document.querySelector('[role=option][aria-selected=true]')!;
+  expect(active.textContent).toBe('Item 250 ');
+  expect(field().getAttribute('aria-activedescendant')).toBe(active.id);
+  expect(document.querySelectorAll('[role=option]').length).toBeLessThan(1000);
+  field().value = '9998';
+  field().dispatchEvent(new Event('input', { bubbles: true }));
+  expect([...document.querySelectorAll('[role=option]')].map(option => option.textContent)).toEqual(['Item 9998 ']);
+  press('Enter');
+  await expect(pick).resolves.toBe(items[9998]);
+});
+
+test('a quick pick reports the selection before the acceptance and ignores input while disabled', () => {
+  const pick = service.createQuickPick<{ label: string }>();
+  const events: string[] = [];
+  pick.onDidChangeSelection(items => events.push('selection ' + items.map(item => item.label)));
+  pick.onDidAccept(() => events.push('accept'));
+  pick.onDidHide(() => events.push('hide'));
+  pick.items = [{ label: 'One' }, { label: 'Two' }];
+  pick.show();
+  pick.enabled = false;
+  press('Enter');
+  field().value = 'T';
+  field().dispatchEvent(new Event('input', { bubbles: true }));
+  expect(field().value).toBe('');
+  expect(events).toEqual([]);
+  pick.enabled = true;
+  press('ArrowDown');
+  press('Enter');
+  expect(events).toEqual(['selection Two', 'accept']);
+  expect(pick.visible).toBe(true);
+  pick.dispose();
+  expect(events).toEqual(['selection Two', 'accept', 'hide']);
+  expect(document.activeElement).toBe(previous);
+});
+
+test('filtering away the highlighted item and back leaves one highlighted row', async () => {
+  const pick = service.pick([{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }]);
+  press('ArrowDown');
+  press('ArrowDown');
+  const type = (value: string) => {
+    field().value = value;
+    field().dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  type('al');
+  type('');
+  expect([...document.querySelectorAll('[role=option][aria-selected=true]')].map(option => option.textContent)).toEqual(['Alpha ']);
+  press('Escape');
+  await expect(pick).resolves.toBeUndefined();
+});
