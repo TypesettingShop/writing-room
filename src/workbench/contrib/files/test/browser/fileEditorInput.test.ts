@@ -12,6 +12,8 @@ import { InstantiationService } from '../../../../../platform/instantiation/comm
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import type { IWorkspaceContextService as IWorkspace, IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
+import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
+import type { IFileDialogService as IFileDialogs } from '../../../../services/dialogs/common/dialogs.js';
 import { BrowserTextFileService } from '../../../../services/textfile/browser/textFileService.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../../services/textfile/common/textfiles.js';
 import type { ITextFileEditorModel } from '../../../../services/textfile/common/textfiles.js';
@@ -39,6 +41,7 @@ let files: FileService;
 let models: TestModelService;
 let instantiation: InstantiationService;
 let textFiles: BrowserTextFileService;
+let dialogs: { -readonly [K in keyof IFileDialogs]: IFileDialogs[K] };
 
 beforeEach(async () => {
   disposables = new DisposableStore();
@@ -46,7 +49,17 @@ beforeEach(async () => {
   files.registerProvider('vscode-vfs', disposables.add(new InMemoryFileSystemProvider()));
   files.registerProvider('vscode-userdata', disposables.add(new InMemoryFileSystemProvider()));
   models = new TestModelService();
-  const services = new ServiceCollection([IFileService, files], [IModelService, models], [IWorkspaceContextService, workspace]);
+  dialogs = {
+    _serviceBrand: undefined,
+    defaultFilePath: () => root,
+    showSaveConfirm: vi.fn(async () => { throw new Error('Unexpected question.'); }),
+    pickFileToSave: vi.fn(async () => undefined),
+    showSaveDialog: vi.fn(async () => undefined),
+    showOpenDialog: vi.fn(async () => undefined),
+  };
+  const services = new ServiceCollection(
+    [IFileService, files], [IModelService, models], [IWorkspaceContextService, workspace], [IFileDialogService, dialogs],
+  );
   instantiation = new InstantiationService(services);
   services.set(IUntitledTextEditorService, instantiation.createInstance(UntitledTextEditorService));
   textFiles = disposables.add(instantiation.createInstance(BrowserTextFileService));

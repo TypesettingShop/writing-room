@@ -4,6 +4,8 @@ import { IModelService } from '../../../../../editor/common/services/model.js';
 import { TestModelService } from '../../../../../editor/test/common/testTextModel.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
+import { IFileDialogService } from '../../../dialogs/common/dialogs.js';
+import { ITextFileService } from '../../../textfile/common/textfiles.js';
 import { UntitledTextEditorInputSerializer } from '../../common/untitledTextEditorHandler.js';
 import { UntitledTextEditorInput } from '../../common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService, UntitledTextEditorService } from '../../common/untitledTextEditorService.js';
@@ -135,7 +137,10 @@ describe('the untitled editor serializer', () => {
     const fresh = new TestModelService();
     const instantiation = new InstantiationService(new ServiceCollection([IModelService, fresh]));
     const restoredService = instantiation.createInstance(UntitledTextEditorService);
-    const withService = new InstantiationService(new ServiceCollection([IUntitledTextEditorService, restoredService]));
+    // The input saves and asks through these; restoring needs neither.
+    const withService = new InstantiationService(new ServiceCollection(
+      [IUntitledTextEditorService, restoredService], [ITextFileService, {} as ITextFileService], [IFileDialogService, {} as IFileDialogService],
+    ));
     const input = new UntitledTextEditorInputSerializer().deserialize(withService, value);
     return { input: input as UntitledTextEditorInput | undefined, models: fresh };
   }

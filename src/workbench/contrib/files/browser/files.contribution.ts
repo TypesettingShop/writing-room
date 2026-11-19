@@ -1,6 +1,8 @@
 // 이 영역의 기능은 배정된 에픽에서 이 파일에 등록한다.
 // The real text file service replaces the untitled-only one: this file is imported after the editor part's.
 import '../../../services/textfile/browser/textFileService.js';
+import '../../../services/dialogs/browser/fileDialogService.js';
+import './fileActions.contribution.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../browser/editor.js';

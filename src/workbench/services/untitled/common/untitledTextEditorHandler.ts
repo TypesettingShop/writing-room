@@ -93,7 +93,7 @@ export class UntitledTextEditorInputSerializer implements IEditorSerializer {
     const model = service.restore(resource, text, languageId);
     let input = this.restoredInputs.get(model);
     if (!input) {
-      input = new UntitledTextEditorInput(model);
+      input = instantiationService.createInstance(UntitledTextEditorInput, model);
       this.restoredInputs.set(model, input);
     }
     return input;

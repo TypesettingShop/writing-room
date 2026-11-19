@@ -62,8 +62,8 @@ export type TextFileConflictResolution = 'overwrite' | 'revert' | 'cancel';
 export interface ITextFileSaveErrorHandler {
   /** The file changed on disk since it was read; the save waits for the answer. */
   resolveConflict(model: ITextFileEditorModel): Promise<TextFileConflictResolution>;
-  /** The save failed; the text stays unsaved. */
-  onSaveError(error: unknown, model: ITextFileEditorModel): void;
+  /** The save failed; the text stays unsaved. `model` is the file's model, or only its resource for a Save As target. */
+  onSaveError(error: unknown, model: Pick<ITextFileEditorModel, 'resource'>): void;
 }
 
 /** The text of one file, read into a text model, with its unsaved state. */
@@ -139,8 +139,17 @@ export interface ITextFileService extends BrandedService {
   readonly files: ITextFileEditorModelManager;
 
   isDirty(resource: URI): boolean;
-  /** Saves the resource's text; resolves to where it was saved, or `undefined` when it was not. */
+  /**
+   * Saves the resource's text; resolves to where it was saved, or `undefined` when it was not.
+   * Untitled text has no place yet, so saving it is `saveAs`.
+   */
   save(resource: URI, options?: ITextFileSaveOptions): Promise<URI | undefined>;
+  /**
+   * Saves the text of `source` (untitled text or a file) to `target`, which, when not given, the
+   * user picks in the save dialog. Resolves to `target`, or `undefined` when nothing was saved. A
+   * file source then drops its unsaved changes: they went to `target`.
+   */
+  saveAs(source: URI, target?: URI, options?: ITextFileSaveOptions): Promise<URI | undefined>;
   /** Drops the resource's unsaved changes: a file reads its text again unless `soft`. */
   revert(resource: URI, options?: ITextFileRevertOptions): Promise<void>;
   /** Whether this service holds the text of `resource`, so text model references come here. */
@@ -218,8 +227,13 @@ export class UntitledTextFileService extends Disposable implements ITextFileServ
     return this.untitledService.get(resource)?.isDirty() ?? false;
   }
 
-  /** Untitled text has no place to go until the file editing epic adds Save As. */
+  /** Untitled text has no place to go here; the browser service asks for one. */
   async save(_resource: URI, _options?: ITextFileSaveOptions): Promise<URI | undefined> {
+    return undefined;
+  }
+
+  /** Nothing saves here. */
+  async saveAs(_source: URI, _target?: URI, _options?: ITextFileSaveOptions): Promise<URI | undefined> {
     return undefined;
   }
 

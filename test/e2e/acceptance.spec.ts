@@ -298,6 +298,9 @@ test('docks, configures and restores a workbench with built-in and URL-installed
     await expect(remote).toHaveCount(0);
     await expect(page.getByText('Remote fixture active')).toHaveCount(0);
     await command(page, 'Close All Editors', /Close All Editors(?! in Group)/);
+    // The typed untitled tab asks before it closes (v0.2.0 promise 9); v0.1.0 closed it at once.
+    await expect(page.getByRole('combobox', { name: 'Do you want to save the changes you made to Untitled-2?' })).toBeFocused();
+    await page.getByRole('option', { name: /^Don't Save/ }).click();
     await expect(groups).toHaveCount(1);
     await expect(tabNames(groups)).toHaveCount(0);
     await page.reload();

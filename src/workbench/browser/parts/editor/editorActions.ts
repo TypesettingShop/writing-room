@@ -1,5 +1,6 @@
 import { KeyChord, KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { GroupDirection, GroupLocation, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
@@ -123,10 +124,18 @@ registerAction2(class CloseAllEditorsAction extends Action2 {
   }
 
   override async run(accessor: ServicesAccessor): Promise<void> {
-    // Closing a group's last editor removes the group, so walk a copy of the list. A group whose
-    // close was cancelled keeps its editors; the next group is still closed.
-    for (const group of [...accessor.get(IEditorGroupsService).groups]) {
+    // Closing a group's last editor removes the group, so walk a copy of the list. A group that
+    // still holds editors afterwards was answered Cancel (or its save failed): the groups after it
+    // keep theirs too, as one cancel keeps everything that was not closed yet.
+    const groups = accessor.get(IEditorGroupsService);
+    for (const group of [...groups.groups]) {
+      if (groups.getGroup(group.id) !== group) {
+        continue;
+      }
       await group.closeAllEditors();
+      if (groups.getGroup(group.id) === group && !group.isEmpty) {
+        return;
+      }
     }
   }
 });
@@ -147,7 +156,7 @@ registerAction2(class NewUntitledFileAction extends Action2 {
   override async run(accessor: ServicesAccessor): Promise<void> {
     const editorService = accessor.get(IEditorService);
     const model = accessor.get(IUntitledTextEditorService).create();
-    await editorService.openEditor(new UntitledTextEditorInput(model));
+    await editorService.openEditor(accessor.get(IInstantiationService).createInstance(UntitledTextEditorInput, model));
   }
 });
 MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {

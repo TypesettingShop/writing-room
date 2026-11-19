@@ -3,6 +3,7 @@ import type { Event } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import type { URI } from '../../../base/common/uri.js';
+import type { IResourceEditorInput } from '../../../platform/editor/common/editor.js';
 import type { GroupIdentifier, IEditorIdentifier } from '../editor.js';
 
 /** The answer to "this editor has changes: close it anyway?". */
@@ -85,16 +86,17 @@ export abstract class EditorInput extends Disposable {
   }
 
   /**
-   * Saves the input. It resolves to the input that now stands for the saved editor (this one, or a
-   * new one when the save gave it another resource), or `undefined` when it did not save — failed
-   * or cancelled, which the input has told the user about itself.
+   * Saves the input. It resolves to what now stands for the saved editor: this input, another input,
+   * or a resource for the editor resolver to open (an untitled text saved to a file names the file)
+   * — or to `undefined` when it did not save, failed or cancelled, which the input has told the user
+   * about itself. `IEditorService.save` puts what it resolves to in the editor's place.
    */
-  async save(_group: GroupIdentifier, _options?: ISaveOptions): Promise<EditorInput | undefined> {
+  async save(_group: GroupIdentifier, _options?: ISaveOptions): Promise<EditorInput | IResourceEditorInput | undefined> {
     return this;
   }
 
   /** Saves under a resource the user picks. Like `save` unless the input knows more. */
-  saveAs(group: GroupIdentifier, options?: ISaveOptions): Promise<EditorInput | undefined> {
+  saveAs(group: GroupIdentifier, options?: ISaveOptions): Promise<EditorInput | IResourceEditorInput | undefined> {
     return this.save(group, options);
   }
 

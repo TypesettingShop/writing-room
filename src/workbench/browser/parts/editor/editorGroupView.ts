@@ -17,7 +17,7 @@ import type { EditorInputWriter, IGroupModelChangeEvent, ISerializedEditorGroupM
 import { ConfirmResult } from '../../../common/editor/editorInput.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type {
-  ICloseEditorsFilter, IEditorGroup, IEditorMoveOptions, IEditorOpenOptions,
+  ICloseEditorsFilter, IEditorGroup, IEditorMoveOptions, IEditorOpenOptions, IEditorReplacement,
 } from '../../../services/editor/common/editorGroupsService.js';
 import type { IEditorPaneRegistry } from '../../editor.js';
 import { DEFAULT_EDITOR_MAX_DIMENSIONS, DEFAULT_EDITOR_MIN_DIMENSIONS } from './editor.js';
@@ -78,6 +78,8 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   private readonly pendingConfirmations = new Map<EditorInput, Promise<boolean>>();
   /** Set while `openEditor` changes the model: it shows the editor itself, with its options. */
   private opening = false;
+  /** View states of background editors that replaced others, for when they first show. */
+  private readonly pendingViewStates = new Map<EditorInput, object>();
 
   constructor(
     private readonly groupsView: IEditorGroupsView,
@@ -258,6 +260,35 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     return this.closeEditors(this.editors);
   }
 
+  async replaceEditors(editors: readonly IEditorReplacement[]): Promise<void> {
+    for (const { editor, replacement, options } of editors) {
+      const existing = this.model.findEditor(editor)?.[0];
+      if (!existing || this._disposed) {
+        continue;
+      }
+      const document = this.element.ownerDocument;
+      const hadFocus = this.element.contains(document.activeElement);
+      const active = this.model.isActive(existing);
+      // The replacement goes in front of the editor, which then leaves without a question: it is
+      // replaced, not closed by the user.
+      const viewState = options?.viewState ?? this.getViewState(existing);
+      const shown = this.openEditor(replacement, {
+        ...options,
+        viewState,
+        index: this.model.indexOf(existing),
+        inactive: !active,
+        preserveFocus: options?.preserveFocus ?? !hadFocus,
+      });
+      if (!active && viewState && this.model.contains(replacement)) {
+        this.pendingViewStates.set(replacement, viewState);
+      }
+      if (existing !== replacement && !existing.matches(replacement)) {
+        this.doCloseEditor(existing);
+      }
+      await shown;
+    }
+  }
+
   /** Whether closing `editor` here needs its close handler's answer: it wants to ask, and no other group shows it. */
   private shouldConfirmClose(editor: EditorInput): boolean {
     if (!editor.closeHandler?.showConfirm()) {
@@ -336,6 +367,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     if (!result) {
       return false;
     }
+    this.pendingViewStates.delete(result.editor);
     // The pane already moved on with the model's active editor (`onDidModelChange`).
     this.disposeIfUnused(result.editor);
 
@@ -413,8 +445,10 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       this.listenToTitleContext();
     }
     // The pane gets what it shows the editor with, not where the group put it.
+    const viewState = options.viewState ?? this.pendingViewStates.get(editor);
+    this.pendingViewStates.delete(editor);
     const shown = entry.pane.setInput(editor, {
-      preserveFocus: options.preserveFocus, viewState: options.viewState, selection: options.selection,
+      preserveFocus: options.preserveFocus, viewState, selection: options.selection,
     } as IEditorOpenOptions);
     if (!options.preserveFocus) {
       entry.pane.focus();

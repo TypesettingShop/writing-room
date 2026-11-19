@@ -117,6 +117,89 @@
 - 초안을 아직 쓰지 못했거나(변경 뒤 1초 안) 쓰기에 실패한 dirty 파일이 있으면 페이지를 떠날 때
   브라우저가 나가기 확인을 한다. 제목 없는 텍스트가 저장 한도를 넘을 때의 확인과는 따로 걸린다.
 
+## 닫기 전 확인
+
+- 고친 파일 탭과 텍스트가 있는 제목 없는 탭은 닫기 전에 퀵 픽으로 묻는다: 제목
+  `Do you want to save the changes you made to <이름>?`, 항목 **Save**, **Don't Save**(설명
+  `Your changes will be lost if you don't save them.`), **Cancel**. 고치지 않은 파일과 빈 제목 없는 탭은 묻지 않고 닫힌다.
+- 같은 에디터가 다른 그룹에도 열려 있으면 묻지 않는다. 텍스트는 남은 탭에 그대로 있다.
+- **Cancel**, Esc, 바깥 클릭, 다른 퀵 인풋이 뜨는 것은 모두 취소다. 취소하면 탭, 텍스트, 초안 백업이 그대로다.
+- **Save**: 파일은 저장하고, 저장이 실패하면(할당량, 충돌 물음의 Cancel) 닫지 않는다. 제목 없는 탭은 경로 대화상자로
+  어디에 저장할지 묻고, 경로를 고르지 않으면 닫지 않는다. 저장하면 탭이 닫힌다(파일 에디터를 대신 열지 않는다).
+- **Don't Save**: 파일은 고친 것을 버리고(파일은 그대로, 초안은 지운다) 닫는다. 제목 없는 탭은 텍스트와 함께 닫힌다.
+- 여러 에디터를 한 번에 닫으면(Close Others, Close All, Close All Editors) 하나씩 차례로 묻는다. 한 번이라도 취소하면
+  그 그룹에서 아무것도 닫지 않고, Close All Editors는 다음 그룹으로 넘어가지 않는다. 앞서 **Don't Save**로 답한 에디터는
+  고친 것을 버린 채 열려 있다.
+
+## 파일 커맨드와 키
+
+| 메뉴 (File) | 커맨드 | 키 (Linux·Windows / macOS) |
+| --- | --- | --- |
+| New Text File | `workbench.action.files.newUntitledFile` | Ctrl+Alt+N (Windows Ctrl+K N) / ⌥⌘N |
+| New File... | `workbench.action.files.newFile` | Ctrl+Alt+Super+N / ⌃⌥⌘N |
+| Save | `workbench.action.files.save` | Ctrl+S / ⌘S |
+| Save As... | `workbench.action.files.saveAs` | Ctrl+Shift+S / ⇧⌘S |
+| Save All | `saveAll` | 없음 (Windows Ctrl+K S) / ⌥⌘S |
+| Revert File | `workbench.action.files.revert` | 없음 |
+
+- 키와 커맨드 id는 VS Code 웹과 같다. 팔레트(F1)에서는 `File: Save As...`처럼 `File:`이 붙는다.
+- 브라우저나 운영체제가 먼저 가져가서 페이지에 닿지 않는 키가 있다: Firefox의 Ctrl+Shift+S(화면 캡처), 데스크톱이 Super
+  키를 쓰는 Linux의 Ctrl+Alt+Super+N, 브라우저의 Ctrl+N(새 창). 그때는 메뉴나 팔레트를 쓴다.
+- **New File...**: 경로 대화상자(제목 `Create File`, 기본 이름 `Untitled.txt`, 활성 파일의 폴더에서 시작)로 경로를 받아 빈
+  파일을 만들고 연다. 이미 있는 파일을 고르면 바꿀지 먼저 묻는다.
+- **Save**: 제목 없는 탭이면 경로를 묻는다(아래). 읽기 전용 파일은 저장하지 않는다.
+- **Save As...**: 경로 대화상자가 지금 파일의 폴더와 이름에서 시작한다. 고른 파일에 지금 텍스트를 쓰고, 그 파일 에디터가
+  같은 자리에 들어선다. 원래 파일은 디스크에 있던 대로 돌아간다(고친 것은 새 파일에 갔다). 고른 파일이 이미 열려 있으면 그
+  텍스트가 바뀌고 저장된다.
+- **Save All**: 고친 것 가운데 저장할 수 있는 것(읽기 전용이 아닌 것)만, 한 번씩 저장한다. 파일을 먼저, 그다음 제목 없는
+  탭을 하나씩 경로를 물어 저장한다. 경로 물음을 취소하면 거기서 멈춘다.
+- **Revert File**: 활성 파일 에디터의 고친 것을 버리고 파일을 다시 읽는다. 제목 없는 탭에서는 쓸 수 없다.
+
+### 제목 없는 탭 저장
+
+- Save, Save As..., 닫기 확인의 Save가 모두 경로를 묻는다. 대화상자는 기본 폴더(활성 파일의 폴더, 없으면 워크스페이스
+  폴더)에서 `Untitled-N` + 언어의 첫 확장자(평문은 `.txt`)를 이름으로 제안한다.
+- Save와 Save As...로 저장하면 파일 에디터가 같은 그룹의 같은 자리(탭 순서)에 들어서고, 커서와 스크롤이 그대로이며, 제목
+  없는 탭은 남지 않는다. 제목 없는 탭이 여러 그룹에 있었으면 모든 그룹에서 바뀐다. 실행 취소 기록은 이어지지 않는다.
+
+## 경로 대화상자
+
+파일을 고르는 대화상자는 브라우저의 것이 아니라 퀵 인풋이다(VS Code의 simple file dialog).
+
+- 목록: 지금 폴더의 내용이다. 맨 위에 저장 대화상자는 **Save**(제안한 이름의 경로가 설명에 있다), 폴더를 고르는 열기
+  대화상자는 **Open**(그 폴더를 고른다)이 오고, 그다음 **Type a Path...**(저장은 **Type a Name or Path...**), 맨 위
+  폴더가 아니면 `..`, 폴더(`이름/`), 파일 순이다. 폴더를 고르면 그 안으로 들어간다. 입력 칸에 친 글자는 목록을 거른다.
+- 경로 입력: **Type a ...** 항목이 입력 칸을 연다. 절대 경로(`/workspace/docs/a.md`)나 지금 폴더 기준 상대 경로를 받는다.
+  `.`과 `..`을 풀고 겹친 `/`를 정리한 뒤 판단한다. 폴더면 그 안으로 들어가고, 파일이면 고른다. 칠 때마다 확인해 이유를
+  입력 칸 아래에 보이고, 이유가 있는 동안 Enter는 받지 않는다:
+  - 워크스페이스 폴더 밖: `The path must be inside the workspace folder.`
+  - `\`나 제어 문자: `A path cannot hold "\" or control characters.`
+  - 255자를 넘는 이름: `A name in the path is longer than 255 characters.`
+  - 저장할 이름이 `.`, `..`이거나 `/`, `\`, 제어 문자를 담음: `This name is not valid as a file or folder name: ...`
+  - 없는 폴더 안의 경로, 열기에서 없는 파일: `Please enter a path that exists.`
+- 저장할 곳에 파일이 있으면 퀵 픽으로 묻는다: `<제목>: <이름> already exists. Do you want to replace it?`, **Replace** /
+  **Cancel**. Cancel은 목록으로 돌아간다.
+- 키보드만으로 쓸 수 있다: 위아래 화살표와 Enter, 입력 칸의 글자. 어느 물음에서든 Esc, 바깥 클릭, 다른 퀵 인풋이 뜨는 것은
+  대화상자 전체의 취소이며 아무것도 바꾸지 않는다.
+- 워크스페이스 폴더 밖으로는 `..`도, 친 경로도 나가지 못한다.
+
+## 대화상자 API
+
+`window.showOpenDialog(options?)`와 `window.showSaveDialog(options?)`는 위의 경로 대화상자를 연다.
+
+| 옵션 | 열기 | 저장 | 동작 |
+| --- | --- | --- | --- |
+| `defaultUri` | ✓ | ✓ | 시작 폴더. 파일이면 그 폴더에서 시작하고 저장은 그 이름을 제안한다. 워크스페이스 밖이면 기본 폴더에서 시작하고 이름만 제안한다 |
+| `title` | ✓ | ✓ | 대화상자 제목. 기본은 `Open File`, `Open Folder`, `Open`, `Save As` |
+| `openLabel` / `saveLabel` | ✓ | ✓ | 지금 폴더를 고르는 항목 / 제안한 이름으로 저장하는 항목의 이름 |
+| `canSelectFiles`, `canSelectFolders` | ✓ | | 둘 다 없으면 파일을 고른다(VS Code와 같다). 폴더만 고르면 파일을 보이지 않는다 |
+| `canSelectMany` | ✓ | | 받지만 한 번에 하나를 고른다. 결과는 언제나 배열이다 |
+| `filters` | ✓ | ✓ | 모든 필터의 확장자 합집합에 맞는 파일만 목록에 보인다. `*`가 있으면 모두 |
+
+- 결과는 워크스페이스 스킴(`vscode-vfs`)의 URI다. 메인 스레드는 옵션의 모양(불리언, 1,024자까지의 문자열, 필터 100개와
+  확장자 100개까지, `defaultUri`는 `Uri`)을 검사해 틀리면 호출을 거부하고, 돌려줄 URI가 정규화된 경로로 워크스페이스 폴더
+  안에 있는지 다시 확인한다. 아니면 `undefined`다. 취소도 `undefined`다.
+
 ## Deviations from VS Code
 
 - 텍스트 파일은 UTF-8만 읽고 쓴다. 인코딩 선택, 추측, 다시 열기가 없다 (wr-jrhv.q50).
@@ -130,8 +213,16 @@
 - 저장 실패 알림은 확장 메시지와 같은 토스트이며 Retry 같은 동작 버튼이 없다 (wr-jrhv.q50).
 - 텍스트 파일 에디터는 텍스트 에디터 페인과 오류 페인을 안에 둔 페인이다. VS Code의
   `TextFileEditor`는 텍스트 에디터를 상속한다 (wr-jrhv.q50).
-- 고친 파일 탭을 닫을 때 아직 묻지 않는다. 텍스트는 저장하거나 되돌릴 때까지 메모리에 남고,
-  초안은 다음 시작 때 열린 탭이 없으면 지워진다. 확인은 다음 멤버가 단다 (wr-jrhv.r4v).
+- 닫기 확인, 덮어쓰기 확인, 경로 대화상자는 모달 대화상자가 아니라 퀵 인풋이다. 여러 에디터를 닫을 때 한 번에 묻지 않고
+  하나씩 묻는다 (wr-jrhv.r4v).
+- 경로 대화상자의 목록은 친 경로를 따라 바뀌지 않는다. 경로는 **Type a Path...** 항목의 입력 칸에서 받고, 목록의 입력 칸은
+  거르기만 한다 — 퀵 인풋에 값이 바뀔 때 항목을 바꾸는 기능이 없다. `canSelectMany`로 여러 개를 고를 수 없고, 필터를 고르는
+  칸과 숨김 파일 토글, 없는 폴더를 만드는 물음이 없다 (wr-jrhv.r4v).
+- File > New File...은 파일 종류를 고르는 퀵 픽(`welcome.showNewFileEntries`)을 거치지 않고 바로 경로 대화상자를 연다. 키는
+  VS Code가 그 퀵 픽에 단 것이다 (wr-jrhv.r4v).
+- 다른 이름으로 저장이 열려 있지 않은 파일에 쓸 때는 저장 전 참여자(`onWillSave`)를 부르지 않고 바로 쓴다. 대상 파일이 열려
+  있으면 그 모델이 저장하므로 참여자가 돈다. 쓴 파일은 BOM 없는 UTF-8이다 (wr-jrhv.r4v).
+- 제목 없는 텍스트의 제안 이름은 첫 줄이 아니라 `Untitled-N`과 언어의 확장자다 (wr-jrhv.r4v).
 - 폴더를 독립 레코드로 저장해 빈 폴더를 새로고침 뒤에도 유지한다 (wr-lv5h.123).
   [VS Code의 웹 파일 제공자 초기화](vscode-web-build.md#24-webfactoryts의-create와-webmaints의-browsermain)
 - 만들기, 삭제, 이동, 복사의 작업 전후 이벤트는 파일 서비스가 전달한다.
@@ -147,4 +238,4 @@
   제공자 사이의 이동은 대상과 원본에 걸치는 순서 있는 작업으로 처리한다
   (wr-lv5h.gi4).
 
-Decided in: wr-efqx.n9k, wr-lv5h, wr-jrhv.q50
+Decided in: wr-efqx.n9k, wr-lv5h, wr-jrhv.q50, wr-jrhv.r4v

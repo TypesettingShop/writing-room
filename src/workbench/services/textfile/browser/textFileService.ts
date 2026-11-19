@@ -2,13 +2,16 @@ import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { MutableDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
+import { basename, isEqual, joinPath } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import type { IResolvedTextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IFileDialogService } from '../../dialogs/common/dialogs.js';
 import { IUntitledTextEditorService } from '../../untitled/common/untitledTextEditorService.js';
 import { TextFileBackups } from '../common/textFileBackup.js';
 import { TextFileEditorModelManager } from '../common/textFileEditorModelManager.js';
@@ -30,8 +33,8 @@ export class BrowserTextFileService extends UntitledTextFileService {
     @IUntitledTextEditorService untitledService: IUntitledTextEditorService,
     @IFileService private readonly fileService: IFileService,
     @IModelService private readonly modelService: IModelService,
-    @IWorkspaceContextService workspace: IWorkspaceContextService,
-    @IInstantiationService instantiationService: IInstantiationService,
+    @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
+    @IInstantiationService private readonly instantiationService: IInstantiationService,
   ) {
     super(untitledService);
     this.backups = new TextFileBackups(fileService, workspace.getWorkspace().id);
@@ -74,10 +77,112 @@ export class BrowserTextFileService extends UntitledTextFileService {
 
   override async save(resource: URI, options?: ITextFileSaveOptions): Promise<URI | undefined> {
     if (resource.scheme === Schemas.untitled) {
-      return super.save(resource, options);
+      // Untitled text has nowhere to go yet: ask where.
+      return this.saveAs(resource, undefined, options);
     }
     const model = this.files.get(resource);
     return model && await model.save(options) ? resource : undefined;
+  }
+
+  /**
+   * Writes the text of `source` to `target` (asked for when not given). A target that is open has
+   * its model take the text and save it, which runs the save participants and asks before
+   * overwriting a newer file; any other target is written directly. A file source drops its unsaved
+   * changes afterwards, as they are in the target now; untitled text goes with its editor.
+   */
+  override async saveAs(source: URI, target?: URI, options?: ITextFileSaveOptions): Promise<URI | undefined> {
+    if (!this.hasText(source)) {
+      return undefined;
+    }
+    if (!target) {
+      target = await this.pickSaveTarget(source);
+      if (!target) {
+        return undefined;
+      }
+    }
+    if (isEqual(source, target)) {
+      return source.scheme === Schemas.untitled ? undefined : this.save(source, options);
+    }
+    // Read once the dialog is done: nothing could be typed while it was open, but a reload could happen.
+    const text = await this.readText(source);
+    if (text === undefined || !await this.writeText(target, text, options)) {
+      return undefined;
+    }
+    if (source.scheme !== Schemas.untitled) {
+      await this.files.get(source)?.revert().catch(error => console.warn(`Could not revert ${source} after Save As.`, error));
+    }
+    return target;
+  }
+
+  private hasText(resource: URI): boolean {
+    return resource.scheme === Schemas.untitled ? this.untitledService.get(resource) !== undefined : this.fileService.hasProvider(resource);
+  }
+
+  private async readText(resource: URI): Promise<string | undefined> {
+    if (resource.scheme === Schemas.untitled) {
+      return this.untitledService.get(resource)?.getValue();
+    }
+    const model = this.files.get(resource)?.textEditorModel;
+    if (model) {
+      return model.getValue();
+    }
+    try {
+      const content = await this.fileService.readFile(resource);
+      return new TextDecoder('utf-8').decode(content.value);
+    } catch (error) {
+      console.warn(`Could not read ${resource} for Save As.`, error);
+      return undefined;
+    }
+  }
+
+  private async writeText(target: URI, text: string, options?: ITextFileSaveOptions): Promise<boolean> {
+    const open = this.files.get(target);
+    const model = open?.isResolved() && !open.isDisposed() ? open.textEditorModel : null;
+    if (open && model) {
+      if (model.getValue() !== text) {
+        const end = model.getPositionAt(model.getValueLength());
+        model.applyEdits([{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: end.lineNumber, endColumn: end.column }, text }]);
+      }
+      return open.save(options);
+    }
+    try {
+      await this.fileService.writeFile(target, new TextEncoder().encode(text));
+      return true;
+    } catch (error) {
+      this.files.saveErrorHandler.onSaveError(error, { resource: target });
+      return false;
+    }
+  }
+
+  /** The save dialog, from the file's own place, or for untitled text its name in the default folder. */
+  private async pickSaveTarget(source: URI): Promise<URI | undefined> {
+    return this.instantiationService.invokeFunction(async accessor => {
+      const dialogs = accessor.get(IFileDialogService);
+      if (source.scheme !== Schemas.untitled) {
+        return dialogs.pickFileToSave(source);
+      }
+      const folder = dialogs.defaultFilePath() ?? this.workspace.getWorkspace().folders[0]?.uri;
+      if (!folder) {
+        return undefined;
+      }
+      return dialogs.pickFileToSave(joinPath(folder, basename(source) + this.suggestedExtension(source)));
+    });
+  }
+
+  /** The first file extension of the untitled text's language; `.txt` for plain text or when none is known. */
+  private suggestedExtension(source: URI): string {
+    const languageId = this.untitledService.get(source)?.getLanguageId();
+    if (!languageId) {
+      return '.txt';
+    }
+    const extension = this.instantiationService.invokeFunction(accessor => {
+      try {
+        return accessor.get(ILanguageService).getExtensions(languageId)[0];
+      } catch {
+        return undefined;
+      }
+    });
+    return extension && /^\.[^/\\]+$/.test(extension) ? extension : '.txt';
   }
 
   override async revert(resource: URI, options?: ITextFileRevertOptions): Promise<void> {

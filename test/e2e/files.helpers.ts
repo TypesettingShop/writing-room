@@ -192,3 +192,34 @@ export async function focusEditorEnd(page: Page, group: Locator): Promise<void> 
   await group.locator('.monaco-editor .view-lines').first().click();
   await page.keyboard.press('ControlOrMeta+End');
 }
+
+/** The quick pick asking `title`, once it has focus. */
+export function quickPick(page: Page, title: string | RegExp): Locator {
+  return page.getByRole('combobox', { name: title });
+}
+
+/** The quick input box (no list) asking `title`. */
+export function quickInputBox(page: Page, title: string | RegExp): Locator {
+  return page.getByRole('textbox', { name: title });
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Clicks the quick pick option whose name starts with `label`. */
+export async function chooseOption(page: Page, label: string): Promise<void> {
+  await page.getByRole('listbox', { name: 'Results' }).getByRole('option', { name: new RegExp('^' + escapeRegExp(label)) }).click();
+}
+
+/** Answers the question asked before a dirty editor named `name` closes. */
+export async function answerCloseQuestion(page: Page, name: string, answer: 'Save' | "Don't Save" | 'Cancel'): Promise<void> {
+  await expect(quickPick(page, `Do you want to save the changes you made to ${name}?`)).toBeFocused();
+  await chooseOption(page, answer);
+}
+
+/** Runs a File menu item. */
+export async function fileMenu(page: Page, item: string): Promise<void> {
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'File', exact: true }).click();
+  await page.getByRole('menu', { name: 'File' }).getByRole('menuitem', { name: item, exact: true }).click();
+}

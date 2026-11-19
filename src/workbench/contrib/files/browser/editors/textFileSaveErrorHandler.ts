@@ -24,7 +24,7 @@ export function isStorageFullError(error: unknown): boolean {
 }
 
 /** The notification of a failed save. */
-export function describeSaveError(error: unknown, model: ITextFileEditorModel): string {
+export function describeSaveError(error: unknown, model: Pick<ITextFileEditorModel, 'resource'>): string {
   const name = basename(model.resource);
   if (isStorageFullError(error)) {
     return `Failed to save '${name}': The browser storage is full. Free up space and try again.`;
@@ -69,7 +69,7 @@ export class TextFileSaveErrorHandler extends Disposable implements ITextFileSav
     return choice?.id === 'overwrite' || choice?.id === 'revert' ? choice.id : 'cancel';
   }
 
-  onSaveError(error: unknown, model: ITextFileEditorModel): void {
+  onSaveError(error: unknown, model: Pick<ITextFileEditorModel, 'resource'>): void {
     console.warn(`Failed to save ${model.resource}.`, error);
     this.toasts.show('error', describeSaveError(error, model), [], () => {});
   }

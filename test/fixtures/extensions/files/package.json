@@ -1,0 +1,19 @@
+{
+  "name": "files-dialogs",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Files Dialog Fixture",
+  "browser": "./browser/extension",
+  "contributes": {
+    "commands": [
+      {
+        "command": "filesFixture.openMany",
+        "title": "Files Fixture: Open Many"
+      },
+      {
+        "command": "filesFixture.saveOutside",
+        "title": "Files Fixture: Save Starting Outside"
+      }
+    ]
+  }
+}

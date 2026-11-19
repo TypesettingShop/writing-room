@@ -1,12 +1,14 @@
 import { Event } from '../../../../../base/common/event.js';
 import { basename, dirname, isEqual, relativePath } from '../../../../../base/common/resources.js';
 import type { URI } from '../../../../../base/common/uri.js';
+import type { IResourceEditorInput } from '../../../../../platform/editor/common/editor.js';
 import type { IReference, IResolvedTextEditorModel, ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import type { GroupIdentifier } from '../../../../common/editor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
-import type { IRevertOptions, ISaveOptions } from '../../../../common/editor/editorInput.js';
+import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../../../common/editor/editorInput.js';
+import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 
 export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
@@ -27,14 +29,22 @@ export class FileEditorInput extends EditorInput {
   private reference: Promise<IReference<IResolvedTextEditorModel>> | undefined;
   private restoredDirty: boolean;
 
+  /** A dirty file asks Save, Don't Save or Cancel before its last tab closes. */
+  override readonly closeHandler: IEditorCloseHandler;
+
   constructor(
     private readonly target: URI,
     options: IFileEditorInputOptions = {},
     @ITextFileService private readonly textFileService: ITextFileService,
     @ITextModelService private readonly textModelService: ITextModelService,
     @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
+    @IFileDialogService fileDialogService: IFileDialogService,
   ) {
     super();
+    this.closeHandler = {
+      showConfirm: () => this.isDirty(),
+      confirm: editors => fileDialogService.showSaveConfirm(editors.map(({ editor }) => editor.getName())),
+    };
     this.restoredDirty = options.restoredDirty ?? false;
     const files = textFileService.files;
     const mine = <T extends { readonly resource: URI }>(event: Event<T>) => Event.filter(event, model => isEqual(model.resource, this.target));
@@ -114,11 +124,30 @@ export class FileEditorInput extends EditorInput {
   }
 
   override async save(_group: GroupIdentifier, options?: ISaveOptions): Promise<EditorInput | undefined> {
+    await this.resolveForChange();
     return await this.textFileService.save(this.target, options) ? this : undefined;
   }
 
+  /** Saves the text to a file the user picks; the result names that file, which opens in this editor's place. */
+  override async saveAs(_group: GroupIdentifier, options?: ISaveOptions): Promise<EditorInput | IResourceEditorInput | undefined> {
+    await this.resolveForChange();
+    const target = await this.textFileService.saveAs(this.target, undefined, options);
+    return target ? { resource: target } : undefined;
+  }
+
   override async revert(_group: GroupIdentifier, options?: IRevertOptions): Promise<void> {
+    await this.resolveForChange();
     await this.textFileService.revert(this.target, options);
+  }
+
+  /**
+   * A tab restored with a draft has no model until it is shown; saving or reverting it acts on the
+   * draft, so the model is read first. A file that cannot be read has nothing to save or revert.
+   */
+  private async resolveForChange(): Promise<void> {
+    if (!this.isDisposed() && !this.textFileService.files.get(this.target)?.isResolved()) {
+      await this.resolve().catch(() => undefined);
+    }
   }
 
   override matches(other: EditorInput): boolean {
