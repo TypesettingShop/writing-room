@@ -12,6 +12,7 @@ import type { RPCProtocol } from '../../services/extensions/common/rpcProtocol.j
 export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
   private readonly activator: ExtensionsActivator;
   private readonly contributions: ReadonlyMap<string, ExtHostApiContribution>;
+  private readonly apiReady: Promise<void[]>;
 
   constructor(rpc: RPCProtocol, load: ExtensionLoader) {
     this.contributions = extHostApiRegistry.create({
@@ -28,6 +29,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
         return result;
       },
     });
+    this.apiReady = Promise.all([...this.contributions.values()].map(contribution => contribution.ready));
     this.activator = new ExtensionsActivator(
       rpc.getProxy(MainContext.MainThreadExtensionService),
       load,
@@ -43,6 +45,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
   }
 
   async $activateByEvent(event: string, origin?: string): Promise<void> {
+    await this.apiReady;
     await this.activator.activateByEvent(event, origin);
   }
 
