@@ -132,7 +132,8 @@ export interface ITextMateTokenizationService extends BrandedService {
 }
 
 interface ITokenizer {
-  readonly grammar: IContributedGrammar;
+  /** The grammars signature it was made under: equal contributions give equal signatures, not equal objects. */
+  readonly signature: string;
   readonly registration: IDisposable;
 }
 
@@ -328,59 +329,71 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
   }
 
   private async attach(languageId: string): Promise<void> {
+    const signature = this.signature;
     const grammar = this.grammarOf(languageId);
-    if (!grammar || this.tokenizers.get(languageId)?.grammar === grammar) {
+    if (!grammar || this.tokenizers.get(languageId)?.signature === signature) {
       return;
     }
     const attempt = ++this.generation;
     this.attaching.set(languageId, attempt);
-    const isCurrent = () => this.attaching.get(languageId) === attempt && this.grammarOf(languageId) === grammar;
-    const monaco = this.monaco ??= await this.loadMonaco();
-    const registry = await this.ensureRegistry();
-    if (!registry || !isCurrent()) {
-      return;
-    }
-    const embeddedLanguages: Record<string, number> = {};
-    for (const [scope, embedded] of Object.entries(grammar.embeddedLanguages)) {
-      // A scope of an unknown language stays in the outer language.
-      if (this.languageService.isRegisteredLanguageId(embedded)) {
-        embeddedLanguages[scope] = monaco.languages.getEncodedLanguageId(embedded);
-      }
-    }
-    const encodedLanguageId = monaco.languages.getEncodedLanguageId(languageId);
-    let loaded: IGrammar | null;
+    // The extension service hands over new but equal contributions on every refresh (a theme change, say),
+    // so what counts is the signature, not the objects.
+    const isCurrent = () => this.attaching.get(languageId) === attempt && this.signature === signature;
     try {
-      loaded = await registry.loadGrammarWithConfiguration(grammar.scopeName, encodedLanguageId, {
-        embeddedLanguages,
-        tokenTypes: { ...grammar.tokenTypes } as Record<string, number> as never,
-        balancedBracketSelectors: grammar.balancedBracketSelectors ? [...grammar.balancedBracketSelectors] : ['*'],
-        unbalancedBracketSelectors: grammar.unbalancedBracketSelectors ? [...grammar.unbalancedBracketSelectors] : [],
-      });
-    } catch (error) {
-      if (!this.failedScopes.has(grammar.scopeName)) {
-        console.warn(`[${grammar.extensionId}] The grammar of '${grammar.scopeName}' could not be loaded; '${languageId}' keeps its built-in coloring.`, error);
+      const monaco = this.monaco ??= await this.loadMonaco();
+      const registry = await this.ensureRegistry();
+      if (!registry || !isCurrent()) {
+        return;
       }
-      return;
+      const embeddedLanguages: Record<string, number> = {};
+      for (const [scope, embedded] of Object.entries(grammar.embeddedLanguages)) {
+        // A scope of an unknown language stays in the outer language.
+        if (this.languageService.isRegisteredLanguageId(embedded)) {
+          embeddedLanguages[scope] = monaco.languages.getEncodedLanguageId(embedded);
+        }
+      }
+      const encodedLanguageId = monaco.languages.getEncodedLanguageId(languageId);
+      let loaded: IGrammar | null;
+      try {
+        loaded = await registry.loadGrammarWithConfiguration(grammar.scopeName, encodedLanguageId, {
+          embeddedLanguages,
+          tokenTypes: { ...grammar.tokenTypes } as Record<string, number> as never,
+          balancedBracketSelectors: grammar.balancedBracketSelectors ? [...grammar.balancedBracketSelectors] : ['*'],
+          unbalancedBracketSelectors: grammar.unbalancedBracketSelectors ? [...grammar.unbalancedBracketSelectors] : [],
+        });
+      } catch (error) {
+        if (!this.failedScopes.has(grammar.scopeName)) {
+          console.warn(`[${grammar.extensionId}] The grammar of '${grammar.scopeName}' could not be loaded; '${languageId}' keeps its built-in coloring.`, error);
+        }
+        return;
+      }
+      if (!loaded) {
+        return;
+      }
+      // Monaco sets a built-in language's own tokenizer when it first meets it; this one goes after it.
+      await waitForBuiltinLanguage(monaco, languageId);
+      if (!isCurrent() || this.registry?.registry !== registry) {
+        return;
+      }
+      if (!this.colorMapApplied) {
+        this.applyColorMap(monaco, registry);
+      }
+      this.restored.get(languageId)?.dispose();
+      this.restored.delete(languageId);
+      this.tokenizers.get(languageId)?.registration.dispose();
+      this.tokenizers.delete(languageId);
+      const provider = new TextMateTokensProvider(loaded, this.registry.runtime.textMate.INITIAL, encodedLanguageId, languageId);
+      try {
+        const registration = monaco.languages.setTokensProvider(languageId, provider as unknown as IEncodedTokensProvider);
+        this.tokenizers.set(languageId, { signature, registration });
+      } catch (error) {
+        console.warn(`[${languageId}] Could not use the grammar of '${grammar.scopeName}':`, error);
+      }
+    } finally {
+      if (this.attaching.get(languageId) === attempt) {
+        this.attaching.delete(languageId);
+      }
     }
-    if (!loaded) {
-      return;
-    }
-    // Monaco sets a built-in language's own tokenizer when it first meets it; this one goes after it.
-    await waitForBuiltinLanguage(monaco, languageId);
-    if (!isCurrent() || this.registry?.registry !== registry) {
-      return;
-    }
-    if (!this.colorMapApplied) {
-      this.applyColorMap(monaco, registry);
-    }
-    this.restored.get(languageId)?.dispose();
-    this.restored.delete(languageId);
-    this.tokenizers.get(languageId)?.registration.dispose();
-    const { textMate } = this.registry.runtime;
-    const provider = new TextMateTokensProvider(loaded, textMate.INITIAL, encodedLanguageId, languageId);
-    const registration = monaco.languages.setTokensProvider(languageId, provider as unknown as IEncodedTokensProvider);
-    this.tokenizers.set(languageId, { grammar, registration });
-    this.attaching.delete(languageId);
   }
 
   /** Gives a built-in language its own tokenizer again, which Monaco sets only once per language. */
@@ -391,10 +404,10 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
     if (!monaco || typeof loader !== 'function') {
       return;
     }
-    const attempt = this.generation;
     try {
       const module = await loader();
-      if (module.language && attempt === this.generation && !this.tokenizers.has(languageId)) {
+      // Only while the language still has no grammar: one that came back meanwhile has its own tokenizer.
+      if (module.language && !this.grammarOf(languageId) && !this.tokenizers.has(languageId) && !this.attaching.has(languageId)) {
         this.restored.get(languageId)?.dispose();
         this.restored.set(languageId, monaco.languages.setMonarchTokensProvider(languageId, module.language as never));
       }

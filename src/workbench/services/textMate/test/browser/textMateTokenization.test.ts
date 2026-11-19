@@ -269,3 +269,14 @@ test('reads Monaco\'s color map from its style rules, in hex and rgba', () => {
     .toEqual(['', '#D4D4D4', '#1E1E1E', '#FF000080']);
   expect(readMonacoColorMap(monaco, { querySelector: () => null } as unknown as Document)).toBeUndefined();
 });
+
+test('an equal refresh of the contributions while a grammar loads does not lose it', async () => {
+  contribute(fixturelangGrammar);
+  const setup = createFeature(theme(keywordRules('#569cd6')));
+  setup.models.add('fixturelang');
+  // What the extension service does on a theme change: the same grammars again, as new objects.
+  contribute(fixturelangGrammar);
+  await flush(10);
+  expect(setup.monaco.live('fixturelang')).toBeDefined();
+  expect(setup.monaco.providers.get('fixturelang')).toHaveLength(1);
+});
