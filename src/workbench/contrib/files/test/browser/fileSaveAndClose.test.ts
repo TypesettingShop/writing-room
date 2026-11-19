@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Event } from '../../../../../base/common/event.js';
 import { formatKeybinding } from '../../../../../base/common/keybindingLabels.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
@@ -244,6 +245,42 @@ describe('closing asks first', () => {
     expect(down.editors).toEqual([fourth]);
     expect([second, third, fourth].map(editor => editor.model.getValue())).toEqual(['two', 'three', 'four']);
   });
+});
+
+test('startup reuses file tabs opened during recovery and leaves the active group, editor and focus in place', async () => {
+  const { FileBackupRestorer } = await import('../../browser/fileBackupRestorer.js');
+  const textFiles = service(ITextFileService) as BrowserTextFileService;
+  const meta = { etag: undefined, bom: false };
+  await textFiles.backups.write(file('a.md'), 'existing draft', meta);
+  await textFiles.backups.write(file('missing.md'), 'tabless draft', meta);
+  const resume = new DeferredPromise<void>();
+  const listRestorable = textFiles.backups.listRestorable.bind(textFiles.backups);
+  vi.spyOn(textFiles.backups, 'listRestorable').mockImplementationOnce(async () => {
+    await resume.p;
+    return listRestorable();
+  });
+  instantiation.createInstance(FileBackupRestorer);
+
+  const left = part.activeGroup;
+  const leftInput = await openFile('a.md', left);
+  const right = part.addGroup(left, GroupDirection.RIGHT);
+  const rightInput = await openFile('a.md', right);
+  const active = await openFile('b.md', right);
+  const focus = document.body.appendChild(document.createElement('button'));
+  disposables.add({ dispose: () => focus.remove() });
+  focus.focus();
+  await resume.complete();
+
+  await vi.waitFor(() => expect(names(right.editors)).toEqual(['a.md', 'b.md', 'missing.md']));
+  expect(left.editors).toEqual([leftInput]);
+  expect(right.editors.slice(0, 2)).toEqual([rightInput, active]);
+  expect(part.activeGroup).toBe(right);
+  expect(right.activeEditor).toBe(active);
+  expect(document.activeElement).toBe(focus);
+  expect(leftInput.isDirty()).toBe(true);
+  expect(rightInput.isDirty()).toBe(true);
+  await right.editors[2].resolve();
+  expect(textFiles.files.get(file('missing.md'))?.textEditorModel?.getValue()).toBe('tabless draft');
 });
 
 describe('Explorer deletion of files with drafts outside the editor groups', () => {
