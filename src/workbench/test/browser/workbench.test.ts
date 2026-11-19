@@ -206,6 +206,11 @@ describe('Workbench', () => {
     expect(open!.element.getAttribute('role')).toBe('tabpanel');
     expect(context.getContextKeyValue('activePanel')).toBe(explorer.id);
     expect(context.getContextKeyValue('panelVisible')).toBe(true);
+    const extensions = descriptors.getViewContainerById('workbench.view.extensions')!;
+    expect(context.getContextKeyValue('activeViewlet')).toBe(extensions.id);
+    expect(context.getContextKeyValue('sideBarVisible')).toBe(true);
+    // Explorer is already docked. Move the remaining container to exercise an empty sidebar.
+    descriptors.moveViewContainerToLocation(extensions, ViewContainerLocation.Panel);
     expect(context.getContextKeyValue('activeViewlet')).toBe('');
     expect(context.getContextKeyValue('sideBarVisible')).toBe(false);
     expect(await views.openViewContainer(explorer.id)).toBe(open);
