@@ -173,15 +173,17 @@ test('docks, configures and restores a workbench with built-in and URL-installed
         return [...extra];
       };
     });
+    let extra: string[];
     try {
       await dragTo(page, tab(originalGroup, 'Welcome'), await groupPoint(textGroup, 0.5, 0.95), overlay, dropPosition, 'down');
       await expect(groups).toHaveCount(2);
       await expectTiled(editor, textGroup, originalGroup, 'vertical');
     } finally {
-      const extra = await addedGroups.evaluate(finish => finish());
+      extra = await addedGroups.evaluate(finish => finish());
       await addedGroups.dispose();
-      expect(extra).toEqual([]);
     }
+    // Checked after the block, so a failed drag reports its own error rather than this one.
+    expect(extra).toEqual([]);
     await tab(textGroup, 'Untitled-2').click();
     await expect.poll(() => renderedText(textGroup)).toBe(draft);
   });
@@ -236,6 +238,8 @@ test('docks, configures and restores a workbench with built-in and URL-installed
     await palette(page, 'Run Remote Fixture');
     await expect(page.getByRole('option', { name: remoteCommand })).toHaveCount(0);
     await page.keyboard.press('Escape');
+    // Checked again after the cancel, so a request sent after the confirmation appeared is not missed.
+    expect(remoteRequests).toEqual(['/remote/package.json']);
 
     await (await prepareInstall()).click();
     await expect(remote).toBeVisible();

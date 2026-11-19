@@ -12,7 +12,7 @@ const uriPattern = /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:
 /**
  * A resource identifier. Unlike VS Code's `URI` this one does not percent-encode: it keeps the
  * components as given and `toString` joins them, which is enough for the generated resources
- * (`untitled:Untitled-1`) the workbench has in v0.1.0.
+ * (`untitled:Untitled-1`, `vscode-userdata:/User/settings.json`) the workbench has in v0.1.0.
  */
 export class URI implements Required<UriComponents> {
   private constructor(

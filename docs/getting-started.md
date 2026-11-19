@@ -24,7 +24,9 @@ npm run dev
 
 **F1**, **Ctrl+Shift+P**(macOS에서는 **Cmd+Shift+P**) 또는 **View → Command Palette**로 커맨드 팔레트를 연다. 커맨드 이름의 일부를 입력하고 **Enter**로 선택한다. 키가 연결된 커맨드는 메뉴와 팔레트에 키를 표시한다. **Ctrl+B**로 사이드바를, **Ctrl+J**로 패널을 표시하거나 숨긴다. macOS에서는 두 키의 **Ctrl** 대신 **Cmd**를 쓴다.
 
-브라우저가 **Ctrl+N**, **Ctrl+W**, **Ctrl+T**와 macOS의 대응 키를 자체 창이나 탭에 사용할 수 있다. 워크벤치에서는 **File → New Text File**, 탭의 닫기 버튼, 팔레트의 **File: New Untitled Text File**과 **View: Close All Editors**를 사용할 수 있다.
+새 텍스트 파일은 **Ctrl+Alt+N**으로 연다. Windows에서는 **Ctrl+K**를 누른 뒤 **N**을 누르고, macOS에서는 **Cmd+Option+N**을 쓴다. **File → New Text File**이나 팔레트의 **File: New Untitled Text File**로도 열 수 있다.
+
+브라우저는 **Ctrl+N**, **Ctrl+W**, **Ctrl+T**와 macOS의 대응 키를 자체 창이나 탭에 사용할 수 있다. 워크벤치의 에디터를 닫으려면 탭의 닫기 버튼이나 팔레트의 **View: Close All Editors**를 사용한다.
 
 ## 사용자 설정 편집하기
 
@@ -44,7 +46,7 @@ v0.1.0은 탭 편집, 도킹, 설정 JSON, 웹 확장에 집중한다. 파일 �
 
 ## 검증하기
 
-- `npm run typecheck`는 TypeScript를 확인하고, `npm test`는 Vitest 단위 테스트를 실행한다.
+- `npm run typecheck`는 TypeScript를 확인하고, `npm test`는 Vitest 단위 테스트를 실행한다. 단위 테스트가 쓰는 jsdom에는 레이아웃이 없어 `getBoundingClientRect()`가 크기 0의 사각형을 돌려준다.
 - 처음 브라우저 테스트를 실행하기 전에 `npx playwright install chromium`으로 Chromium을 설치한다. `npm run test:e2e -- --workers=2`는 개발 서버에서 브라우저 스위트를 실행한다. `E2E_TARGET=preview npm run test:e2e -- --workers=2`는 새 프로덕션 빌드를 만든 뒤 같은 스위트를 실행한다. 앱과 원격 확장 픽스처 서버는 Playwright가 각각 시작한다.
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 

@@ -62,6 +62,9 @@ test('tabs switch content and close without activating background tabs', async (
   await expect.poll(() => renderedText(g)).toBe('gamma');
   // Selecting text can populate the Linux primary selection. Closing a tab must preserve the draft.
   await page.keyboard.press('ControlOrMeta+a');
+  // The browser copies the selection to the primary selection a moment later, and nothing in the
+  // page shows when. Collapsing it sooner leaves the primary selection empty and the check moot.
+  await page.waitForTimeout(500);
   await page.keyboard.press('End');
   await g.getByRole('tab', { name: 'Untitled-2' }).click({ button: 'middle' });
   await expect(g.getByRole('tab', { name: 'Untitled-2' })).toHaveCount(0);

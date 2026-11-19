@@ -1,7 +1,8 @@
 import { $, addDisposableListener, append, DragAndDropObserver } from '../../../../base/browser/dom.js';
 import type { MenuAction, MenuGroup } from '../../../../base/browser/ui/menu/menu.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { IMenuService, MenuId } from '../../../../platform/actions/common/actions.js';
 import type { MenuActionGroup } from '../../../../platform/actions/common/actions.js';
 import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
@@ -264,15 +265,22 @@ export class MultiEditorTabsControl extends Disposable {
     }));
 
     const editorIndex = () => this.group.getIndexOfEditor(editor);
-    const preventMiddleButtonDefault = (event: MouseEvent) => {
-      // The press can start autoscroll. Releasing can paste the primary selection on Linux.
-      // The tab still closes on auxclick.
-      if (event.button === 1) {
-        event.preventDefault();
+    const middleRelease = disposables.add(new MutableDisposable<IDisposable>());
+    disposables.add(addDisposableListener(element, 'mousedown', (event: MouseEvent) => {
+      if (event.button !== 1) {
+        return;
       }
-    };
-    disposables.add(addDisposableListener(element, 'mousedown', preventMiddleButtonDefault));
-    disposables.add(addDisposableListener(element, 'mouseup', preventMiddleButtonDefault));
+      // The press would start autoscroll. Preventing it also keeps focus where it was, and on Linux
+      // the release would then paste the primary selection there, wherever the pointer is let go.
+      // The tab still closes on auxclick.
+      event.preventDefault();
+      middleRelease.value = addDisposableListener(element.ownerDocument, 'mouseup', (release: MouseEvent) => {
+        if (release.button === 1) {
+          release.preventDefault();
+          middleRelease.clear();
+        }
+      }, true);
+    }));
     disposables.add(addDisposableListener(element, 'click', (event: MouseEvent) => {
       if (event.button === 0 && !close.contains(event.target as Node)) {
         void this.group.openEditor(editor);
