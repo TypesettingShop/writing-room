@@ -40,12 +40,13 @@ export class ContributionSlot<T> {
   }
 }
 
-/** The languages extensions contribute right now, in extension order. */
-export const languageContributions = new ContributionSlot<IContributedLanguage>();
-
-function isStringArray(value: unknown): value is string[] {
+/** A manifest value that is an array of strings. */
+export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
+
+/** The languages extensions contribute right now, in extension order. */
+export const languageContributions = new ContributionSlot<IContributedLanguage>();
 
 /** VS Code's `isValidLanguageExtensionPoint`: a wrong field rejects the entry, with a message naming it. */
 function validateLanguage(value: unknown, path: string, collector: ExtensionMessageCollector): boolean {
@@ -112,8 +113,13 @@ ExtensionsRegistry.registerExtensionPoint<unknown[]>({
   },
 });
 
+/** A stable text for a set of definitions: `URI.toJSON` writes a configuration file as its components. */
 function signature(definitions: readonly ILanguageDefinition[]): string {
-  return JSON.stringify(definitions, (key, value: unknown) => value instanceof URI ? value.toString() : value);
+  return JSON.stringify(definitions);
+}
+
+function createRegistry(definitions: readonly ILanguageDefinition[]): LanguagesRegistry {
+  return new LanguagesRegistry(definitions, message => console.warn(message));
 }
 
 /**
@@ -136,7 +142,9 @@ export class WorkbenchLanguageService extends Disposable implements ILanguageSer
 
   constructor() {
     super();
-    [this.registry, this.registrySignature] = this.build();
+    const definitions = this.definitions();
+    this.registry = createRegistry(definitions);
+    this.registrySignature = signature(definitions);
     this._register(languageContributions.onDidChange(() => this.update()));
   }
 
@@ -162,18 +170,18 @@ export class WorkbenchLanguageService extends Disposable implements ILanguageSer
     return this.registry.getConfigurationFiles(languageId);
   }
 
-  private build(): [LanguagesRegistry, string] {
-    const definitions = [...this.builtin, ...languageContributions.current];
-    const registry = new LanguagesRegistry(definitions, message => console.warn(message));
-    return [registry, signature(definitions)];
+  private definitions(): ILanguageDefinition[] {
+    return [...this.builtin, ...languageContributions.current];
   }
 
   private update(): void {
-    const definitions = [...this.builtin, ...languageContributions.current];
-    if (signature(definitions) === this.registrySignature) {
+    const definitions = this.definitions();
+    const next = signature(definitions);
+    if (next === this.registrySignature) {
       return;
     }
-    [this.registry, this.registrySignature] = this.build();
+    this.registry = createRegistry(definitions);
+    this.registrySignature = next;
     this._onDidChange.fire();
   }
 

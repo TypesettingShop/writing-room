@@ -1,5 +1,6 @@
 import { parseJSONC } from '../../../../base/common/jsonc.js';
 import { isRecord } from '../../../../platform/extensions/common/extensionValidator.js';
+import { isStringArray } from '../../../services/language/common/languageService.js';
 
 /** A file holds at most this many snippets; the rest are left out. */
 export const MAX_SNIPPETS_PER_FILE = 5_000;
@@ -12,10 +13,6 @@ export interface ISnippet {
   /** The body in snippet syntax: tab stops, placeholders, choices and variables. */
   readonly body: string;
   readonly description?: string;
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
 /**

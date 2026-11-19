@@ -10,12 +10,12 @@ import type { BrandedService } from '../../../../platform/instantiation/common/i
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import type { IColorTheme } from '../../../../platform/theme/common/themeService.js';
 import { extensionResourceLimits } from '../../extensions/common/extensionResources.js';
-import { waitForBuiltinLanguage } from '../../language/browser/monacoLanguages.js';
+import { builtinLoader, waitForBuiltinLanguage } from '../../language/browser/monacoLanguages.js';
 import { watchRequestedLanguages } from '../../language/common/requestedLanguages.js';
 import { grammarContributions, grammarsSignature } from '../common/TMGrammars.js';
 import type { IContributedGrammar } from '../common/TMGrammars.js';
 import type { ITextMateRuntime } from './textMateRuntime.js';
-import type { IGrammar, IRawGrammar, IRawTheme, Registry, StateStack } from 'vscode-textmate';
+import type { IGrammar, IGrammarConfiguration, IRawGrammar, IRawTheme, Registry, StateStack } from 'vscode-textmate';
 
 type Monaco = MonacoNamespace;
 type IEncodedTokensProvider = Parameters<Monaco['languages']['setTokensProvider']>[1] & { tokenizeEncoded: unknown };
@@ -168,8 +168,11 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
   private readonly requested = new Set<string>();
   private readonly tokenizers = new Map<string, ITokenizer>();
   private readonly restored = new Map<string, IDisposable>();
+  /** Built-in languages whose own tokenizer a grammar replaced; Monaco never sets it again by itself. */
+  private readonly displaced = new Set<string>();
   private readonly attaching = new Map<string, number>();
   private generation = 0;
+  private disposed = false;
   private colorMapApplied = false;
   private warnedRuntime = false;
   private readonly warnedGrammars = new Set<string>();
@@ -193,7 +196,8 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
       void this.attach(languageId);
     }));
     this._register(toDisposable(() => {
-      this.generation++;
+      // An attach in flight sees it is no longer current and registers nothing.
+      this.disposed = true;
       for (const { registration } of this.tokenizers.values()) {
         registration.dispose();
       }
@@ -202,7 +206,10 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
         restore.dispose();
       }
       this.restored.clear();
+      this.registry?.registry.dispose();
+      this.registry = undefined;
       if (this.colorMapApplied) {
+        this.colorMapApplied = false;
         this.monaco?.languages.setColorMap(null);
       }
     }));
@@ -238,6 +245,7 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
       return;
     }
     this.signature = signature;
+    const previous = this.registry;
     this.registry = undefined;
     this.warnedGrammars.clear();
     this.failedScopes.clear();
@@ -248,7 +256,9 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
         void this.restoreBuiltin(languageId);
       }
     }
-    if (!this.tokenizers.size && this.colorMapApplied && ![...this.requested].some(languageId => this.grammarOf(languageId))) {
+    // Its grammars hold Oniguruma scanners in WebAssembly memory, which only `dispose` frees.
+    previous?.registry.dispose();
+    if (this.colorMapApplied && ![...this.requested].some(languageId => this.grammarOf(languageId))) {
       this.colorMapApplied = false;
       this.monaco?.languages.setColorMap(null);
     }
@@ -269,6 +279,9 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
         this.warnedRuntime = true;
         console.warn('Could not load the TextMate engine; languages keep their built-in coloring.', error);
       }
+      return undefined;
+    }
+    if (this.disposed) {
       return undefined;
     }
     if (this.registry?.signature === this.signature) {
@@ -338,29 +351,17 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
     this.attaching.set(languageId, attempt);
     // The extension service hands over new but equal contributions on every refresh (a theme change, say),
     // so what counts is the signature, not the objects.
-    const isCurrent = () => this.attaching.get(languageId) === attempt && this.signature === signature;
+    const isCurrent = () => !this.disposed && this.attaching.get(languageId) === attempt && this.signature === signature;
     try {
       const monaco = this.monaco ??= await this.loadMonaco();
       const registry = await this.ensureRegistry();
       if (!registry || !isCurrent()) {
         return;
       }
-      const embeddedLanguages: Record<string, number> = {};
-      for (const [scope, embedded] of Object.entries(grammar.embeddedLanguages)) {
-        // A scope of an unknown language stays in the outer language.
-        if (this.languageService.isRegisteredLanguageId(embedded)) {
-          embeddedLanguages[scope] = monaco.languages.getEncodedLanguageId(embedded);
-        }
-      }
       const encodedLanguageId = monaco.languages.getEncodedLanguageId(languageId);
       let loaded: IGrammar | null;
       try {
-        loaded = await registry.loadGrammarWithConfiguration(grammar.scopeName, encodedLanguageId, {
-          embeddedLanguages,
-          tokenTypes: { ...grammar.tokenTypes } as Record<string, number> as never,
-          balancedBracketSelectors: grammar.balancedBracketSelectors ? [...grammar.balancedBracketSelectors] : ['*'],
-          unbalancedBracketSelectors: grammar.unbalancedBracketSelectors ? [...grammar.unbalancedBracketSelectors] : [],
-        });
+        loaded = await registry.loadGrammarWithConfiguration(grammar.scopeName, encodedLanguageId, this.grammarConfiguration(monaco, grammar));
       } catch (error) {
         if (!this.failedScopes.has(grammar.scopeName)) {
           console.warn(`[${grammar.extensionId}] The grammar of '${grammar.scopeName}' could not be loaded; '${languageId}' keeps its built-in coloring.`, error);
@@ -386,30 +387,60 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
       try {
         const registration = monaco.languages.setTokensProvider(languageId, provider as unknown as IEncodedTokensProvider);
         this.tokenizers.set(languageId, { signature, registration });
+        this.displaced.add(languageId);
       } catch (error) {
         console.warn(`[${languageId}] Could not use the grammar of '${grammar.scopeName}':`, error);
       }
     } finally {
       if (this.attaching.get(languageId) === attempt) {
         this.attaching.delete(languageId);
+        // A grammar that could not be used after an earlier one was released leaves the language without
+        // a tokenizer; it gets its built-in one back, as when the engine or the grammar never loaded.
+        if (!this.disposed && !this.tokenizers.has(languageId)) {
+          void this.restoreBuiltin(languageId);
+        }
       }
     }
   }
 
-  /** Gives a built-in language its own tokenizer again, which Monaco sets only once per language. */
+  /**
+   * The configuration a grammar is created with. The registry creates a scope's grammar once, with the
+   * configuration of its first load, so every load passes this one.
+   */
+  private grammarConfiguration(monaco: Monaco, grammar: IContributedGrammar): IGrammarConfiguration {
+    const embeddedLanguages: Record<string, number> = {};
+    for (const [scope, embedded] of Object.entries(grammar.embeddedLanguages)) {
+      // A scope of an unknown language stays in the outer language.
+      if (this.languageService.isRegisteredLanguageId(embedded)) {
+        embeddedLanguages[scope] = monaco.languages.getEncodedLanguageId(embedded);
+      }
+    }
+    return {
+      embeddedLanguages,
+      tokenTypes: { ...grammar.tokenTypes } as Record<string, number> as never,
+      balancedBracketSelectors: grammar.balancedBracketSelectors ? [...grammar.balancedBracketSelectors] : ['*'],
+      unbalancedBracketSelectors: grammar.unbalancedBracketSelectors ? [...grammar.unbalancedBracketSelectors] : [],
+    };
+  }
+
+  /**
+   * Gives a built-in language whose tokenizer a grammar replaced its own tokenizer again, which Monaco sets
+   * only once per language.
+   */
   private async restoreBuiltin(languageId: string): Promise<void> {
     const monaco = this.monaco;
-    const definition = monaco?.languages.getLanguages().find(candidate => candidate.id === languageId);
-    const loader = (definition as { loader?: () => Promise<{ language?: unknown }> } | undefined)?.loader;
-    if (!monaco || typeof loader !== 'function') {
+    const loader = monaco && builtinLoader(monaco.languages.getLanguages().find(candidate => candidate.id === languageId));
+    if (!monaco || !loader || !this.displaced.has(languageId)) {
       return;
     }
     try {
-      const module = await loader();
-      // Only while the language still has no grammar: one that came back meanwhile has its own tokenizer.
-      if (module.language && !this.grammarOf(languageId) && !this.tokenizers.has(languageId) && !this.attaching.has(languageId)) {
+      const module = await loader() as { language?: unknown };
+      // Only while the language still has no tokenizer: a grammar that came back meanwhile has its own.
+      if (module.language && !this.disposed && this.displaced.has(languageId)
+        && !this.tokenizers.has(languageId) && !this.attaching.has(languageId)) {
         this.restored.get(languageId)?.dispose();
         this.restored.set(languageId, monaco.languages.setMonarchTokensProvider(languageId, module.language as never));
+        this.displaced.delete(languageId);
       }
     } catch (error) {
       console.warn(`[${languageId}] Could not restore the built-in tokenizer:`, error);
@@ -458,7 +489,8 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
     }
     let loaded: IGrammar | null;
     try {
-      loaded = await registry.loadGrammarWithConfiguration(grammar.scopeName, monaco.languages.getEncodedLanguageId(languageId), {});
+      loaded = await registry.loadGrammarWithConfiguration(grammar.scopeName, monaco.languages.getEncodedLanguageId(languageId),
+        this.grammarConfiguration(monaco, grammar));
     } catch {
       return null;
     }

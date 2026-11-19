@@ -3,7 +3,7 @@ import { isRecord } from '../../../../platform/extensions/common/extensionValida
 import { resolveExtensionResource } from '../../extensions/common/extensionResources.js';
 import { ExtensionsRegistry } from '../../extensions/common/extensionsRegistry.js';
 import type { ExtensionMessageCollector } from '../../extensions/common/extensionsRegistry.js';
-import { ContributionSlot } from '../../language/common/languageService.js';
+import { ContributionSlot, isStringArray } from '../../language/common/languageService.js';
 
 /** VS Code's `StandardTokenType`, which a grammar's `tokenTypes` name by word. */
 export const enum StandardTokenType {
@@ -30,10 +30,6 @@ export interface IContributedGrammar {
 
 /** The grammars extensions contribute right now, in extension order. */
 export const grammarContributions = new ContributionSlot<IContributedGrammar>();
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
 
 const tokenTypeNames: Readonly<Record<string, StandardTokenType>> = {
   string: StandardTokenType.String,
@@ -118,7 +114,10 @@ ExtensionsRegistry.registerExtensionPoint<unknown[]>({
   },
 });
 
-/** A stable text for a set of grammars, so a refresh that changes nothing can be told apart. */
+/**
+ * A stable text for a set of grammars, so a refresh that changes nothing can be told apart. `URI.toJSON`
+ * writes a location as its components.
+ */
 export function grammarsSignature(grammars: readonly IContributedGrammar[]): string {
-  return JSON.stringify(grammars, (_key, value: unknown) => value instanceof URI ? value.toString() : value);
+  return JSON.stringify(grammars);
 }

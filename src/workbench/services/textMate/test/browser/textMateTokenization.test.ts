@@ -280,3 +280,44 @@ test('an equal refresh of the contributions while a grammar loads does not lose 
   expect(setup.monaco.live('fixturelang')).toBeDefined();
   expect(setup.monaco.providers.get('fixturelang')).toHaveLength(1);
 });
+
+test('a line tokenized before the language is used leaves the grammar its configuration', async () => {
+  contribute([{ ...fixturelangGrammar[0], embeddedLanguages: { 'string.quoted.double.fixturelang': 'plaintext' } }]);
+  const setup = createFeature(theme(keywordRules('#569cd6')));
+  expect(await setup.feature.tokenizeLine('fixturelang', 'alpha')).toEqual([
+    { text: 'alpha', scopes: ['source.fixturelang', 'keyword.control.fixturelang'] },
+  ]);
+  setup.models.add('fixturelang');
+  await flush(10);
+  const provider = setup.monaco.live('fixturelang')!;
+  const { tokens } = provider.tokenizeEncoded('alpha "s"', provider.getInitialState());
+  const languages = [];
+  for (let i = 1; i < tokens.length; i += 2) {
+    languages.push(tokens[i] & 0xff);
+  }
+  // The registry makes a scope's grammar once: the string is still plain text, as the contribution says.
+  expect(languages).toEqual([7, 7, 1]);
+});
+
+test('a grammar that cannot be used after an earlier one was released gives the built-in tokenizer back', async () => {
+  contribute(fixturelangGrammar);
+  const setup = createFeature(theme(keywordRules('#569cd6')));
+  const restored: string[] = [];
+  Object.assign(setup.monaco.languages, {
+    getLanguages: () => [{ id: 'plaintext' }, { id: 'fixturelang', loader: async () => ({ language: { tokenizer: {} } }) }],
+    setMonarchTokensProvider: (languageId: string) => {
+      restored.push(languageId);
+      return toDisposable(() => {});
+    },
+  });
+  setup.models.add('fixturelang');
+  await flush(10);
+  expect(setup.monaco.live('fixturelang')).toBeDefined();
+  expect(restored).toEqual([]);
+
+  // The language's grammar now names a file that is not there.
+  contribute([{ ...fixturelangGrammar[0], path: './syntaxes/missing.tmLanguage.json' }]);
+  await flush(10);
+  expect(setup.monaco.live('fixturelang')).toBeUndefined();
+  expect(restored).toEqual(['fixturelang']);
+});

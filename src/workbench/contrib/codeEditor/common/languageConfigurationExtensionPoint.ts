@@ -2,6 +2,7 @@ import { parseJSONC } from '../../../../base/common/jsonc.js';
 import type { URI } from '../../../../base/common/uri.js';
 import type { IFileService } from '../../../../platform/files/common/files.js';
 import { isRecord } from '../../../../platform/extensions/common/extensionValidator.js';
+import { isStringArray } from '../../../services/language/common/languageService.js';
 import { extensionResourceLimits } from '../../../services/extensions/common/extensionResources.js';
 
 // A language's `configuration` file (`language-configuration.json`): comments, brackets, auto closing and
@@ -48,10 +49,6 @@ export interface ILanguageConfigurationData {
 }
 
 type Report = (message: string) => void;
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
 
 function isCharacterPair(value: unknown): value is CharacterPair {
   return isStringArray(value) && value.length === 2;

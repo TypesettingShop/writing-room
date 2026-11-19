@@ -14,7 +14,7 @@ import { watchRequestedLanguages } from '../common/requestedLanguages.js';
 type MonacoLanguageDefinition = ReturnType<MonacoNamespace['languages']['getLanguages']>[number];
 
 /** Monaco's built-in definitions keep the loader of their tokenizer and configuration, which the types leave out. */
-function builtinLoader(definition: MonacoLanguageDefinition | undefined): (() => Promise<unknown>) | undefined {
+export function builtinLoader(definition: MonacoLanguageDefinition | undefined): (() => Promise<unknown>) | undefined {
   const loader = (definition as { loader?: unknown } | undefined)?.loader;
   return typeof loader === 'function' ? loader as () => Promise<unknown> : undefined;
 }
