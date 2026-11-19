@@ -1,6 +1,7 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { fetchBoundedResource, ResourceRequestError } from '../../../../base/parts/request/common/boundedFetch.js';
 import { readVsix, vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { sha256Hex } from '../../../../platform/extensionManagement/common/extensionSignature.js';
 import { readManifestNls } from '../../../../platform/extensionManagement/common/extensionNls.js';
 import { isRecord, isValidExtensionVersion, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
@@ -108,10 +109,7 @@ export interface PackageInstallOptions {
   readonly language?: string;
 }
 
-export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
-}
+export { sha256Hex };
 
 function readNlsBundle(bytes: Uint8Array, path: string): Record<string, string> {
   const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -592,7 +590,7 @@ export class ExtensionManagementService {
     let bytes: Uint8Array<ArrayBuffer>;
     try {
       ({ bytes } = await fetchBoundedResource(url, {
-        limit: vsixLimits.download, request: this.fetchManifest, signal: options.signal,
+        limit: vsixLimits.download, request: this.fetchManifest, signal: options.signal, idleTimeout: true,
       }));
     } catch (error) {
       if (error instanceof ResourceRequestError) {
