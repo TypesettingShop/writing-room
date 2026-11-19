@@ -1,5 +1,7 @@
+import { extHostApiRegistry, promiseApiMethod } from './extHostApiRegistry.js';
+import { MainThreadCommandsProxy, ExtHostCommandsProxy } from './extHost.protocol.commands.js';
 import type * as vscode from 'vscode';
-import { Disposable } from './extHostTypes.js';
+import { Disposable, EventEmitter } from './extHostTypes.js';
 import type { ExtHostCommandsShape, MainThreadCommandsShape } from './extHost.protocol.js';
 
 type Command = { callback: (...args: any[]) => unknown; thisArg: unknown };
@@ -100,3 +102,23 @@ export class ExtHostCommands implements ExtHostCommandsShape {
     commands.clear();
   }
 }
+
+extHostApiRegistry.register('commands', services => {
+  const commands = new ExtHostCommands(
+    services.rpc.getProxy(MainThreadCommandsProxy), services.isLive, services.resolveCommandArgument,
+  );
+  services.rpc.set(ExtHostCommandsProxy, commands);
+  return {
+    create: ({ key }) => ({
+      types: { Disposable, EventEmitter },
+      namespaces: {
+        commands: {
+          registerCommand: (command, callback, thisArg) => commands.registerCommand(key, command, callback, thisArg),
+          executeCommand: promiseApiMethod(<T>(command: string, ...args: unknown[]) => commands.executeCommand<T>(key, command, args)),
+        } satisfies typeof vscode.commands,
+      },
+    }),
+    flush: key => commands.flush(key),
+    release: key => commands.remove(key),
+  };
+});

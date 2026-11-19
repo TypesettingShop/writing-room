@@ -1,7 +1,23 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
 import type { DisposableStore } from '../../../../base/common/lifecycle.js';
-import type { ICommandContribution, IMenuContribution } from '../../../../platform/extensions/common/extensions.js';
+import { isRecord } from '../../../../platform/extensions/common/extensionValidator.js';
+import { ExtensionsRegistry } from '../../extensions/common/extensionsRegistry.js';
+import type { ExtensionPointContext } from '../../extensions/common/extensionsRegistry.js';
+
+interface ICommandContribution {
+  readonly command: string;
+  readonly title: string;
+  readonly category?: string;
+  readonly icon?: string;
+  readonly enablement?: string;
+}
+
+interface IMenuContribution {
+  readonly command: string;
+  readonly when?: string;
+  readonly group?: string;
+}
 import { contributionEntries, contributionIcon, contributionRecord, contributionWhen } from '../../extensions/common/contributionValidation.js';
 import type { IExtensionPointUser } from '../../extensions/common/extensionsRegistry.js';
 
@@ -15,9 +31,8 @@ const apiMenus = new Map([
 
 export function registerCommands(
   users: readonly IExtensionPointUser<unknown>[], registrations: DisposableStore,
-  contributed: Map<string, string>, events: Map<string, Set<string>>,
+  context: Pick<ExtensionPointContext, 'setCommandOwner' | 'addActivationEvent'>,
 ): void {
-  contributed.clear();
   for (const user of users) {
     const base = 'contributes.commands';
     for (const [index, value] of contributionEntries(user.value, base, user).entries()) {
@@ -35,8 +50,8 @@ export function registerCommands(
         user.collector.info(path + '.command', `Replacing metadata for '${entry.command}'.`);
       }
       const owner = user.description.identifier.value;
-      contributed.set(entry.command, owner);
-      events.get(owner)?.add('onCommand:' + entry.command);
+      context.setCommandOwner(entry.command, owner);
+      context.addActivationEvent(owner, 'onCommand:' + entry.command);
       registrations.add(MenuRegistry.addCommand({
         id: entry.command, title: entry.title, category: entry.category,
         icon: typeof icon === 'string' ? ThemeIcon.fromString(icon) : icon, precondition,
@@ -47,7 +62,7 @@ export function registerCommands(
 
 export function registerMenus(
   users: readonly IExtensionPointUser<Readonly<Record<string, unknown>>>[], registrations: DisposableStore,
-  contributed: ReadonlyMap<string, string>,
+  context: Pick<ExtensionPointContext, 'getCommandOwner'>,
 ): void {
   for (const user of users) {
     for (const [key, values] of Object.entries(user.value)) {
@@ -63,7 +78,7 @@ export function registerMenus(
         if (!entry) {
           continue;
         }
-        const command = contributed.has(entry.command) ? MenuRegistry.getCommand(entry.command) : undefined;
+        const command = context.getCommandOwner(entry.command) ? MenuRegistry.getCommand(entry.command) : undefined;
         if (!command) {
           user.collector.error(path + '.command', `Command '${entry.command}' is not declared in contributes.commands.`);
           continue;
@@ -80,3 +95,16 @@ export function registerMenus(
     }
   }
 }
+
+ExtensionsRegistry.registerExtensionPoint({
+  name: 'commands',
+  validate: (_value): _value is unknown => true,
+  accept: registerCommands,
+});
+
+ExtensionsRegistry.registerExtensionPoint({
+  name: 'menus',
+  after: ['commands'],
+  validate: isRecord,
+  accept: registerMenus,
+});

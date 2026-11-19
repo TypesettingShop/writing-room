@@ -1,5 +1,7 @@
+import { extHostApiRegistry } from './extHostApiRegistry.js';
+import { MainThreadTreeViewsProxy, ExtHostTreeViewsProxy } from './extHost.protocol.treeViews.js';
 import type * as vscode from 'vscode';
-import { Disposable, TreeItemCollapsibleState, tooltipText } from './extHostTypes.js';
+import { Disposable, TreeItem, TreeItemCollapsibleState, tooltipText } from './extHostTypes.js';
 import type { ExtHostTreeViewsShape, MainThreadTreeViewsShape, TreeItemDto, TreeItemReference } from './extHost.protocol.js';
 
 interface TreeNode {
@@ -240,3 +242,21 @@ export class ExtHostTreeViews implements ExtHostTreeViewsShape {
     }
   }
 }
+
+extHostApiRegistry.register('treeViews', services => {
+  const trees = new ExtHostTreeViews(services.rpc.getProxy(MainThreadTreeViewsProxy), services.getViews);
+  services.rpc.set(ExtHostTreeViewsProxy, trees);
+  return {
+    create: ({ key }) => ({
+      types: { TreeItem, TreeItemCollapsibleState },
+      namespaces: {
+        window: {
+          registerTreeDataProvider: (view, provider) => trees.createTreeView(key, view, provider),
+          createTreeView: (view, options) => trees.createTreeView(key, view, options.treeDataProvider),
+        } satisfies Pick<typeof vscode.window, 'registerTreeDataProvider' | 'createTreeView'>,
+      },
+    }),
+    convertCommandArgument: (key, value) => trees.resolveArgument(key, value),
+    release: key => trees.remove(key),
+  };
+});

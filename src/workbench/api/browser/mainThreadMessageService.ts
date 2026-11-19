@@ -1,5 +1,9 @@
+import { ILayoutService } from '../../../platform/layout/browser/layoutService.js';
+import { dispose } from '../../../base/common/lifecycle.js';
+import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { MainThreadMessageServiceProxy } from '../common/extHost.protocol.messages.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
-import type { NotificationsToasts } from '../../browser/parts/notifications/notificationsToasts.js';
+import { NotificationsToasts } from '../../browser/parts/notifications/notificationsToasts.js';
 import type { MainThreadMessageServiceShape, MessageSeverity } from '../common/extHost.protocol.js';
 
 export class MainThreadMessageService implements MainThreadMessageServiceShape, IDisposable {
@@ -39,3 +43,14 @@ export class MainThreadMessageService implements MainThreadMessageServiceShape, 
     }
   }
 }
+
+mainThreadCustomers.register('messages', ({ rpc, instantiation, getExtension }) => {
+  const layout = instantiation.invokeFunction(accessor => accessor.get(ILayoutService));
+  const toasts = new NotificationsToasts(layout.mainContainer);
+  const messages = new MainThreadMessageService(toasts, key => Boolean(getExtension(key)));
+  rpc.set(MainThreadMessageServiceProxy, messages);
+  return {
+    remove: key => messages.remove(key),
+    dispose: () => dispose([toasts, messages]),
+  };
+});

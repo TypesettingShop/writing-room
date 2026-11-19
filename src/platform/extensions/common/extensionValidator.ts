@@ -53,3 +53,44 @@ export function validateExtensionManifest(input: unknown, resolveResource: (path
   }
   return { manifest: input as unknown as IExtensionManifest, messages };
 }
+
+type Version = readonly [major: number, minor: number, patch: number];
+
+function compareVersions(a: Version, b: Version): number {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/** Checks the engines.vscode range against a stable API version. */
+export function isValidExtensionVersion(version: string, range: string): boolean {
+  const current = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/.exec(version);
+  if (!current) {
+    return false;
+  }
+  const actual: Version = [Number(current[1]), Number(current[2]), Number(current[3])];
+  const requested = range.trim();
+  if (requested === '*') {
+    return true;
+  }
+  const match = /^(\^|>=)?(\d+)\.(\d+|x)\.(\d+|x)$/i.exec(requested);
+  if (!match) {
+    return false;
+  }
+  const [, operator, major, minor, patch] = match;
+  const matchesMajor = actual[0] === Number(major);
+  const matchesMinor = actual[1] === Number(minor);
+  if (minor.toLowerCase() === 'x') {
+    return !operator && patch.toLowerCase() === 'x' && matchesMajor;
+  }
+  if (patch.toLowerCase() === 'x') {
+    return !operator && matchesMajor && matchesMinor;
+  }
+  const minimum: Version = [Number(major), Number(minor), Number(patch)];
+  const comparison = compareVersions(actual, minimum);
+  if (operator === '>=') {
+    return comparison >= 0;
+  }
+  if (operator === '^') {
+    return comparison >= 0 && matchesMajor && (minimum[0] !== 0 || (matchesMinor && (minimum[1] !== 0 || comparison === 0)));
+  }
+  return comparison === 0;
+}

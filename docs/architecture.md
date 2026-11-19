@@ -173,12 +173,16 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Extensions
 
+[확장 API 색인](extension-api.md#영역별-문서)에서 영역별 선언과 지원 범위를 찾는다.
+
 #### Manifest contributions
 
 - Vite가 빌드 시 내장 확장 매니페스트를 읽고, 빌드 후 디렉터리를 `dist/extensions/`에 복사한다 — 개발과 배포에서 `extensionUri`를 기준으로 매니페스트와 리소스를 읽을 수 있게 한다 (wr-cla6.rmv). [VS Code 내장 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/builtinExtensionsScannerService.ts)
 - 파싱에 실패하는 `when`과 `enablement`는 해당 기여를 건너뛴다. 기여 집합이 바뀌어도 같은 확장의 뷰와 컨테이너를 유지해 열린 위치를 보존한다 (wr-cla6.v89). [VS Code 메뉴 기여 핸들러](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/actions/common/menusExtensionPoint.ts)
 
 #### Extension host
+
+- Writing Room은 영역별 기여로 Worker의 API와 확장 컨텍스트를 조립한다. VS Code는 `extHost.api.impl.ts`에 조립을 모은다. 영역의 진입 파일에서 함께 개발하는 기능을 별도로 등록하도록 분리했다 (wr-efqx.n9k). [VS Code API 조립](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.api.impl.ts)
 
 - 앱과 같은 오리진에서 전용 모듈 Worker 하나를 지연 시작한다. Vite의 Worker URL 변환을 사용하고, 준비·초기화·종료 신호와 객체 기반 RPC가 전용 `MessagePort`를 공유한다. 시작 제한은 60초다. 포그라운드에서 응답이 끊기면 호스트를 중지하고, 재시작으로 이미 발생한 활성화 이벤트를 재생한다 (wr-cla6.rmv). [VS Code 웹 Worker 호스트](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts)
 - 커맨드와 활성화 RPC는 식별자와 구조화 복제 가능한 값을 전달한다. 등록에는 확장 설치 세대의 키를 사용해 제거 후 같은 확장을 다시 설치해도 이전 호스트의 호출이 새 등록을 바꾸지 못하게 한다 (wr-cla6.rmv). [VS Code 확장 호스트 프로토콜](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.protocol.ts)

@@ -1,10 +1,9 @@
-import { ExtHostTreeViews } from './extHostTreeViews.js';
-import { ExtHostStatusBar } from './extHostStatusBar.js';
-import { ExtHostMessageService } from './extHostMessageService.js';
-import { createApiFactory } from './extHost.api.impl.js';
+import './extHost.contribution.js';
+import { createExtensionApi } from './extHost.api.impl.js';
 import { ExtHostContext, MainContext } from './extHost.protocol.js';
 import type { ExtHostExtensionServiceShape } from './extHost.protocol.js';
-import { ExtHostCommands } from './extHostCommands.js';
+import { extHostApiRegistry } from './extHostApiRegistry.js';
+import type { ExtHostApiContribution } from './extHostApiRegistry.js';
 import { ExtensionsActivator } from './extHostExtensionActivator.js';
 import type { ExtensionLoader } from './extHostExtensionActivator.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
@@ -12,28 +11,34 @@ import type { RPCProtocol } from '../../services/extensions/common/rpcProtocol.j
 
 export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
   private readonly activator: ExtensionsActivator;
+  private readonly contributions: ReadonlyMap<string, ExtHostApiContribution>;
 
   constructor(rpc: RPCProtocol, load: ExtensionLoader) {
-    const trees = new ExtHostTreeViews(rpc.getProxy(MainContext.MainThreadTreeViews), key => this.activator.getViews(key));
-    const status = new ExtHostStatusBar(rpc.getProxy(MainContext.MainThreadStatusBar));
-    const messages = new ExtHostMessageService(rpc.getProxy(MainContext.MainThreadMessageService));
-    const commands = new ExtHostCommands(
-      rpc.getProxy(MainContext.MainThreadCommands), key => this.activator.isLive(key),
-      (key, argument) => trees.resolveArgument(key, argument),
-    );
+    this.contributions = extHostApiRegistry.create({
+      rpc,
+      isLive: key => this.activator.isLive(key),
+      getViews: key => this.activator.getViews(key),
+      resolveCommandArgument: (key, argument) => {
+        let result = argument;
+        for (const contribution of this.contributions.values()) {
+          if (contribution.convertCommandArgument) {
+            result = contribution.convertCommandArgument(key, result);
+          }
+        }
+        return result;
+      },
+    });
     this.activator = new ExtensionsActivator(
       rpc.getProxy(MainContext.MainThreadExtensionService),
       load,
-      createApiFactory(commands, trees, status, messages),
-      key => commands.flush(key),
-      key => {
-        commands.remove(key);
-        trees.remove(key);
-        status.remove(key);
+      (description, isLive, context) => createExtensionApi(this.contributions, description, isLive, context),
+      async key => {
+        for (const contribution of this.contributions.values()) {
+          await contribution.flush?.(key);
+        }
       },
+      key => this.runCleanup(contribution => contribution.release?.(key)),
     );
-    rpc.set(ExtHostContext.ExtHostCommands, commands);
-    rpc.set(ExtHostContext.ExtHostTreeViews, trees);
     rpc.set(ExtHostContext.ExtHostExtensionService, this);
   }
 
@@ -47,5 +52,16 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 
   dispose(): void {
     this.activator.dispose();
+    this.runCleanup(contribution => contribution.dispose?.());
+  }
+
+  private runCleanup(cleanup: (contribution: ExtHostApiContribution) => void): void {
+    for (const [area, contribution] of this.contributions) {
+      try {
+        cleanup(contribution);
+      } catch (error) {
+        console.error(`[${area}] Extension API cleanup failed:`, error);
+      }
+    }
   }
 }

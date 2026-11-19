@@ -10,17 +10,16 @@ import { MainThreadExtensionService } from '../../../api/browser/mainThreadExten
 import { ExtHostContext } from '../../../api/common/extHost.protocol.js';
 import type { ExtHostExtensionServiceShape } from '../../../api/common/extHost.protocol.js';
 import type { ExtensionHostStatus, HostExtensionDescription } from '../common/extensionHostProtocol.js';
-import { resolveExtensionPath } from '../common/extensionResources.js';
+import { resolveExtensionEntry } from '../common/extensionResources.js';
 import { WebWorkerExtensionHost } from './webWorkerExtensionHost.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, DisposableStore } from '../../../../base/common/lifecycle.js';
-import { isRecord } from '../../../../platform/extensions/common/extensionValidator.js';
-import type { IExtensionContributions, IExtensionDescription, IExtensionMessage } from '../../../../platform/extensions/common/extensions.js';
+import type { IExtensionDescription, IExtensionMessage } from '../../../../platform/extensions/common/extensions.js';
 import { ViewsExtensionHandler } from '../../../api/browser/viewsExtensionPoint.js';
-import { registerCommands, registerMenus } from '../../actions/common/menusExtensionPoint.js';
-import { registerExtensionKeybindings } from '../../keybinding/browser/keybindingService.js';
+import '../../actions/common/menusExtensionPoint.js';
+import '../../keybinding/browser/keybindingsExtensionPoint.js';
 import { ExtensionMessageCollector, ExtensionsRegistry } from '../common/extensionsRegistry.js';
-import type { IExtensionPointUser } from '../common/extensionsRegistry.js';
+import type { ExtensionPointContext, IExtensionPointUser } from '../common/extensionsRegistry.js';
 import type { IExtensionService } from '../common/extensions.js';
 
 type ExtensionScan = () => { extensions: readonly IExtensionDescription[]; messages: readonly IExtensionMessage[] };
@@ -31,8 +30,6 @@ interface HostSession {
   registered: Map<string, HostExtensionDescription>;
   synchronized: Promise<void>;
 }
-
-type ContributionRecord = Readonly<Record<string, unknown>>;
 
 export class ExtensionService extends Disposable implements IExtensionService {
   declare readonly _serviceBrand: undefined;
@@ -50,14 +47,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
   private readonly treeViews = this._register(new ExtensionTreeViews());
   private readonly viewHandler = this._register(new ViewsExtensionHandler((parent, viewId) =>
     this.instantiation?.createInstance(TreeViewPane, parent, viewId, this, this.treeViews)));
-  private readonly registry = new ExtensionsRegistry();
-  private readonly points = {
-    commands: this.registry.registerExtensionPoint<unknown>('commands'),
-    menus: this.registry.registerExtensionPoint<ContributionRecord>('menus'),
-    keybindings: this.registry.registerExtensionPoint<unknown>('keybindings'),
-    viewsContainers: this.registry.registerExtensionPoint<ContributionRecord>('viewsContainers'),
-    views: this.registry.registerExtensionPoint<ContributionRecord>('views'),
-  };
   private readonly remoteIcons?: RemoteExtensionIcons;
   private initialized = false;
   private applying = false;
@@ -90,11 +79,11 @@ export class ExtensionService extends Disposable implements IExtensionService {
         }
       }));
     }
-    this.points.commands.setHandler((users, registrations) => registerCommands(users, registrations, this.commandOwners, this.extensionEvents));
-    this.points.menus.setHandler((users, registrations) => registerMenus(users, registrations, this.commandOwners));
-    this.points.keybindings.setHandler(registerExtensionKeybindings);
-    this.points.viewsContainers.setHandler(users => this.viewHandler.acceptContainers(users));
-    this.points.views.setHandler(users => this.viewHandler.acceptViews(users, this.extensionEvents));
+    this._register(ExtensionsRegistry.onDidChange(() => {
+      if (this.initialized && !this.applying) {
+        this.applyContributions();
+      }
+    }));
   }
 
   initialize(): void {
@@ -254,7 +243,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
     const result = new Map<string, HostExtensionDescription>();
     for (const description of this.extensions) {
       const { identifier, location, manifest } = description;
-      const entry = manifest.browser && resolveExtensionPath(location, manifest.browser);
+      const entry = manifest.browser && resolveExtensionEntry(location, manifest.browser);
       if (!entry) {
         continue;
       }
@@ -276,9 +265,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
       worker, registered, synchronized: worker.ready,
       proxy: worker.rpc.getProxy(ExtHostContext.ExtHostExtensionService),
       main: this.instantiation!.createInstance(MainThreadExtensionService, worker.rpc, {
-        extensionId: key => this.host === host ? host.registered.get(key)?.id : undefined,
+        getExtension: key => this.host === host ? host.registered.get(key) : undefined,
         commandOwner: id => this.commandOwners.get(id),
-        ownsView: (key, viewId) => this.host === host && (host.registered.get(key)?.views?.includes(viewId) ?? false),
         activate: (event, origin) => this.activateByEvent(event, origin),
         setStatus: (key, status) => {
           const id = host.registered.get(key)?.id;
@@ -368,13 +356,13 @@ export class ExtensionService extends Disposable implements IExtensionService {
     for (const extension of entries) {
       const id = extension.identifier.value;
       this.extensionEvents.set(id, new Set(extension.manifest.activationEvents));
-      const unsupported = Object.keys(extension.manifest.contributes ?? {}).filter(key => !Object.hasOwn(this.points, key));
+      const unsupported = Object.keys(extension.manifest.contributes ?? {}).filter(key => !ExtensionsRegistry.has(key));
       if (unsupported.length) {
         this.report({ extensionId: id, severity: 'info', path: 'contributes', message: 'Unsupported contributions: ' + unsupported.join(', ') });
       }
     }
 
-    const users = <T>(key: keyof IExtensionContributions, validate: (value: unknown) => value is T): IExtensionPointUser<T>[] => {
+    const users = <T>(key: string, validate: (value: unknown) => value is T): IExtensionPointUser<T>[] => {
       const result: IExtensionPointUser<T>[] = [];
       for (const description of entries) {
         const value = description.manifest.contributes?.[key];
@@ -393,12 +381,22 @@ export class ExtensionService extends Disposable implements IExtensionService {
       }
       return result;
     };
-    const any = (_value: unknown): _value is unknown => true;
-    contributions.add(this.points.commands.acceptUsers(users('commands', any)));
-    contributions.add(this.points.menus.acceptUsers(users('menus', isRecord)));
-    contributions.add(this.points.keybindings.acceptUsers(users('keybindings', any)));
-    contributions.add(this.points.viewsContainers.acceptUsers(users('viewsContainers', isRecord)));
-    contributions.add(this.points.views.acceptUsers(users('views', isRecord)));
+    const context: ExtensionPointContext = {
+      instantiation: this.instantiation,
+      viewHandler: this.viewHandler,
+      addActivationEvent: (id, event) => this.extensionEvents.get(id)?.add(event),
+      setCommandOwner: (command, id) => this.commandOwners.set(command, id),
+      getCommandOwner: command => this.commandOwners.get(command),
+    };
+    for (const point of ExtensionsRegistry.getExtensionPoints()) {
+      const registrations = contributions.add(new DisposableStore());
+      try {
+        point.accept(users(point.name, point.validate), registrations, context);
+      } catch (error) {
+        registrations.dispose();
+        throw error;
+      }
+    }
     for (const message of this.scanMessages) {
       this.report(message);
     }

@@ -1,3 +1,5 @@
+import { extHostApiRegistry } from './extHostApiRegistry.js';
+import { MainThreadMessageServiceProxy } from './extHost.protocol.messages.js';
 import type * as vscode from 'vscode';
 import type { MainThreadMessageServiceShape, MessageSeverity } from './extHost.protocol.js';
 
@@ -12,3 +14,22 @@ export class ExtHostMessageService {
     return index === undefined ? undefined : items[index];
   }
 }
+
+extHostApiRegistry.register('messages', ({ rpc }) => {
+  const messages = new ExtHostMessageService(rpc.getProxy(MainThreadMessageServiceProxy));
+  return {
+    create: ({ key }) => {
+      const show = (severity: MessageSeverity) =>
+        <T extends string | vscode.MessageItem>(message: string, ...items: T[]) => messages.showMessage(key, severity, message, items);
+      return {
+        namespaces: {
+          window: {
+            showInformationMessage: show('info'),
+            showWarningMessage: show('warning'),
+            showErrorMessage: show('error'),
+          } satisfies Pick<typeof vscode.window, 'showInformationMessage' | 'showWarningMessage' | 'showErrorMessage'>,
+        },
+      };
+    },
+  };
+});

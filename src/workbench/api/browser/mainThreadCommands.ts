@@ -1,3 +1,5 @@
+import { mainThreadCustomers } from './mainThreadCustomers.js';
+import { MainThreadCommandsProxy, ExtHostCommandsProxy } from '../common/extHost.protocol.commands.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
@@ -77,3 +79,13 @@ export class MainThreadCommands extends Disposable implements MainThreadCommands
     this.commands.clear();
   }
 }
+
+mainThreadCustomers.register('commands', ({ rpc, getExtension, commandOwner, activate, instantiation }) => {
+  const commands = new MainThreadCommands(rpc.getProxy(ExtHostCommandsProxy), {
+    extensionId: key => getExtension(key)?.id,
+    commandOwner,
+    activate,
+  }, instantiation);
+  rpc.set(MainThreadCommandsProxy, commands);
+  return commands;
+});

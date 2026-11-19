@@ -36,7 +36,9 @@ export class ExtensionsActivator {
   constructor(
     private readonly main: MainThreadExtensionServiceShape,
     private readonly load: ExtensionLoader,
-    private readonly createApi: (id: string, isLive: () => boolean) => typeof vscode,
+    private readonly createApi: (
+      extension: HostExtensionDescription, isLive: () => boolean, context: vscode.ExtensionContext,
+    ) => { api: typeof vscode; context: vscode.ExtensionContext },
     private readonly flush: (key: string) => Promise<void>,
     private readonly release: (key: string) => void,
   ) {}
@@ -85,10 +87,10 @@ export class ExtensionsActivator {
       extension.state = 'activating';
       void this.main.$setActivationStatus(description.key, { state: 'activating' }).catch(() => {});
       try {
-        const api = this.createApi(description.key, () => this.isLive(description.key));
+        const { api, context } = this.createApi(description, () => this.isLive(description.key), extension.context);
         extension.module = await this.load(description, api, abort.signal);
         abort.signal.throwIfAborted();
-        await extension.module.activate?.(extension.context);
+        await extension.module.activate?.(context);
         abort.signal.throwIfAborted();
         await this.flush(description.key);
         abort.signal.throwIfAborted();

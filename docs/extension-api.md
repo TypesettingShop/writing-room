@@ -1,5 +1,21 @@
 # Writing Room 확장 API
 
+## 영역별 문서
+
+- [문서와 에디터](extension-api-documents.md)
+- [언어 기여](extension-api-language-contributions.md)
+- [진단과 Problems](extension-api-diagnostics.md)
+- [파일 시스템과 워크스페이스](extension-api-file-system.md)
+- [파일 편집과 Explorer](files-and-explorer.md)
+- [Webview](extension-api-webview.md)
+- [설정 기여](extension-api-configuration.md)
+- [창 UI](extension-api-window-ui.md)
+- [테마와 뷰](extension-api-theming-and-views.md)
+- [확장 런타임](extension-api-runtime.md)
+- [확장 설치](extension-installation.md)
+- [언어 기능](extension-api-language-features.md)
+- [Custom Editor](extension-api-custom-editors.md)
+
 ## 매니페스트와 진입점
 
 확장 디렉터리의 `package.json`에는 `name`, `publisher`, `version`이 필요하다. 식별자는 대소문자를 구분하지 않는 `publisher.name`이다. `displayName`, `icon`, `browser`, `activationEvents`와 `contributes`를 추가할 수 있다. `browser`가 있는 확장은 단일 CommonJS 파일을 제공한다. `require('vscode')`로 확장에 바인딩된 API 객체를 가져온다. 다른 모듈 의존성은 진입 파일에 번들링해야 한다.
