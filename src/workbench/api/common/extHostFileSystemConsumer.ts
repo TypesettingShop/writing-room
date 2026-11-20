@@ -71,10 +71,10 @@ export class ExtHostFileSystemConsumer {
     private readonly getCapabilities: (scheme: string) => FileSystemProviderCapabilities | undefined,
   ) {}
 
-  createApi(key: string): vscode.FileSystem {
+  createApi(key: string, id: string): vscode.FileSystem {
     const checkLive = () => {
       if (!this.isLive(key)) {
-        throw new Error(`Extension '${key}' is no longer active.`);
+        throw new Error(`Extension '${id}' is no longer active.`);
       }
     };
     const call = <Args extends unknown[], Result>(method: (...args: Args) => Promise<Result>) =>

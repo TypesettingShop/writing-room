@@ -1,11 +1,14 @@
 // @vitest-environment node
+import type * as vscode from 'vscode';
 import { expect, test, vi } from 'vitest';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
 import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js';
+import { createExtensionApi } from '../../common/extHost.api.impl.js';
 import { ExtHostContext, MainContext } from '../../common/extHost.protocol.js';
 import { MainThreadRuntimeProxy } from '../../common/extHost.protocol.runtime.js';
 import type { MainThreadRuntimeShape } from '../../common/extHost.protocol.runtime.js';
 import { ExtHostExtensionService } from '../../common/extHostExtensionService.js';
+import { createTestRpcPair } from './testExtensionHost.js';
 
 function deferred() {
   let resolve!: () => void;
@@ -426,6 +429,62 @@ function split(steps: readonly string[]): [string[], string[]] {
   const local = steps.filter(step => step.startsWith('first:') || step.startsWith('second:'));
   return [local, steps.filter(step => !local.includes(step) && !step.startsWith('observer:'))];
 }
+
+test('names the inactive extension by its public id when the shared live check returns false', () => {
+  const isLive = vi.fn(() => false);
+  const show = vi.fn();
+  const contributions = new Map([['test.window', { create: () => ({
+    namespaces: { window: { showInformationMessage: show } },
+  }) }]]);
+  const { api } = createExtensionApi(contributions, { ...description('test.Public'), key: '7' }, isLive, {});
+  const call = () => api.window.showInformationMessage('Inactive');
+  expect(call).toThrow(new Error("Extension 'test.Public' is no longer active."));
+  expect(call).not.toThrow("'7'");
+  expect(show).not.toHaveBeenCalled();
+});
+
+test('names the removed extension by its public id in workspace and file system errors', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const pair = createTestRpcPair();
+  const inactive = vi.fn();
+  pair.main.set(MainContext.MainThreadExtensionService, {
+    async $setActivationStatus(key, status) {
+      if (status.state === 'inactive') {
+        inactive(key);
+      }
+    },
+  });
+  let api!: typeof vscode;
+  let fileSystem!: vscode.FileSystem;
+  const service = new ExtHostExtensionService(pair.worker, async (_extension, vscode) => ({
+    activate() {
+      api = vscode;
+      fileSystem = vscode.workspace.fs;
+    },
+  }));
+  const extension = { ...description('test.Public'), key: '7' };
+  try {
+    const host = pair.main.getProxy(ExtHostContext.ExtHostExtensionService);
+    await host.$deltaExtensions([extension], []);
+    await host.$activateByEvent('onCommand:test');
+    const resource = api.Uri.parse('vscode-vfs:/notes.md');
+    await host.$deltaExtensions([], [extension.key]);
+    await vi.waitFor(() => expect(inactive).toHaveBeenCalledExactlyOnceWith('7'));
+
+    const message = "Extension 'test.Public' is no longer active.";
+    expect(() => api.workspace.workspaceFolders).toThrow(new Error(message));
+    expect(() => api.workspace.workspaceFolders).not.toThrow("'7'");
+    for (const call of [() => api.workspace.fs.stat(resource), () => fileSystem.readFile(resource)]) {
+      const request = call();
+      await expect(request).rejects.toMatchObject({ message });
+      await expect(request).rejects.not.toThrow("'7'");
+    }
+  } finally {
+    service.dispose();
+    pair.dispose();
+    errors.mockRestore();
+  }
+});
 
 test('keeps the API live while a removed extension disposes its subscriptions, then closes it', async () => {
   const host = cleanupHost();

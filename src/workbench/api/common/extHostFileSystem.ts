@@ -52,10 +52,10 @@ extHostApiRegistry.register('fileSystem', ({ rpc, isLive, getService }) => {
   });
   return {
     ready,
-    create: ({ key }) => ({
+    create: ({ key, id }) => ({
       types: { FileType, FilePermission, FileSystemError, FileChangeType },
       namespaces: { workspace: Object.assign(workspace.createApi(), events.createApi(key), {
-        fs: consumer.createApi(key),
+        fs: consumer.createApi(key, id),
         registerFileSystemProvider: (...args: Parameters<typeof vscode.workspace.registerFileSystemProvider>) =>
           providers.register(key, ...args),
       }) },

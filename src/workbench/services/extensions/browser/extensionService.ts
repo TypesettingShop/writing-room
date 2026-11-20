@@ -19,6 +19,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ColorScheme, IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { MainThreadExtensionService } from '../../../api/browser/mainThreadExtensionService.js';
 import { ExtHostContext } from '../../../api/common/extHost.protocol.js';
+import { acceptedApiProposals } from '../../../api/common/extHostRuntimeProposals.js';
 import type { ExtHostExtensionServiceShape } from '../../../api/common/extHost.protocol.js';
 import type { ExtensionHostStatus, HostExtensionDescription } from '../common/extensionHostProtocol.js';
 import { resolveExtensionEntry } from '../common/extensionResources.js';
@@ -604,8 +605,19 @@ export class ExtensionService extends Disposable implements IExtensionService {
       const id = extension.identifier.value;
       const { manifest } = extension;
       this.extensionEvents.set(id, new Set(manifest.activationEvents));
-      if (Array.isArray(manifest.enabledApiProposals) && manifest.enabledApiProposals.length) {
-        this.report({ extensionId: id, severity: 'info', path: 'enabledApiProposals', message: 'Proposed APIs are not supported.' });
+      if (Array.isArray(manifest.enabledApiProposals)) {
+        const unsupportedProposals = new Set(manifest.enabledApiProposals.filter(proposal =>
+          typeof proposal === 'string' && proposal.trim() !== ''
+            && !Object.hasOwn(acceptedApiProposals, proposal.split('@', 1)[0]),
+        ));
+        if (unsupportedProposals.size) {
+          this.report({
+            extensionId: id,
+            severity: 'info',
+            path: 'enabledApiProposals',
+            message: 'Proposed APIs are not supported: ' + [...unsupportedProposals].join(', '),
+          });
+        }
       }
       if (manifest.main && !manifest.browser) {
         this.report({ extensionId: id, severity: 'info', path: 'main', message: 'This extension has no web entry point. Only its contributions are available.' });

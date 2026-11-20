@@ -211,9 +211,9 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
 
   constructor(private readonly proxy: MainThreadDiagnosticsShape) {}
 
-  createDiagnosticCollection(extension: string, name?: string): vscode.DiagnosticCollection {
-    const owned = this.collections.get(extension) ?? new Map<string, DiagnosticCollection>();
-    this.collections.set(extension, owned);
+  createDiagnosticCollection(key: string, name?: string, id = 'unknown extension'): vscode.DiagnosticCollection {
+    const owned = this.collections.get(key) ?? new Map<string, DiagnosticCollection>();
+    this.collections.set(key, owned);
     let owner: string;
     if (!name) {
       name = '_generated_diagnostic_collection_name_#' + this.nextGeneratedName++;
@@ -227,11 +227,11 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
       } while (owned.has(owner));
     }
     const report = (operation: Promise<void>) => operation.catch(error => {
-      console.warn(`[${extension}] Diagnostics of '${owner}' did not reach the workbench:`, error);
+      console.warn(`[${id}] Diagnostics of '${owner}' did not reach the workbench:`, error);
     });
     const collection = new DiagnosticCollection(name, {
-      changeMany: entries => report(this.proxy.$changeMany(extension, owner, entries)),
-      clear: () => report(this.proxy.$clear(extension, owner)),
+      changeMany: entries => report(this.proxy.$changeMany(key, owner, entries)),
+      clear: () => report(this.proxy.$clear(key, owner)),
       changed: uris => this.changed(uris),
       disposed: () => {
         if (owned.get(owner) === collection) {
@@ -350,11 +350,11 @@ extHostApiRegistry.register('diagnostics', ({ rpc }) => {
   void proxy.$requestMarkers().catch(() => {});
   return {
     service: diagnostics,
-    create: ({ key }) => ({
+    create: ({ key, id }) => ({
       types: { Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DiagnosticTag },
       namespaces: {
         languages: {
-          createDiagnosticCollection: (name?: string) => diagnostics.createDiagnosticCollection(key, name),
+          createDiagnosticCollection: (name?: string) => diagnostics.createDiagnosticCollection(key, name, id),
           getDiagnostics: ((resource?: vscode.Uri) => diagnostics.getDiagnostics(resource)) as typeof vscode.languages.getDiagnostics,
           // Looked up on each call: a released extension that is activated again gets events again.
           onDidChangeDiagnostics: (listener, thisArgs?, disposables?) =>
