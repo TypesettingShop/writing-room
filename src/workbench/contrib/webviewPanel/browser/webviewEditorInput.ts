@@ -1,4 +1,5 @@
 import { Emitter } from '../../../../base/common/event.js';
+import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -30,6 +31,7 @@ export class WebviewEditorInput extends EditorInput {
   override readonly onDidChangeTabIcon = this.tabIconChanged.event;
   private icon: WebviewIcon | undefined;
   private storedIcon: WebviewIcon | undefined;
+  private readonly discardStateOnDispose?: IDisposable;
   private generation = 0;
   private restorePending = false;
   contentOptions: WebviewContentOptions = {};
@@ -42,14 +44,23 @@ export class WebviewEditorInput extends EditorInput {
     readonly options: WebviewPanelOptions,
     readonly webview: WebviewOverlay,
     readonly persistent: boolean,
-    @IWebviewStateStore states: IWebviewStateStore,
+    @IWebviewStateStore private readonly states: IWebviewStateStore,
   ) {
     super();
     this.resource = URI.from({ scheme: Schemas.webviewPanel, path: id });
     this._register(webview);
     if (persistent) {
-      this._register(this.onWillDispose(() => states.delete(id, extensionId)));
+      this._register(states.trackOpenPanel(id, extensionId));
+      this.discardStateOnDispose = this._register(this.onWillDispose(() => states.delete(id, extensionId)));
     }
+  }
+
+  disposeKeepingState(): void {
+    if (this.discardStateOnDispose && !this.isDisposed()) {
+      this.states.deferClosedPanelCleanup(this.id, this.extensionId);
+      this.discardStateOnDispose.dispose();
+    }
+    this.dispose();
   }
 
   get restoreGeneration(): number | undefined {
