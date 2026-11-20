@@ -598,6 +598,23 @@ test('in a window that blocks storage, a package installs, runs and uninstalls f
   expect(immediate).not.toHaveBeenCalled();
 });
 
+test('allows a package confirmed as session-only when just its files are in memory', async () => {
+  const provider = sessionFiles();
+  const { service, confirm, confirmations, files, folders, records, storage } = setup(provider);
+  try {
+    await expect(service.installPackage(createVsix(), source, confirm)).resolves.toMatchObject({ location });
+    expect(confirmations[0].persistent).toBe(false);
+    expect(provider.usesMemory).toBe(true);
+    expect(storage.usesMemory).toBe(false);
+    expect(await folders()).toEqual(['tester.sample-1.0.0']);
+    expect(records()).toEqual([expect.objectContaining({ location })]);
+  } finally {
+    provider.dispose();
+    files.dispose();
+    storage.dispose();
+  }
+});
+
 test('refuses a package before the confirmation when only the installed list is session-only', async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   const storage = new InMemoryStorageService(new FallibleDatabase(true));

@@ -232,33 +232,49 @@ test('tells the folder URL confirmation that a persistent list keeps the install
   expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: true });
 });
 
-test('rejects a confirmed persistent folder URL install if the list falls back and allows a session-only retry', async () => {
-  const database = new InMemoryStorageDatabase();
-  const storage = new InMemoryStorageService(database);
-  const { scanner, active, service } = setup(undefined, storage);
-  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  try {
-    await expect(service.installFromLocation(location, async (_extension, lifetime) => {
-      expect(lifetime).toEqual({ persistent: true });
+test.each(['at confirmation', 'inside the list lock'])(
+  'rejects a persistent folder URL install when the list falls back %s and allows a session-only retry',
+  async timing => {
+    const database = new InMemoryStorageDatabase();
+    const storage = new InMemoryStorageService(database);
+    const { scanner, active, service } = setup(undefined, storage);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fallBack = () => {
       vi.spyOn(database, 'updateItems').mockImplementationOnce(() => { throw new Error('quota exceeded'); });
       storage.store('unrelated', 'value', StorageScope.PROFILE, StorageTarget.USER);
-      await storage.flush();
+      void storage.flush();
       expect(storage.usesMemory).toBe(true);
-      return true;
-    })).rejects.toThrow(installLifetimeChangedError);
+    };
 
-    expect(scanner.scanUserExtensions()).toEqual([]);
-    expect(database.getItems().get(storageKey(StorageScope.PROFILE, userExtensionsKey))).toBeUndefined();
-    expect(active.extensions).toEqual([]);
-    expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
+    try {
+      await expect(service.installFromLocation(location, async (_extension, lifetime) => {
+        expect(lifetime).toEqual({ persistent: true });
+        if (timing === 'at confirmation') {
+          fallBack();
+        } else {
+          const read = storage.getPersisted.bind(storage);
+          vi.spyOn(storage, 'getPersisted').mockImplementationOnce((key, scope) => {
+            const value = read(key, scope);
+            fallBack();
+            return value;
+          });
+        }
+        return true;
+      })).rejects.toThrow(installLifetimeChangedError);
 
-    const retry = vi.fn(async () => true);
-    await expect(service.installFromLocation(location, retry)).resolves.toMatchObject({ location });
-    expect(retry).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: false });
-    expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({ identifier: 'example.fixture' })]);
-  } finally {
-    warning.mockRestore();
-    vi.restoreAllMocks();
-    storage.dispose();
-  }
-});
+      expect(scanner.scanUserExtensions()).toEqual([]);
+      expect(database.getItems().get(storageKey(StorageScope.PROFILE, userExtensionsKey))).toBeUndefined();
+      expect(active.extensions).toEqual([]);
+      expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
+
+      const retry = vi.fn(async () => true);
+      await expect(service.installFromLocation(location, retry)).resolves.toMatchObject({ location });
+      expect(retry).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: false });
+      expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({ identifier: 'example.fixture' })]);
+    } finally {
+      warning.mockRestore();
+      vi.restoreAllMocks();
+      storage.dispose();
+    }
+  },
+);
