@@ -6,6 +6,7 @@ import type { IMonacoTextModel, MonacoNamespace } from '../../../editor/browser/
 import type { LanguageFilter, LanguageSelector } from '../../../editor/common/languageSelector.js';
 import { MODEL_SYNC_LIMIT } from '../../../editor/common/model.js';
 import { IModelService } from '../../../editor/common/services/model.js';
+import { IMarkerService } from '../../../platform/markers/common/markers.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { IOpenerService } from '../../../platform/opener/common/opener.js';
 import type { OpenOptions } from '../../../platform/opener/common/opener.js';
@@ -190,6 +191,12 @@ export interface MainThreadLanguageFeaturesOptions {
    * `command:` links only of the commands `allowCommands` names); the default refuses.
    */
   readonly openLink?: (target: URI, options: OpenOptions) => Promise<boolean>;
+  /**
+   * The owners whose markers of `resource` the workbench's marker service holds (extensions' collections,
+   * other workbench owners), which the extension host has already; Monaco's own language workers (`json`,
+   * `css`, ...) are not among them. Without it, none.
+   */
+  readonly markerOwners?: (resource: URI) => ReadonlySet<string>;
 }
 
 /** Monaco's `languages.Command`. */
@@ -289,6 +296,11 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
   /** Follows a link's target through the workbench's opener; false when there is none or it refused. */
   openLink(target: URI, options: OpenOptions): Promise<boolean> {
     return this.options.openLink ? this.options.openLink(target, options).catch(() => false) : Promise.resolve(false);
+  }
+
+  /** The owners of `resource`'s markers that the workbench holds (`MainThreadLanguageFeaturesOptions.markerOwners`). */
+  workbenchMarkerOwners(resource: URI): ReadonlySet<string> {
+    return this.options.markerOwners?.(resource) ?? new Set();
   }
 
   /** Tells the user something a feature could not do. */
@@ -441,13 +453,14 @@ export function createMainThreadLanguageFeatures(
 }
 
 mainThreadCustomers.register('languageFeatures', ({ rpc, instantiation, getExtension }) => {
-  const [models, notifications, opener] = instantiation.invokeFunction(accessor =>
-    [accessor.get(IModelService), accessor.get(INotificationService), accessor.get(IOpenerService)] as const);
+  const [models, notifications, opener, markers] = instantiation.invokeFunction(accessor =>
+    [accessor.get(IModelService), accessor.get(INotificationService), accessor.get(IOpenerService), accessor.get(IMarkerService)] as const);
   const monaco = whenMonacoLoaded(models);
   const features = createMainThreadLanguageFeatures(rpc.getProxy(ExtHostLanguageFeaturesProxy), getExtension, {
     monaco: () => monaco.promise,
     warn: message => notifications.warn(message),
     openLink: (target, options) => opener.open(target, options),
+    markerOwners: resource => new Set(markers.read({ resource }).map(marker => marker.owner)),
   });
   rpc.set(MainThreadLanguageFeaturesProxy, features.handlers as unknown as MainThreadLanguageFeaturesSeamShape);
   return {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Locator, Page } from '@playwright/test';
 import type { IExtensionManifest } from '../../src/platform/extensions/common/extensions.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
-import { expect } from './fixtures.js';
+import { box, expect } from './fixtures.js';
 import { activeEditor, activeGroup, changeLanguage, message, newUntitled, runCommand } from './language-basics.helpers.js';
 
 export { activeEditor, activeGroup, editorText, message, pasteText, runCommand } from './language-basics.helpers.js';
@@ -46,6 +46,12 @@ export async function openFixtureEditor(page: Page): Promise<void> {
   await changeLanguage(page, languageName);
   await expect(message(page, 'Language features fixture activated')).toBeVisible({ timeout: 20_000 });
   await activeEditor(page).focus();
+}
+
+/** Waits for the fixture's message, sent after the unregister calls on the same RPC connection. */
+export async function unregisterFixtureProviders(page: Page): Promise<void> {
+  await runCommand(page, 'Language Features: Unregister Providers');
+  await expect(message(page, /^Language feature providers unregistered$/)).toBeVisible({ timeout: 10_000 });
 }
 
 // --- Completions ---------------------------------------------------------------------------------
@@ -170,7 +176,12 @@ export async function followLink(page: Page, text: string): Promise<void> {
   try {
     await link.hover();
     const activeLink = activeGroup(page).locator('.view-line .detected-link-active').filter({ hasText: text });
-    await activeLink.click();
+    await expect(activeLink).toBeVisible();
+    // Clicked where it is, once: the definition under the pointer is decorated too (a link that is also a
+    // definition, as in Markdown), which renders the line's spans anew on each pointer move, so a click that
+    // waits for one node to hold still can keep finding it replaced.
+    const bounds = await box(activeLink);
+    await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   } finally {
     await page.keyboard.up('ControlOrMeta');
   }

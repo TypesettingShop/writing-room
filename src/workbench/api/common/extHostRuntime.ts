@@ -6,6 +6,7 @@ import { extensionGlobalStorageUri, extensionWorkspaceStorageUri, extensionLogUr
 import { ExtHostStorageProxy, MainThreadRuntimeProxy, MainThreadStorageProxy } from './extHost.protocol.runtime.js';
 import { extHostApiRegistry, promiseApiMethod } from './extHostApiRegistry.js';
 import { extensionActivation } from './extHostExtensionActivator.js';
+import { logExtensionHostError } from './extHostRuntimeLog.js';
 import { ExtHostStorage } from './extHostStorage.js';
 import { Disposable, LogLevel, Uri } from './extHostTypes.js';
 import type { ExtHostMemento } from './extHostMemento.js';
@@ -58,6 +59,7 @@ extHostApiRegistry.register('runtime', ({ rpc, isLive }) => {
         return {};
       }
       const { id, key, runtime } = extension;
+      access.logError = (message, error) => logExtensionHostError(rpc, main, id, message, error);
       const checkLive = () => {
         if (!isLive(key)) {
           throw new Error(`Extension '${id}' is no longer active.`);

@@ -166,6 +166,8 @@ function lint(document) {
   diagnostics.set(document.uri, found);
 }
 
+const slowActionDocuments = new WeakSet();
+
 /**
  * Quick fixes for the fixture's own diagnostics, found by source and code in the context: a preferred
  * fix listed second (Monaco shows it first), and one whose edit is computed when picked, after the
@@ -173,7 +175,30 @@ function lint(document) {
  * a disabled refactoring and a disabled organize imports.
  */
 const codeActionProvider = {
-  provideCodeActions(document, range, context) {
+  async provideCodeActions(document, range, context, token) {
+    // Only the first manual request stalls, so the replacement can open its menu.
+    if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke
+      && document.getText().includes('slowaction') && !slowActionDocuments.has(document)) {
+      if (token.isCancellationRequested) {
+        return [];
+      }
+      slowActionDocuments.add(document);
+      void vscode.window.showInformationMessage('Slow code action started');
+      await new Promise(resolve => {
+        const timer = setTimeout(() => {
+          cancellation.dispose();
+          resolve();
+        }, 1250);
+        const cancellation = token.onCancellationRequested(() => {
+          clearTimeout(timer);
+          cancellation.dispose();
+          resolve();
+        });
+      });
+      if (token.isCancellationRequested) {
+        return [];
+      }
+    }
     // Automatic light-bulb queries must not overwrite the kind of an explicit invocation.
     if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke) {
       editReport.only = context.only?.value ?? 'none';
@@ -486,6 +511,7 @@ module.exports.activate = context => {
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.unregister', () => {
     registered.forEach(registration => registration.dispose());
     registered = [];
+    void vscode.window.showInformationMessage('Language feature providers unregistered');
   }));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.register', () => {
     if (!registered.length) {
@@ -521,6 +547,18 @@ module.exports.activate = context => {
     lensGeneration++;
     lensesChanged.fire();
   }));
+  // Which documents of defs.lft the extension host saw open and close: a peek of the file opens one.
+  const documentEvents = [];
+  const defs = workspaceFile('defs.lft').toString();
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => {
+    if (document.uri.toString() === defs) documentEvents.push('open');
+  }));
+  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => {
+    if (document.uri.toString() === defs) documentEvents.push('close');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportDocuments', () =>
+    vscode.window.showInformationMessage('Documents: defs.lft ' + documentEvents.join(' ') + '; open now '
+      + vscode.workspace.textDocuments.some(document => document.uri.toString() === defs))));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportSymbols', reportSymbols));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportWorkspaceSymbols', reportWorkspaceSymbols));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.slowSymbols', () => { symbolMode = 'slow'; }));

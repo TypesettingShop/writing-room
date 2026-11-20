@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CancellationError } from '../../../base/common/errors.js';
 import { formatKeybinding } from '../../../base/common/keybindingLabels.js';
 import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { MenuId, MenuRegistry } from '../../../platform/actions/common/actions.js';
@@ -54,6 +55,21 @@ describe('Workbench', () => {
     const { width, height } = workbench.getContainer(part).style;
     return [Number.parseFloat(width), Number.parseFloat(height)];
   }
+
+  it('prevents default rejection reporting only for cancellations and only while running', () => {
+    const workbench = start();
+    function dispatchRejection(reason: unknown): boolean {
+      const event = Object.assign(new Event('unhandledrejection', { cancelable: true }), { reason });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    expect(dispatchRejection(new CancellationError())).toBe(true);
+    expect(dispatchRejection(new Error('boom'))).toBe(false);
+    expect(dispatchRejection({ name: 'Canceled', message: 'Canceled' })).toBe(false);
+    workbench.dispose();
+    expect(dispatchRejection(new CancellationError())).toBe(false);
+  });
 
   it('registers one real layout service and gives the editor all available growth', () => {
     const workbench = start({ sideBarSize: 240, panelSize: 210 });

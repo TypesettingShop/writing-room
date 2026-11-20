@@ -3,7 +3,8 @@ import { expect, test } from './fixtures.js';
 import {
   actionMenu, actionNames, activeEditor, activeParameter, codeLens, editorMessage, editorText, expectSuggestDetails, followLink,
   hoverWidget, hoverWord, message, openActionMenu, openFixtureEditor, openQuickOutline, openWithLanguageFeatures, parameterHints, pasteText,
-  renameInput, reportCompletions, reportEdits, reportSymbols, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
+  renameInput, reportCompletions, reportEdits, reportFixture, reportSymbols, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
+  unregisterFixtureProviders, activeGroup,
 } from './language-features.helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -111,7 +112,7 @@ test.describe('completions', () => {
   });
 
   test('a provider that is taken away offers nothing, and comes back when registered again', async ({ page }) => {
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await pasteText(page, 'fixture');
     await page.keyboard.press('End');
@@ -187,9 +188,10 @@ test.describe('formatting', () => {
 
 test.describe('code actions', () => {
   /** Puts the cursor in `teh` of `fix teh word`. */
-  async function onTypo(page: import('@playwright/test').Page): Promise<void> {
-    await pasteText(page, 'fix teh word\nplain line');
-    await expect.poll(() => editorText(page)).toBe('fix teh word\nplain line');
+  async function onTypo(page: import('@playwright/test').Page, lastLine = 'plain line'): Promise<void> {
+    const text = 'fix teh word\n' + lastLine;
+    await pasteText(page, text);
+    await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('ControlOrMeta+Home');
     for (let i = 0; i < 5; i++) {
       await page.keyboard.press('ArrowRight');
@@ -231,6 +233,26 @@ test.describe('code actions', () => {
     expect(await editorText(page)).toBe('fix teh word\nplain line');
   });
 
+  test('a second quick fix request can cancel a pending request without a page error', async ({ page }) => {
+    await onTypo(page, 'slowaction');
+    await page.keyboard.press('ControlOrMeta+.');
+    await expect(message(page, 'Slow code action started')).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('ControlOrMeta+.');
+    await expect(actionMenu(page)).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => actionNames(page)).toContain('Fix typo: the, Quick Fix');
+  });
+
+  test('removing a provider cancels a pending quick fix request without a page error', async ({ page }) => {
+    await onTypo(page, 'slowaction');
+    await page.keyboard.press('ControlOrMeta+.');
+    await expect(message(page, 'Slow code action started')).toBeVisible({ timeout: 10_000 });
+    await runCommand(page, 'Language Features: Unregister Providers');
+    await activeEditor(page).focus();
+    // Wait past the pending provider's delay to catch a menu from a request that completed.
+    await page.waitForTimeout(1500);
+    await expect(actionMenu(page)).toBeHidden();
+  });
+
   test('the extension host lets go of the actions once the light bulb has moved on', async ({ page }) => {
     await onTypo(page);
     await openActionMenu(page);
@@ -246,9 +268,10 @@ test.describe('code actions', () => {
     await onTypo(page);
     await openActionMenu(page);
     await page.keyboard.press('Escape');
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await page.keyboard.press('ControlOrMeta+.');
+    // Provider removal has already been confirmed; the wait gives an unexpected menu time to appear, as before.
     await page.waitForTimeout(1500);
     await expect(actionMenu(page)).toBeHidden();
     await runCommand(page, 'Language Features: Register Providers');
@@ -346,6 +369,37 @@ test.describe('navigation', () => {
     await page.keyboard.press('Home');
     await page.keyboard.type('X');
     await expect.poll(() => editorText(page)).toBe('first\nXdef target here');
+  });
+
+  test('a Ctrl+hover on a definition in a file that is not open previews its line, then lets the file go', async ({ page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'defs.lft', 'first\ndef target here\n');
+    await pasteText(page, 'use target now');
+    await expect.poll(() => editorText(page)).toBe('use target now');
+    // Monaco asks its own text model service for the target's model: before the workbench lent it its
+    // resolver, a file that was not open gave "Model not found" (a page error) and an empty preview.
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.mouse.move(0, 0);
+    await page.keyboard.down(modifier);
+    const token = activeGroup(page).locator('.view-line span span').filter({ hasText: 'target' }).first();
+    const at = await token.evaluate(element => {
+      const node = element.firstChild!;
+      const index = (element.textContent ?? '').replaceAll('\u00a0', ' ').indexOf('target');
+      const range = document.createRange();
+      range.setStart(node, index + 1);
+      range.setEnd(node, index + 3);
+      const bounds = range.getBoundingClientRect();
+      return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+    });
+    await page.mouse.move(at.x, at.y, { steps: 4 });
+    await expect(hoverWidget(page)).toContainText('def target here', { timeout: 15_000 });
+    await page.keyboard.up(modifier);
+    await page.mouse.move(0, 0);
+    await expect(hoverWidget(page)).toHaveCount(0);
+    // Read for the preview and let go after: no tab, and the extension host saw the document open and close.
+    await expect(page.getByRole('tab', { name: /defs\.lft/ })).toHaveCount(0);
+    await expect.poll(() => reportFixture(page, 'Language Features: Report Documents', 'Documents: '), { timeout: 15_000 })
+      .toBe('Documents: defs.lft open close; open now false');
   });
 
   test('folds the provider\'s range: the lines after begin up to the one before end hide, no line more or less', async ({ page }) => {

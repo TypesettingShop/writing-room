@@ -4,6 +4,7 @@ import { readExtensionEntry } from '../../services/extensions/common/extensionRe
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { MainThreadRuntimeShape } from '../common/extHost.protocol.runtime.js';
 import type { IExtensionModule } from '../common/extHostExtensionActivator.js';
+import { findExtensionErrorOwner } from './extHostRuntimeErrors.js';
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
 const NativeWorker = globalThis.Worker;
@@ -81,9 +82,15 @@ function resourceUrl(value: string | URL): URL {
 }
 
 export class ExtensionGlobals {
+  // A callback can run after its generation has been removed. Keep the evaluated entries for this host's lifetime.
+  private readonly evaluatedEntries = new Map<string, string>();
   private readonly workers = new Map<string, Map<Worker, () => void>>();
 
   constructor(private readonly main: MainThreadRuntimeShape) {}
+
+  extensionForError(error: unknown): string | undefined {
+    return findExtensionErrorOwner(error, this.evaluatedEntries);
+  }
 
   install(): void {
     const unscopedFetch: typeof fetch = (input, init) => this.fetch(undefined, input, init);
@@ -227,6 +234,7 @@ export class ExtensionGlobals {
     };
     const run = evaluate('module', 'exports', 'require', 'fetch', 'Worker', 'globalThis', 'self',
       source + '\n//# sourceURL=' + extension.entry);
+    this.evaluatedEntries.set(extension.entry, extension.id);
     run.call(scoped, module, module.exports, require, fetch, Worker, scoped, scoped);
     return module.exports ?? {};
   }
@@ -240,6 +248,7 @@ export class ExtensionGlobals {
   }
 
   dispose(): void {
+    this.evaluatedEntries.clear();
     for (const key of this.workers.keys()) {
       this.release(key);
     }

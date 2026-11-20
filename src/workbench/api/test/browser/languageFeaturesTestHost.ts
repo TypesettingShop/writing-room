@@ -135,6 +135,8 @@ export interface LanguageFeatureTestHostOptions {
   readonly monaco?: () => Promise<MonacoNamespace>;
   /** Follows a document link's target; the default records it and refuses. */
   readonly openLink?: (target: URI, options: OpenOptions) => Promise<boolean>;
+  /** The owners the workbench's marker service holds for a resource; by default none. */
+  readonly markerOwners?: (resource: URI) => ReadonlySet<string>;
   /** Without the diagnostics area, as a host that has none: `false`. */
   readonly diagnostics?: boolean;
 }
@@ -201,6 +203,7 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
         followed.push({ target, options: openOptions });
         return false;
       }),
+      markerOwners: options.markerOwners,
     }, options.mainGroups);
   main.set(MainThreadLanguageFeaturesProxy, workbench.handlers as never);
   /**

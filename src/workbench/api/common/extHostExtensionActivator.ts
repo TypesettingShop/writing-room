@@ -24,6 +24,7 @@ class Activation {
   });
   readonly subscriptions: vscode.ExtensionContext['subscriptions'] = [];
   readonly context: BaseExtensionContext;
+  access?: ExtensionActivationAccess;
   module?: IExtensionModule;
   exports?: unknown;
   readonly commands = new Set<string>();
@@ -47,6 +48,7 @@ export interface ExtensionActivationAccess {
   readonly getExtension: (id: string) => vscode.Extension<unknown> | undefined;
   readonly onDidChange: vscode.Event<void>;
   prepare?: () => Promise<void>;
+  logError?: (message: string, error: unknown) => void;
 }
 
 export const extensionActivation = new WeakMap<HostExtensionDescription, ExtensionActivationAccess>();
@@ -259,7 +261,7 @@ export class ExtensionsActivator {
         await this.activateDependencies(extension);
         abort.signal.throwIfAborted();
         if (description.entry) {
-          const access = this.catalog(extension);
+          const access = extension.access = this.catalog(extension);
           extensionActivation.set(description, access);
           const { api, context } = this.createApi(description, () => {
             if (!this.isLive(description.key)) {
@@ -279,11 +281,15 @@ export class ExtensionsActivator {
         extension.state = 'active';
         await this.main.$setActivationStatus(description.key, { state: 'active' });
       } catch (error) {
+        // Removal disposed the subscriptions while the API was live; this only takes those pushed after it.
         if (abort.signal.aborted) {
           this.disposeSubscriptions(extension);
           return;
         }
+        // Still activating, so the API stays live while the subscriptions are disposed (wr-eycu.u4t).
+        this.disposeSubscriptions(extension);
         extension.state = 'failed';
+        // A dispose callback can push more while the API is live; with the API closed it cannot register again.
         this.disposeSubscriptions(extension);
         this.release(description.key);
         const message = `Could not activate ${description.id} from ${description.entry}: ${error instanceof Error ? error.message : error}`;
@@ -313,7 +319,7 @@ export class ExtensionsActivator {
           }),
         ]);
       } catch (error) {
-        console.error(`[${id}] Deactivation failed:`, error);
+        this.logError(extension, 'Deactivation failed:', error);
       } finally {
         clearTimeout(deadline);
       }
@@ -324,21 +330,41 @@ export class ExtensionsActivator {
     }
   }
 
+  /**
+   * Disposes the subscriptions while the extension is still live, so their callbacks can use the API, then closes the
+   * API and releases what the extension registered, including what it registered during the disposal (wr-eycu.u4t).
+   * Other extensions already miss it in `all` and `getExtension`, since it is in `removing`.
+   */
   private finishRemoval(extension: Activation): void {
     const { key } = extension.description;
+    if (extension.state === 'active') {
+      extension.state = 'deactivating';
+    }
+    this.disposeSubscriptions(extension);
     this.extensions.delete(key);
     this.removing.delete(extension);
     extension.state = 'inactive';
     extension.waitingFor.clear();
+    // A dispose callback can push more while the API is live, such as an `extensions.onDidChange` listener that only
+    // the subscriptions release; with the API closed it cannot register again.
     this.disposeSubscriptions(extension);
     this.release(key);
+  }
+
+  private logError(extension: Activation, message: string, error: unknown): void {
+    const logError = extension.access?.logError;
+    if (logError) {
+      logError(message, error);
+    } else {
+      console.error(`[${extension.description.id}] ${message}`, error);
+    }
   }
 
   private disposeSubscriptions(extension: Activation): void {
     try {
       dispose(extension.subscriptions.splice(0));
     } catch (error) {
-      console.error(`[${extension.description.id}] Subscription disposal failed:`, error);
+      this.logError(extension, 'Subscription disposal failed:', error);
     }
   }
 
@@ -347,11 +373,13 @@ export class ExtensionsActivator {
       extension.abort.abort();
       if (extension.state === 'active') {
         try {
-          void Promise.resolve(extension.module?.deactivate?.()).catch(() => {});
-        } catch {
-          // The host is closing and releases every extension below.
+          void Promise.resolve(extension.module?.deactivate?.())
+            .catch(error => this.logError(extension, 'Deactivation failed:', error));
+        } catch (error) {
+          this.logError(extension, 'Deactivation failed:', error);
         }
       }
+      this.removing.add(extension);
       this.finishRemoval(extension);
     }
     this.onDidChange.dispose();
