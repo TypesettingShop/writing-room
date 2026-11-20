@@ -24,7 +24,7 @@
 
 ### 언어 고르기
 
-파일이나 제목 없는 문서의 모델을 만들 때 경로로 언어를 고른다. VS Code의 순서를 따른다.
+파일, 가상 문서, 제목 없는 문서의 모델을 언어 id 없이 만들면 VS Code의 순서대로 언어를 고른다.
 
 1. 파일 이름이 `filenames`의 하나와 같다.
 2. `filenamePatterns`의 패턴과 맞는 것 가운데 가장 긴 패턴. `/`가 든 패턴은 전체 경로와, 아니면 파일 이름과 맞춘다.
@@ -33,9 +33,11 @@
 
 비교는 대소문자를 가리지 않는다. 같은 종류에서는 나중에 등록한 것이 이긴다(내장 다음 확장, 확장은 설치 순). 아무것도 아니면 `plaintext`다. `firstLine`이 정규식이 아니면 그 조건만 버리고 경고한다.
 
+언어 등록이 바뀌면 열린 모델도 만든 시점의 경로와 첫 줄로 언어를 다시 고른다. 처음 고를 때와 다시 고를 때 모두 첫 줄은 앞 1,000자까지만 본다.
+
 ### 언어 모드
 
-활성 텍스트 에디터가 있으면 상태 표시줄 오른쪽에 그 모델의 언어 이름이 보인다(접근 가능한 이름 `Select Language Mode`). 누르거나 커맨드 팔레트의 **Change Language Mode**(`workbench.action.editor.changeLanguageMode`, `Ctrl+K M`)를 실행하면 언어 목록이 열린다. 이름이나 `(id)`로 걸러 고르면 그 모델의 언어만 바뀐다. 고른 언어는 저장하지 않으며, 다음에 같은 파일을 열면 다시 경로로 고른다.
+활성 텍스트 에디터가 있으면 상태 표시줄 오른쪽에 그 모델의 언어 이름이 보인다(접근 가능한 이름 `Select Language Mode`). 누르거나 커맨드 팔레트의 **Change Language Mode**(`workbench.action.editor.changeLanguageMode`, `Ctrl+K M`)를 실행하면 언어 목록이 열린다. 이름이나 `(id)`로 걸러 다른 언어를 고르면 그 모델의 언어가 고정된다. 확장이 `languages.setTextDocumentLanguage`를 호출하거나 언어 id를 지정해 모델을 만들어도 고정된다. 기여가 바뀌어도 고정한 언어는 유지된다. 파일의 언어를 다시 경로에 맞추려면 탭을 닫았다가 연다. 모델이 남아 있으면 고정도 남는다. 저장하지 않은 변경이 있거나, 다른 그룹이 같은 파일을 보이거나, 확장이 `workspace.openTextDocument`로 연 문서를 아직 쥐고 있으면(최대 3분) 모델이 남는다.
 
 언어가 바뀌면 상태 표시줄, 에디터의 `editorLangId`와 `resourceLangId` 컨텍스트 키, 모델의 언어가 함께 바뀌고, 문서 API는 닫힘 다음 열림 이벤트를 낸다.
 
@@ -122,7 +124,9 @@
 - Monaco의 내장 언어가 확장 없이 있다. VS Code는 모든 언어를 내장 확장에서 받는다. 기여 언어는 내장 정의 위에 덮이고, Monaco가 먼저 자기 구성과 토크나이저를 넣은 뒤에 기여 쪽을 넣어 기여가 이긴다 (wr-1ejz.31d).
 - Monaco 내장 언어는 텍스트 에디터 패키지가 로드된 뒤에 레지스트리에 들어온다(첫 페인트에서 패키지를 받지 않으려고). 그 전에는 경로 고르기가 기여 언어와 `plaintext`만 안다. 그때 `plaintext`로 만들어진 모델(`app.js`)은 패키지가 로드되자마자 내장 언어로 바뀐다. 세션의 첫 모델이 Monaco가 모르는 기여 언어라면 같은 이유로 `plaintext`로 만들어졌다가 곧 그 언어로 바뀐다(언어 변경 이벤트가 난다) (wr-1ejz.31d).
 - 같은 이유로 첫 텍스트 모델이 생기기 전에는 `languages.getLanguages()`에 Monaco 내장 언어 id가 없고, `openTextDocument({ language: 'javascript' })` 같은 호출은 알 수 없는 언어로 거부된다 (wr-1ejz.lcz).
-- 모델을 만든 뒤에 기여된 언어는 이미 `plaintext`로 열린 모델에 다시 적용되지 않는다. 새로고침하거나 언어 모드로 고른다. VS Code는 다시 고른다 (wr-1ejz.lcz).
+- 고정한 언어의 확장을 제거해도 열린 모델은 그 id를 유지한다. VS Code는 등록이 돌아올 때까지 `plaintext`를 사용한다 (wr-qd31.wrv).
+- 모델을 만들 때 `plaintext`를 명시하면 그 언어로 고정한다. VS Code의 텍스트 에디터 모델은 선호 언어가 `plaintext`면 경로와 첫 줄로 언어를 고른다 (wr-qd31.wrv).
+- **Reopen With**가 제목 없는 문서를 텍스트 Custom Editor의 모델로 다시 만들면 스냅숏의 `plaintext`는 새 모델의 자동 선택으로 이어진다. 명시했던 `plaintext`도 이 전환에서는 다시 고른다 (wr-qd31.8t6).
 - 임베디드 언어(`embeddedLanguages`)를 만나도 그 언어를 요청하지 않는다. VS Code는 토큰화 중에 만난 언어를 요청해 확장을 활성화하고 구성을 읽는다 (wr-1ejz.lcz).
 - Monaco의 `json`은 loader 없이 `onLanguage`에서 자기 모드를 비동기로 설정한다. 그 끝을 알 공개 수단이 없어, `json`에 기여한 구성이나 문법은 Monaco 쪽에 덮일 수 있다. 다른 내장 언어는 기여가 이긴다 (wr-1ejz.lcz).
 - 언어 id는 Monaco에서 풀 수 없다. 확장을 제거하면 구성, 문법, 스니펫은 풀리지만 언어 id는 새로고침까지 Monaco에 남는다. 워크벤치의 언어 목록에서는 바로 빠진다 (wr-1ejz.31d).
@@ -132,4 +136,4 @@
 - 스니펫 항목의 범위는 커서 앞의 단어다. VS Code는 접두가 단어 중간에서 시작하는 경우를 더 따진다. 사용자 스니펫 파일, 임베디드 언어별 스니펫, `editor.action.insertSnippet`의 목록 화면은 없다 (wr-1ejz.bav).
 - `files.associations`, 내용으로 언어 추측, 언어 아이콘, `languages.setLanguageConfiguration`은 이 영역에 없다 (wr-1ejz).
 
-Decided in: wr-efqx.n9k, wr-1ejz
+Decided in: wr-efqx.n9k, wr-1ejz, wr-qd31
