@@ -137,6 +137,15 @@ async function caretLine(page: Page): Promise<string | undefined> {
   });
 }
 
+/**
+ * The suggestions' accessible names without the documentation Monaco appends to a resolved item while its details pane
+ * is open (`label, kind, docs: …`). Ctrl+Space toggles that pane when the list is already open, which happens when a
+ * trigger character opened it a moment before the key, and the choice is kept for later lists.
+ */
+async function completionLabels(page: Page): Promise<string[]> {
+  return (await suggestionNames(page)).map(name => name.replace(/, docs: [\s\S]*$/, ''));
+}
+
 /** Undoes until the active editor shows `text` again: Monaco groups typing into undo stops by timing. */
 async function undoUntil(page: Page, text: string): Promise<void> {
   const expected = rendered(text);
@@ -442,11 +451,11 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await page.keyboard.press('End');
     await page.keyboard.type(' [x](./');
     await triggerSuggest(page);
-    await expect.poll(() => suggestionNames(page)).toEqual(expect.arrayContaining(['other.md, File', 'logo.png, File']));
+    await expect.poll(() => completionLabels(page)).toEqual(expect.arrayContaining(['other.md, File', 'logo.png, File']));
     await page.keyboard.press('Escape');
     await page.keyboard.type('other.md) [y](#');
     await triggerSuggest(page);
-    await expect.poll(() => suggestionNames(page)).toEqual(expect.arrayContaining([expect.stringMatching(/^#notes-title(,|$)/), expect.stringMatching(/^#section-two(,|$)/)]));
+    await expect.poll(() => completionLabels(page)).toEqual(expect.arrayContaining(['#notes-title', '#section-two']));
     await page.keyboard.press('Escape');
     await undoUntil(page, notesText);
   });
@@ -594,7 +603,7 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
     await page.keyboard.press('Control+Space');
-    await expect.poll(async () => await suggestList(page).isVisible() ? suggestionNames(page) : []).not.toContain('other.md, File');
+    await expect.poll(async () => await suggestList(page).isVisible() ? completionLabels(page) : []).not.toContain('other.md, File');
     await page.keyboard.press('Escape');
     await undoUntil(page, renamed);
 
@@ -612,7 +621,7 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
     await triggerSuggest(page);
-    await expect.poll(() => suggestionNames(page)).toContain('other.md, File');
+    await expect.poll(() => completionLabels(page)).toContain('other.md, File');
     await page.keyboard.press('Escape');
     await undoUntil(page, renamed);
   });

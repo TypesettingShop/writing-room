@@ -257,17 +257,23 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
       await expect.configure({ soft: true }).poll(() => editorText(page), { message: 'the command of the extension sorts the selected lines', timeout: 5_000 }).toBe(sorted);
     }
     const original = 'pear\napple\nbanana';
-    if (await editorText(page) !== original) {
-      await page.keyboard.press('ControlOrMeta+z');
-    }
-    await expect.poll(() => editorText(page)).toBe(original);
+    // F9 was pressed until the text changed: while the extension activated, one press can land after the sort and sort
+    // again (an edit that changes nothing visible), so undo until the original text is back.
+    await expect.poll(async () => {
+      const text = await editorText(page);
+      if (text !== original) {
+        await page.keyboard.press('ControlOrMeta+z');
+      }
+      return text;
+    }, { intervals: [300] }).toBe(original);
     await selectAll();
     await openEditorContextMenu(page);
     const menu = page.getByRole('menu').filter({ has: page.getByRole('menuitem', { name: 'Sort lines (ascending, case sensitive)' }) });
     await expect(menu).toBeVisible();
     // The entries are contributed with `editorTextFocus && !editorReadonly`; no read-only editor can be made here (the
     // workbench has no command for one and the files are all writable), so only the shown side of the condition is checked.
-    await menu.getByRole('menuitem', { name: 'Sort lines (ascending, case sensitive)', exact: true }).click();
+    // Monaco's context menu ignores a pointer release for 100 ms after it opens (as in documents.spec.ts).
+    await menu.getByRole('menuitem', { name: 'Sort lines (ascending, case sensitive)', exact: true }).click({ delay: 150 });
     await expect.configure({ soft: true }).poll(() => editorText(page), { message: 'the context menu entry sorts the selected lines', timeout: 10_000 }).toBe(sorted);
   });
 
