@@ -77,9 +77,14 @@ HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤
 등록을 찾을 수 없으면 `command not found`로 거부한다. 호스트를 재시작하면
 이미 발생한 이벤트를 다시 보낸다.
 
-제거할 때에는 `deactivate`의 약속을 최대 5초 기다린 다음 구독과 API 등록을
-정리한다. 그 동안 확장 API를 사용할 수 있다. 페이지를 떠날 때에는
-호스트가 약속의 완료를 기다리지 않는다.
+제거할 때에는 `deactivate`의 약속을 최대 5초 기다린 다음
+`context.subscriptions`를 정리하고 API 등록을 푼다. `deactivate`와 구독 정리가
+끝날 때까지 확장 API를 사용할 수 있다. 구독의 `dispose`가 API를 읽거나 새로
+등록해도 되며, 정리 중에 한 등록도 마지막에 풀린다. 정리가 끝나면 그 확장의 API
+호출은 `Extension '<id>' is no longer active.`로 거부된다. 정리하는 동안에도
+다른 확장의 `extensions.all`과 `getExtension`에는 그 확장이 보이지 않는다.
+활성화가 실패했을 때와 호스트를 끝낼 때에도 API가 살아 있는 동안 구독을
+정리한다. 페이지를 떠날 때에는 호스트가 약속의 완료를 기다리지 않는다.
 
 ## 지역화
 
@@ -126,4 +131,4 @@ HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤
 | 외부 API | `debug`, `scm`, `tests`, `comments`, `authentication`, `chat`, `lm`, `notebooks`는 `undefined`다. |
 | Worker | 모듈 Worker와 중계 Worker 안의 상대 경로 `importScripts`는 오류로 거부한다. 호스트 자체의 `postMessage`, `close`, `importScripts`는 사용할 수 없다. |
 
-Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew
+Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t

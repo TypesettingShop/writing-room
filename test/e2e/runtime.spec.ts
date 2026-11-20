@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
+import { collectPageErrors } from './fixtures.js';
 
 async function openCommandPalette(page: Page) {
   await page.keyboard.press('F1');
@@ -135,3 +136,32 @@ for (const installedFrom of ['folder', 'package'] as const) {
     )).toBeVisible();
   });
 }
+
+test('lets a subscription use the API while an uninstalled extension disposes it', async ({ page }) => {
+  await seedInstalledExtensions(page, [{
+    location: extensionFixtureLocation('runtime') + 'cleanup/',
+    manifest: {
+      name: 'runtime-cleanup', publisher: 'test', version: '1.0.0', browser: './extension.js',
+      contributes: { commands: [{ command: 'runtime.cleanup.ping', title: 'Ping Runtime Cleanup' }] },
+    },
+  }]);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Ping Runtime Cleanup');
+    await expect(page.getByText('Runtime cleanup is active')).toBeVisible();
+    const disposal = page.waitForEvent('console', {
+      predicate: message => message.text().startsWith('Runtime cleanup disposed')
+        || message.text().includes('Subscription disposal failed'),
+    });
+    await runRuntimeCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /test.runtime-cleanup/ }).click();
+    expect((await disposal).text()).toMatch(/^Runtime cleanup disposed after reading \d+ workspace folders$/);
+    const palette = await openCommandPalette(page);
+    await palette.fill('Ping Runtime Cleanup');
+    await expect(page.getByRole('option', { name: 'Ping Runtime Cleanup' })).toHaveCount(0);
+    expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
+});
