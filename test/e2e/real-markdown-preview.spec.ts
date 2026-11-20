@@ -114,18 +114,21 @@ async function caretOn(page: Page, text: string, offset = 0): Promise<void> {
   // From the top, so that sticky scroll's header line does not lie over the line clicked.
   await activeEditor(page).focus();
   await page.keyboard.press('ControlOrMeta+Home');
-  const token = activeGroup(page).locator('.view-line span span').filter({ hasText: text }).first();
-  await expect(token).toBeVisible();
-  const index = (await token.textContent())!.replaceAll(' ', ' ').indexOf(text) + offset;
-  const width = await token.evaluate((element, index) => {
-    const range = document.createRange();
-    const node = element.firstChild!;
-    range.setStart(node, 0);
-    range.setEnd(node, index);
-    return range.getBoundingClientRect().width;
-  }, index);
-  // A caret position is a point between characters, which may lie at the token's very edge: the line takes the click.
-  await token.click({ position: { x: Math.max(width, 1), y: 5 }, force: true });
+  // Monaco replaces a line's spans when its tokens arrive (the grammar loads on demand): measured and clicked again then.
+  await expect(async () => {
+    const token = activeGroup(page).locator('.view-line span span').filter({ hasText: text }).first();
+    await expect(token).toBeVisible({ timeout: 5_000 });
+    const index = (await token.textContent())!.replaceAll(' ', ' ').indexOf(text) + offset;
+    const width = await token.evaluate((element, index) => {
+      const range = document.createRange();
+      const node = element.firstChild!;
+      range.setStart(node, 0);
+      range.setEnd(node, index);
+      return range.getBoundingClientRect().width;
+    }, index);
+    // A caret position is a point between characters, which may lie at the token's very edge: the line takes the click.
+    await token.click({ position: { x: Math.max(width, 1), y: 5 }, force: true, timeout: 5_000 });
+  }).toPass({ timeout: 20_000 });
 }
 
 /** The text of the active editor's line that holds the caret (Monaco's current-line highlight). */
@@ -597,9 +600,12 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await hidePanel(page);
     await show(page, 'notes.md');
     const renamed = await editorText(page);
-    await caretOn(page, '#section-renamed', 3);
-    // The provider's highlights: the header and the link to it.
-    await expect.poll(() => highlights('provider')).toBeGreaterThan(1);
+    // The provider's highlights: the header and the link to it. The client registers the provider when the setting
+    // reaches it, and Monaco asks again only when the caret moves: the caret is put there again until they show.
+    await expect.poll(async () => {
+      await caretOn(page, '#section-renamed', 3);
+      return highlights('provider');
+    }, { intervals: [1_000] }).toBeGreaterThan(1);
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
     await page.keyboard.press('Control+Space');
@@ -615,8 +621,10 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await hidePanel(page);
     await show(page, 'notes.md');
     // Unregistered with the setting: Monaco's own word matches come back.
-    await caretOn(page, '#section-renamed', 3);
-    await expect.poll(() => highlights('textual')).toBeGreaterThan(0);
+    await expect.poll(async () => {
+      await caretOn(page, '#section-renamed', 3);
+      return highlights('textual');
+    }, { intervals: [1_000] }).toBeGreaterThan(0);
     expect(await highlights('provider')).toBe(0);
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
