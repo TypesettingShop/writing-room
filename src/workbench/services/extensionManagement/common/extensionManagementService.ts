@@ -44,9 +44,16 @@ export interface IWebExtensionsScannerService extends BrandedService {
   /** The list this tab last saw. It can lag behind a write in another tab. */
   scanUserExtensions(): readonly StoredWebExtension[];
   /**
+   * True while the installed list lives only in this tab because the workbench storage fell back to memory.
+   * It can become true during an operation and then stays true.
+   */
+  readonly sessionOnly: boolean;
+  /**
    * Runs `task` while this tab and every other tab of the origin are kept out of the installed list.
-   * `read` returns the persisted list, not this tab's cache. `locations` returns every location a persisted
-   * record names, invalid records included, or undefined when the list cannot be parsed. The lock is not reentrant.
+   * `read` returns the persisted list, not this tab's cache; while `sessionOnly`, it is this tab's list and no
+   * Web Lock is taken, only this tab's order is kept. `locations` returns every location a persisted record
+   * names, invalid records included, or undefined when the list cannot be parsed or is session-only. The lock
+   * is not reentrant.
    */
   locked<T>(task: (
     read: () => readonly StoredWebExtension[], write: InstalledListWriter, locations: () => ReadonlySet<string> | undefined,

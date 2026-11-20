@@ -19,7 +19,7 @@ function setup(
 ) {
   return new ExtensionsWorkbenchService(
     { enabled: true, ...gallery } as ExtensionGalleryService, management as ExtensionManagementService,
-    { _serviceBrand: undefined, scanUserExtensions: () => [], locked: vi.fn() },
+    { _serviceBrand: undefined, scanUserExtensions: () => [], sessionOnly: false, locked: vi.fn() },
     { _serviceBrand: undefined, extensions, activateByEvent: vi.fn(), activationEventIsDone: vi.fn(), whenInstalledExtensionsRegistered: async () => true },
     quickInput as IQuickInputService,
   );
