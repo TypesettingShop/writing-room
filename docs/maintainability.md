@@ -1,6 +1,6 @@
 # 유지보수와 확장 가이드
 
-이 문서는 v0.1.0 워크벤치가 유지보수와 확장을 위해 어떻게 지어졌는지, 새 기능이나 확장을 더할 때 어디를 고치는지 설명한다. 각 절은 "무엇이 어떻게 되어 있나, 왜 그런가, 더할 때 어디를 고치나" 순서다. 파일 단위 대응표와 VS Code와의 차이는 [architecture.md](architecture.md), 실행과 사용은 [getting-started.md](getting-started.md), 확장 작성자용 API는 [extension-api.md](extension-api.md)에 있고 여기서는 반복하지 않는다. 경로는 모두 저장소 루트 기준이다.
+이 문서는 v0.2.0 워크벤치가 유지보수와 확장을 위해 어떻게 지어졌는지, 새 기능이나 확장을 더할 때 어디를 고치는지 설명한다. 각 절은 "무엇이 어떻게 되어 있나, 왜 그런가, 더할 때 어디를 고치나" 순서다. 파일 단위 대응표와 VS Code와의 차이는 [architecture.md](architecture.md), 실행과 사용은 [getting-started.md](getting-started.md), 확장 작성자용 API는 [extension-api.md](extension-api.md)에 있고 여기서는 반복하지 않는다. 경로는 모두 저장소 루트 기준이다.
 
 ## 한눈에 보기
 
@@ -18,11 +18,12 @@ flowchart LR
 
 - 무엇: `src/`는 VS Code의 `src/vs/`와 같은 경로를 따른다. 최상위는 `base`, `platform`, `editor`, `workbench`, `code`이고 이 순서가 의존 방향이다. 아래 레이어만 import 할 수 있다. 각 레이어 안은 `common`(DOM 없음)과 `browser`(DOM 사용)로 나뉘고, 테스트는 대상 옆의 `test/` 폴더에 둔다. 진입점은 `src/code/browser/workbench/workbench.ts`이며 `workbench.web.main.js`를 import 한 뒤 `create(document.body)`를 부른다.
 - 왜: 경로를 VS Code와 맞추면 VS Code에서 같은 개념을 찾아 대조하기 쉽다. 방향이 한 쪽으로만 흐르면 낮은 레이어(`base`, `platform`)를 UI 없이 테스트하고 재사용할 수 있고, 순환 의존이 생기지 않는다.
-- 무엇이 막나: `src/base/test/common/layering.test.ts`가 `src/` 전체 파일의 import(`import`, `export ... from`, 동적 `import()`, `require`, `import()` 타입)를 TypeScript 컴파일러로 해석해 다음을 검사한다.
+- 무엇이 막나: `src/base/test/common/layering.test.ts`가 `src/` 전체 파일(500개가 넘고 에픽마다 늘어서 부하가 큰 컴퓨터에서는 기본 5초를 넘기므로 시간 제한이 60초다)의 import(`import`, `export ... from`, 동적 `import()`, `require`, `import()` 타입)를 TypeScript 컴파일러로 해석해 다음을 검사한다.
   - 윗 레이어 import 금지(예: `base`가 `platform`을 import).
   - `common` 폴더가 `browser` 폴더를 import 금지.
   - `workbench/api/worker`가 `browser` 폴더를 import 금지(확장 호스트는 DOM이 없다).
-  - `src/workbench/services/storage/browser/storageService.ts`를 뺀 모든 파일에서 `localStorage`, `sessionStorage`, `indexedDB`라는 이름 사용 금지. 저장은 `IStorageService`로만 한다.
+  - `src/workbench/services/storage/browser/storageService.ts`를 뺀 모든 파일에서 `localStorage`, `sessionStorage`라는 이름 사용 금지. 상태 저장은 `IStorageService`로만 한다.
+  - `src/base/browser/indexedDB.ts`를 뺀 모든 파일에서 `indexedDB`라는 이름 사용 금지. 파일 저장소는 이 래퍼(`IndexedDB`)로만 데이터베이스를 연다. 이 두 파일이 레이어링 규칙의 예외 자리다.
   - 검사기 자체도 심어 둔 위반 예제로 테스트한다.
 - 더할 때: 새 파일은 VS Code 경로에 대응하는 위치에 둔다. 대응이 없으면 개념이 속한 레이어를 고르고, DOM이 필요 없으면 `common`에 둔다. 위반은 `npm test`에서 파일과 줄 번호로 나온다.
 
@@ -40,7 +41,7 @@ flowchart LR
 | `IExtensionService` | `NullExtensionService` (`src/workbench/services/extensions/common/extensions.ts`) | `ExtensionService` (`src/workbench/services/extensions/browser/extensions.contribution.ts`에서 등록) |
 
 - 왜: 낮은 레이어와 테스트가 실제 구현(브라우저, 스토리지)을 끌어오지 않고도 서비스를 쓸 수 있다. 서비스를 바꿔 끼우는 일은 등록 한 줄이다.
-- 주의: 실제 구현이 올라가는 시점은 import 순서가 정한다. 실제 설정 서비스는 `src/workbench/contrib/preferences/browser/preferences.contribution.ts`가 import 해서 올라간다. 이 의존이 숨어 있다는 점은 기술 부채로 남아 있다(10절).
+- 주의: 실제 구현이 올라가는 시점은 import 순서가 정한다. 실제 설정 서비스는 Preferences 기여 모듈이 아니라 `src/workbench/services/configuration/browser/configuration.contribution.ts`를 `workbench.web.main.ts`가 import 해서 올라간다(wr-wzwu). `NullConfigurationService`는 레지스트리 기본값을 돌려준다(wr-xkex).
 - 더할 때: 인터페이스와 `createDecorator`는 `common`에, 구현은 `browser`에 두고 구현 파일 끝에서 `registerSingleton`을 부른 뒤 `workbench.web.main.ts`에서 닿는 곳(`src/workbench/platformServices.contribution.ts` 같은 서비스 모음이나 기여 파일)에서 import 한다. 테스트에서는 `new InstantiationService(new ServiceCollection([IFoo, fake]))`로 가짜를 넣는다.
 
 ## 3. 레지스트리와 기여
@@ -109,10 +110,12 @@ Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`
 
 ## 7. 상태와 저장
 
-- 무엇: 모든 영속 상태는 `IStorageService`(`src/platform/storage/common/storage.ts`) 하나를 거친다. 스코프는 `APPLICATION`, `PROFILE`, `WORKSPACE`, 대상은 `USER`, `MACHINE`이다. 브라우저 구현 `BrowserStorageService`(`src/workbench/services/storage/browser/storageService.ts`)는 접두사 `writing-room:storage:` 아래에 키를 쓰고, 키 안에 스코프 번호를 붙인다. 유휴와 `pagehide` 때 `onWillSaveState`가 발생하며, 구성요소는 이 이벤트에 맞춰 저장한다. 객체 상태는 `Memento`(`src/workbench/common/memento.ts`)가 `memento/<id>` 키로 읽고 쓴다.
-- 스키마 버전: 접두 키 `writing-room:storage:version`에 `STORAGE_SCHEMA_VERSION`(현재 1)을 적는다. 더 새로운 버전이 적혀 있으면 오류, 옛 버전이면 `registerStorageMigration(fromVersion, (draft) => …)`로 등록한 변환을 한 단계씩 적용한다. 등록된 변환이 없는 단계는 오류다. 지금은 등록된 변환이 없다.
+- 무엇: 브라우저에는 저장소가 셋이다. 상태는 `IStorageService`, 파일은 IndexedDB `writing-room-files`의 `vscode-vfs`, 사용자 데이터는 같은 데이터베이스의 `vscode-userdata`다(아래). 상태는 `IStorageService`(`src/platform/storage/common/storage.ts`) 하나를 거친다. 스코프는 `APPLICATION`, `PROFILE`, `WORKSPACE`, 대상은 `USER`, `MACHINE`이다. 브라우저 구현 `BrowserStorageService`(`src/workbench/services/storage/browser/storageService.ts`)는 접두사 `writing-room:storage:` 아래에 키를 쓰고, 키 안에 스코프 번호를 붙인다. 유휴와 `pagehide` 때 `onWillSaveState`가 발생하며, 구성요소는 이 이벤트에 맞춰 저장한다. 객체 상태는 `Memento`(`src/workbench/common/memento.ts`)가 `memento/<id>` 키로 읽고 쓴다.
+- 스키마 버전: 접두 키 `writing-room:storage:version`에 `STORAGE_SCHEMA_VERSION`(현재 2)을 적는다. 더 새로운 버전이 적혀 있으면 오류, 옛 버전이면 `registerStorageMigration(fromVersion, (draft) => …)`로 등록한 변환을 한 단계씩 적용한다. 등록된 변환이 없는 단계는 오류다. 지금 등록된 변환은 설치 목록의 1에서 2 하나다(`webExtensionsScannerService.ts`). 변환한 브라우저를 이전 버전으로 열면 그 세션은 메모리 모드가 된다([extension-installation.md](extension-installation.md#설치-목록스토리지-스키마-2)).
+- 파일과 사용자 데이터: `src/platform/files/browser/indexedDBFileSystemProvider.ts`가 IndexedDB `writing-room-files`의 객체 저장소 `vscode-vfs`(워크스페이스 폴더 하나 `vscode-vfs://writing-room/workspace`)와 `vscode-userdata`(확장 패키지, 확장별 저장 폴더, 로그, 초안 백업)를 `IFileService`에 등록한다. 사용자 설정 원문 `vscode-userdata:/User/settings.json`은 예외로 `IStorageService`에 있다. 두 탭의 동시 쓰기는 etag와 트랜잭션이, 변경 알림은 같은 오리진의 탭 사이 채널이 맡는다. 열 수 없으면 그 페이지는 메모리 저장소로 물러선다([files-and-explorer.md](files-and-explorer.md#저장소)).
+- 메모리 모드: 스토리지 백엔드를 열 수 없거나 쓰기가 실패하면 `IStorageService.usesMemory`가 참이다. 탭 사이에서 일치해야 하는 판단(설치 목록 같은 것)은 탭 캐시가 아니라 `getPersisted`와 `storeImmediately`의 영속 스냅숏으로 한다.
 - 새 상태를 저장할 때 지킬 것:
-  1. `localStorage` 등을 직접 쓰지 않는다(1절의 레이어링 테스트가 막는다).
+  1. `localStorage`, `indexedDB` 등을 직접 쓰지 않는다(1절의 레이어링 테스트가 막는다). 파일은 `IFileService`로 읽고 쓴다.
   2. 스코프를 고른다. 사용자가 여러 워크스페이스에서 공유할 것은 `PROFILE`, 이 워크스페이스의 레이아웃과 열린 에디터는 `WORKSPACE`다.
   3. 읽을 때 형태를 검증한다. 저장된 값은 이전 버전이나 다른 탭이 쓴 것일 수 있다(`getObject`는 JSON 파싱에 실패하거나 객체가 아니면 기본값을 돌려준다).
   4. 저장된 형태를 호환되지 않게 바꾸면 `STORAGE_SCHEMA_VERSION`을 올리고 `registerStorageMigration`을 같은 변경에 넣는다.
@@ -123,7 +126,7 @@ Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`
 ## 8. 테스트 전략
 
 - 단위: Vitest(jsdom), `src/**/test/**/*.test.ts`(`vitest.config.ts`). 테스트는 대상 옆 `test/` 폴더에 두고, 서비스는 가짜 서비스로 주입해 검사한다. jsdom에는 레이아웃이 없으므로 크기에 의존하는 검증은 브라우저 테스트에서 한다. 레이어링 테스트도 이 스위트에 속한다.
-- 브라우저: Playwright(`test/e2e/*.spec.ts`, `playwright.config.ts`). 개발 서버(`npm run test:e2e`)와 프로덕션 빌드의 프리뷰(`E2E_TARGET=preview`) 양쪽에서 같은 스펙을 돌린다. 빌드에서만 깨지는 문제(워커 번들, 내장 확장 복사)를 잡기 위해서다. 앱과 원격 확장 픽스처 서버(`test/fixtures/serve-extensions.mjs`)를 Playwright가 각각 시작한다. 알려진 병렬 시간 초과 때문에 `--workers=2`로 돌리기를 권장한다([getting-started.md](getting-started.md)).
+- 브라우저: Playwright(`test/e2e/*.spec.ts`, `playwright.config.ts`). 개발 서버(`npm run test:e2e`)와 프로덕션 빌드의 프리뷰(`E2E_TARGET=preview`) 양쪽에서 같은 스펙을 돌린다. 빌드에서만 깨지는 문제(워커 번들, 내장 확장 복사)를 잡기 위해서다. 앱과 원격 확장 픽스처 서버(`test/fixtures/serve-extensions.mjs`)를 Playwright가 각각 시작한다. 알려진 병렬 시간 초과 때문에 `--workers=2`로 돌리기를 권장한다([getting-started.md](getting-started.md)). 프리뷰 대상은 타입 검사와 빌드를 한 뒤 서버가 뜨므로 `playwright.config.ts`가 앱 서버를 기다리는 제한을 300초로 둔다(개발 서버는 60초). 부하가 큰 컴퓨터에서 빌드가 60초를 넘겨 시험이 시작도 못 하던 문제를 막으려는 것이다.
 - 확장 브라우저 픽스처는 `test/fixtures/extensions/<이름>/`에 둔다. `seedInstalledExtensions`로 앱 초기화 전에 설치 기록을 심을 수 있다. 별도 응답이 필요한 픽스처는 `test/fixtures/routes/<이름>.mjs`에서 절대 경로를 HTTP 핸들러에 매핑한 객체를 기본 내보내기로 제공한다. 단위 테스트는 `createTestExtensionApi`로 Worker 없이 API를 조립하고 실제 구조화 복제 경계를 사용할 수 있다.
 - 실제 확장: 고정 정보는 `test/fixtures/real-extensions/pins.json`, 캐시와 검증 코드는 `scripts/lib/real-extensions.mjs`(`verifyCachedPin`, `readZip`, `resolveContained`)에 있다. 픽스처 경로 `test/fixtures/routes/openvsx.mjs`가 캐시를 Open VSX 모양으로 준다. 서비스 주소는 `http://127.0.0.1:<픽스처 포트>/openvsx`(스펙에서는 `openVsxServiceUrl()`)이고, 파일 요청은 둘째 호스트(`localhost`의 `/openvsx-content/...`)로 302를 보낸다. 바이트를 줄 때마다 캐시를 다시 확인하고 다르면 500으로 거부한다. 실제 확장을 설치하는 스펙은 맨 앞에서 `requireRealExtensions()`(`test/e2e/real-extensions.helpers.ts`)를 부른다. 캐시 폴더는 `E2E_REAL_EXTENSIONS_CACHE`로 바꿀 수 있다. 제품 기본 갤러리(`https://open-vsx.org`)를 그대로 두고 Extensions 뷰로 설치하는 인수 스펙(`test/e2e/real-markdown-basics.spec.ts`)은 `page.route`로 `open-vsx.org`·`openvsx.eclipsecontent.org` 요청을 이 경로로 돌리고, 응답 JSON 안의 픽스처 주소를 `https://open-vsx.org`로 되돌리며, 둘째 호스트로 가는 302는 테스트 쪽에서 따라간다(브라우저 라우팅은 첫 홉만 가로챈다). 이렇게 하면 `npm run test:e2e`의 기본 제품 설정으로 돈다. 확장이 남긴 콘솔 메시지는 확장 id 머리말(`[<id>] …`)로 모아 허용 목록과 정확히 비교한다.
 - API 사용 탐침: `test/harness/api-probe.*`는 제품의 Worker 진입과 로더를 그대로 쓰고, 그 앞에서 전역 `Function`을 감싸 `require('vscode')`만 기록 프록시로 바꾼다. 없는 멤버에는 `undefined`를 그대로 돌려주므로 확장은 실제와 같은 곳에서 깨진다. 확장 호스트의 Worker 이름이나 로더의 `Function` 호출 모양(앞의 셋이 `module`, `exports`, `require`, 마지막이 소스)이 바뀌면 탐침이 `probeError`로 알리고 `test/e2e/api-probe.spec.ts`가 실패한다. 그때는 `api-probe.ts`와 `api-probe-recorder.ts`를 새 이음매에 맞춘다.
@@ -138,22 +141,21 @@ Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`
 
 ## 9. VS Code와의 차이를 기록하는 규칙
 
-- 이 저장소는 VS Code를 참고하되 그대로 복사하지 않는다. 의도적으로 달라진 점은 [architecture.md](architecture.md)의 "Deviations from VS Code" 절이 유일한 기록이다. 항목은 해당 영역 아래에 "무엇을 어떻게 했다. VS Code는 이렇다 — 왜 다른가"로 적고, 결정한 이슈 id를 괄호로 붙인다. 사용자가 보는 동작이 바뀌면 같은 PR에서 이 목록과 [getting-started.md](getting-started.md)나 [extension-api.md](extension-api.md)도 고친다.
+- 이 저장소는 VS Code를 참고하되 그대로 복사하지 않는다. 예외는 하나다. upstream `vscode.d.ts`(MIT) 원문을 적합성 검사의 참조 픽스처로 `test/fixtures/vscode-api/vscode.d.ts`에 둔다(담당자가 v0.2.0 계획에서 승인했다). 라이선스와 출처(고정 커밋)는 같은 폴더의 `LICENSE.txt`에 있다. 이 픽스처는 테스트에서만 읽으며 `dist/`에 싣지 않는다. 의도적으로 달라진 점은 [architecture.md](architecture.md)의 "Deviations from VS Code" 절이 유일한 기록이다. 항목은 해당 영역 아래에 "무엇을 어떻게 했다. VS Code는 이렇다 — 왜 다른가"로 적고, 결정한 이슈 id를 괄호로 붙인다. 사용자가 보는 동작이 바뀌면 같은 PR에서 이 목록과 [getting-started.md](getting-started.md)나 [extension-api.md](extension-api.md)도 고친다.
 - 확장 API는 고정 커밋의 선언과 비교한다. 의도해서 다른 선언은 사유와 결정 이슈를 적합성 검사의 예외 파일에 기록하고, 구조의 차이는 [확장 호스트](architecture.md#extension-host)에 적는다.
 - 페이지 끝에는 그 내용을 정한 이슈를 `Decided in:` 뒤에 이슈 id를 쓴 한 줄 한 줄로 적는다. VS Code 쪽 근거는 [README.md](README.md)의 고정 커밋을 기준으로 하고 줄 번호 대신 심볼 이름을 적는다.
 - 같은 실수를 다시 하지 않도록 리뷰나 작업에서 얻은 규칙은 `docs/lessons/<슬러그>.md`에 `What happened`, `Why`, `Do this instead`와 `Learned in:`으로 적는다. 새 규칙을 만들기 전에 `moai wiki search`로 같은 교훈이 있는지 본다.
 
 ## 10. 알려진 기술 부채
 
-v0.1.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 전체 목록은 `moai backlog ls`로 본다.
+v0.2.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 전체 목록은 `moai backlog ls`로 본다.
 
-- 서비스와 등록 구조: `InstantiationService`가 만든 싱글턴을 워크벤치 소비자보다 늦게 해제하는 수명 관리가 아직 없다(wr-h1iy). 실제 설정 서비스의 등록이 Preferences 기여 모듈에 숨어 있다(wr-wzwu). `NullConfigurationService`가 레지스트리 기본값을 돌려주지 않아 소비자가 기본값을 반복한다(wr-xkex). `registerAction2`가 중복 id를 거부해서 개발 중 HMR 재등록과 맞지 않는다(wr-byx6).
+- 서비스와 등록 구조: `InstantiationService`가 만든 싱글턴을 워크벤치 소비자보다 늦게 해제하는 수명 관리가 아직 없다(wr-h1iy). `registerAction2`가 중복 id를 거부해서 개발 중 HMR 재등록과 맞지 않는다(wr-byx6).
 - 스토리지: 버전 표식 없이 접두 키가 남은 오리진의 처리(wr-a5aw), 쓰기 오류 뒤 메모리 모드 전환 범위(wr-vthy), 뒤로/앞으로 캐시 복귀 때 다른 탭의 스토리지 변경 반영 확인(wr-jg40).
 - 에디터: Welcome 시작 판단이 워크벤치 기여가 아니라 워크벤치 본체에 있다(wr-pz63). 여러 그룹에 열린 같은 입력을 그룹마다 직렬화한다(wr-67xb).
 - 뷰 컨테이너: 여러 브라우저 탭에서 위치와 순서를 저장할 때 다른 탭의 변경을 보존하는 일(wr-44tg), 패널 복합 파트 서비스의 구독 수명 관리(wr-4449).
-- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 확장 식별자 대신 설치 세대 키가 남는 문제(wr-m57b).
+- 파일과 Explorer: Explorer 트리와 확장 트리 뷰가 통합되지 않아 키보드 처리, 행 그리기, 컨텍스트 메뉴가 겹친다([files-and-explorer.md](files-and-explorer.md#기술-부채)). Explorer, Extensions, Problems 뷰 본문이 기여가 채우는 인스턴스화 서비스를 각자 기다린다(wr-wttg).
+- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 설치 세대 키 대신 확장의 공개 식별자를 쓰는 일의 남은 범위(wr-m57b), 확장 호스트 재시작의 비동기 비활성화와 종료 단계 정리(wr-gl87), Worker 오류 귀속에서 변조 가능한 스택과 재사용한 진입 URL을 구별하는 일(wr-fy2l).
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
-Decided in: wr-510x
-
-Decided in: wr-efqx
+Decided in: wr-510x, wr-efqx, wr-jbmd
