@@ -225,9 +225,18 @@ test('applies and releases a contribution on an already open model', async () =>
   expect(model.getLanguageId()).toBe('plaintext');
   const changes: string[] = [];
   disposables.add(models.onModelLanguageChanged(event => changes.push(event.newLanguageId)));
+  const fake = (monaco.current as FakeMonaco).editor;
+  const setModelLanguage = fake.setModelLanguage;
+  const registeredBeforeSelection: boolean[] = [];
+  const languageChange = vi.spyOn(fake, 'setModelLanguage').mockImplementation((model, language) => {
+    registeredBeforeSelection.push(monacoLanguages.getLanguages().some(entry => entry.id === language));
+    setModelLanguage(model, language);
+  });
+  disposables.add(toDisposable(() => { languageChange.mockRestore(); }));
 
   host.apply([fixture()]);
   await flush();
+  expect(registeredBeforeSelection).toEqual([true]);
   expect(model.getLanguageId()).toBe('fixturelang');
   expect(activations.filter(event => event === 'onLanguage:fixturelang')).toHaveLength(1);
   expect(reads).toEqual(['http://127.0.0.1:9/fixtures.lang/language-configuration.json']);

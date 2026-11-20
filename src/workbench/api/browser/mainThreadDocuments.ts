@@ -388,11 +388,19 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
         return !opened.editor.isDisposed() && await this.editorService.save(opened, options);
       }
       const untitled = this.untitled.get(entry.uri);
-      if (!await this.files.save(entry.uri, options)) {
+      const target = await this.files.save(entry.uri, options);
+      if (!target) {
         return false;
       }
-      // Dispose the original even if a tab opened while saving. An untitled URI can be reused.
-      untitled?.dispose();
+      // A tab may have opened since the dialog was shown. An untitled URI can also be reused.
+      if (untitled && this.untitled.get(entry.uri) === untitled) {
+        const [openedDuringSave] = this.editorService.findEditors(entry.uri);
+        if (openedDuringSave) {
+          await this.editorService.replaceSaved(openedDuringSave, { resource: target });
+        } else {
+          untitled.dispose();
+        }
+      }
       return true;
     } catch {
       return false;

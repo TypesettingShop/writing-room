@@ -195,25 +195,30 @@ exports.activate = context => {
     ]);
   }));
 
-  async function saveUntitled(shown) {
-    const content = shown ? 'Draft from a visible extension document' : 'Draft from a hidden extension document';
+  async function saveUntitled(visibility) {
+    const content = visibility === 'hidden' ? 'Draft from a hidden extension document' : 'Draft from a visible extension document';
     const document = await workspace.openTextDocument({ content });
-    if (shown) {
+    if (visibility === 'shown') {
       await window.showTextDocument(document);
     }
-    const saved = await document.save();
+    const saving = document.save();
+    if (visibility === 'late') {
+      await window.showTextDocument(document, { preserveFocus: true });
+    }
+    const saved = await saving;
     const closed = document.isClosed;
     const listed = workspace.textDocuments.includes(document);
     if (!saved) {
       assert(document.isDirty && document.getText() === content, 'The untitled source must retain its draft after cancellation');
-    } else if (!shown) {
+    } else if (visibility === 'hidden') {
       const reopened = await window.showTextDocument(document).then(() => true, () => false);
       assert(!reopened, 'The hidden saved document must no longer be showable');
     }
     void window.showInformationMessage(`Untitled save: ${saved}, closed: ${closed}, listed: ${listed}`);
   }
   context.subscriptions.push(
-    vscode.commands.registerCommand('documents.saveShownUntitled', () => saveUntitled(true)),
-    vscode.commands.registerCommand('documents.saveHiddenUntitled', () => saveUntitled(false)),
+    vscode.commands.registerCommand('documents.saveShownUntitled', () => saveUntitled('shown')),
+    vscode.commands.registerCommand('documents.saveHiddenUntitled', () => saveUntitled('hidden')),
+    vscode.commands.registerCommand('documents.saveLateShownUntitled', () => saveUntitled('late')),
   );
 };

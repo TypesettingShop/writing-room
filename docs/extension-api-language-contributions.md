@@ -126,6 +126,7 @@
 - 같은 이유로 첫 텍스트 모델이 생기기 전에는 `languages.getLanguages()`에 Monaco 내장 언어 id가 없고, `openTextDocument({ language: 'javascript' })` 같은 호출은 알 수 없는 언어로 거부된다 (wr-1ejz.lcz).
 - 고정한 언어의 확장을 제거해도 열린 모델은 그 id를 유지한다. VS Code는 등록이 돌아올 때까지 `plaintext`를 사용한다 (wr-qd31.wrv).
 - 모델을 만들 때 `plaintext`를 명시하면 그 언어로 고정한다. VS Code의 텍스트 에디터 모델은 선호 언어가 `plaintext`면 경로와 첫 줄로 언어를 고른다 (wr-qd31.wrv).
+- **Reopen With**가 제목 없는 문서를 텍스트 Custom Editor의 모델로 다시 만들면 스냅숏의 `plaintext`는 새 모델의 자동 선택으로 이어진다. 명시했던 `plaintext`도 이 전환에서는 다시 고른다 (wr-qd31.8t6).
 - 임베디드 언어(`embeddedLanguages`)를 만나도 그 언어를 요청하지 않는다. VS Code는 토큰화 중에 만난 언어를 요청해 확장을 활성화하고 구성을 읽는다 (wr-1ejz.lcz).
 - Monaco의 `json`은 loader 없이 `onLanguage`에서 자기 모드를 비동기로 설정한다. 그 끝을 알 공개 수단이 없어, `json`에 기여한 구성이나 문법은 Monaco 쪽에 덮일 수 있다. 다른 내장 언어는 기여가 이긴다 (wr-1ejz.lcz).
 - 언어 id는 Monaco에서 풀 수 없다. 확장을 제거하면 구성, 문법, 스니펫은 풀리지만 언어 id는 새로고침까지 Monaco에 남는다. 워크벤치의 언어 목록에서는 바로 빠진다 (wr-1ejz.31d).

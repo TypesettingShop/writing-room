@@ -223,10 +223,9 @@ test('saves an untitled document through one open editor, rejecting cancellation
 
 test('disposes an untitled document initially opened without a tab only after a successful write', async () => {
   const tracked = model('untitled', 4);
-  let tabShown = false;
-  const dispose = vi.fn(() => { tabShown = false; });
+  const dispose = vi.fn();
   const untitled = { dispose, textEditorModel: tracked.value };
-  const findEditors = vi.fn(() => tabShown ? [{}] : []);
+  const findEditors = vi.fn(() => []);
   const save = vi.fn<() => Promise<URI | undefined>>();
   const { service, willSave } = bridge([tracked.value], { $acceptDocumentDelta: async () => {} }, () => true, {
     untitled: { get: () => untitled } as unknown as IUntitledTextEditorService,
@@ -240,14 +239,42 @@ test('disposes an untitled document initially opened without a tab only after a 
     expect(await service.$saveDocument('untitled')).toBe(false);
     expect(dispose).not.toHaveBeenCalled();
 
-    save.mockImplementationOnce(async () => {
-      tabShown = true;
-      return URI.parse('vscode-vfs://writing-room/workspace/saved.txt');
-    });
+    save.mockResolvedValueOnce(URI.parse('vscode-vfs://writing-room/workspace/saved.txt'));
     expect(await service.$saveDocument('untitled')).toBe(true);
     expect(save).toHaveBeenLastCalledWith(tracked.value.uri, { reason: 'explicit' });
     expect(dispose).toHaveBeenCalledOnce();
-    expect(tabShown).toBe(false);
+  } finally {
+    service.dispose();
+    willSave.dispose();
+    tracked.content.dispose();
+  }
+});
+
+test('replaces the tab opened during an untitled save using the already written target', async () => {
+  const tracked = model('untitled', 4);
+  const dispose = vi.fn();
+  const untitled = { dispose, textEditorModel: tracked.value };
+  const editor = { groupId: 1, editor: { isDisposed: () => false } };
+  const findEditors = vi.fn<() => unknown[]>().mockReturnValue([]);
+  const replaceSaved = vi.fn(async () => {});
+  const saveEditor = vi.fn(async () => true);
+  const target = URI.parse('vscode-vfs://writing-room/workspace/saved.txt');
+  const save = vi.fn(async () => {
+    findEditors.mockReturnValue([editor]);
+    return target;
+  });
+  const { service, willSave } = bridge([tracked.value], { $acceptDocumentDelta: async () => {} }, () => true, {
+    untitled: { get: () => untitled } as unknown as IUntitledTextEditorService,
+    editorService: { findEditors, replaceSaved, save: saveEditor } as unknown as IEditorService,
+    files: { canHandleResource: () => true, save },
+  });
+  try {
+    await service.$startDocumentSync();
+    expect(await service.$saveDocument('untitled')).toBe(true);
+    expect(save).toHaveBeenCalledExactlyOnceWith(tracked.value.uri, { reason: 'explicit' });
+    expect(replaceSaved).toHaveBeenCalledExactlyOnceWith(editor, { resource: target });
+    expect(saveEditor).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
   } finally {
     service.dispose();
     willSave.dispose();

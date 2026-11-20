@@ -73,7 +73,7 @@ async function openDocumentSaveFixture(page: Page): Promise<void> {
   await expect(explorerTree(page)).toBeVisible();
 }
 
-async function startUntitledSave(page: Page, visibility: 'Shown' | 'Hidden'): Promise<void> {
+async function startUntitledSave(page: Page, visibility: 'Shown' | 'Hidden' | 'Late Shown'): Promise<void> {
   const command = `Save ${visibility} Untitled Fixture`;
   await page.keyboard.press('F1');
   await page.getByRole('combobox').fill(command);
@@ -90,33 +90,35 @@ async function chooseUntitledSavePath(page: Page, filename: string): Promise<voi
   await path.press('Enter');
 }
 
-test('extension save replaces a shown untitled tab with a clean file and closes the original document', async ({ page }) => {
-  await openDocumentSaveFixture(page);
-  await writeWorkspaceFile(page, 'existing.txt', 'Existing file');
-  await treeItem(page, 'existing.txt').dblclick();
-  const group = groups(page).first();
-  await expect(selectedTab(group)).toHaveText('existing.txt');
-  await expectEditorText(group, 'Existing file');
-  const originalRows = await rowNames(page);
-  await startUntitledSave(page, 'Shown');
-  const untitled = group.getByRole('tab', { name: 'Untitled-1', exact: true });
-  await expect(untitled).toHaveAccessibleDescription('Modified');
-  const tabsBeforeSave = await group.getByRole('tab').allTextContents();
+for (const [visibility, when] of [['Shown', 'before Save As'], ['Late Shown', 'during Save As']] as const) {
+  test(`extension save replaces an untitled tab opened ${when} with a clean file`, async ({ page }) => {
+    await openDocumentSaveFixture(page);
+    await writeWorkspaceFile(page, 'existing.txt', 'Existing file');
+    await treeItem(page, 'existing.txt').dblclick();
+    const group = groups(page).first();
+    await expect(selectedTab(group)).toHaveText('existing.txt');
+    await expectEditorText(group, 'Existing file');
+    const originalRows = await rowNames(page);
+    await startUntitledSave(page, visibility);
+    const untitled = group.getByRole('tab', { name: 'Untitled-1', exact: true });
+    await expect(untitled).toHaveAccessibleDescription('Modified');
+    const tabsBeforeSave = await group.getByRole('tab').allTextContents();
 
-  await chooseUntitledSavePath(page, 'saved-visible.txt');
-  await expect(page.getByText('Untitled save: true, closed: true, listed: false', { exact: true })).toBeVisible();
-  await expect(untitled).toHaveCount(0);
-  await expect(group.getByRole('tab')).toHaveText(tabsBeforeSave.map(title => title === 'Untitled-1' ? 'saved-visible.txt' : title));
-  await expect(selectedTab(group)).toHaveText('saved-visible.txt');
-  await expect(selectedTab(group)).toHaveAccessibleDescription('');
-  await expectEditorText(group, 'Draft from a visible extension document');
-  expect(await readWorkspaceText(page, 'saved-visible.txt')).toBe('Draft from a visible extension document');
-  await expect.poll(async () => (await rowNames(page)).sort()).toEqual([...originalRows, 'saved-visible.txt'].sort());
+    await chooseUntitledSavePath(page, 'saved-visible.txt');
+    await expect(page.getByText('Untitled save: true, closed: true, listed: false', { exact: true })).toBeVisible();
+    await expect(untitled).toHaveCount(0);
+    await expect(group.getByRole('tab')).toHaveText(tabsBeforeSave.map(title => title === 'Untitled-1' ? 'saved-visible.txt' : title));
+    await expect(selectedTab(group)).toHaveText('saved-visible.txt');
+    await expect(selectedTab(group)).toHaveAccessibleDescription('');
+    await expectEditorText(group, 'Draft from a visible extension document');
+    expect(await readWorkspaceText(page, 'saved-visible.txt')).toBe('Draft from a visible extension document');
+    await expect.poll(async () => (await rowNames(page)).sort()).toEqual([...originalRows, 'saved-visible.txt'].sort());
 
-  await page.keyboard.press('ControlOrMeta+w');
-  await expect(group.getByRole('tab', { name: 'saved-visible.txt', exact: true })).toHaveCount(0);
-  await expect(quickPick(page, /Do you want to save/)).toHaveCount(0);
-});
+    await page.keyboard.press('ControlOrMeta+w');
+    await expect(group.getByRole('tab', { name: 'saved-visible.txt', exact: true })).toHaveCount(0);
+    await expect(quickPick(page, /Do you want to save/)).toHaveCount(0);
+  });
+}
 
 test('cancelling an extension save keeps the untitled draft and creates no file', async ({ page }) => {
   await openDocumentSaveFixture(page);
