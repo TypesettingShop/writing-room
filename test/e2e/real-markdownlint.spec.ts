@@ -45,7 +45,13 @@ async function rules(page: Page): Promise<string[]> {
 }
 
 async function showProblems(page: Page): Promise<void> {
-  await runCommand(page, openProblemsCommand);
+  // Right after a reload the palette can open before its commands are registered: asked again until the entry shows.
+  await expect(async () => {
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('F1');
+    await page.getByRole('combobox').fill(openProblemsCommand, { timeout: 5_000 });
+    await page.getByRole('option', { name: openProblemsCommand, exact: true }).click({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(outputView(page).panel.getByRole('tab', { name: 'Problems' })).toHaveAttribute('aria-selected', 'true');
 }
 
