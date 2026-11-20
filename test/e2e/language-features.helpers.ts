@@ -68,12 +68,28 @@ export const suggestion = (page: Page, label: string): Locator =>
 
 /** Asks for suggestions until the list shows: the providers arrive a moment after the language does. */
 export async function triggerSuggest(page: Page): Promise<void> {
+  const list = suggestList(page);
+  const emptyMessage = 'No suggestions.';
+  const empty = activeGroup(page).locator('.monaco-editor .suggest-widget')
+    .getByText(emptyMessage, { exact: true }).filter({ visible: true });
+  const outcome = list.or(empty).first();
+
   await expect.poll(async () => {
-    if (!await suggestList(page).isVisible()) {
-      await page.keyboard.press('Control+Space');
+    if (await list.isVisible()) {
+      return 'suggestions visible';
     }
-    return suggestList(page).isVisible({ timeout: 1000 }).catch(() => false);
-  }, { timeout: 20_000, intervals: [500, 1000] }).toBe(true);
+    await expect(activeEditor(page), 'The editor lost focus before requesting suggestions').toBeFocused({ timeout: 1000 });
+    if (await empty.isVisible()) {
+      // Monaco ignores Ctrl+Space while the empty widget is open.
+      await page.keyboard.press('Escape');
+    }
+    await page.keyboard.press('Control+Space');
+    await outcome.waitFor({ state: 'visible', timeout: 1000 }).catch(() => {});
+    if (await list.isVisible()) {
+      return 'suggestions visible';
+    }
+    return await empty.isVisible() ? emptyMessage : 'suggest widget hidden';
+  }, { timeout: 20_000, intervals: [500, 1000] }).toBe('suggestions visible');
 }
 
 /** The details pane of the focused suggestion, which Ctrl+Space shows; asked until it shows `text`. */

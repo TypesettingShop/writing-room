@@ -40,7 +40,9 @@ test.describe('completions', () => {
   });
 
   test('inserts up to the cursor with Enter and replaces with Shift+Enter, as the item\'s ranges say', async ({ page }) => {
-    await pasteText(page, 'fixtureRest tail');
+    const text = 'fixtureRest tail';
+    await pasteText(page, text);
+    await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('Home');
     for (let i = 0; i < 'fixtureRe'.length; i++) {
       await page.keyboard.press('ArrowRight');
@@ -51,7 +53,7 @@ test.describe('completions', () => {
     await expect.poll(() => editorText(page)).toBe('fixtureReplacest tail');
 
     await page.keyboard.press('ControlOrMeta+z');
-    await expect.poll(() => editorText(page)).toBe('fixtureRest tail');
+    await expect.poll(() => editorText(page)).toBe(text);
     await triggerSuggest(page);
     await expect(suggestion(page, 'fixtureReplace')).toBeVisible();
     await page.keyboard.press('Shift+Enter');
@@ -332,6 +334,7 @@ test.describe('rename', () => {
 
   test('shows the provider\'s refusal', async ({ page }) => {
     await pasteText(page, 'locked');
+    await expect.poll(() => editorText(page)).toBe('locked');
     await page.keyboard.press('Home');
     await expect.poll(async () => {
       await page.keyboard.press('F2');
@@ -428,14 +431,16 @@ test.describe('navigation', () => {
   });
 
   test('folds the provider\'s range: the lines after begin up to the one before end hide, no line more or less', async ({ page }) => {
-    await pasteText(page, 'begin\ninside one\ninside two\nend\nafter');
+    const text = 'begin\ninside one\ninside two\nend\nafter';
+    await pasteText(page, text);
+    await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('ControlOrMeta+Home');
     await expect.poll(async () => {
       await page.keyboard.press('ControlOrMeta+Shift+BracketLeft');
       return editorText(page);
     }, { timeout: 20_000, intervals: [1000] }).toBe('begin\nend\nafter');
     await page.keyboard.press('ControlOrMeta+Shift+BracketRight');
-    await expect.poll(() => editorText(page)).toBe('begin\ninside one\ninside two\nend\nafter');
+    await expect.poll(() => editorText(page)).toBe(text);
   });
 
   test('a code lens runs its command, and after the provider\'s change event shows the new lenses', async ({ page }) => {
