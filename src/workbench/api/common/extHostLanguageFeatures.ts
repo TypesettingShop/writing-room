@@ -64,6 +64,16 @@ export enum SyntaxTokenType { Other = 0, Comment = 1, String = 2, RegEx = 3 }
 interface Registration {
   readonly extension: HostExtensionDescription;
   readonly adapter: object;
+  /** Frees what the registration holds on the extension host (a word pattern, an event listener). */
+  readonly cleanup?: () => void;
+}
+
+function runCleanup(registration: Registration): void {
+  try {
+    registration.cleanup?.();
+  } catch (error) {
+    console.error(`[${registration.extension.id}] Freeing a language feature registration failed:`, error);
+  }
 }
 
 /**
@@ -98,12 +108,19 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
   /**
    * Keeps `adapter` under a new handle and tells the workbench with `register`. The disposable takes it
    * back; so does the extension's release. A registration the workbench refuses is logged and dropped.
+   * `cleanup` runs once when the registration goes, whichever of these ends it.
    */
-  register(extension: HostExtensionDescription, adapter: object, register: (handle: number) => Promise<void>): vscode.Disposable {
+  register(extension: HostExtensionDescription, adapter: object, register: (handle: number) => Promise<void>, cleanup?: () => void): vscode.Disposable {
     const handle = ++this.nextHandle;
-    this.registrations.set(handle, { extension, adapter });
+    const registration: Registration = { extension, adapter, cleanup };
+    this.registrations.set(handle, registration);
     void register(handle).catch(error => {
-      if (this.registrations.delete(handle) && this.isLive(extension.key)) {
+      if (this.registrations.get(handle) !== registration) {
+        return;
+      }
+      this.registrations.delete(handle);
+      runCleanup(registration);
+      if (this.isLive(extension.key)) {
         console.error(`[${extension.id}] A language feature registration failed:`, error);
       }
     });
@@ -114,6 +131,7 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
     const registration = this.registrations.get(handle);
     if (registration) {
       this.registrations.delete(handle);
+      runCleanup(registration);
       void this.proxy.$unregister(registration.extension.key, handle).catch(() => {});
     }
   }
@@ -204,12 +222,9 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
     }
     const dto = languageConfigurationToDto(configuration);
     const word = setLanguageWordPattern(language, configuration.wordPattern);
-    const registration = this.register(extension, {}, handle =>
-      this.proxy.$setLanguageConfiguration(extension.key, handle, language, dto));
-    return new Disposable(() => {
-      word.dispose();
-      registration.dispose();
-    });
+    // The word pattern goes with the registration, also when the extension is released.
+    return this.register(extension, {}, handle =>
+      this.proxy.$setLanguageConfiguration(extension.key, handle, language, dto), () => word.dispose());
   }
 
   /** The commands kept for the workbench, for tests that look for leaks. */
@@ -263,7 +278,11 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
   }
 
   dispose(): void {
+    const registrations = [...this.registrations.values()];
     this.registrations.clear();
+    for (const registration of registrations) {
+      runCleanup(registration);
+    }
     this.kept.clear();
   }
 }

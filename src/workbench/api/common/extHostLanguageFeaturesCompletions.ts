@@ -29,6 +29,9 @@ import type { EditorPosition } from './extHostTypeConverters.js';
  */
 
 class CompletionsAdapter {
+  /** Whether dropped items were reported: once per provider, as VS Code warns. */
+  warnedDropped = false;
+
   constructor(readonly provider: vscode.CompletionItemProvider) {}
 }
 
@@ -249,7 +252,8 @@ export class ExtHostCompletions implements ExtHostCompletionsShape, LanguageFeat
           dtos.push(dto);
         }
       });
-      if (dtos.length < list.items.length) {
+      if (dtos.length < list.items.length && !adapter.warnedDropped) {
+        adapter.warnedDropped = true;
         console.warn(`[${extension.id}] ${list.items.length - dtos.length} completion item(s) without a label or with a range off the position's line were dropped.`);
       }
       built = {

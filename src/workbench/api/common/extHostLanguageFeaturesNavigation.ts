@@ -443,18 +443,18 @@ export class ExtHostNavigation implements ExtHostNavigationShape, LanguageFeatur
   ): vscode.Disposable {
     let listener: vscode.Disposable | undefined;
     const hasEvent = typeof event === 'function';
-    const registration = this.features.register(extension, adapter, handle => {
+    // The listener goes with the registration: its disposable, a refusal or the extension's release.
+    return this.features.register(extension, adapter, handle => {
       if (hasEvent) {
         listener = event(() => {
           void this.features.proxy.$emitProviderEvent(extension.key, handle).catch(() => {});
         });
       }
       return register(handle, hasEvent);
-    });
-    return { dispose: () => {
+    }, () => {
       listener?.dispose();
-      registration.dispose();
-    } } as vscode.Disposable;
+      listener = undefined;
+    });
   }
 
   api(extension: HostExtensionDescription) {
@@ -928,7 +928,7 @@ export class ExtHostNavigation implements ExtHostNavigationShape, LanguageFeatur
   // --- For the API commands of other groups ----------------------------------------------------------
 
   $provideCodeActionsForCommand(handle: number, uri: URI, range: EditorRange | EditorSelection, kind: string | undefined, resolveCount: number, token: CancellationToken): Promise<ExecutedCodeActionDto[] | undefined> {
-    return this.ask(handle, CodeActionAdapter, uri, token, async (adapter, document) => {
+    return this.ask(handle, CodeActionAdapter, uri, token, async (adapter, document, extension) => {
       const at = documentRange(document, range);
       if (!at) {
         return undefined;
@@ -947,15 +947,28 @@ export class ExtHostNavigation implements ExtHostNavigationShape, LanguageFeatur
       let resolved = 0;
       for (let item of value.slice(0, MAX_ITEMS)) {
         if (isCommand(item)) {
-          result.push({ title: item.title, isCommand: true, command: commandToDto(item) });
+          // A command has no kind: with a kind asked for it is left out, as VS Code filters the actions.
+          if (!only) {
+            result.push({ title: item.title, isCommand: true, command: commandToDto(item) });
+          }
           continue;
         }
         if (!item || typeof item !== 'object' || typeof item.title !== 'string') {
           continue;
         }
+        // As VS Code's valid actions: none that is disabled, and with a kind asked for only actions of that kind.
+        const itemKind = typeof item.kind?.value === 'string' ? item.kind.value : undefined;
+        if (item.disabled || (only && (itemKind === undefined || !only.contains(CodeActionKind.Empty.append(itemKind))))) {
+          continue;
+        }
         if (!item.edit && resolved < count(resolveCount) && typeof adapter.provider.resolveCodeAction === 'function') {
           resolved++;
-          item = await adapter.provider.resolveCodeAction(item, token as vscode.CancellationToken) ?? item;
+          try {
+            item = await adapter.provider.resolveCodeAction(item, token as vscode.CancellationToken) ?? item;
+          } catch (error) {
+            // As in VS Code: an action that fails to resolve stays as the provider gave it.
+            console.error(`[${extension.id}] Resolving a code action failed:`, error);
+          }
         }
         const diagnostics = Array.isArray(item.diagnostics) ? item.diagnostics.flatMap(diagnostic => {
           try {

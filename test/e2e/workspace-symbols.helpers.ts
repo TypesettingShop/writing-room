@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from './fixtures.js';
-import { message, runCommand } from './language-features.helpers.js';
+import { reportFixture } from './language-features.helpers.js';
 
 export const SYMBOLS_PLACEHOLDER = 'Type the name of a symbol to open.';
 export const NO_RESULTS = 'No matching workspace symbols';
@@ -44,10 +44,5 @@ export const symbolRow = (page: Page, name: string | RegExp): Locator =>
 
 /** Runs the language feature fixture's workspace symbol report and gives its message. */
 export async function reportWorkspaceSymbols(page: Page): Promise<string> {
-  await runCommand(page, 'Language Features: Report Workspace Symbols');
-  const toast = message(page, /^Workspace symbols: /).last();
-  await expect(toast).toBeVisible({ timeout: 10_000 });
-  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Workspace symbols: '))!;
-  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
-  return text;
+  return reportFixture(page, 'Language Features: Report Workspace Symbols', 'Workspace symbols: ', false);
 }

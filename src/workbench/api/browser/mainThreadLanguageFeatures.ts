@@ -145,11 +145,13 @@ export function toMonacoLanguageConfiguration(dto: LanguageConfigurationDto): Mo
   if (Array.isArray(dto.onEnterRules)) {
     result.onEnterRules = dto.onEnterRules.map(rule => {
       const indentAction = rule?.action?.indentAction;
-      if (!rule || ![0, 1, 2, 3].includes(indentAction)) {
+      // A rule without its text before the cursor would match every line Monaco breaks.
+      const beforeText = rule ? checkRegExp(rule.beforeText) : undefined;
+      if (!rule || !beforeText || ![0, 1, 2, 3].includes(indentAction)) {
         throw new TypeError('Expected an enter rule.');
       }
       return {
-        beforeText: checkRegExp(rule.beforeText)!,
+        beforeText,
         afterText: checkRegExp(rule.afterText),
         previousLineText: checkRegExp(rule.previousLineText),
         action: {

@@ -268,7 +268,7 @@ test('the extension\'s release forgets its lists', async () => {
 
 test('the workbench keeps ranges on the position\'s line, Monaco\'s kinds and rules only', async () => {
   const { languages } = await setup();
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   languages().registerCompletionItemProvider('lftest', {
     provideCompletionItems: () => {
       const offLine = new CompletionItem('offLine');
@@ -280,6 +280,9 @@ test('the workbench keeps ranges on the position\'s line, Monaco\'s kinds and ru
   const list = await complete();
   // The extension host drops an item Monaco could not place.
   expect(list.suggestions.map((item: { label: string }) => item.label)).toEqual(['kept']);
+  // It says so once per provider, not on every request.
+  await complete();
+  expect(warn).toHaveBeenCalledTimes(1);
   // What the host sends is checked again.
   const main = host!.workbench.groups[0] as unknown as { toCompletionList: (...args: unknown[]) => { suggestions: Record<string, unknown>[] } };
   const checked = main.toCompletionList(host!.monaco, {

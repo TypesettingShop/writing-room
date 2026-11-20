@@ -7,7 +7,7 @@ import type { ICommandService } from '../../../../platform/commands/common/comma
 import { OpenerService } from '../../../../platform/opener/browser/openerService.js';
 import type { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import {
-  checkDocumentSymbols, checkSelectionRanges, checkSemanticTokens, createEditorOpener, createMainThreadNavigation, trackedProviderCount,
+  checkDocumentSymbols, checkSelectionRanges, checkSemanticTokens, createEditorOpener, createMainThreadNavigation, MainThreadNavigation, trackedProviderCount,
 } from '../../browser/mainThreadLanguageFeaturesNavigation.js';
 import { createMainThreadCompletions } from '../../browser/mainThreadLanguageFeaturesCompletions.js';
 import { createMainThreadEdits } from '../../browser/mainThreadLanguageFeaturesEdits.js';
@@ -625,6 +625,74 @@ test('the other groups\' API commands: hover, completions, formatting, code acti
   expect(rename.get(uri as vscode.Uri)).toEqual([new TextEdit(new Range(1, 0, 1, 5), 'omega')]);
   // Executing the command never applies the rename.
   expect(bulkEdits.calls).toEqual([]);
+});
+
+test('vscode.executeCodeActionProvider: only valid actions of the asked kind, and one that fails to resolve stays as given', async () => {
+  const { languages, apiCommands, addModel } = await setup();
+  addModel(model());
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  languages().registerCodeActionsProvider('lftest', {
+    provideCodeActions: () => {
+      const broken = new CodeAction('Broken', CodeActionKind.QuickFix);
+      const fix = new CodeAction('Fix', CodeActionKind.QuickFix);
+      const extract = new CodeAction('Extract', CodeActionKind.RefactorExtract);
+      const disabled = new CodeAction('Disabled', CodeActionKind.QuickFix);
+      disabled.disabled = { reason: 'not here' };
+      return [broken, fix, extract, disabled, { title: 'Run', command: 'test.first.run' }];
+    },
+    resolveCodeAction: action => {
+      if (action.title === 'Broken') {
+        throw new Error('cannot resolve');
+      }
+      return action;
+    },
+  });
+  await settle();
+  const uri = Uri.from(resource);
+  const quickFixes = await apiCommands.execute('1', 'vscode.executeCodeActionProvider', [uri, new Range(0, 0, 0, 1), 'quickfix', 1]) as vscode.CodeAction[];
+  expect(quickFixes.map(action => action.title)).toEqual(['Broken', 'Fix']);
+  const all = await apiCommands.execute('1', 'vscode.executeCodeActionProvider', [uri, new Range(0, 0, 0, 1)]) as (vscode.CodeAction | vscode.Command)[];
+  expect(all.map(action => action.title)).toEqual(['Broken', 'Fix', 'Extract', 'Run']);
+});
+
+test('vscode.executeDocumentRenameProvider: a provider that refuses passes the turn, the reasons of all are the refusal', async () => {
+  const { languages, apiCommands, addModel } = await setup();
+  addModel(model());
+  const refuse = (reason: string) => ({ provideRenameEdits: () => { throw new Error(reason); } });
+  languages().registerRenameProvider('lftest', refuse('not here'));
+  languages('2').registerRenameProvider('lftest', {
+    provideRenameEdits: (document, position, newName) => {
+      const edit = new WorkspaceEdit();
+      edit.replace(document.uri, document.getWordRangeAtPosition(position)!, newName);
+      return edit;
+    },
+  });
+  await settle();
+  const uri = Uri.from(resource);
+  const rename = await apiCommands.execute('1', 'vscode.executeDocumentRenameProvider', [uri, new Position(1, 2), 'omega']) as vscode.WorkspaceEdit;
+  expect(rename.get(uri as vscode.Uri)).toEqual([new TextEdit(new Range(1, 0, 1, 5), 'omega')]);
+  host!.dispose();
+  const again = await setup();
+  again.addModel(model());
+  again.languages().registerRenameProvider('lftest', refuse('not here'));
+  again.languages('2').registerRenameProvider('lftest', refuse('nor here'));
+  await settle();
+  await expect(again.apiCommands.execute('1', 'vscode.executeDocumentRenameProvider', [uri, new Position(1, 2), 'omega'])).rejects.toThrow('not here\nnor here');
+});
+
+test('a released extension\'s provider event no longer reaches the workbench', async () => {
+  const emitted = vi.spyOn(MainThreadNavigation.prototype, '$emitProviderEvent');
+  const { languages, release } = await setup();
+  const changed = new (await import('../../common/extHostTypes.js')).EventEmitter<void>();
+  languages().registerCodeLensProvider('lftest', { onDidChangeCodeLenses: changed.event, provideCodeLenses: () => [] });
+  await settle();
+  changed.fire();
+  await settle();
+  expect(emitted).toHaveBeenCalledTimes(1);
+  await release('1');
+  changed.fire();
+  await settle();
+  expect(emitted).toHaveBeenCalledTimes(1);
 });
 
 test('the API classes keep VS Code\'s signatures and can be extended, as a language client does', () => {

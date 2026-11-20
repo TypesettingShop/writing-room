@@ -184,6 +184,10 @@ test('a new query cancels the old one, and the old answer never reaches the list
   expect(calls.map(call => call.query)).toEqual(['']);
   type('#a');
   expect(calls[0].token.isCancellationRequested).toBe(true);
+  // The cancelled query's empty answer does not end the wait for the next one.
+  await settle();
+  expect(busy()).toBe(true);
+  expect(labels()).toEqual([]);
   await vi.advanceTimersByTimeAsync(TYPING_SEARCH_DELAY);
   type('#ab');
   expect(calls[1].token.isCancellationRequested).toBe(true);

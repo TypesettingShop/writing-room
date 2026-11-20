@@ -1052,8 +1052,21 @@ export class MainThreadNavigation implements MainThreadNavigationShape, IDisposa
     if (!found || typeof newName !== 'string') {
       return undefined;
     }
-    // As in VS Code: the first provider that answers; a refusal is an answer.
-    return first(found.entries, entry => entry.seam.proxy.$provideRenameEditsForCommand(entry.handle, modelResource(found.model), at, newName, none()));
+    // As in VS Code: the first provider that gives an edit; one that refuses passes the turn to the next,
+    // and the reasons of all are the refusal when none gives one.
+    const reasons: string[] = [];
+    for (const entry of found.entries) {
+      const value = await entry.seam.proxy.$provideRenameEditsForCommand(entry.handle, modelResource(found.model), at, newName, none())
+        .catch(() => undefined);
+      if (Array.isArray(value)) {
+        return value;
+      }
+      const reason = value && typeof value === 'object' ? text((value as { rejectReason?: unknown }).rejectReason) : undefined;
+      if (reason) {
+        reasons.push(reason);
+      }
+    }
+    return reasons.length ? { rejectReason: reasons.join('\n') } : undefined;
   }
 
   dispose(): void {

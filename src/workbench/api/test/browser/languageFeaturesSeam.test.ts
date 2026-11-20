@@ -318,4 +318,23 @@ test('the workbench builds regular expressions only from a source and plain flag
   expect(() => checkRegExp({ source: '(', flags: '' })).toThrow();
   expect(() => checkRegExp({ source: 'a', flags: 'x' })).toThrow();
   expect(() => toMonacoLanguageConfiguration({ onEnterRules: [{ beforeText: { source: 'a', flags: '' }, action: { indentAction: 9 } }] })).toThrow();
+  // A rule without its text before the cursor would match every line Monaco breaks.
+  expect(() => toMonacoLanguageConfiguration({ onEnterRules: [{ action: { indentAction: 0, appendText: '- ' } }] } as never)).toThrow('Expected an enter rule.');
+});
+
+test('the extension\'s release, or the workbench refusing the registration, takes the word pattern back too', async () => {
+  const { features, document: find, workbench } = await setup();
+  const document = find(resource);
+  features.setLanguageConfiguration(extensions['1'], 'markdown', { wordPattern: /[\w ]+/u });
+  await settle();
+  expect(document.getWordRangeAtPosition(new Position(1, 8))?.end.character).toBe(36);
+  features.release('1');
+  await settle();
+  expect(workbench.seam.registrationCount).toBe(0);
+  expect(document.getWordRangeAtPosition(new Position(1, 8))?.end.character).toBe(11);
+  // An extension the workbench does not know is refused: its pattern does not stay either.
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  features.setLanguageConfiguration({ ...extensions['1'], key: '9', id: 'test.unknown' }, 'markdown', { wordPattern: /[\w ]+/u });
+  await settle();
+  expect(document.getWordRangeAtPosition(new Position(1, 8))?.end.character).toBe(11);
 });

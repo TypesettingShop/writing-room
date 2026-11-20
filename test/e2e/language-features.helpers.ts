@@ -18,6 +18,22 @@ const manifest = JSON.parse(readFileSync(
 
 export const languageName = 'LF Test';
 
+/**
+ * Runs one of the fixture's report commands, dismisses its message and gives the message's line that
+ * starts with `prefix`. With `refocus`, the active editor has the focus again afterwards.
+ */
+export async function reportFixture(page: Page, command: string, prefix: string, refocus = true): Promise<string> {
+  await runCommand(page, command);
+  const toast = message(page, new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).last();
+  await expect(toast).toBeVisible({ timeout: 10_000 });
+  const text = (await toast.innerText()).split('\n').find(line => line.startsWith(prefix))!;
+  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
+  if (refocus) {
+    await activeEditor(page).focus();
+  }
+  return text;
+}
+
 /** Installs the fixture before the workbench starts, then opens the app. */
 export async function openWithLanguageFeatures(page: Page): Promise<void> {
   await seedInstalledExtensions(page, [{ location: extensionFixtureLocation('language-features'), manifest }]);
@@ -67,13 +83,7 @@ export async function expectSuggestDetails(page: Page, text: string): Promise<vo
 
 /** Runs the fixture's report and gives its message: resolve counts, the host's completion cache, hover command runs. */
 export async function reportCompletions(page: Page): Promise<string> {
-  await runCommand(page, 'Language Features: Report Completions');
-  const toast = message(page, /^Resolved: /).last();
-  await expect(toast).toBeVisible({ timeout: 10_000 });
-  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Resolved: '))!;
-  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
-  await activeEditor(page).focus();
-  return text;
+  return reportFixture(page, 'Language Features: Report Completions', 'Resolved: ');
 }
 
 // --- Hover and signature help --------------------------------------------------------------------
@@ -96,13 +106,7 @@ export const activeParameter = (page: Page): Locator => parameterHints(page).loc
 
 /** Runs the fixture's report of its edit providers and gives its message. */
 export async function reportEdits(page: Page): Promise<string> {
-  await runCommand(page, 'Language Features: Report Edits');
-  const toast = message(page, /^Edits: /).last();
-  await expect(toast).toBeVisible({ timeout: 10_000 });
-  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Edits: '))!;
-  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
-  await activeEditor(page).focus();
-  return text;
+  return reportFixture(page, 'Language Features: Report Edits', 'Edits: ');
 }
 
 /** Monaco's code action menu (quick fixes, refactorings, source actions). */
@@ -135,13 +139,7 @@ export const editorMessage = (page: Page, text: string): Locator => activeGroup(
 
 /** Runs the fixture's report of `vscode.executeDocumentSymbolProvider` for the active editor and gives its message. */
 export async function reportSymbols(page: Page): Promise<string> {
-  await runCommand(page, 'Language Features: Report Symbols');
-  const toast = message(page, /^Symbols: /).last();
-  await expect(toast).toBeVisible({ timeout: 10_000 });
-  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Symbols: '))!;
-  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
-  await activeEditor(page).focus();
-  return text;
+  return reportFixture(page, 'Language Features: Report Symbols', 'Symbols: ');
 }
 
 /** The entries of Monaco's quick outline (Ctrl+Shift+O), asked until it lists something. */
