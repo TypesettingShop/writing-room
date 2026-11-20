@@ -48,6 +48,12 @@ export async function openFixtureEditor(page: Page): Promise<void> {
   await activeEditor(page).focus();
 }
 
+/** Waits for the fixture's message, sent after the unregister calls on the same RPC connection. */
+export async function unregisterFixtureProviders(page: Page): Promise<void> {
+  await runCommand(page, 'Language Features: Unregister Providers');
+  await expect(message(page, /^Language feature providers unregistered$/)).toBeVisible({ timeout: 10_000 });
+}
+
 // --- Completions ---------------------------------------------------------------------------------
 
 /** Monaco's suggest list of the active editor. */
