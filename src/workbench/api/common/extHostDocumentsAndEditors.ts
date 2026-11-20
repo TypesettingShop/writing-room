@@ -36,7 +36,7 @@ extHostApiRegistry.register('documents', ({ rpc, isLive }) => {
             openTextDocument: promiseApiMethod((target?: Parameters<ExtHostDocuments['open']>[1]) => documents.open(key, target)),
             registerTextDocumentContentProvider: (scheme: string, provider: vscode.TextDocumentContentProvider) =>
               documents.registerProvider(key, scheme, provider),
-            ...documents.events(key),
+            ...documents.events(key, id),
           },
           languages: {
             setTextDocumentLanguage: promiseApiMethod((document: vscode.TextDocument, language: string) =>

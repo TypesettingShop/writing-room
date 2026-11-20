@@ -8,13 +8,14 @@ import type { DocumentEdit } from './extHost.protocol.documents.js';
 export class ExtHostDocumentSaveParticipant extends Disposable {
   private readonly listeners = new Set<{
     extension: string;
+    id: string;
     callback: (event: vscode.TextDocumentWillSaveEvent) => unknown;
     failures: number;
   }>();
 
-  event(extension: string): vscode.Event<vscode.TextDocumentWillSaveEvent> {
+  event(extension: string, id: string): vscode.Event<vscode.TextDocumentWillSaveEvent> {
     return (listener, thisArg, disposables) => {
-      const item = { extension, callback: listener.bind(thisArg), failures: 0 };
+      const item = { extension, id, callback: listener.bind(thisArg), failures: 0 };
       this.listeners.add(item);
       const subscription = new ApiDisposable(() => this.listeners.delete(item));
       disposables?.push(subscription);
@@ -83,7 +84,7 @@ export class ExtHostDocumentSaveParticipant extends Disposable {
         if (++item.failures >= 3) {
           this.listeners.delete(item);
         }
-        console.warn(`[${item.extension}] Save participant failed:`, error);
+        console.warn(`[${item.id}] Save participant failed:`, error);
       } finally {
         clearTimeout(timer);
         cancellation?.dispose();

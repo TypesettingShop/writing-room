@@ -49,8 +49,8 @@ test('the save listener budget expires and removes only the subscription that fa
   try {
     const data = mirror(['text']);
     const failing = vi.fn((event: { waitUntil(value: Promise<never>): void }) => event.waitUntil(new Promise(() => {})));
-    participant.event('slow')(failing);
-    participant.event('healthy')(event => event.waitUntil(Promise.resolve([TextEdit.insert(new Position(0, 0), 'new ')])));
+    participant.event('slow', 'test.slow')(failing);
+    participant.event('healthy', 'test.healthy')(event => event.waitUntil(Promise.resolve([TextEdit.insert(new Position(0, 0), 'new ')])));
     const apply = vi.fn(async () => true);
     for (let i = 0; i < 4; i++) {
       const saving = participant.participate(data.document, 1, Date.now() + 1500, CancellationToken.None, apply);
@@ -66,6 +66,30 @@ test('the save listener budget expires and removes only the subscription that fa
     participant.dispose();
     log.mockRestore();
     vi.useRealTimers();
+  }
+});
+
+test('names a save listener failure by public id and applies the next listener’s edits under its generation key', async () => {
+  const participant = new ExtHostDocumentSaveParticipant();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const { document } = mirror(['text']);
+    const failure = new Error('fixture save failure');
+    participant.event('7', 'test.Public')(() => { throw failure; });
+    participant.event('8', 'test.Writer')(event =>
+      event.waitUntil(Promise.resolve([TextEdit.insert(new Position(0, 0), 'new ')])));
+    const apply = vi.fn(async () => true);
+    await participant.participate(document, 1, Date.now() + 1500, CancellationToken.None, apply);
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith('[test.Public] Save participant failed:', failure);
+    expect(warn.mock.calls[0][0]).not.toContain('[7]');
+    expect(apply).toHaveBeenCalledExactlyOnceWith('8', 1, {
+      operations: [{ text: 'new ', range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 } }],
+      eol: undefined,
+    });
+  } finally {
+    participant.dispose();
+    warn.mockRestore();
   }
 });
 

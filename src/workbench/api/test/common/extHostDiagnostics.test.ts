@@ -3,9 +3,11 @@ import type * as vscode from 'vscode';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { URI } from '../../../../base/common/uri.js';
 import { MarkerSeverity } from '../../../../platform/markers/common/markers.js';
+import { MainThreadDiagnosticsProxy } from '../../common/extHost.protocol.diagnostics.js';
 import type { MainThreadDiagnosticsShape, MarkerChangeDto } from '../../common/extHost.protocol.diagnostics.js';
 import { Diagnostic, DiagnosticSeverity, DIAGNOSTICS_EVENT_DELAY, ExtHostDiagnostics } from '../../common/extHostDiagnostics.js';
 import { Range } from '../../common/extHostEditorTypes.js';
+import { createTestExtensionApi } from './testExtensionHost.js';
 
 const uri = (value: string) => URI.parse(value) as unknown as vscode.Uri;
 const diagnostic = (message: string, severity = DiagnosticSeverity.Error, line = 0) =>
@@ -148,6 +150,34 @@ test('severities, ranges, codes and tags convert to markers as VS Code converts 
   expect(sent[1].code).toBe('42');
   expect(sent[2].code).toBeUndefined();
   expect(sent[3].tags).toEqual([1, 2]);
+});
+
+test('names a diagnostics delivery failure by public id and sends the generation key', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const failure = 'fixture delivery failure';
+  const $changeMany = vi.fn(async () => { throw new Error(failure); });
+  const $clear = vi.fn(async () => {});
+  let host: Awaited<ReturnType<typeof createTestExtensionApi>> | undefined;
+  try {
+    host = await createTestExtensionApi();
+    host.main.set(MainThreadDiagnosticsProxy, { $changeMany, $clear, async $requestMarkers() {} });
+    const collection = host.api.languages.createDiagnosticCollection('lint');
+    const resource = uri('untitled:Untitled-1');
+    collection.set(resource, [diagnostic('fixture')]);
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    collection.dispose();
+    await vi.waitFor(() => expect($clear).toHaveBeenCalledExactlyOnceWith('1', 'lint'));
+    expect($changeMany).toHaveBeenCalledExactlyOnceWith('1', 'lint', [[resource, expect.any(Array)]]);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      "[test.api] Diagnostics of 'lint' did not reach the workbench:", expect.objectContaining({ message: failure }),
+    );
+    expect(warn.mock.calls[0][0]).not.toContain('[1]');
+  } finally {
+    host?.dispose();
+    warn.mockRestore();
+    errorLog.mockRestore();
+  }
 });
 
 test('collections of the same name in two extensions, and in one, have their own owners', () => {

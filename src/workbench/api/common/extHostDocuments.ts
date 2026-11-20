@@ -104,14 +104,14 @@ export class ExtHostDocuments extends Disposable {
     };
   }
 
-  events(extension: string) {
+  events(extension: string, id: string) {
     const readable = (document: vscode.TextDocument) => this.canRead(extension, document);
     return {
       onDidOpenTextDocument: this.event(extension, this.opened.event, readable),
       onDidCloseTextDocument: this.event(extension, this.closed.event, readable),
       onDidChangeTextDocument: this.event(extension, this.changed.event, event => readable(event.document)),
       onDidSaveTextDocument: this.event(extension, this.saved.event, readable),
-      onWillSaveTextDocument: this.event(extension, this.saveParticipant.event(extension), event => readable(event.document)),
+      onWillSaveTextDocument: this.event(extension, this.saveParticipant.event(extension, id), event => readable(event.document)),
     };
   }
 

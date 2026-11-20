@@ -40,7 +40,7 @@ export function createExtensionApi(
   const context = new Map<string, Property>();
   const checkLive = () => {
     if (!isLive()) {
-      throw new Error("Extension '" + extension.key + "' is no longer active.");
+      throw new Error("Extension '" + extension.id + "' is no longer active.");
     }
   };
   for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(baseContext))) {
