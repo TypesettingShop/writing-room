@@ -23,7 +23,13 @@ if (process.env.E2E_TARGET === 'preview') {
   test('ships the notices and keeps the test harness out of the build', async ({ request }) => {
     const notices = await request.get('/ThirdPartyNotices.txt');
     expect(notices.ok()).toBe(true);
-    expect(await notices.text()).toContain('@vscode/codicons');
+    const text = await notices.text();
+    // Every runtime dependency is credited: Monaco, Codicons and the TextMate grammar engine with its wasm.
+    for (const name of ['monaco-editor', '@vscode/codicons', 'vscode-textmate', 'vscode-oniguruma']) {
+      expect(text).toContain(name);
+    }
+    // The test-only fixture and development dependencies are not shipped, so they carry no notice.
+    expect(text).not.toContain('fake-indexeddb');
 
     const harness = await request.get('/test/harness/instantiation.html');
     expect(harness.status()).toBe(404);
