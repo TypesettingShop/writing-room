@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
-  blockStorage, enterLocation, fixtureOrigin, installedKey, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers,
-  savedRecords, sessionOnlyNotice, watchExtensionFailures,
+  blockStorage, changeFixtureState, countPrompts, enterLocation, expectFixtureState, failStorageWrites, fixtureOrigin,
+  installedKey, installStateFixture, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers, savedRecords,
+  sessionOnlyNotice, watchExtensionFailures,
 } from './packages.helpers.js';
 
 test('two tabs that install different extensions at once both keep their records', async ({ context }) => {
@@ -141,4 +142,57 @@ test('a window that keeps storage shows no session notice in either confirmation
   await enterLocation(page, fixtureOrigin + '/vsix/sample.vsix');
   await expect(vsixChoice(page)).toContainText('Source: ' + fixtureOrigin + '/vsix/sample.vsix');
   await expect(vsixChoice(page)).not.toContainText(sessionOnlyNotice);
+});
+
+test('a window that blocks site data can write, read and clear an installed extension’s state', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await blockStorage(page);
+  await page.goto('/');
+  await installStateFixture(page, failures);
+  await expectFixtureState(page, 'initial');
+  await changeFixtureState(page);
+  await expectFixtureState(page, 'changed');
+
+  // The removal finishes after the picker closes, and the next command's palette replaces its failure prompt.
+  const uninstallFailures = await countPrompts(page, 'Could not uninstall extension');
+  await uninstall(page, /State Storage Fixture.*writing-room-tests\.state-storage/);
+  // Installation waits for the pending removal and refuses if its record is still present.
+  await installStateFixture(page, failures);
+  expect(await uninstallFailures()).toBe(0);
+  await expectFixtureState(page, 'initial');
+  expect(failures).toEqual([]);
+});
+
+test('a tab with blocked localStorage can write and read an installed extension’s state', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await blockStorage(page, { storageOnly: true });
+  await page.goto('/');
+  await installStateFixture(page, failures);
+  await expectFixtureState(page, 'initial');
+  await changeFixtureState(page);
+  await expectFixtureState(page, 'changed');
+  expect(failures).toEqual([]);
+});
+
+test('a tab that falls back after a localStorage write fails can activate and save extension state', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await page.goto('/');
+  await expect(activityBar(page).getByRole('button', { name: 'Hello World' })).toBeVisible();
+  await Promise.all([
+    page.waitForEvent('console', {
+      predicate: event => event.type() === 'warning' && event.text().startsWith('Workbench storage switched to memory.'),
+      timeout: 15_000,
+    }),
+    (async () => {
+      await failStorageWrites(page);
+      // Running a command adds a new command palette history entry.
+      await runCommand(page, 'Hello World: Say Hello', /Hello World: Say Hello/);
+    })(),
+  ]);
+
+  await installStateFixture(page, failures);
+  await expectFixtureState(page, 'initial');
+  await changeFixtureState(page);
+  await expectFixtureState(page, 'changed');
+  expect(failures).toEqual([]);
 });
