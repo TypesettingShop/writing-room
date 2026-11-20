@@ -3,6 +3,7 @@
 import type * as Monaco from 'monaco-editor';
 import type { KeyCodeChord } from '../../base/common/keybindings.js';
 import { announceEditorLoaded } from '../../platform/theme/browser/editorThemeHook.js';
+import { editorTextModelResolver } from './textModelServiceHook.js';
 
 export type MonacoNamespace = typeof Monaco;
 export type IStandaloneCodeEditor = Monaco.editor.IStandaloneCodeEditor;
@@ -19,6 +20,34 @@ interface StandaloneKeybindings {
   resolveKeyboardEvent(event: MonacoKeypress): { getDispatchChords(): readonly (string | null)[] };
   softDispatch(event: MonacoKeypress, target: HTMLElement): { kind: number };
   dispatchEvent(event: MonacoKeypress, target: HTMLElement): boolean;
+}
+
+interface MonacoModelReference {
+  readonly object: { readonly textEditorModel: unknown };
+  dispose(): void;
+}
+
+/** Monaco's standalone text model service: models that exist already, and synthetic documents it owns. */
+interface InMemoryTextModelServiceClass {
+  new (...services: never[]): { createModelReference(resource: { toString(): string }): Promise<MonacoModelReference> };
+}
+
+/**
+ * Monaco's text model service with the workbench in front: a resource the workbench resolves (an
+ * unopened workspace file, say) comes from the workbench's resolver under its reference; everything else
+ * (no workbench on the page, `inmemory` synthetic documents) stays with Monaco's own service.
+ */
+function workbenchTextModelService(InMemoryTextModelService: InMemoryTextModelServiceClass) {
+  return class WorkbenchTextModelService extends InMemoryTextModelService {
+    override createModelReference(resource: { toString(): string }): Promise<MonacoModelReference> {
+      const resolver = editorTextModelResolver();
+      const uri = resource.toString();
+      if (!resolver?.canResolve(uri)) {
+        return super.createModelReference(resource);
+      }
+      return resolver.resolve(uri).then(({ model, dispose }) => ({ object: { textEditorModel: model }, dispose }));
+    }
+  };
 }
 
 // Monaco erases ResultKind in the published JavaScript.
@@ -68,7 +97,9 @@ async function load(): Promise<MonacoNamespace> {
       return new WorkerConstructor({ name: label });
     },
   };
-  const [monaco, { StandaloneServices }, { IKeybindingService }, { StandardKeyboardEvent }] = await Promise.all([
+  const [
+    monaco, { StandaloneServices }, { IKeybindingService }, { StandardKeyboardEvent }, { InMemoryTextModelService }, { SyncDescriptor },
+  ] = await Promise.all([
     import('monaco-editor'),
     // @ts-expect-error Monaco exports this standalone service entry point without declarations.
     import('monaco-editor/editor/standalone/browser/standaloneServices.js'),
@@ -76,7 +107,14 @@ async function load(): Promise<MonacoNamespace> {
     import('monaco-editor/platform/keybinding/common/keybinding.js'),
     // @ts-expect-error Monaco exports its keyboard event adapter without declarations.
     import('monaco-editor/base/browser/keyboardEvent.js'),
+    // @ts-expect-error Monaco exports its standalone text model service without declarations.
+    import('monaco-editor/editor/common/services/inMemoryTextModelService.js'),
+    // @ts-expect-error Monaco exports its service descriptor without declarations.
+    import('monaco-editor/platform/instantiation/common/descriptors.js'),
   ]);
+  // Monaco takes overrides only when it first makes its services, which the theme below already does;
+  // later ones (the third argument of editor.create) are ignored without a word. So this comes first.
+  StandaloneServices.initialize({ textModelService: new SyncDescriptor(workbenchTextModelService(InMemoryTextModelService)) });
   // The theme service gives Monaco the workbench's color theme here, before the first editor exists. A
   // page without one, such as the editor harness, keeps v0.1.0's theme.
   if (!announceEditorLoaded(monaco)) {
