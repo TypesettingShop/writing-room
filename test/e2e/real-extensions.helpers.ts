@@ -1,9 +1,10 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { Locator, Page, Route } from '@playwright/test';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sha256 } from '../../scripts/lib/real-extensions.mjs';
+import { readPins, sha256 } from '../../scripts/lib/real-extensions.mjs';
 import { createZip } from '../../src/base/test/common/zipTestUtils.js';
 
 export interface FakeCache {
@@ -55,4 +56,66 @@ export function openVsxServiceUrl(): string {
 export function requireRealExtensions(): void {
   test.skip(process.env.E2E_REAL_EXTENSIONS !== 'available',
     'The real extension cache is not usable. Run node scripts/fetch-real-extensions.mjs.');
+}
+
+const registry = 'https://open-vsx.org';
+const cdn = 'https://openvsx.eclipsecontent.org';
+
+/**
+ * Answers the product's Open VSX requests from the fixture gallery (test/fixtures/routes/openvsx.mjs, the pinned and
+ * signed cache). The fixture names its own origin in the URLs it returns; they are put back on open-vsx.org, so the
+ * product's default gallery and its host checks are the ones in use. The redirect to the second host is followed
+ * here: browser routing intercepts only the first hop.
+ */
+async function answerFromFixtureGallery(route: Route): Promise<void> {
+  const fixtureService = openVsxServiceUrl();
+  const fixtureContent = 'http://localhost:' + process.env.E2E_EXTENSIONS_PORT + '/openvsx-content';
+  const url = new URL(route.request().url());
+  const target = url.origin === cdn ? fixtureContent + url.pathname.replace(/^\/openvsx-content/, '') : fixtureService + url.pathname;
+  const response = await route.fetch({ url: target + url.search, maxRedirects: 0 });
+  const location = response.headers()['location'];
+  if (response.status() === 302 && location) {
+    await route.fulfill({ response: await route.fetch({ url: location }) });
+  } else if ((response.headers()['content-type'] ?? '').startsWith('application/json')) {
+    await route.fulfill({ response, body: (await response.text()).replaceAll(fixtureService, registry) });
+  } else {
+    await route.fulfill({ response });
+  }
+}
+
+/** Routes the default gallery (open-vsx.org and its download host) to the fixture gallery for this page. */
+export async function routeFixtureGallery(page: Page): Promise<void> {
+  await page.route(url => url.origin === registry || url.origin === cdn, answerFromFixtureGallery);
+}
+
+/** The pin of `id` in pins.json, which must be there. */
+export async function realPin(id: string): Promise<{ id: string; version: string; publicKey: string; vsix: { sha256: string } }> {
+  const pin = (await readPins()).extensions.find((entry: { id: string }) => entry.id === id);
+  if (!pin) {
+    throw new Error(`pins.json has no ${id} release.`);
+  }
+  return pin;
+}
+
+export const gallerySearch = (page: Page): Locator => page.getByRole('searchbox', { name: 'Search Open VSX' });
+export const galleryResults = (page: Page): Locator => page.getByRole('list', { name: 'Open VSX search results' });
+export const installedExtensions = (page: Page): Locator => page.getByRole('list', { name: 'Installed extensions' });
+export const uninstallButton = (page: Page, name: RegExp): Locator => installedExtensions(page).getByRole('button', { name });
+
+export async function openExtensions(page: Page): Promise<void> {
+  await page.keyboard.press('ControlOrMeta+Shift+x');
+  await expect(gallerySearch(page)).toBeFocused();
+}
+
+/** Searches the gallery, installs the row that has `rowText`, and returns the confirmation's text before accepting it. */
+export async function installFromGallery(page: Page, query: string, rowText: string, installedName: RegExp): Promise<string> {
+  await openExtensions(page);
+  await gallerySearch(page).fill(query);
+  await galleryResults(page).getByRole('listitem').filter({ hasText: rowText }).getByRole('button', { name: /^Install / }).click();
+  const confirmation = page.getByRole('option', { name: /^Install / });
+  await expect(confirmation).toBeVisible();
+  const text = await confirmation.innerText();
+  await confirmation.click();
+  await expect(uninstallButton(page, installedName)).toBeVisible();
+  return text;
 }
