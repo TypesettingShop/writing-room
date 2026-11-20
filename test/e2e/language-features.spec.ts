@@ -4,6 +4,7 @@ import {
   actionMenu, actionNames, activeEditor, activeParameter, codeLens, editorMessage, editorText, expectSuggestDetails, followLink,
   hoverWidget, hoverWord, message, openActionMenu, openFixtureEditor, openQuickOutline, openWithLanguageFeatures, parameterHints, pasteText,
   renameInput, reportCompletions, reportEdits, reportSymbols, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
+  unregisterFixtureProviders,
 } from './language-features.helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -111,7 +112,7 @@ test.describe('completions', () => {
   });
 
   test('a provider that is taken away offers nothing, and comes back when registered again', async ({ page }) => {
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await pasteText(page, 'fixture');
     await page.keyboard.press('End');
@@ -267,10 +268,11 @@ test.describe('code actions', () => {
     await onTypo(page);
     await openActionMenu(page);
     await page.keyboard.press('Escape');
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await page.keyboard.press('ControlOrMeta+.');
-    await page.waitForTimeout(1500);
+    // Give an unexpected menu time to appear. Provider removal has already been confirmed.
+    await page.waitForTimeout(500);
     await expect(actionMenu(page)).toBeHidden();
     await runCommand(page, 'Language Features: Register Providers');
     await activeEditor(page).focus();

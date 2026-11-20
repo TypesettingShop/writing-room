@@ -511,6 +511,7 @@ module.exports.activate = context => {
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.unregister', () => {
     registered.forEach(registration => registration.dispose());
     registered = [];
+    void vscode.window.showInformationMessage('Language feature providers unregistered');
   }));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.register', () => {
     if (!registered.length) {
