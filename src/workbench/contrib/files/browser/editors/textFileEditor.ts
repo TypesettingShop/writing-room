@@ -10,6 +10,7 @@ import { TextEditorPane } from '../../../../browser/parts/editor/textEditor.js';
 import type { EditorInput } from '../../../../common/editor/editorInput.js';
 import { ErrorEditorInput } from '../../../../common/editor/errorEditorInput.js';
 import { TextFileOperationError, TextFileOperationResult } from '../../../../services/textfile/common/textfiles.js';
+import type { IStandaloneCodeEditor } from '../../../../../editor/browser/monaco.js';
 
 /** Why a file is not in the text editor, in VS Code's words. */
 export function describeFileOpenError(error: unknown): string {
@@ -127,6 +128,14 @@ export class TextFileEditor extends EditorPane {
 
   override get scopedContextKeyService(): IContextKeyService | undefined {
     return this.textPane.scopedContextKeyService;
+  }
+
+  /**
+   * The code editor this pane shows the file in, as VS Code's text file editor gives it: none while
+   * the error pane stands for a file that cannot be text. Extensions see the file editor through it.
+   */
+  getControl(): IStandaloneCodeEditor | undefined {
+    return this.errorInput.value ? undefined : this.textPane.getControl();
   }
 
   /** The text pane, which holds the Monaco editor. */

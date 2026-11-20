@@ -36,7 +36,7 @@ import { ExtensionMessageCollector } from '../../../../services/extensions/commo
 import type { IExtensionPointUser } from '../../../../services/extensions/common/extensionsRegistry.js';
 import { CONTEXT_ACTIVE_CUSTOM_EDITOR_ID, CustomEditorContributions } from '../../common/customEditor.js';
 import { acceptCustomEditors } from '../../common/extensionPoint.js';
-import { CustomEditorInput } from '../../browser/customEditorInput.js';
+import { CustomEditorInput, CustomEditorResolution } from '../../browser/customEditorInput.js';
 import { CustomEditorService } from '../../browser/customEditors.js';
 import { ICustomEditorService } from '../../browser/customEditorService.js';
 import type { ICustomEditorProvider } from '../../browser/customEditorService.js';
@@ -85,6 +85,8 @@ let part: EditorPart;
 let customEditors: CustomEditorService;
 let activated: string[];
 let onActivate: (event: string) => void;
+/** Activation events whose activation did not finish: the extension host stopped under them. */
+let unfinished: Set<string>;
 let messages: IExtensionMessage[];
 let events: Map<string, Set<string>>;
 let notices: string[];
@@ -127,6 +129,7 @@ beforeEach(async () => {
   disposables = new DisposableStore();
   activated = [];
   onActivate = () => {};
+  unfinished = new Set();
   messages = [];
   events = new Map();
   notices = [];
@@ -143,7 +146,7 @@ beforeEach(async () => {
   const extensions = {
     _serviceBrand: undefined,
     activateByEvent: async (event: string) => { activated.push(event); onActivate(event); },
-    activationEventIsDone: () => true,
+    activationEventIsDone: (event: string) => !unfinished.has(event),
     whenInstalledExtensionsRegistered: async () => true,
   };
   const notifications = {
@@ -341,6 +344,44 @@ describe('the open editors', () => {
     await editors.openEditor({ resource: file('a.md'), options: { override: 'one.preview' } }, side);
     expect(side.editors).toEqual([first]);
     expect(part.groups.flatMap(group => group.editors).filter(editor => editor === first)).toHaveLength(1);
+  });
+
+  test('an open editor whose extension woke without a provider becomes a text editor, told once', async () => {
+    const { registration } = provide('one.preview');
+    await service(IEditorService).openEditor({ resource: file('a.md'), options: { override: 'one.preview' } });
+    const input = part.activeGroup.activeEditor as CustomEditorInput;
+    await settle();
+    registration.dispose();
+    input.resetResolution();
+    customEditors.resolve(input);
+    await settle();
+    expect(part.activeGroup.activeEditor).toBeInstanceOf(FileEditorInput);
+    expect(notices).toHaveLength(1);
+  });
+
+  test('an open editor whose host stopped before the extension woke waits, untold, and resolves when the provider comes back', async () => {
+    const first = provide('one.preview');
+    await service(IEditorService).openEditor({ resource: file('a.md'), options: { override: 'one.preview' } });
+    const input = part.activeGroup.activeEditor as CustomEditorInput;
+    await settle();
+    expect(first.provider.resolve).toHaveBeenCalledTimes(1);
+
+    // The host stops (the page goes, or it fails): its provider goes, and the activation never finishes.
+    unfinished.add('onCustomEditor:one.preview');
+    first.registration.dispose();
+    input.resetResolution();
+    customEditors.resolve(input);
+    await settle();
+    expect(part.activeGroup.activeEditor).toBe(input);
+    expect(input.resolutionState).toBe(CustomEditorResolution.Pending);
+    expect(notices).toEqual([]);
+
+    // A new host (Restart Extension Host) wakes the extension: the visible editor, shown already, resolves.
+    unfinished.clear();
+    const second = provide('one.preview');
+    await settle();
+    expect(second.provider.resolve).toHaveBeenCalledTimes(1);
+    expect(input.resolutionState).toBe(CustomEditorResolution.Resolved);
   });
 
   test('a provider that allows more opens one editor per request', async () => {

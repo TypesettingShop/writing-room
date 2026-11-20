@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { FILE_DATABASE_NAME, FILE_DATABASE_VERSION } from '../../src/platform/files/browser/indexedDBFileSystemProvider.js';
 
 export const fixtureOrigin = 'http://127.0.0.1:' + process.env.E2E_EXTENSIONS_PORT;
 export const installedKey = 'writing-room:storage:0:extensions.user';
@@ -22,9 +23,9 @@ export async function savedIdentifiers(page: Page): Promise<string[]> {
 
 /** The paths under `/extensions/` in the user data store, read straight from IndexedDB. */
 export async function packageFolders(page: Page): Promise<string[]> {
-  return page.evaluate(async () => {
+  return page.evaluate(async databaseName => {
     const database = await new Promise<IDBDatabase | undefined>(resolve => {
-      const request = indexedDB.open('writing-room-files');
+      const request = indexedDB.open(databaseName);
       request.onupgradeneeded = () => { request.transaction?.abort(); resolve(undefined); };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => resolve(undefined);
@@ -45,7 +46,7 @@ export async function packageFolders(page: Page): Promise<string[]> {
     } finally {
       database.close();
     }
-  });
+  }, FILE_DATABASE_NAME);
 }
 
 /** Runs Install Extension from Location with `url`. */
@@ -63,6 +64,8 @@ export async function prepareLocationInstall(page: Page, path: string): Promise<
 }
 
 export const sessionOnlyNotice = 'Browser storage is unavailable: the extension stays for this session only.';
+export const installLifetimeChangedError = 'Browser storage became unavailable after the confirmation, so the extension was not installed.'
+  + ' Install it again to keep it for this session only.';
 
 /**
  * Makes the page act like a browser that blocks site data, from the next navigation on: reading the
@@ -169,4 +172,44 @@ export async function expectFixtureState(page: Page, state: 'initial' | 'changed
 export async function changeFixtureState(page: Page): Promise<void> {
   await runCommand(page, 'Change State Storage Fixture', /^Change State Storage Fixture$/);
   await expectStateToast(page, 'State Storage Fixture changed both values');
+}
+
+/** Change the database version from a second document on this origin. */
+export async function upgradeFileDatabase(page: Page): Promise<void> {
+  const other = await page.context().newPage();
+  try {
+    await other.route('**/storage-version-test', route => route.fulfill({
+      contentType: 'text/html', body: '<!doctype html><title>Storage version test</title>',
+    }));
+    await other.goto(new URL('/storage-version-test', page.url()).href);
+    await other.evaluate(({ name, version }) => new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(name, version);
+      request.onsuccess = () => {
+        request.result.close();
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('The workbench has not released its old file database connection.'));
+    }), { name: FILE_DATABASE_NAME, version: FILE_DATABASE_VERSION + 1 });
+  } finally {
+    await other.close();
+  }
+}
+
+/** Flushes workbench state without closing the open confirmation. */
+export async function fallBackWhileConfirming(page: Page): Promise<void> {
+  const warning = page.waitForEvent('console', {
+    predicate: event => event.type() === 'warning' && event.text().startsWith('Workbench storage switched to memory.'),
+    timeout: 15_000,
+  });
+  await failStorageWrites(page);
+  const flush = page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+  await Promise.all([warning, flush]);
 }

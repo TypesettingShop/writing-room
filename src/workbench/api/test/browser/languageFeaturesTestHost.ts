@@ -12,6 +12,8 @@ import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy } from '.
 import { MainThreadBulkEditsProxy } from '../../common/extHost.protocol.documents.js';
 import type { DocumentSnapshot, MainThreadBulkEditsShape, WorkspaceEditOperation } from '../../common/extHost.protocol.documents.js';
 import type { ExtHostCommands } from '../../common/extHostCommands.js';
+import { ExtHostDiagnostics } from '../../common/extHostDiagnostics.js';
+import type { MainThreadDiagnosticsShape } from '../../common/extHost.protocol.diagnostics.js';
 import { ExtHostDocuments } from '../../common/extHostDocuments.js';
 import { createLanguageFeaturesArea } from '../../common/extHostLanguageFeatures.js';
 import type { LanguageFeatureGroupFactory } from '../../common/extHostLanguageFeatures.js';
@@ -133,6 +135,8 @@ export interface LanguageFeatureTestHostOptions {
   readonly monaco?: () => Promise<MonacoNamespace>;
   /** Follows a document link's target; the default records it and refuses. */
   readonly openLink?: (target: URI, options: OpenOptions) => Promise<boolean>;
+  /** Without the diagnostics area, as a host that has none: `false`. */
+  readonly diagnostics?: boolean;
 }
 
 export async function createLanguageFeatureTestHost(options: LanguageFeatureTestHostOptions = {}) {
@@ -180,7 +184,11 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
     execute: (key: string, id: string, args: unknown[]) => commands.executeCommand(key, id, args),
     ids: () => [...apiHandlers.keys()],
   };
-  const host = createLanguageFeaturesArea(worker, documents, commands, key => live.has(key), options.hostGroups);
+  /** The extension host's diagnostics; the workbench side only takes what crosses. */
+  const diagnostics = options.diagnostics === false ? undefined : new ExtHostDiagnostics({
+    $changeMany: async () => {}, $clear: async () => {}, $requestMarkers: async () => {},
+  } satisfies MainThreadDiagnosticsShape);
+  const host = createLanguageFeaturesArea(worker, documents, commands, key => live.has(key), diagnostics, options.hostGroups);
   /** The warnings the workbench showed the user. */
   const warnings: string[] = [];
   /** The link targets the workbench was asked to open. */
@@ -214,7 +222,7 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
   const disposables: IDisposable[] = [];
   return {
     ...fake, host, features: host.features, workbench, seam: workbench.seam, api, live, sent, documents, executed, main, worker, bulkEdits, warnings,
-    apiCommands, followed,
+    apiCommands, followed, diagnostics,
     document: (uri: URI) => documents.getByUri(uri as unknown as vscode.Uri)!,
     dispose: () => {
       for (const disposable of disposables) {
@@ -225,6 +233,7 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
         group.dispose?.();
       }
       host.features.dispose();
+      diagnostics?.dispose();
       documents.dispose();
       main.dispose();
       worker.dispose();
