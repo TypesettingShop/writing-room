@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { diagnostics, openSettings, settingsKey } from './configuration.helpers.js';
 import { collectPageErrors } from './fixtures.js';
+import { dismissAllToasts, outputView } from './window-ui.helpers.js';
 
 async function openCommandPalette(page: Page) {
   await page.keyboard.press('F1');
@@ -44,6 +45,19 @@ async function runRuntimeCommand(page: Page, title: string) {
   const input = await openCommandPalette(page);
   await input.fill(title);
   await page.getByRole('option', { name: title, exact: true }).click();
+}
+
+async function openRuntimeOutput(page: Page) {
+  const output = outputView(page);
+  if (!await output.tab.isVisible()) {
+    await runRuntimeCommand(page, 'View: Toggle Panel Visibility');
+  }
+  await output.tab.click();
+  return output;
+}
+
+function workerLogChannel(output: ReturnType<typeof outputView>) {
+  return output.channels.getByRole('option', { name: 'Extension Host (Worker)', exact: true });
 }
 
 const contextManifest = {
@@ -161,18 +175,148 @@ test('lets a subscription use the API while an uninstalled extension disposes it
   try {
     await runRuntimeCommand(page, 'Ping Runtime Cleanup');
     await expect(page.getByText('Runtime cleanup is active')).toBeVisible();
-    const disposal = page.waitForEvent('console', {
-      predicate: message => message.text().startsWith('Runtime cleanup disposed')
-        || message.text().includes('Subscription disposal failed'),
+    const disposals: string[] = [];
+    page.on('console', message => {
+      if (message.text().startsWith('Runtime cleanup disposed')) {
+        disposals.push(message.text());
+      }
     });
     await runRuntimeCommand(page, 'Uninstall Extension...');
     await page.getByRole('option', { name: /test.runtime-cleanup/ }).click();
-    expect((await disposal).text()).toMatch(/^Runtime cleanup disposed after reading \d+ workspace folders$/);
     await expectNoCommand(page, 'Ping Runtime Cleanup');
+    const output = await openRuntimeOutput(page);
+    const logChannel = workerLogChannel(output);
+    if (await logChannel.count()) {
+      await logChannel.click();
+      await expect(output.log).not.toContainText('Subscription disposal failed');
+    }
+    await expect.poll(() => disposals).toEqual([expect.stringMatching(/^Runtime cleanup disposed after reading \d+ workspace folders$/)]);
     expect(errors.errors).toEqual([]);
   } finally {
     errors.stop();
   }
+});
+
+async function seedCleanupErrors(page: Page) {
+  await seedInstalledExtensions(page, [{
+    location: extensionFixtureLocation('runtime') + 'cleanup-errors/',
+    manifest: {
+      name: 'runtime-cleanup-errors', publisher: 'test', version: '1.0.0', browser: './extension.js',
+      contributes: { commands: [{ command: 'runtime.cleanupErrors.ping', title: 'Ping Runtime Cleanup Errors' }] },
+    },
+  }]);
+}
+
+test('keeps deactivation and subscription errors in the host log over uninstall and host restart', async ({ page }) => {
+  await seedCleanupErrors(page);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Ping Runtime Cleanup Errors');
+    await expect(page.getByText('Runtime cleanup error fixture is active')).toBeVisible();
+    const panel = outputView(page).panel;
+    if (await panel.isVisible()) {
+      await runRuntimeCommand(page, 'View: Toggle Panel Visibility');
+    }
+    await expect(panel).toBeHidden();
+    const lastSubscription = page.waitForEvent('console', {
+      predicate: message => message.text() === 'Runtime cleanup error fixture disposed its last subscription',
+    });
+    await runRuntimeCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /test.runtime-cleanup-errors/ }).click();
+    await lastSubscription;
+    await expectNoCommand(page, 'Ping Runtime Cleanup Errors');
+    await expect(panel).toBeHidden();
+
+    const output = await openRuntimeOutput(page);
+    await workerLogChannel(output).click();
+    await expect(output.log).toContainText('[error] [test.runtime-cleanup-errors] Deactivation failed: Error: Fixture deactivate failure');
+    await expect(output.log).toContainText('[error] [test.runtime-cleanup-errors] Subscription disposal failed: Error: illegal state - object is disposed');
+
+    const oldWorker = page.workers()[0];
+    const closed = oldWorker.waitForEvent('close');
+    await runRuntimeCommand(page, 'Restart Extension Host');
+    await closed;
+    await expect(output.log).toContainText('[test.runtime-cleanup-errors] Subscription disposal failed:');
+    expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
+});
+
+test('reports cleanup errors to the Worker console when restarting the active host', async ({ page }) => {
+  await seedCleanupErrors(page);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Ping Runtime Cleanup Errors');
+    await expect(page.getByText('Runtime cleanup error fixture is active')).toBeVisible();
+    await dismissAllToasts(page);
+    const closed = page.workers()[0].waitForEvent('close');
+    await runRuntimeCommand(page, 'Restart Extension Host');
+    await closed;
+
+    await expect.poll(() => errors.errors.map(error => error.split('\n')[0])).toEqual([
+      expect.stringContaining('[test.runtime-cleanup-errors] Subscription disposal failed: Error: illegal state - object is disposed'),
+      expect.stringContaining('[test.runtime-cleanup-errors] Deactivation failed: Error: Fixture deactivate failure'),
+    ]);
+    const output = await openRuntimeOutput(page);
+    await expect(workerLogChannel(output)).toHaveCount(0);
+  } finally {
+    errors.stop();
+  }
+});
+
+test('attributes asynchronous Worker errors to the extension even after removal', async ({ page }) => {
+  await seedInstalledExtensions(page, [{
+    location: extensionFixtureLocation('runtime') + 'async-errors/',
+    manifest: {
+      name: 'runtime-async-errors', publisher: 'test', version: '1.0.0', browser: './extension.js',
+      contributes: { commands: [
+        { command: 'runtime.asyncErrors.run', title: 'Run Runtime Async Errors' },
+        { command: 'runtime.asyncErrors.ping', title: 'Ping Runtime Async Errors' },
+      ] },
+    },
+  }]);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Run Runtime Async Errors');
+    const output = await openRuntimeOutput(page);
+    await workerLogChannel(output).click();
+    const prefix = '[error] [test.runtime-async-errors] ';
+    await expect(output.log).toContainText(prefix + 'Uncaught error in the extension worker: Error: illegal state - object is disposed');
+    await expect(output.log).toContainText(prefix + 'Uncaught error in the extension worker: Error: Fixture timer callback');
+    await expect(output.log).toContainText(prefix + 'Unhandled promise rejection in the extension worker: Error: Fixture rejected callback');
+
+    await runRuntimeCommand(page, 'Ping Runtime Async Errors');
+    await expect(page.getByText('Runtime async error fixture is still running')).toBeVisible();
+    await runRuntimeCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /test.runtime-async-errors/ }).click();
+    await expectNoCommand(page, 'Ping Runtime Async Errors');
+    await expect(output.log).toContainText(prefix + 'Uncaught error in the extension worker: Error: Fixture timer after removal:');
+    expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
+});
+
+test('keeps Worker errors without extension frames in the browser console', async ({ page }) => {
+  await page.goto('/');
+  const workerStarted = page.waitForEvent('worker');
+  await runRuntimeCommand(page, 'Hello World: Say Hello');
+  const worker = await workerStarted;
+  await expect(page.getByText('Hello from the extension host!')).toBeVisible();
+  const reported = page.waitForEvent('console', {
+    predicate: message => message.type() === 'error' && message.text().startsWith('Uncaught error in the extension worker:')
+      && message.text().includes('Fixture host-only timer'),
+  });
+  await worker.evaluate(() => {
+    setTimeout(() => { throw new Error('Fixture host-only timer'); }, 0);
+  });
+  await reported;
+  const output = await openRuntimeOutput(page);
+  await expect(workerLogChannel(output)).toHaveCount(0);
 });
 
 test('removes the contributions of an uninstalled extension only after it is deactivated', async ({ page }) => {

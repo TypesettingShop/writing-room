@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { outputView, runCommand } from './window-ui.helpers.js';
 
 test('starts the sample worker on demand and exposes a served extension directory', async ({ page }) => {
   const workers: string[] = [];
@@ -66,8 +67,16 @@ test('logs uncaught extension callback errors without interrupting another exten
   await expect(result).toContainText('"worker":true');
   const worker = page.workers()[0];
   await page.locator('#async-error').click();
-  await expect.poll(() => errors.join(' ')).toMatch(/Uncaught error in the extension worker:.*Fixture asynchronous error/);
-  await expect.poll(() => errors.join(' ')).toMatch(/Unhandled promise rejection in the extension worker:.*Fixture rejected promise/);
+  const output = outputView(page);
+  if (!await output.tab.isVisible()) {
+    await runCommand(page, 'View: Toggle Panel Visibility');
+  }
+  await expect(output.tab).toHaveAttribute('aria-selected', 'true');
+  await expect(output.channels.getByRole('option', { name: 'Extension Host (Worker)', exact: true }))
+    .toHaveAttribute('aria-selected', 'true');
+  await expect(output.log).toContainText('[writing-room-tests.async-error] Uncaught error in the extension worker: Error: Fixture asynchronous error');
+  await expect(output.log).toContainText('[writing-room-tests.async-error] Unhandled promise rejection in the extension worker: Error: Fixture rejected promise');
+  expect(errors).toEqual([]);
   expect(page.workers()).toEqual([worker]);
   await page.locator('#run').click();
   await expect(result).toContainText('"worker":true');
