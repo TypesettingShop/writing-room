@@ -7,10 +7,14 @@ import type { ExtHostCommandsShape, MainThreadCommandsShape } from './extHost.pr
 
 type Command = { callback: (...args: any[]) => unknown; thisArg: unknown };
 
+/** A command the extension host itself answers for every extension, as VS Code's `vscode.execute*` commands. */
+export type ApiCommandHandler = (extension: string, args: unknown[]) => Promise<unknown>;
+
 export class ExtHostCommands implements ExtHostCommandsShape {
   private readonly identifiers = new Map<string, string>();
   private readonly commands = new Map<string, Map<string, Command>>();
   private readonly pending = new Map<string, Set<Promise<void>>>();
+  private readonly apiCommands = new Map<string, ApiCommandHandler>();
 
   constructor(
     private readonly proxy: MainThreadCommandsShape,
@@ -74,9 +78,32 @@ export class ExtHostCommands implements ExtHostCommandsShape {
     await Promise.all(this.pending.get(extension) ?? []);
   }
 
+  /**
+   * Registers an API command: `executeCommand` runs it on the extension host, before the extension's
+   * own commands and the workbench's, with the calling extension's key. An id is registered once.
+   */
+  registerApiCommand(id: string, handler: ApiCommandHandler): { dispose(): void } {
+    if (!id || typeof handler !== 'function') {
+      throw new TypeError('An API command needs an id and a handler.');
+    }
+    if (this.apiCommands.has(id)) {
+      throw new Error(`API command '${id}' already exists`);
+    }
+    this.apiCommands.set(id, handler);
+    return new Disposable(() => {
+      if (this.apiCommands.get(id) === handler) {
+        this.apiCommands.delete(id);
+      }
+    });
+  }
+
   executeCommand<T>(extension: string, id: string, args: unknown[]): Promise<T> {
     if (!this.isLive(extension)) {
       return Promise.reject(new Error(`Extension '${this.extensionId(extension)}' is no longer active.`));
+    }
+    const api = this.apiCommands.get(id);
+    if (api) {
+      return api(extension, args) as Promise<T>;
     }
     return (this.commands.get(extension)?.has(id)
       ? this.$executeContributedCommand(extension, id, args)

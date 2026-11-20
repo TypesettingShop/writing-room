@@ -176,6 +176,12 @@ export function completionItemKindToDto(kind: unknown): number {
   return typeof kind === 'number' && Number.isInteger(kind) ? completionItemKinds[kind] ?? DEFAULT_COMPLETION_KIND : DEFAULT_COMPLETION_KIND;
 }
 
+/** The API's completion kind of a Monaco kind number; an unknown one is a property. */
+export function completionItemKindFromDto(kind: unknown): number {
+  const index = typeof kind === 'number' ? completionItemKinds.indexOf(kind) : -1;
+  return index === -1 ? 9 : index;
+}
+
 /** Monaco's `CompletionItemInsertTextRule` bits. */
 export const InsertTextRule = { KeepWhitespace: 1, InsertAsSnippet: 4 } as const;
 
@@ -265,7 +271,8 @@ export function signatureHelpToDto(help: vscode.SignatureHelp): SignatureHelpDto
   };
 }
 
-function markdownFromDto(value: string | MarkdownStringDto | undefined): string | vscode.MarkdownString | undefined {
+/** Markdown as it came across, as the API's `MarkdownString`; a plain string stays a string. */
+export function markdownFromDto(value: string | MarkdownStringDto | undefined): string | vscode.MarkdownString | undefined {
   if (typeof value === 'string' || value === undefined) {
     return value;
   }

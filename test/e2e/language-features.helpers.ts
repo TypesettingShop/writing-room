@@ -130,3 +130,49 @@ export const renameInput = (page: Page): Locator => activeGroup(page).getByRole(
 
 /** An inline message of the active editor (Monaco's, where a provider's refusal shows). */
 export const editorMessage = (page: Page, text: string): Locator => activeGroup(page).locator('.monaco-editor-overlaymessage').filter({ hasText: text });
+
+// --- Navigation: symbols, links, definitions, folding, code lenses -------------------------------
+
+/** Runs the fixture's report of `vscode.executeDocumentSymbolProvider` for the active editor and gives its message. */
+export async function reportSymbols(page: Page): Promise<string> {
+  await runCommand(page, 'Language Features: Report Symbols');
+  const toast = message(page, /^Symbols: /).last();
+  await expect(toast).toBeVisible({ timeout: 10_000 });
+  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Symbols: '))!;
+  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
+  await activeEditor(page).focus();
+  return text;
+}
+
+/** The entries of Monaco's quick outline (Ctrl+Shift+O), asked until it lists something. */
+export async function openQuickOutline(page: Page): Promise<Locator> {
+  const options = page.locator('.quick-input-widget').filter({ visible: true }).getByRole('option');
+  await expect.poll(async () => {
+    if (!await options.count()) {
+      await page.keyboard.press('Escape');
+      await activeEditor(page).focus();
+      await page.keyboard.press('Control+Shift+O');
+    }
+    return options.count();
+  }, { timeout: 20_000, intervals: [1000] }).toBeGreaterThan(0);
+  return options;
+}
+
+/** A link Monaco underlines in the active editor, by its text. */
+export const editorLink = (page: Page, text: string): Locator =>
+  activeGroup(page).locator('.view-line .detected-link').filter({ hasText: text });
+
+/** Follows a link as the user does: Ctrl (Cmd) and click. */
+export async function followLink(page: Page, text: string): Promise<void> {
+  await expect(editorLink(page, text)).toBeVisible({ timeout: 20_000 });
+  await editorLink(page, text).click({ modifiers: ['ControlOrMeta'] });
+}
+
+/** The code lenses Monaco shows in the active editor, by their titles. */
+export const codeLens = (page: Page, title: string | RegExp): Locator =>
+  activeGroup(page).locator('.codelens-decoration a').filter({ hasText: title });
+
+/** Puts the cursor on the first `word` of the active editor's rendered text. */
+export async function clickWord(page: Page, word: string): Promise<void> {
+  await activeGroup(page).locator('.view-line span span').filter({ hasText: word }).first().click({ position: { x: 3, y: 5 } });
+}

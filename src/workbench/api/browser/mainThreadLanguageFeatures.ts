@@ -7,11 +7,14 @@ import type { LanguageFilter, LanguageSelector } from '../../../editor/common/la
 import { MODEL_SYNC_LIMIT } from '../../../editor/common/model.js';
 import { IModelService } from '../../../editor/common/services/model.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
+import { IOpenerService } from '../../../platform/opener/common/opener.js';
+import type { OpenOptions } from '../../../platform/opener/common/opener.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { waitForBuiltinLanguage } from '../../services/language/browser/monacoLanguages.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 import { createMainThreadCompletions } from './mainThreadLanguageFeaturesCompletions.js';
 import { createMainThreadEdits } from './mainThreadLanguageFeaturesEdits.js';
+import { createMainThreadNavigation, trackProviders } from './mainThreadLanguageFeaturesNavigation.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from '../common/extHost.protocol.languageFeatures.js';
 import type {
   CommandDto, ExtHostLanguageFeaturesShape, LanguageConfigurationDto, MainThreadLanguageFeaturesSeamShape, RegExpDto,
@@ -32,7 +35,7 @@ const MAX_SELECTOR_STRING = 1024;
 export type MainThreadLanguageFeatureGroupFactory = (seam: MainThreadLanguageFeatures) => object & Partial<IDisposable>;
 
 /** The workbench's feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [createMainThreadCompletions, createMainThreadEdits];
+const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [createMainThreadCompletions, createMainThreadEdits, createMainThreadNavigation];
 
 function selectorString(value: unknown): string | undefined {
   if (value === undefined) {
@@ -177,6 +180,11 @@ export interface MainThreadLanguageFeaturesOptions {
   readonly waitForLanguage?: (monaco: MonacoNamespace, languageId: string) => Promise<void>;
   /** Shows the user a warning (a code action that could not be applied); the default logs it. */
   readonly warn?: (message: string) => void;
+  /**
+   * Follows a document link's target, as the opener service does (web addresses after the user agreed,
+   * `command:` links only of the commands `allowCommands` names); the default refuses.
+   */
+  readonly openLink?: (target: URI, options: OpenOptions) => Promise<boolean>;
 }
 
 /** Monaco's `languages.Command`. */
@@ -237,7 +245,8 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
       if (this.registrations.get(handle) !== registration) {
         return;
       }
-      const disposable = await create(monaco);
+      // Every Monaco provider made is known workbench-wide, for the `vscode.execute*` commands.
+      const disposable = await create(trackProviders(monaco, this, handle));
       if (this.registrations.get(handle) !== registration) {
         disposable.dispose();
         return;
@@ -249,6 +258,17 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
       }
       throw error;
     }
+  }
+
+  /** The extension that owns `handle`, while it is registered. */
+  extension(handle: number): HostExtensionDescription | undefined {
+    const registration = this.registrations.get(handle);
+    return registration && this.getExtension(registration.extension);
+  }
+
+  /** Follows a link's target through the workbench's opener; false when there is none or it refused. */
+  openLink(target: URI, options: OpenOptions): Promise<boolean> {
+    return this.options.openLink ? this.options.openLink(target, options).catch(() => false) : Promise.resolve(false);
   }
 
   /** Tells the user something a feature could not do. */
@@ -401,11 +421,13 @@ export function createMainThreadLanguageFeatures(
 }
 
 mainThreadCustomers.register('languageFeatures', ({ rpc, instantiation, getExtension }) => {
-  const [models, notifications] = instantiation.invokeFunction(accessor => [accessor.get(IModelService), accessor.get(INotificationService)] as const);
+  const [models, notifications, opener] = instantiation.invokeFunction(accessor =>
+    [accessor.get(IModelService), accessor.get(INotificationService), accessor.get(IOpenerService)] as const);
   const monaco = whenMonacoLoaded(models);
   const features = createMainThreadLanguageFeatures(rpc.getProxy(ExtHostLanguageFeaturesProxy), getExtension, {
     monaco: () => monaco.promise,
     warn: message => notifications.warn(message),
+    openLink: (target, options) => opener.open(target, options),
   });
   rpc.set(MainThreadLanguageFeaturesProxy, features.handlers as unknown as MainThreadLanguageFeaturesSeamShape);
   return {

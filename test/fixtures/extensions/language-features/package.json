@@ -48,6 +48,21 @@
         "command": "languageFeaturesFixture.reportEdits",
         "title": "Report Edits",
         "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.lensRan",
+        "title": "Lens Ran",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.bumpLenses",
+        "title": "Change Code Lenses",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportSymbols",
+        "title": "Report Symbols",
+        "category": "Language Features"
       }
     ]
   }

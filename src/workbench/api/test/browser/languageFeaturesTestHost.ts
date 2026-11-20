@@ -3,6 +3,7 @@ import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import type { IMonacoTextModel, MonacoNamespace } from '../../../../editor/browser/monaco.js';
+import type { OpenOptions } from '../../../../platform/opener/common/opener.js';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
 import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js';
 import { createMainThreadLanguageFeatures } from '../../browser/mainThreadLanguageFeatures.js';
@@ -22,7 +23,10 @@ import type { LanguageFeatureGroupFactory } from '../../common/extHostLanguageFe
  */
 
 export const testExtensions: Readonly<Record<string, HostExtensionDescription>> = {
-  '1': { key: '1', id: 'test.first', location: 'https://example.test/1/', entry: '', activationEvents: [], manifest: { name: 'first', publisher: 'test', version: '1.0.0' } },
+  '1': {
+    key: '1', id: 'test.first', location: 'https://example.test/1/', entry: '', activationEvents: [],
+    manifest: { name: 'first', publisher: 'test', version: '1.0.0', contributes: { commands: [{ command: 'test.first.run', title: 'Run' }] } },
+  },
   '2': { key: '2', id: 'test.second', location: 'https://example.test/2/', entry: '', activationEvents: [], manifest: { name: 'second', publisher: 'test', version: '1.0.0' } },
 };
 
@@ -64,7 +68,15 @@ export function fakeMonaco() {
       return undefined;
     },
   });
+  /** The models Monaco has, by URI; `editor.getModel` finds them. */
+  const models = new Map<string, IMonacoTextModel>();
+  const openers: unknown[] = [];
   const editor = {
+    getModel: (uri: { toString(): string }) => models.get(uri.toString()) ?? null,
+    registerEditorOpener: (opener: unknown) => {
+      openers.push(opener);
+      return toDisposable(() => openers.splice(openers.indexOf(opener), 1));
+    },
     registerCommand: (id: string, handler: (accessor: unknown, ...args: unknown[]) => unknown) => {
       if (commands.has(id)) {
         throw new Error('Command registered twice: ' + id);
@@ -73,9 +85,12 @@ export function fakeMonaco() {
       return toDisposable(() => commands.delete(id));
     },
   };
-  const monaco = { languages, editor } as unknown as MonacoNamespace;
+  const Uri = { from: (components: { scheme: string; authority?: string; path?: string; query?: string; fragment?: string }) => URI.from(components) };
+  const monaco = { languages, editor, Uri } as unknown as MonacoNamespace;
   return {
-    monaco, providers, commands, configurations,
+    monaco, providers, commands, configurations, models, openers,
+    /** Monaco knows the model (an open editor's), as `editor.getModel` finds it. */
+    addModel: (model: IMonacoTextModel) => models.set(URI.from(model.uri).toString(), model),
     /** The providers of one kind, e.g. `HoverProvider`. */
     of: (kind: string) => providers.filter(entry => entry.kind === kind),
     /** Runs a registered Monaco command as Monaco would. */
@@ -116,6 +131,8 @@ export interface LanguageFeatureTestHostOptions {
   readonly mainGroups?: readonly MainThreadLanguageFeatureGroupFactory[];
   readonly documents?: readonly { readonly uri: URI; readonly text: string; readonly language?: string; readonly version?: number }[];
   readonly monaco?: () => Promise<MonacoNamespace>;
+  /** Follows a document link's target; the default records it and refuses. */
+  readonly openLink?: (target: URI, options: OpenOptions) => Promise<boolean>;
 }
 
 export async function createLanguageFeatureTestHost(options: LanguageFeatureTestHostOptions = {}) {
@@ -139,18 +156,44 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
   await documents.$acceptDocumentDelta({ added: snapshots });
   /** What the extensions ran with `commands.executeCommand`. */
   const executed: { extension: string; id: string; args: unknown[] }[] = [];
+  /** The API commands the groups registered, as `ExtHostCommands` keeps them. */
+  const apiHandlers = new Map<string, (extension: string, args: unknown[]) => Promise<unknown>>();
   const commands = {
+    registerApiCommand: (id: string, handler: (extension: string, args: unknown[]) => Promise<unknown>) => {
+      if (apiHandlers.has(id)) {
+        throw new Error(`API command '${id}' already exists`);
+      }
+      apiHandlers.set(id, handler);
+      return toDisposable(() => apiHandlers.delete(id));
+    },
     executeCommand: async (extension: string, id: string, args: unknown[]) => {
+      const api = apiHandlers.get(id);
+      if (api) {
+        return api(extension, args);
+      }
       executed.push({ extension, id, args });
       return undefined;
     },
   } as unknown as ExtHostCommands;
+  /** Runs an API command as `commands.executeCommand` of extension `key` would. */
+  const apiCommands = {
+    execute: (key: string, id: string, args: unknown[]) => commands.executeCommand(key, id, args),
+    ids: () => [...apiHandlers.keys()],
+  };
   const host = createLanguageFeaturesArea(worker, documents, commands, key => live.has(key), options.hostGroups);
   /** The warnings the workbench showed the user. */
   const warnings: string[] = [];
+  /** The link targets the workbench was asked to open. */
+  const followed: { target: URI; options: OpenOptions }[] = [];
   const workbench = createMainThreadLanguageFeatures(main.getProxy(ExtHostLanguageFeaturesProxy),
     key => live.has(key) ? testExtensions[key] : undefined,
-    { monaco: options.monaco ?? (async () => fake.monaco), waitForLanguage: async () => {}, warn: message => warnings.push(message) }, options.mainGroups);
+    {
+      monaco: options.monaco ?? (async () => fake.monaco), waitForLanguage: async () => {}, warn: message => warnings.push(message),
+      openLink: options.openLink ?? (async (target, openOptions) => {
+        followed.push({ target, options: openOptions });
+        return false;
+      }),
+    }, options.mainGroups);
   main.set(MainThreadLanguageFeaturesProxy, workbench.handlers as never);
   /**
    * A bulk edit on the workbench side that records what the extension host asked it to apply and answers
@@ -171,12 +214,16 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
   const disposables: IDisposable[] = [];
   return {
     ...fake, host, features: host.features, workbench, seam: workbench.seam, api, live, sent, documents, executed, main, worker, bulkEdits, warnings,
+    apiCommands, followed,
     document: (uri: URI) => documents.getByUri(uri as unknown as vscode.Uri)!,
     dispose: () => {
       for (const disposable of disposables) {
         disposable.dispose();
       }
       workbench.dispose();
+      for (const group of host.groups) {
+        group.dispose?.();
+      }
       host.features.dispose();
       documents.dispose();
       main.dispose();

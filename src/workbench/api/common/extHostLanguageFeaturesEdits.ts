@@ -40,11 +40,13 @@ class OnTypeFormattingAdapter {
   constructor(readonly provider: vscode.OnTypeFormattingEditProvider) {}
 }
 
-class CodeActionAdapter {
+/** Exported for `vscode.executeCodeActionProvider` (the navigation group). */
+export class CodeActionAdapter {
   constructor(readonly provider: vscode.CodeActionProvider) {}
 }
 
-class RenameAdapter {
+/** Exported for `vscode.executeDocumentRenameProvider` (the navigation group). */
+export class RenameAdapter {
   constructor(readonly provider: vscode.RenameProvider) {}
 }
 

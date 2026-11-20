@@ -1,5 +1,6 @@
 import type { URI } from '../../../base/common/uri.js';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
+import type { WorkspaceEditOperation } from './extHost.protocol.documents.js';
 import type { MarkerDataDto } from './extHost.protocol.diagnostics.js';
 import type { EditorPosition, EditorRange, EditorSelection, EditorTextEdit } from './extHostTypeConverters.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
@@ -281,11 +282,211 @@ export interface ExtHostEditsShape {
   $provideRenameEdits(handle: number, uri: URI, position: EditorPosition, newName: string, token: CancellationToken): Promise<RenameResultDto | undefined>;
 }
 
+// --- Navigation: symbols, links, definitions, folding and the like (wr-c9d8.rj2) ----------------
+
+/** A symbol of the document's tree. `kind` and `tags` are the API's numbers, which are Monaco's. */
+export interface DocumentSymbolDto {
+  readonly name: string;
+  readonly detail: string;
+  readonly kind: number;
+  readonly tags?: readonly number[];
+  readonly containerName?: string;
+  readonly range: EditorRange;
+  readonly selectionRange: EditorRange;
+  readonly children?: readonly DocumentSymbolDto[];
+}
+
+export interface LocationDto {
+  readonly uri: URI;
+  readonly range: EditorRange;
+}
+
+/** A definition: a location, with the ranges a `LocationLink` adds when it is one. */
+export interface LocationLinkDto extends LocationDto {
+  readonly originSelectionRange?: EditorRange;
+  readonly targetSelectionRange?: EditorRange;
+}
+
+/** A link of a list: `url` when the provider gave its target; `index` names it for resolving. */
+export interface DocumentLinkDto {
+  readonly range: EditorRange;
+  readonly url?: URI;
+  readonly tooltip?: string;
+  readonly index: number;
+}
+
+/** Links; a list with links to resolve stays on the extension host under `id` until released. */
+export interface DocumentLinkListDto {
+  readonly id?: number;
+  readonly links: readonly DocumentLinkDto[];
+}
+
+/** `kind` is the API's `DocumentHighlightKind`, which is Monaco's. */
+export interface DocumentHighlightDto {
+  readonly range: EditorRange;
+  readonly kind: number;
+}
+
+/** Lines are 1-based, as Monaco's; `kind` is the API's `FoldingRangeKind` (1 comment, 2 imports, 3 region). */
+export interface FoldingRangeDto {
+  readonly start: number;
+  readonly end: number;
+  readonly kind?: number;
+}
+
+export interface CodeLensDto {
+  readonly index: number;
+  readonly range: EditorRange;
+  readonly command?: CommandDto;
+}
+
+/** Code lenses the extension host keeps under `id` (for resolving and their commands) until released. */
+export interface CodeLensListDto {
+  readonly id: number;
+  readonly lenses: readonly CodeLensDto[];
+}
+
+export interface ColorDto {
+  readonly red: number;
+  readonly green: number;
+  readonly blue: number;
+  readonly alpha: number;
+}
+
+export interface ColorInformationDto {
+  readonly range: EditorRange;
+  readonly color: ColorDto;
+}
+
+export interface ColorPresentationDto {
+  readonly label: string;
+  readonly textEdit?: EditorTextEdit;
+  readonly additionalTextEdits?: readonly EditorTextEdit[];
+}
+
+export interface InlayHintLabelPartDto {
+  readonly label: string;
+  readonly tooltip?: string | MarkdownStringDto;
+  readonly location?: LocationDto;
+  readonly command?: CommandDto;
+}
+
+/** `kind` is the API's `InlayHintKind`, which is Monaco's. `index` names the hint for resolving. */
+export interface InlayHintDto {
+  readonly index: number;
+  readonly position: EditorPosition;
+  readonly label: string | readonly InlayHintLabelPartDto[];
+  readonly tooltip?: string | MarkdownStringDto;
+  readonly kind?: number;
+  readonly textEdits?: readonly EditorTextEdit[];
+  readonly paddingLeft?: boolean;
+  readonly paddingRight?: boolean;
+}
+
+export interface InlayHintListDto {
+  readonly id: number;
+  readonly hints: readonly InlayHintDto[];
+}
+
+export interface LinkedEditingRangesDto {
+  readonly ranges: readonly EditorRange[];
+  readonly wordPattern?: RegExpDto;
+}
+
+export interface SemanticTokensLegendDto {
+  readonly tokenTypes: readonly string[];
+  readonly tokenModifiers: readonly string[];
+}
+
+/** Whole tokens, or edits of the tokens of `previousResultId`; Monaco applies the edits itself. */
+export type SemanticTokensDto =
+  | { readonly resultId?: string; readonly data: Uint32Array }
+  | { readonly resultId?: string; readonly edits: ReadonlyArray<{ readonly start: number; readonly deleteCount: number; readonly data?: Uint32Array }> };
+
+/** A code action as `vscode.executeCodeActionProvider` gives it: with its edit and its command. */
+export interface ExecutedCodeActionDto {
+  readonly title: string;
+  /** Present for a plain `Command`. */
+  readonly command?: { readonly title: string; readonly command: string; readonly tooltip?: string; readonly arguments?: readonly unknown[] };
+  readonly isCommand?: boolean;
+  readonly kind?: string;
+  readonly isPreferred?: boolean;
+  readonly disabled?: string;
+  readonly diagnostics?: readonly MarkerDataDto[];
+  readonly edit?: readonly WorkspaceEditOperation[];
+}
+
+export interface MainThreadNavigationShape {
+  $registerDocumentSymbolSupport(extension: string, handle: number, selector: LanguageSelectorDto, label: string | undefined): Promise<void>;
+  $registerDocumentLinkSupport(extension: string, handle: number, selector: LanguageSelectorDto, supportsResolve: boolean): Promise<void>;
+  $registerDefinitionSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerDeclarationSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerTypeDefinitionSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerImplementationSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerReferenceSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerDocumentHighlightSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerFoldingRangeSupport(extension: string, handle: number, selector: LanguageSelectorDto, hasEvent: boolean): Promise<void>;
+  $registerSelectionRangeSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerCodeLensSupport(extension: string, handle: number, selector: LanguageSelectorDto, supportsResolve: boolean, hasEvent: boolean): Promise<void>;
+  $registerColorSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerInlayHintsSupport(extension: string, handle: number, selector: LanguageSelectorDto, supportsResolve: boolean, hasEvent: boolean, displayName: string): Promise<void>;
+  $registerLinkedEditingRangeSupport(extension: string, handle: number, selector: LanguageSelectorDto): Promise<void>;
+  $registerDocumentSemanticTokensSupport(extension: string, handle: number, selector: LanguageSelectorDto, legend: SemanticTokensLegendDto, hasEvent: boolean): Promise<void>;
+  /** A provider's change event (code lenses, folding ranges, inlay hints, semantic tokens): Monaco asks again. */
+  $emitProviderEvent(extension: string, handle: number): Promise<void>;
+
+  // The `vscode.execute*` API commands: the providers of every extension host, as VS Code calls them.
+  $executeDocumentSymbolProvider(uri: URI): Promise<DocumentSymbolDto[]>;
+  $executeLinkProvider(uri: URI, resolveCount: number): Promise<{ range: EditorRange; url?: URI; tooltip?: string }[]>;
+  $executeDefinitionProvider(uri: URI, position: EditorPosition): Promise<LocationLinkDto[]>;
+  $executeReferenceProvider(uri: URI, position: EditorPosition): Promise<LocationDto[]>;
+  $executeHoverProvider(uri: URI, position: EditorPosition): Promise<HoverDto[]>;
+  $executeCompletionItemProvider(uri: URI, position: EditorPosition, triggerCharacter: string | undefined, resolveCount: number): Promise<{ incomplete: boolean; items: (CompletionItemDto & ResolvedCompletionItemDto)[] }>;
+  $executeFormatDocumentProvider(uri: URI, options: FormattingOptionsDto): Promise<EditorTextEdit[] | undefined>;
+  $executeFormatRangeProvider(uri: URI, range: EditorRange, options: FormattingOptionsDto): Promise<EditorTextEdit[] | undefined>;
+  $executeCodeActionProvider(uri: URI, range: EditorRange | EditorSelection, kind: string | undefined, resolveCount: number): Promise<ExecutedCodeActionDto[]>;
+  $executeDocumentRenameProvider(uri: URI, position: EditorPosition, newName: string): Promise<WorkspaceEditOperation[] | { readonly rejectReason: string } | undefined>;
+}
+
+export interface ExtHostNavigationShape {
+  $provideDocumentSymbols(handle: number, uri: URI, token: CancellationToken): Promise<DocumentSymbolDto[] | undefined>;
+  $provideDocumentLinks(handle: number, uri: URI, token: CancellationToken): Promise<DocumentLinkListDto | undefined>;
+  $resolveDocumentLink(handle: number, id: number, index: number, token: CancellationToken): Promise<{ url?: URI; tooltip?: string } | undefined>;
+  $releaseDocumentLinks(handle: number, id: number): Promise<void>;
+  $provideDefinition(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<LocationLinkDto[] | undefined>;
+  $provideDeclaration(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<LocationLinkDto[] | undefined>;
+  $provideTypeDefinition(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<LocationLinkDto[] | undefined>;
+  $provideImplementation(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<LocationLinkDto[] | undefined>;
+  $provideReferences(handle: number, uri: URI, position: EditorPosition, includeDeclaration: boolean, token: CancellationToken): Promise<LocationDto[] | undefined>;
+  $provideDocumentHighlights(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<DocumentHighlightDto[] | undefined>;
+  $provideFoldingRanges(handle: number, uri: URI, token: CancellationToken): Promise<FoldingRangeDto[] | undefined>;
+  /** For each position, its ranges from the innermost out. */
+  $provideSelectionRanges(handle: number, uri: URI, positions: readonly EditorPosition[], token: CancellationToken): Promise<EditorRange[][] | undefined>;
+  $provideCodeLenses(handle: number, uri: URI, token: CancellationToken): Promise<CodeLensListDto | undefined>;
+  $resolveCodeLens(handle: number, id: number, index: number, token: CancellationToken): Promise<CodeLensDto | undefined>;
+  $releaseCodeLenses(handle: number, id: number): Promise<void>;
+  $provideDocumentColors(handle: number, uri: URI, token: CancellationToken): Promise<ColorInformationDto[] | undefined>;
+  $provideColorPresentations(handle: number, uri: URI, color: ColorInformationDto, token: CancellationToken): Promise<ColorPresentationDto[] | undefined>;
+  $provideInlayHints(handle: number, uri: URI, range: EditorRange, token: CancellationToken): Promise<InlayHintListDto | undefined>;
+  $resolveInlayHint(handle: number, id: number, index: number, token: CancellationToken): Promise<InlayHintDto | undefined>;
+  $releaseInlayHints(handle: number, id: number): Promise<void>;
+  $provideLinkedEditingRanges(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<LinkedEditingRangesDto | undefined>;
+  $provideDocumentSemanticTokens(handle: number, uri: URI, previousResultId: string | undefined, token: CancellationToken): Promise<SemanticTokensDto | undefined>;
+  /** For `vscode.executeCodeActionProvider`: the actions with their edits, nothing kept. */
+  $provideCodeActionsForCommand(handle: number, uri: URI, range: EditorRange | EditorSelection, kind: string | undefined, resolveCount: number, token: CancellationToken): Promise<ExecutedCodeActionDto[] | undefined>;
+  /** For `vscode.executeDocumentRenameProvider`: the rename's edit, not applied. */
+  $provideRenameEditsForCommand(handle: number, uri: URI, position: EditorPosition, newName: string, token: CancellationToken): Promise<WorkspaceEditOperation[] | { readonly rejectReason: string } | undefined>;
+  /** How many link, code lens and inlay hint lists the extension host keeps, for tests that look for leaks. */
+  $navigationCacheSize(): Promise<number>;
+}
+
 // --- The merged shapes ---------------------------------------------------------------------------
 
-export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape & MainThreadCompletionsShape & MainThreadEditsShape;
+export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape & MainThreadCompletionsShape & MainThreadEditsShape
+  & MainThreadNavigationShape;
 
-export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape & ExtHostCompletionsShape & ExtHostEditsShape;
+export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape & ExtHostCompletionsShape & ExtHostEditsShape
+  & ExtHostNavigationShape;
 
 /**
  * The `$` methods of every feature group, bound, under one object: each side answers under one RPC

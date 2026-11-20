@@ -303,6 +303,286 @@ declare module 'vscode' {
     }>;
   }
 
+  // Navigation: symbols, links, definitions, folding and the like (wr-c9d8.rj2).
+
+  export enum SymbolKind {
+    File = 0,
+    Module = 1,
+    Namespace = 2,
+    Package = 3,
+    Class = 4,
+    Method = 5,
+    Property = 6,
+    Field = 7,
+    Constructor = 8,
+    Enum = 9,
+    Interface = 10,
+    Function = 11,
+    Variable = 12,
+    Constant = 13,
+    String = 14,
+    Number = 15,
+    Boolean = 16,
+    Array = 17,
+    Object = 18,
+    Key = 19,
+    Null = 20,
+    EnumMember = 21,
+    Struct = 22,
+    Event = 23,
+    Operator = 24,
+    TypeParameter = 25
+  }
+
+  export enum SymbolTag {
+    Deprecated = 1
+  }
+
+  export class SymbolInformation {
+    name: string;
+    containerName: string;
+    kind: SymbolKind;
+    tags?: readonly SymbolTag[];
+    location: Location;
+    constructor(name: string, kind: SymbolKind, containerName: string, location: Location);
+    constructor(name: string, kind: SymbolKind, range: Range, uri?: Uri, containerName?: string);
+  }
+
+  export class DocumentSymbol {
+    name: string;
+    detail: string;
+    kind: SymbolKind;
+    tags?: readonly SymbolTag[];
+    range: Range;
+    selectionRange: Range;
+    children: DocumentSymbol[];
+    constructor(name: string, detail: string, kind: SymbolKind, range: Range, selectionRange: Range);
+  }
+
+  export interface DocumentSymbolProvider {
+    provideDocumentSymbols(document: TextDocument, token: CancellationToken): ProviderResult<SymbolInformation[] | DocumentSymbol[]>;
+  }
+
+  export interface DocumentSymbolProviderMetadata {
+    label?: string;
+  }
+
+  export class DocumentLink {
+    range: Range;
+    target?: Uri;
+    tooltip?: string;
+    constructor(range: Range, target?: Uri);
+  }
+
+  export interface DocumentLinkProvider<T extends DocumentLink = DocumentLink> {
+    provideDocumentLinks(document: TextDocument, token: CancellationToken): ProviderResult<T[]>;
+    resolveDocumentLink?(link: T, token: CancellationToken): ProviderResult<T>;
+  }
+
+  export interface LocationLink {
+    originSelectionRange?: Range;
+    targetUri: Uri;
+    targetRange: Range;
+    targetSelectionRange?: Range;
+  }
+
+  export type DefinitionLink = LocationLink;
+
+  export type Definition = Location | Location[];
+
+  export interface DefinitionProvider {
+    provideDefinition(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<Definition | DefinitionLink[]>;
+  }
+
+  export type Declaration = Location | Location[] | LocationLink[];
+
+  export interface DeclarationProvider {
+    provideDeclaration(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<Declaration>;
+  }
+
+  export interface TypeDefinitionProvider {
+    provideTypeDefinition(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<Definition | DefinitionLink[]>;
+  }
+
+  export interface ImplementationProvider {
+    provideImplementation(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<Definition | DefinitionLink[]>;
+  }
+
+  export interface ReferenceContext {
+    readonly includeDeclaration: boolean;
+  }
+
+  export interface ReferenceProvider {
+    provideReferences(document: TextDocument, position: Position, context: ReferenceContext, token: CancellationToken): ProviderResult<Location[]>;
+  }
+
+  export enum DocumentHighlightKind {
+    Text = 0,
+    Read = 1,
+    Write = 2
+  }
+
+  export class DocumentHighlight {
+    range: Range;
+    kind?: DocumentHighlightKind;
+    constructor(range: Range, kind?: DocumentHighlightKind);
+  }
+
+  export interface DocumentHighlightProvider {
+    provideDocumentHighlights(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<DocumentHighlight[]>;
+  }
+
+  export enum FoldingRangeKind {
+    Comment = 1,
+    Imports = 2,
+    Region = 3
+  }
+
+  export class FoldingRange {
+    start: number;
+    end: number;
+    kind?: FoldingRangeKind;
+    constructor(start: number, end: number, kind?: FoldingRangeKind);
+  }
+
+  export interface FoldingContext {
+  }
+
+  export interface FoldingRangeProvider {
+    onDidChangeFoldingRanges?: Event<void>;
+    provideFoldingRanges(document: TextDocument, context: FoldingContext, token: CancellationToken): ProviderResult<FoldingRange[]>;
+  }
+
+  export class SelectionRange {
+    range: Range;
+    parent?: SelectionRange;
+    constructor(range: Range, parent?: SelectionRange);
+  }
+
+  export interface SelectionRangeProvider {
+    provideSelectionRanges(document: TextDocument, positions: readonly Position[], token: CancellationToken): ProviderResult<SelectionRange[]>;
+  }
+
+  export class CodeLens {
+    range: Range;
+    command?: Command;
+    readonly isResolved: boolean;
+    constructor(range: Range, command?: Command);
+  }
+
+  export interface CodeLensProvider<T extends CodeLens = CodeLens> {
+    onDidChangeCodeLenses?: Event<void>;
+    provideCodeLenses(document: TextDocument, token: CancellationToken): ProviderResult<T[]>;
+    resolveCodeLens?(codeLens: T, token: CancellationToken): ProviderResult<T>;
+  }
+
+  export class Color {
+    readonly red: number;
+    readonly green: number;
+    readonly blue: number;
+    readonly alpha: number;
+    constructor(red: number, green: number, blue: number, alpha: number);
+  }
+
+  export class ColorInformation {
+    range: Range;
+    color: Color;
+    constructor(range: Range, color: Color);
+  }
+
+  export class ColorPresentation {
+    label: string;
+    textEdit?: TextEdit;
+    additionalTextEdits?: TextEdit[];
+    constructor(label: string);
+  }
+
+  export interface DocumentColorProvider {
+    provideDocumentColors(document: TextDocument, token: CancellationToken): ProviderResult<ColorInformation[]>;
+    provideColorPresentations(color: Color, context: {
+      readonly document: TextDocument;
+      readonly range: Range;
+    }, token: CancellationToken): ProviderResult<ColorPresentation[]>;
+  }
+
+  export enum InlayHintKind {
+    Type = 1,
+    Parameter = 2
+  }
+
+  export class InlayHintLabelPart {
+    value: string;
+    tooltip?: string | MarkdownString | undefined;
+    location?: Location | undefined;
+    command?: Command | undefined;
+    constructor(value: string);
+  }
+
+  export class InlayHint {
+    position: Position;
+    label: string | InlayHintLabelPart[];
+    tooltip?: string | MarkdownString | undefined;
+    kind?: InlayHintKind;
+    textEdits?: TextEdit[];
+    paddingLeft?: boolean;
+    paddingRight?: boolean;
+    constructor(position: Position, label: string | InlayHintLabelPart[], kind?: InlayHintKind);
+  }
+
+  export interface InlayHintsProvider<T extends InlayHint = InlayHint> {
+    onDidChangeInlayHints?: Event<void>;
+    provideInlayHints(document: TextDocument, range: Range, token: CancellationToken): ProviderResult<T[]>;
+    resolveInlayHint?(hint: T, token: CancellationToken): ProviderResult<T>;
+  }
+
+  export class LinkedEditingRanges {
+    constructor(ranges: Range[], wordPattern?: RegExp);
+    readonly ranges: Range[];
+    readonly wordPattern: RegExp | undefined;
+  }
+
+  export interface LinkedEditingRangeProvider {
+    provideLinkedEditingRanges(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<LinkedEditingRanges>;
+  }
+
+  export class SemanticTokensLegend {
+    readonly tokenTypes: string[];
+    readonly tokenModifiers: string[];
+    constructor(tokenTypes: string[], tokenModifiers?: string[]);
+  }
+
+  export class SemanticTokensBuilder {
+    constructor(legend?: SemanticTokensLegend);
+    push(line: number, char: number, length: number, tokenType: number, tokenModifiers?: number): void;
+    push(range: Range, tokenType: string, tokenModifiers?: readonly string[]): void;
+    build(resultId?: string): SemanticTokens;
+  }
+
+  export class SemanticTokens {
+    readonly resultId: string | undefined;
+    readonly data: Uint32Array;
+    constructor(data: Uint32Array, resultId?: string);
+  }
+
+  export class SemanticTokensEdits {
+    readonly resultId: string | undefined;
+    readonly edits: SemanticTokensEdit[];
+    constructor(edits: SemanticTokensEdit[], resultId?: string);
+  }
+
+  export class SemanticTokensEdit {
+    readonly start: number;
+    readonly deleteCount: number;
+    readonly data: Uint32Array | undefined;
+    constructor(start: number, deleteCount: number, data?: Uint32Array);
+  }
+
+  export interface DocumentSemanticTokensProvider {
+    onDidChangeSemanticTokens?: Event<void>;
+    provideDocumentSemanticTokens(document: TextDocument, token: CancellationToken): ProviderResult<SemanticTokens>;
+    provideDocumentSemanticTokensEdits?(document: TextDocument, previousResultId: string, token: CancellationToken): ProviderResult<SemanticTokens | SemanticTokensEdits>;
+  }
+
   export namespace languages {
     export function match(selector: DocumentSelector, document: TextDocument): number;
     export function setLanguageConfiguration(language: string, configuration: LanguageConfiguration): Disposable;
@@ -315,5 +595,20 @@ declare module 'vscode' {
     export function registerOnTypeFormattingEditProvider(selector: DocumentSelector, provider: OnTypeFormattingEditProvider, firstTriggerCharacter: string, ...moreTriggerCharacter: string[]): Disposable;
     export function registerCodeActionsProvider(selector: DocumentSelector, provider: CodeActionProvider, metadata?: CodeActionProviderMetadata): Disposable;
     export function registerRenameProvider(selector: DocumentSelector, provider: RenameProvider): Disposable;
+    export function registerCodeLensProvider(selector: DocumentSelector, provider: CodeLensProvider): Disposable;
+    export function registerDefinitionProvider(selector: DocumentSelector, provider: DefinitionProvider): Disposable;
+    export function registerImplementationProvider(selector: DocumentSelector, provider: ImplementationProvider): Disposable;
+    export function registerTypeDefinitionProvider(selector: DocumentSelector, provider: TypeDefinitionProvider): Disposable;
+    export function registerDeclarationProvider(selector: DocumentSelector, provider: DeclarationProvider): Disposable;
+    export function registerDocumentHighlightProvider(selector: DocumentSelector, provider: DocumentHighlightProvider): Disposable;
+    export function registerDocumentSymbolProvider(selector: DocumentSelector, provider: DocumentSymbolProvider, metaData?: DocumentSymbolProviderMetadata): Disposable;
+    export function registerReferenceProvider(selector: DocumentSelector, provider: ReferenceProvider): Disposable;
+    export function registerDocumentSemanticTokensProvider(selector: DocumentSelector, provider: DocumentSemanticTokensProvider, legend: SemanticTokensLegend): Disposable;
+    export function registerDocumentLinkProvider(selector: DocumentSelector, provider: DocumentLinkProvider): Disposable;
+    export function registerColorProvider(selector: DocumentSelector, provider: DocumentColorProvider): Disposable;
+    export function registerInlayHintsProvider(selector: DocumentSelector, provider: InlayHintsProvider): Disposable;
+    export function registerFoldingRangeProvider(selector: DocumentSelector, provider: FoldingRangeProvider): Disposable;
+    export function registerSelectionRangeProvider(selector: DocumentSelector, provider: SelectionRangeProvider): Disposable;
+    export function registerLinkedEditingRangeProvider(selector: DocumentSelector, provider: LinkedEditingRangeProvider): Disposable;
   }
 }

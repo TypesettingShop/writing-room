@@ -1,9 +1,9 @@
-import { readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
+import { readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { expect, test } from './fixtures.js';
 import {
-  actionMenu, actionNames, activeEditor, activeParameter, editorMessage, editorText, expectSuggestDetails, hoverWidget, hoverWord, message,
-  openActionMenu, openFixtureEditor, openWithLanguageFeatures, parameterHints, pasteText, renameInput, reportCompletions, reportEdits, runCommand,
-  suggestion, suggestionNames, suggestList, triggerSuggest,
+  actionMenu, actionNames, activeEditor, activeParameter, clickWord, codeLens, editorMessage, editorText, expectSuggestDetails, followLink,
+  hoverWidget, hoverWord, message, openActionMenu, openFixtureEditor, openQuickOutline, openWithLanguageFeatures, parameterHints, pasteText,
+  renameInput, reportCompletions, reportEdits, reportSymbols, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
 } from './language-features.helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -285,5 +285,67 @@ test.describe('rename', () => {
       return editorMessage(page, 'The fixture cannot rename locked').isVisible({ timeout: 1000 }).catch(() => false);
     }, { timeout: 20_000, intervals: [500, 1000] }).toBe(true);
     await expect(renameInput(page)).toBeHidden();
+  });
+});
+
+test.describe('navigation', () => {
+  test('the quick outline lists the headings, and vscode.executeDocumentSymbolProvider gives their tree as DocumentSymbols', async ({ page }) => {
+    await pasteText(page, '# Title\ntext\n## Inner\n### Deeper\n## Second');
+    const options = await openQuickOutline(page);
+    await expect.poll(() => options.allInnerTexts().then(texts => texts.map(text => text.split('\n')[0]))).toEqual(
+      expect.arrayContaining(['Title', 'Inner', 'Deeper', 'Second']));
+    await page.keyboard.press('Escape');
+    await expect.poll(() => reportSymbols(page), { timeout: 20_000 }).toBe('Symbols: Title(Inner(Deeper) Second); DocumentSymbol true');
+  });
+
+  test('links are underlined; a workspace link opens its file at the line, an external one asks first, another extension\'s command does not run', async ({ page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'linked.lft', 'first line\nsecond line\n');
+    await pasteText(page, 'see [[linked.lft]] and <https://example.com/> or {other} or {run}');
+    await followLink(page, '{other}');
+    await expect(message(page, /is not one its extension contributes/)).toBeVisible({ timeout: 10_000 });
+    // The fixture's own command runs.
+    await followLink(page, '{run}');
+    await expect(message(page, 'Lens ran: link')).toBeVisible({ timeout: 10_000 });
+    await followLink(page, '<https://example.com/>');
+    const question = page.getByRole('option', { name: /^Cancel/ });
+    await expect(page.getByText('Do you want to open this external address?')).toBeVisible({ timeout: 10_000 });
+    await question.click();
+    await followLink(page, '[[linked.lft]]');
+    await expect(selectedTab(page.locator('[data-group-id].active'))).toHaveText(/linked\.lft/, { timeout: 15_000 });
+    await expect.poll(() => editorText(page)).toBe('first line\nsecond line');
+  });
+
+  test('goes to a definition in another file, which opens in an editor', async ({ page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'defs.lft', 'first\ndef target here\n');
+    await pasteText(page, 'use target now');
+    await clickWord(page, 'target');
+    await expect.poll(async () => {
+      await page.keyboard.press('F12');
+      return selectedTab(page.locator('[data-group-id].active')).innerText({ timeout: 1000 }).catch(() => '');
+    }, { timeout: 20_000, intervals: [1000] }).toContain('defs.lft');
+    await expect.poll(() => editorText(page)).toBe('first\ndef target here');
+  });
+
+  test('folds the provider\'s range: the lines after begin up to the one before end hide, no line more or less', async ({ page }) => {
+    await pasteText(page, 'begin\ninside one\ninside two\nend\nafter');
+    await page.keyboard.press('ControlOrMeta+Home');
+    await expect.poll(async () => {
+      await page.keyboard.press('ControlOrMeta+Shift+BracketLeft');
+      return editorText(page);
+    }, { timeout: 20_000, intervals: [1000] }).toBe('begin\nend\nafter');
+    await page.keyboard.press('ControlOrMeta+Shift+BracketRight');
+    await expect.poll(() => editorText(page)).toBe('begin\ninside one\ninside two\nend\nafter');
+  });
+
+  test('a code lens runs its command, and after the provider\'s change event shows the new lenses', async ({ page }) => {
+    await pasteText(page, '# Alpha\ntext\n# Beta');
+    await expect(codeLens(page, 'Lens 1: Alpha')).toBeVisible({ timeout: 20_000 });
+    await codeLens(page, 'Lens 1: Beta').click();
+    await expect(message(page, 'Lens ran: Beta')).toBeVisible({ timeout: 10_000 });
+    await runCommand(page, 'Language Features: Change Code Lenses');
+    await expect(codeLens(page, 'Lens 2: Alpha')).toBeVisible({ timeout: 20_000 });
+    await expect(codeLens(page, /^Lens 1:/)).toHaveCount(0);
   });
 });

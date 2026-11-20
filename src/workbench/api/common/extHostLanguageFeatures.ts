@@ -19,6 +19,7 @@ import { Disposable } from './extHostTypes.js';
 import { setLanguageWordPattern } from './extHostLanguageWordPatterns.js';
 import { createCompletionsGroup } from './extHostLanguageFeaturesCompletions.js';
 import { createEditsGroup } from './extHostLanguageFeaturesEdits.js';
+import { createNavigationGroup } from './extHostLanguageFeaturesNavigation.js';
 
 /*
  * The seam every language feature provider goes through.
@@ -51,7 +52,7 @@ export interface LanguageFeatureGroup {
 export type LanguageFeatureGroupFactory = (features: ExtHostLanguageFeatures) => LanguageFeatureGroup;
 
 /** The feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly LanguageFeatureGroupFactory[] = [createCompletionsGroup, createEditsGroup];
+const groupFactories: readonly LanguageFeatureGroupFactory[] = [createCompletionsGroup, createEditsGroup, createNavigationGroup];
 
 export enum IndentAction { None = 0, Indent = 1, IndentOutdent = 2, Outdent = 3 }
 export enum SyntaxTokenType { Other = 0, Comment = 1, String = 2, RegEx = 3 }
@@ -131,6 +132,12 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
   document(extension: HostExtensionDescription, uri: URI): vscode.TextDocument | undefined {
     const document = URI.isUri(uri) ? this.documents.getByUri(uri as unknown as vscode.Uri) : undefined;
     return document && !document.isClosed && this.documents.canRead(extension.key, document) ? document : undefined;
+  }
+
+  /** Whether the extension of `key` may read the host's open copy of a document (the `vscode.execute*` commands). */
+  readable(key: string, uri: URI): boolean {
+    const document = URI.isUri(uri) ? this.documents.getByUri(uri as unknown as vscode.Uri) : undefined;
+    return !!document && !document.isClosed && this.documents.canRead(key, document);
   }
 
   /** The version of the host's copy of a document, if it has one open. */

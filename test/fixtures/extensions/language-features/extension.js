@@ -259,6 +259,130 @@ const renameProvider = {
   },
 };
 
+
+// --- Navigation: symbols, links, definitions, folding, code lenses --------------------------------
+
+const workspaceFile = name => vscode.Uri.parse('vscode-vfs://writing-room/workspace/' + name);
+
+/** Headings (`#`, `##`, ...) as a symbol tree: a heading holds the deeper ones below it. */
+const documentSymbolProvider = {
+  provideDocumentSymbols(document) {
+    const roots = [];
+    const open = [];
+    for (let line = 0; line < document.lineCount; line++) {
+      const match = /^(#+)\s+(.+)$/.exec(document.lineAt(line).text);
+      if (!match) {
+        continue;
+      }
+      const depth = match[1].length;
+      while (open.length && open[open.length - 1].depth >= depth) {
+        open.pop();
+      }
+      const range = new vscode.Range(line, 0, document.lineCount - 1, document.lineAt(document.lineCount - 1).text.length);
+      const symbol = new vscode.DocumentSymbol(match[2], 'level ' + depth, vscode.SymbolKind.String, range,
+        new vscode.Range(line, depth + 1, line, depth + 1 + match[2].length));
+      (open.length ? open[open.length - 1].symbol.children : roots).push(symbol);
+      open.push({ depth, symbol });
+    }
+    return roots;
+  },
+};
+
+/**
+ * `[[name]]` links to the workspace file `name` (line 2), `<https://...>` to a web address,
+ * `{run}` to the fixture's own command and `{other}` to a command the fixture does not contribute.
+ */
+const documentLinkProvider = {
+  provideDocumentLinks(document) {
+    const links = [];
+    for (let line = 0; line < document.lineCount; line++) {
+      const text = document.lineAt(line).text;
+      for (const match of text.matchAll(/\[\[([\w.]+)\]\]|<(https:[^>]+)>|\{(run|other)\}/g)) {
+        const range = new vscode.Range(line, match.index, line, match.index + match[0].length);
+        const link = new vscode.DocumentLink(range);
+        if (match[1]) {
+          // Resolved when followed.
+          link.data = match[1];
+        } else if (match[2]) {
+          link.target = vscode.Uri.parse(match[2]);
+        } else {
+          link.target = vscode.Uri.parse(match[3] === 'run' ? 'command:languageFeaturesFixture.lensRan?%5B%22link%22%5D' : 'command:workbench.action.closeActiveEditor');
+        }
+        link.tooltip = 'Fixture link ' + match[0];
+        links.push(link);
+      }
+    }
+    return links;
+  },
+  resolveDocumentLink(link) {
+    link.target = workspaceFile(link.data).with({ fragment: 'L2' });
+    return link;
+  },
+};
+
+/** `target` is defined on the second line of the workspace file `defs.lft`. */
+const definitionProvider = {
+  provideDefinition(document, position) {
+    const range = document.getWordRangeAtPosition(position);
+    if (!range || document.getText(range) !== 'target') {
+      return undefined;
+    }
+    return [{ originSelectionRange: range, targetUri: workspaceFile('defs.lft'), targetRange: new vscode.Range(1, 0, 1, 15), targetSelectionRange: new vscode.Range(1, 4, 1, 10) }];
+  },
+};
+
+/** A `begin` line folds down to the line before the next `end` line (0-based lines, as the API's). */
+const foldingRangeProvider = {
+  provideFoldingRanges(document) {
+    const ranges = [];
+    for (let line = 0; line < document.lineCount; line++) {
+      if (document.lineAt(line).text === 'begin') {
+        for (let end = line + 1; end < document.lineCount; end++) {
+          if (document.lineAt(end).text === 'end') {
+            ranges.push(new vscode.FoldingRange(line, end - 1, vscode.FoldingRangeKind.Region));
+            break;
+          }
+        }
+      }
+    }
+    return ranges;
+  },
+};
+
+let lensGeneration = 1;
+const lensesChanged = new vscode.EventEmitter();
+
+/** A lens on each heading; `bumpLenses` changes their titles and says so. */
+const codeLensProvider = {
+  onDidChangeCodeLenses: lensesChanged.event,
+  provideCodeLenses(document) {
+    const lenses = [];
+    for (let line = 0; line < document.lineCount; line++) {
+      const match = /^#+\s+(.+)$/.exec(document.lineAt(line).text);
+      if (match) {
+        lenses.push(new vscode.CodeLens(new vscode.Range(line, 0, line, 0)));
+        lenses[lenses.length - 1].heading = match[1];
+      }
+    }
+    return lenses;
+  },
+  resolveCodeLens(lens) {
+    lens.command = { title: 'Lens ' + lensGeneration + ': ' + lens.heading, command: 'languageFeaturesFixture.lensRan', arguments: [lens.heading] };
+    return lens;
+  },
+};
+
+/** What `vscode.executeDocumentSymbolProvider` gives for the active document: names nested by depth, and whether they are `DocumentSymbol`s. */
+async function reportSymbols() {
+  const document = vscode.window.activeTextEditor?.document;
+  const symbols = document ? await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', document.uri) : undefined;
+  const describe = list => list.map(symbol => symbol.name + (symbol.children.length ? '(' + describe(symbol.children) + ')' : '')).join(' ');
+  const instances = (symbols ?? []).every(function check(symbol) {
+    return symbol instanceof vscode.DocumentSymbol && symbol.children.every(check);
+  });
+  return vscode.window.showInformationMessage('Symbols: ' + describe(symbols ?? []) + '; DocumentSymbol ' + instances);
+}
+
 /** Registers every provider of the fixture; the disposables take them back. */
 const providers = () => [
   vscode.languages.registerCompletionItemProvider(selector, completionProvider, '.'),
@@ -273,6 +397,11 @@ const providers = () => [
     ],
   }),
   vscode.languages.registerRenameProvider(selector, renameProvider),
+  vscode.languages.registerDocumentSymbolProvider(selector, documentSymbolProvider),
+  vscode.languages.registerDocumentLinkProvider(selector, documentLinkProvider),
+  vscode.languages.registerDefinitionProvider(selector, definitionProvider),
+  vscode.languages.registerFoldingRangeProvider(selector, foldingRangeProvider),
+  vscode.languages.registerCodeLensProvider(selector, codeLensProvider),
 ];
 
 module.exports.activate = context => {
@@ -310,6 +439,13 @@ module.exports.activate = context => {
     return vscode.window.showInformationMessage('Edits: formatted ' + editReport.formatted + '; ranges ' + editReport.ranges.join(',')
       + '; options ' + editReport.options + '; only ' + editReport.only + '; code actions cached ' + cached);
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.lensRan', heading =>
+    vscode.window.showInformationMessage('Lens ran: ' + heading)));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.bumpLenses', () => {
+    lensGeneration++;
+    lensesChanged.fire();
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportSymbols', reportSymbols));
   // Not awaited: the message stays until it is dismissed, and activation must not wait for that.
   void vscode.window.showInformationMessage('Language features fixture activated');
 };

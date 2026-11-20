@@ -60,7 +60,7 @@ const INSERT_TEXT_RULES = 1 | 4;
 const COMPLETION_TRIGGER_KINDS = new Set([0, 1, 2]);
 const SIGNATURE_TRIGGER_KINDS = new Set([1, 2, 3]);
 
-function text(value: unknown, max = MAX_TEXT): string | undefined {
+export function text(value: unknown, max = MAX_TEXT): string | undefined {
   if (typeof value !== 'string') {
     return undefined;
   }
