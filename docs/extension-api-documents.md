@@ -11,7 +11,7 @@
 
 ## 에디터에서 읽고 쓰기
 
-- `window.activeTextEditor`는 활성 그룹의 텍스트 에디터다. 다른 종류의 탭이 활성화되면 `undefined`다. `visibleTextEditors`에는 현재 표시하는 분할 에디터도 들어 있다. 선택, 옵션, 표시 범위와 뷰 열은 각 에디터의 이벤트를 구독한다.
+- `window.activeTextEditor`는 활성 그룹의 텍스트 에디터다. Explorer나 `vscode.open`으로 연 작업 폴더 파일의 에디터도 제목 없는 문서의 에디터와 똑같이 든다. 다른 종류의 탭이 활성화되거나 파일이 오류 페인(바이너리, 20 MB 초과, 없는 파일)에 있으면 `undefined`다. `visibleTextEditors`에는 현재 표시하는 분할 에디터도 들어 있다. 선택, 옵션, 표시 범위와 뷰 열은 각 에디터의 이벤트를 구독한다.
 - `window.showTextDocument(document, { viewColumn: ViewColumn.Beside, preserveFocus: true, selection })`는 옆 그룹에서 범위를 표시하고 현재 포커스를 유지한다. `revealRange`는 현재 에디터의 스크롤을 조정한다.
 - `TextEditor.edit`의 콜백 안에서 편집을 모은다. 범위가 겹치면 약속을 거부한다. 그사이에 문서 버전이 바뀌면 `false`를 반환하므로 최신 문서로 편집을 다시 계산할 수 있다. `insertSnippet`은 지정한 위치나 현재 선택 영역에서 Monaco 스니펫 세션을 시작한다.
 - `window.createTextEditorDecorationType(options)`로 장식 종류를 만들고 `editor.setDecorations(type, ranges)`로 해당 에디터에 적용한다. 빈 배열로 범위를 비우거나 타입을 해제해 모든 에디터에서 제거한다. 테마 색은 현재 테마에서 구하고 호버의 마크다운은 신뢰하지 않는 텍스트로 처리한다.

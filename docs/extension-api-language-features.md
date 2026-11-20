@@ -43,6 +43,7 @@ context.subscriptions.push(vscode.languages.registerHoverProvider({ language: 'm
 - 선택 서식은 편집기에 포커스를 두고 `Ctrl+K`에 이어 `Ctrl+F`를 누른다(macOS는 `⌘K`에 이어 `⌘F`). 범위 서식 제공자가 있는 쓰기 가능한 편집기에서 동작한다.
 - 서식: 편집은 제공자가 읽은 문서 버전을 달고 온다. Monaco가 물을 때의 버전과 다르거나 그 사이 모델이 바뀌었으면 통째로 버린다. 범위 서식은 고른 범위 밖을 건드리는 편집도 적용한다(upstream과 같다). 같은 종류의 제공자가 여럿이면 Monaco가 고른다.
 - 코드 액션과 이름 바꾸기: Monaco에 편집을 주지 않는다. 확장 호스트가 「문서·에디터 API」의 묶음 편집(`$applyWorkspaceEdit`: 확장 권한, 읽기 전용, 버전 검사, 열리지 않은 파일은 열고 고치고 저장)으로 요청 때의 버전에서 적용한다. 코드 액션의 커맨드는 편집이 적용된 뒤에만 돈다. 편집이 거부되면 커맨드는 돌지 않고 "The code action could not be applied" 알림이 뜬다. 편집이 없는 액션은 고를 때 해결한다.
+- 코드 액션 제공자가 받는 `context.diagnostics`는 upstream `CodeActionAdapter`처럼 확장 호스트가 가진 그 문서의 진단 가운데 요청 범위와 겹치는 것이다(커서가 진단의 시작이나 끝에 닿아도, 빈 범위의 진단도 든다. 1,000개까지). 모든 확장의 컬렉션이 가진 원래 `vscode.Diagnostic` 객체 그대로라 확장이 진단에 붙인 필드(markdownlint의 `fixInfo` 같은 것)가 살아 있다. 워크벤치의 다른 소유자 마커는 거울에서 변환한 것이다. 범위는 확장이 진단을 넣을 때의 범위로 본다. Monaco가 요청에 싣는 마커는 쓰지 않는다 (wr-v108.x26). 그래서 지금은 Monaco 자신의 언어 워커가 만든 마커(settings.json의 스키마 검사 같은 소유자 `json`, `css`, `html`, `typescript`)가 컨텍스트에 들지 않는다(wr-4134에서 다시 넣는다). 제공자가 받은 진단 객체를 고치면 그 진단을 낸 확장의 컬렉션 값도 바뀐다(upstream과 같다. 화면의 마커는 그대로다).
 - 이름 바꾸기의 `prepareRename` 범위와 자리표시 글, 던진 메시지(거부 사유)가 Monaco의 입력 칸과 인라인 메시지로 간다.
 - 저장할 때 서식(`editor.formatOnSave`), 저장할 때 코드 액션, 리팩터링 미리 보기, 붙여넣기 서식은 없다.
 

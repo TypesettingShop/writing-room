@@ -143,3 +143,102 @@ test('extension save of a hidden untitled document writes a file and closes the 
   expect(await readWorkspaceText(page, 'saved-hidden.txt')).toBe('Draft from a hidden extension document');
   await expect(tabs).toHaveText(originalTabs);
 });
+
+interface EditorsReport {
+  readonly active: string | null;
+  readonly activeIsUri: boolean;
+  readonly visible: string[];
+  readonly documents: number;
+  readonly events: string[];
+}
+
+/** How many reporting fixture commands each page has run; the fixture numbers its messages the same way. */
+const fixtureRuns = new WeakMap<Page, number>();
+
+/**
+ * Runs a reporting fixture command from the palette, dismisses the message it shows and returns the text after
+ * `prefix`. Only three toasts show at once, so a message left open would hold the fourth back until one times out.
+ */
+async function fixtureMessage(page: Page, title: string, prefix: string): Promise<string> {
+  const run = (fixtureRuns.get(page) ?? 0) + 1;
+  fixtureRuns.set(page, run);
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill(title);
+  await page.getByRole('option', { name: title, exact: true }).click();
+  const head = `[${run}] ${prefix}`;
+  const message = page.getByText(head);
+  await expect(message).toBeVisible({ timeout: 15_000 });
+  const text = (await message.textContent())!;
+  const toast = page.getByRole('region', { name: text, exact: true });
+  await toast.getByRole('button', { name: 'Dismiss message' }).click();
+  await expect(toast).toHaveCount(0);
+  return text.slice(head.length);
+}
+
+async function reportEditors(page: Page): Promise<EditorsReport> {
+  return JSON.parse(await fixtureMessage(page, 'Report Text Editors', 'Text editors: ')) as EditorsReport;
+}
+
+/** The workbench with the documents fixture, its storage ready and the extension awake. */
+async function openWithEditorsFixture(page: Page, files: Record<string, string | { bytes: number[] }>): Promise<void> {
+  await openDocumentSaveFixture(page);
+  for (const [path, content] of Object.entries(files)) {
+    await writeWorkspaceFile(page, path, content);
+  }
+  // The first report wakes the extension, which records the editor events from then on.
+  expect(await reportEditors(page)).toMatchObject({ active: null, visible: [] });
+}
+
+test('a file opened from the Explorer is the active and visible text editor of extensions', async ({ page }) => {
+  await openWithEditorsFixture(page, { 'notes.md': '# Notes', 'data.bin': { bytes: [0, 1, 2, 0, 255, 0] } });
+  await treeItem(page, 'notes.md').dblclick();
+  const group = groups(page).first();
+  await expectEditorText(group, '# Notes');
+  await group.locator('.monaco-editor .view-lines').first().click();
+
+  const report = await reportEditors(page);
+  expect(report).toMatchObject({ active: 'notes.md@1', activeIsUri: true, visible: ['notes.md@1'], documents: 1 });
+  // As VS Code: the document opens before its editor comes.
+  expect(report.events.indexOf('open notes.md')).toBeGreaterThanOrEqual(0);
+  expect(report.events.indexOf('open notes.md')).toBeLessThan(report.events.indexOf('active notes.md@1'));
+  expect(report.events.indexOf('open notes.md')).toBeLessThan(report.events.indexOf('visible notes.md@1'));
+
+  // An extension's edit of the file editor applies, and one undo takes it back.
+  expect(await fixtureMessage(page, 'Edit Active Text Editor', 'Edited ')).toBe('notes.md@1: true');
+  await expectEditorText(group, 'edited # Notes');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('Modified');
+  await group.locator('.monaco-editor .view-lines').first().click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expectEditorText(group, '# Notes');
+
+  // A file the error pane stands for is no text editor.
+  await treeItem(page, 'data.bin').dblclick();
+  await expect(selectedTab(group)).toHaveText('data.bin');
+  await expect(group.getByText(/binary or uses an unsupported text encoding/)).toBeVisible();
+  expect(await reportEditors(page)).toMatchObject({ active: null, visible: [] });
+});
+
+test('showTextDocument shows a file in the given column while another group is in front', async ({ page }) => {
+  await openWithEditorsFixture(page, { 'notes.md': '# Notes', 'shown.md': '# Shown' });
+  await treeItem(page, 'notes.md').dblclick();
+  await expectEditorText(groups(page).first(), '# Notes');
+
+  // An untitled editor beside is in front; the file goes to column one, then to a new third group.
+  const shown = JSON.parse(await fixtureMessage(page, 'Show File From Side Group', 'Shown from side: '));
+  expect(shown).toEqual({
+    first: 'shown.md@1', firstActive: true, third: 'shown.md@3', sameDocument: true,
+    visible: ['shown.md@1', 'Untitled-1@2', 'shown.md@3'], documents: 1,
+  });
+  await expect(groups(page)).toHaveCount(3);
+  await expect(selectedTab(groups(page).nth(0))).toHaveText('shown.md');
+  await expect(selectedTab(groups(page).nth(2))).toHaveText('shown.md');
+  await expectEditorText(groups(page).nth(2), '# Shown');
+});
+
+test('a built-in command with a resource opens that file in a text editor', async ({ page }) => {
+  await openWithEditorsFixture(page, { 'renamed.md': '# Renamed' });
+  // Without a rename provider the command only has to find the editor it opened.
+  expect(await fixtureMessage(page, 'Rename At Resource', 'Rename at resource: ')).toBe('ran');
+  await expect(selectedTab(groups(page).first())).toHaveText('renamed.md');
+  await expect.poll(async () => (await reportEditors(page)).active).toBe('renamed.md@1');
+});

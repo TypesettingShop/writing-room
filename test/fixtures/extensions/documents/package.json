@@ -18,7 +18,11 @@
     "onCommand:documents.checkReferences",
     "onCommand:documents.saveShownUntitled",
     "onCommand:documents.saveHiddenUntitled",
-    "onCommand:documents.saveLateShownUntitled"
+    "onCommand:documents.saveLateShownUntitled",
+    "onCommand:documents.reportEditors",
+    "onCommand:documents.showFileFromSide",
+    "onCommand:documents.editActiveEditor",
+    "onCommand:documents.renameAtResource"
   ],
   "contributes": {
     "commands": [
@@ -65,6 +69,22 @@
       {
         "command": "documents.saveLateShownUntitled",
         "title": "Save Late Shown Untitled Fixture"
+      },
+      {
+        "command": "documents.reportEditors",
+        "title": "Report Text Editors"
+      },
+      {
+        "command": "documents.showFileFromSide",
+        "title": "Show File From Side Group"
+      },
+      {
+        "command": "documents.editActiveEditor",
+        "title": "Edit Active Text Editor"
+      },
+      {
+        "command": "documents.renameAtResource",
+        "title": "Rename At Resource"
       }
     ],
     "submenus": [
