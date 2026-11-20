@@ -21,7 +21,7 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 
 - `IModelService`는 자기가 만든 모델만 센다. `onModelAdded`는 모델이 `getModels()`에 든 뒤에, `onModelRemoved`는 목록에서 빠진 뒤 모델이 지워지기 전에 한 번씩 난다. 두 그룹이 한 입력을 보여도 모델은 하나다.
 - 리소스로 입력을 만드는 곳은 먼저 열린 같은 리소스의 입력을 찾아 쓴다(제목 없는 문서의 해석기 등록이 그렇게 한다). 입력이 모델의 주인이라 한 모델에 입력이 둘이면 한쪽을 닫을 때 다른 탭의 텍스트가 사라진다 — [교훈](lessons/reuse-open-input-that-owns-its-model.md).
-- `createModel(value, languageId, resource)`는 비동기다. 언어 id를 주지 않으면 `ILanguageService`에 경로로 묻고, 답이 없으면 `plaintext`다. 언어를 바꾸려면 `setModelLanguage`를 부르고 `onModelLanguageChanged`(이전 id와 새 id)를 듣는다.
+- `createModel(value, languageId, resource)`는 비동기다. 언어 id를 생략하면 `ILanguageService`에 처음 경로와 첫 줄로 묻고, 답이 없으면 `plaintext`다. 이렇게 연 모델은 언어 등록이 바뀔 때마다 같은 값으로 다시 선택한다. `setModelLanguage`를 호출하면 그 모델의 언어가 고정된다. 실제 언어 변경은 `onModelLanguageChanged`로 이전 id와 새 id를 알린다.
 - `ITextModel`(`src/editor/common/model.ts`)에는 문서 동기화가 쓰는 버전, 줄, 범위, 위치와 오프셋 변환, `applyEdits`, 변경 목록이 든 `onDidChangeContent`, `onDidChangeLanguage`, `onWillDispose`가 있다. 50 MiB를 넘는 모델은 `isTooLargeForSyncing(model)`이 참이고 확장 호스트로 보내지 않는다.
 - 텍스트 에디터 페인은 Monaco 에디터를 만들 때 `ICodeEditorService`에 등록하고 해제하기 전에 뺀다. 페인은 재사용되므로 탭을 바꿔도 등록은 그대로이고 에디터의 `onDidChangeModel`이 "보는 모델"의 변화를 알린다. 그룹을 나누면 에디터가 하나 늘고, 그룹이 사라지면 하나 준다.
 
@@ -92,3 +92,5 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 - 외부 주소의 확인은 모달 대화상자가 아니라 퀵 픽이다(마스터 본문의 확인 대화상자 규칙) (wr-h23m.4hq)
 - 제목 없는 탭의 언어는 plaintext가 아닐 때만 저장한다. 직렬화 문자열은 `이름\n텍스트\n언어`이고, 언어가 없는 v0.1.0 형식도 그대로 읽는다. 저장된 언어가 공백이나 제어 문자를 담거나 256자를 넘으면 버리고 텍스트로 짐작한다 (wr-2bi0)
 - `when`의 `==`는 지금처럼 느슨한 비교이고 `!!a`를 받는다. 알 수 없는 문자는 건너뛰지 않고 구문 오류다. 정규식 복구에서 이스케이프하거나 문자 클래스 안의 괄호는 그룹으로 세지 않는다 (wr-h23m.gek)
+
+Decided in: wr-qd31

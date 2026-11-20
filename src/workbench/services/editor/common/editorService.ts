@@ -66,4 +66,6 @@ export interface IEditorService extends BrandedService {
    * resolves to whether all of them saved.
    */
   save(editors: IEditorIdentifier | readonly IEditorIdentifier[], options?: ISaveEditorsOptions): Promise<boolean>;
+  /** Replaces an editor with the result of a completed save, preserving its group and view state. */
+  replaceSaved(editor: IEditorIdentifier, result: EditorInput | IResourceEditorInput): Promise<void>;
 }

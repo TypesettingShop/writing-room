@@ -6,6 +6,7 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { basename, isEqual, relativePath } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
+import { PLAINTEXT_LANGUAGE_ID } from '../../../../editor/common/languages/language.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import type { IReference, IResolvedTextEditorModel } from '../../../../editor/common/services/resolverService.js';
@@ -73,7 +74,7 @@ export class CustomEditorInput extends EditorInput {
   private generation = 0;
   private cancellation: CancellationTokenSource | undefined;
   /** Untitled text the editor was made for, kept until it has the model (see `acquireModel`). */
-  private untitledSnapshot: { readonly value: string; readonly languageId: string } | undefined;
+  private untitledSnapshot: { readonly value: string; readonly languageId: string | undefined } | undefined;
   private readonly services: IInstantiationService;
   private document: { readonly model: CustomDocumentModel; readonly release: IDisposable; readonly listener: IDisposable } | undefined;
 
@@ -102,7 +103,8 @@ export class CustomEditorInput extends EditorInput {
       const model = untitled.get(resource);
       const text = model?.textEditorModel;
       if (model && text) {
-        this.untitledSnapshot = { value: text.getValue(), languageId: model.getLanguageId() };
+        const languageId = model.getLanguageId();
+        this.untitledSnapshot = { value: text.getValue(), languageId: languageId === PLAINTEXT_LANGUAGE_ID ? undefined : languageId };
       }
     }
     this.closeHandler = {

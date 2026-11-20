@@ -134,11 +134,8 @@ export class WorkbenchLanguageService extends Disposable implements ILanguageSer
   readonly onDidChange = this._onDidChange.event;
 
   private builtin: readonly ILanguageDefinition[] = [PLAINTEXT_DEFINITION];
-  private hasMonacoLanguages = false;
   private registry: LanguagesRegistry;
   private registrySignature: string;
-  /** Resources guessed as no language before the built-in languages were known, by their text. */
-  private readonly unresolvedGuesses = new Map<string, URI>();
 
   constructor() {
     super();
@@ -152,18 +149,7 @@ export class WorkbenchLanguageService extends Disposable implements ILanguageSer
   setBuiltinLanguages(definitions: readonly ILanguageDefinition[]): void {
     this.builtin = definitions.some(definition => definition.id === PLAINTEXT_DEFINITION.id)
       ? definitions : [PLAINTEXT_DEFINITION, ...definitions];
-    this.hasMonacoLanguages = true;
     this.update();
-  }
-
-  /**
-   * The resources a guess found no language for while the built-in languages were unknown. The guess
-   * of a model created then fell back to plain text; the caller can guess again.
-   */
-  takeUnresolvedGuesses(): URI[] {
-    const resources = [...this.unresolvedGuesses.values()];
-    this.unresolvedGuesses.clear();
-    return resources;
   }
 
   getConfigurationFiles(languageId: string): readonly URI[] {
@@ -214,10 +200,6 @@ export class WorkbenchLanguageService extends Disposable implements ILanguageSer
   }
 
   guessLanguageIdByFilepathOrFirstLine(resource: URI | null, firstLine?: string): string | null {
-    const languageId = this.registry.guessLanguageId(resource?.path, firstLine);
-    if (languageId === null && resource && !this.hasMonacoLanguages && this.unresolvedGuesses.size < 1000) {
-      this.unresolvedGuesses.set(resource.toString(), resource);
-    }
-    return languageId;
+    return this.registry.guessLanguageId(resource?.path, firstLine);
   }
 }

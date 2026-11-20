@@ -1,8 +1,10 @@
 import type { Page } from '@playwright/test';
 import { test as base } from '@playwright/test';
+import { treeItem } from './explorer.helpers.js';
+import { waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { expect, test } from './fixtures.js';
 import {
-  activeEditor, activeGroup, blockCommentKey, changeLanguage, editorText, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
+  activeEditor, activeGroup, blockCommentKey, changeLanguage, editorText, installLanguageFixture, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
   recordRequests, runCommand, toggleBlockCommentUntil, tokenScopes,
 } from './language-basics.helpers.js';
 
@@ -124,6 +126,69 @@ const numberColor = 'rgb(181, 206, 168)';
 /** Monaco's own `vs-dark` comment color, which its JavaScript tokenizer uses: not the grammar theme's. */
 const builtinCommentColor = 'rgb(96, 139, 78)';
 const textMateRequests = /onig[^/]*\.wasm|vscode-textmate|vscode-oniguruma|textMateRuntime|\.tmLanguage(\.json)?(\?|$)/;
+
+test('updates open language modes on installation and removal, keeping explicit choices', async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWithLanguageFixtures(page, ['observer/']);
+  await waitForStorage(page);
+  const tab = (name: string) => page.getByRole('tab', { name, exact: true });
+  const open = async (name: string) => {
+    await treeItem(page, name).dblclick();
+    await expect(tab(name)).toHaveAttribute('aria-selected', 'true');
+  };
+  const show = async (name: string, language: string) => {
+    await tab(name).click();
+    await expect(languageStatus(page)).toHaveText(language);
+  };
+  const report = async (events: string) => {
+    await runCommand(page, 'Language Basics: Report Language Events');
+    await expect(message(page, 'Language events: ' + events)).toHaveText('Language events: ' + events);
+  };
+
+  for (const name of ['chosen.fxl', 'other.fxl', 'notes.fixture.md', 'notes.fxl']) {
+    await writeWorkspaceFile(page, name, 'alpha');
+  }
+  await open('chosen.fxl');
+  await changeLanguage(page, 'Markdown');
+  await open('notes.fixture.md');
+  await expect(languageStatus(page)).toHaveText('Markdown');
+  await open('notes.fxl');
+  await expect(languageStatus(page)).toHaveText('Plain Text');
+  // Selecting the current mode from the UI leaves automatic selection enabled.
+  await changeLanguage(page, 'Plain Text');
+  await report('none');
+
+  await installLanguageFixture(page);
+  await expect(message(page, 'Language basics fixture activated')).toBeVisible();
+  await expect(languageStatus(page)).toHaveText('Fixture Language');
+  await openEditorContextMenu(page);
+  await expect(page.getByRole('menuitem', { name: 'Fixture Language Action' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => tokenColor(page, 'alpha'), { timeout: 20_000 }).toBe(keywordColor);
+  await activeEditor(page).focus();
+  await toggleBlockCommentUntil(page, '/~ alpha ~/');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => editorText(page)).toBe('alpha');
+  await show('notes.fixture.md', 'Fixture Language');
+  await report('close markdown, open fixturelang');
+  await show('chosen.fxl', 'Markdown');
+  await open('other.fxl');
+  await expect(languageStatus(page)).toHaveText('Fixture Language');
+  await changeLanguage(page, 'Plain Text');
+
+  await runCommand(page, 'Uninstall Extension...');
+  await page.getByRole('option', { name: /Language Basics Fixture/ }).click();
+  await show('notes.fxl', 'Plain Text');
+  await expect.poll(() => tokenColor(page, 'alpha')).not.toBe(keywordColor);
+  await show('notes.fixture.md', 'Markdown');
+  await report('close fixturelang, open markdown');
+  await show('other.fxl', 'Plain Text');
+
+  await installLanguageFixture(page);
+  await show('notes.fxl', 'Fixture Language');
+  await show('chosen.fxl', 'Markdown');
+  await show('other.fxl', 'Plain Text');
+});
 
 test.describe('TextMate grammars', () => {
   test('gives markdown headings, bold text, links and code fences the grammar\'s scopes', async ({ page }) => {

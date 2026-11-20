@@ -124,7 +124,8 @@ export class EditorService extends Disposable implements IEditorService {
 
   async save(editors: IEditorIdentifier | readonly IEditorIdentifier[], options: ISaveEditorsOptions = {}): Promise<boolean> {
     const list: readonly IEditorIdentifier[] = Array.isArray(editors) ? editors : [editors as IEditorIdentifier];
-    for (const { groupId, editor } of list) {
+    for (const identifier of list) {
+      const { groupId, editor } = identifier;
       if (editor.isDisposed()) {
         continue;
       }
@@ -133,13 +134,12 @@ export class EditorService extends Disposable implements IEditorService {
       if (!result) {
         return false;
       }
-      await this.replaceSaved(groupId, editor, result);
+      await this.replaceSaved(identifier, result);
     }
     return true;
   }
 
-  /** Puts what a save gave in the saved editor's place, unless it is the same editor. */
-  private async replaceSaved(groupId: GroupIdentifier, editor: EditorInput, result: EditorInput | IResourceEditorInput): Promise<void> {
+  async replaceSaved({ groupId, editor }: IEditorIdentifier, result: EditorInput | IResourceEditorInput): Promise<void> {
     // A save that stayed where it was (Save As onto the file itself) has nothing to put in its place.
     if (result === editor || (result instanceof EditorInput ? result.matches(editor) : isEqual(result.resource, editor.resource))) {
       return;

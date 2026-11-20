@@ -25,12 +25,13 @@ export interface IModelService extends BrandedService {
 
   /**
    * Creates the model for `resource`. Unlike VS Code this is asynchronous: the editor package is
-   * loaded on first use. Without a `languageId` the language service guesses it from the path,
-   * and `plaintext` is the fallback. The caller owns the model and disposes it.
+   * loaded on first use. Without a `languageId` the model follows language registrations using
+   * its original path and first line, with `plaintext` as the fallback. The caller owns the model
+   * and disposes it.
    */
   createModel(value: string, languageId: string | undefined, resource: URI): Promise<ITextModel>;
   getModel(resource: URI): ITextModel | null;
   getModels(): ITextModel[];
-  /** Changes the language of a model this service created. */
+  /** Sets an explicit language, ending automatic selection even when the language stays the same. */
   setModelLanguage(model: ITextModel, languageId: string): void;
 }

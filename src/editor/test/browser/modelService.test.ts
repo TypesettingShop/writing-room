@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { Event } from '../../../base/common/event.js';
+import { Emitter, Event } from '../../../base/common/event.js';
 import { URI } from '../../../base/common/uri.js';
 import { ModelService } from '../../browser/services/modelService.js';
 import type { ILanguageService } from '../../common/languages/language.js';
@@ -97,6 +97,79 @@ test('asks the language service by path when no language is given, with plain te
   const unknown = await service.createModel('', undefined, URI.parse('test:/notes/data.bin'));
   const given = await service.createModel('', 'json', URI.parse('test:/notes/other.md'));
   expect([guessed, unknown, given].map((model: ITextModel) => model.getLanguageId())).toEqual(['markdown', 'plaintext', 'json']);
+});
+
+class ChangingLanguageService extends MarkdownLanguageService {
+  readonly changes = new Emitter<void>();
+  override readonly onDidChange = this.changes.event;
+  readonly guess = vi.fn<(resource: URI | null, firstLine?: string) => string | null>();
+
+  override guessLanguageIdByFilepathOrFirstLine(resource: URI | null, firstLine?: string): string | null {
+    return this.guess(resource, firstLine) ?? super.guessLanguageIdByFilepathOrFirstLine(resource);
+  }
+}
+
+test('follows changed associations repeatedly and leaves explicit modes alone', async () => {
+  const languages = new ChangingLanguageService();
+  const service = createService(languages);
+  const open = (name: string, id?: string) => service.createModel('', id, URI.parse('test:/' + name));
+  const plain = await open('plain.fxl');
+  const markdown = await open('notes.fixture.md');
+  const given = await open('given.fxl', 'plaintext');
+  const chosen = await open('chosen.fxl');
+  const unchanged = await open('same.fxl');
+  service.setModelLanguage(chosen, 'json');
+  service.setModelLanguage(unchanged, 'plaintext');
+  const changes = vi.fn();
+  service.onModelLanguageChanged(changes);
+
+  const install = async () => {
+    languages.guess.mockImplementation(resource => /\.(fxl|fixture\.md)$/.test(resource?.path ?? '') ? 'fixturelang' : null);
+    languages.changes.fire();
+    await Promise.resolve();
+  };
+  await install();
+  await install();
+  languages.guess.mockReturnValue(null);
+  languages.changes.fire();
+  await Promise.resolve();
+  await install();
+
+  expect(changes.mock.calls.map(([event]) => [event.model, event.oldLanguageId, event.newLanguageId])).toEqual([
+    [plain, 'plaintext', 'fixturelang'], [markdown, 'markdown', 'fixturelang'],
+    [plain, 'fixturelang', 'plaintext'], [markdown, 'fixturelang', 'markdown'],
+    [plain, 'plaintext', 'fixturelang'], [markdown, 'markdown', 'fixturelang'],
+  ]);
+  expect([given, chosen, unchanged].map(model => model.getLanguageId())).toEqual(['plaintext', 'json', 'plaintext']);
+  service.setModelLanguage(plain, 'fixturelang');
+  languages.guess.mockReturnValue(null);
+  languages.changes.fire();
+  await Promise.resolve();
+  expect(plain.getLanguageId()).toBe('fixturelang');
+});
+
+test('uses the original bounded first line and stops tracking disposed models and services', async () => {
+  const languages = new ChangingLanguageService();
+  const service = createService(languages);
+  const resource = URI.parse('untitled:Untitled-1');
+  const firstLine = '#!fixture' + 'x'.repeat(991);
+  const model = await service.createModel(firstLine + 'y'.repeat(5_000) + '\r\nignored', undefined, resource);
+  const closed = await service.createModel('short\rsecond', undefined, URI.parse('untitled:Untitled-2'));
+  expect(languages.guess.mock.calls).toEqual([[resource, firstLine], [closed.uri, 'short']]);
+  model.setValue('different first line');
+  closed.dispose();
+
+  languages.guess.mockClear().mockImplementation((_resource, line) => line === firstLine ? 'fixturelang' : null);
+  languages.changes.fire();
+  await Promise.resolve();
+  expect(languages.guess.mock.calls).toEqual([[resource, firstLine]]);
+  expect(model.getLanguageId()).toBe('fixturelang');
+
+  service.dispose();
+  languages.guess.mockClear();
+  languages.changes.fire();
+  await Promise.resolve();
+  expect(languages.guess).not.toHaveBeenCalled();
 });
 
 test('the default language service knows plain text only', () => {
