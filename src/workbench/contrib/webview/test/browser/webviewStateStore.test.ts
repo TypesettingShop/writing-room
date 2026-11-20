@@ -228,3 +228,23 @@ it('uses the installation list in this tab after falling back to memory', async 
     storage.dispose();
   }
 });
+
+it('writes nothing when every saved owner is still registered or recorded', () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  try {
+    storage.storeImmediately(userExtensionsKey, JSON.stringify([{ identifier: owner }]), StorageScope.PROFILE, StorageTarget.USER);
+    states.set('recorded', owner, '1');
+    states.set('registered', 'fixture.builtin', '2');
+    const write = vi.spyOn(database, 'updateItems');
+
+    states.removeMissingExtensions(new Set(['fixture.builtin']));
+
+    expect(write).not.toHaveBeenCalled();
+    expect(states.get('recorded', owner)).toBe('1');
+    expect(states.get('registered', 'fixture.builtin')).toBe('2');
+  } finally {
+    storage.dispose();
+  }
+});

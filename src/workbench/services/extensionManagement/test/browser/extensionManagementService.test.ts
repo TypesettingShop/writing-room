@@ -265,7 +265,13 @@ test.each(['at confirmation', 'inside the list lock'])(
       expect(scanner.scanUserExtensions()).toEqual([]);
       expect(database.getItems().get(storageKey(StorageScope.PROFILE, userExtensionsKey))).toBeUndefined();
       expect(active.extensions).toEqual([]);
-      expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
+      if (timing === 'at confirmation') {
+        // Refused before it registers, so the extension never activates.
+        expect(active.addExtension).not.toHaveBeenCalled();
+        expect(active.removeExtension).not.toHaveBeenCalled();
+      } else {
+        expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
+      }
 
       const retry = vi.fn(async () => true);
       await expect(service.installFromLocation(location, retry)).resolves.toMatchObject({ location });

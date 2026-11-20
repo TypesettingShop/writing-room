@@ -372,6 +372,10 @@ export class ExtensionManagementService {
       // A folder install has no files to stage, so it registers first: its commands are there as soon as the
       // confirmation closes, not only after the cross-tab lock is granted. A failed write unregisters it again.
       this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
+      // An install whose lifetime already changed is refused before it registers, so it never activates.
+      if (confirmedPersistent && this.scanner.sessionOnly) {
+        throw new Error(installLifetimeChangedError);
+      }
       if (!this.active.addExtension?.(description)) {
         throw new Error(`Could not register extension '${identifier}'.`);
       }

@@ -101,15 +101,22 @@ export class WebviewStateStore implements IWebviewStateStore {
   }
 
   removeMissingExtensions(registered: ReadonlySet<string>): void {
-    this.update((entries, snapshot) => {
-      const recorded = recordedIdentifiers(snapshot
-        ? snapshot.get(installedAddress)
-        : this.storage.get(userExtensionsKey, StorageScope.PROFILE));
-      return recorded && entries.filter(entry => {
+    const owned = (entries: StoredWebviewState[], recorded: ReadonlySet<string> | undefined) =>
+      recorded && entries.filter(entry => {
         const identifier = entry.extension.toLowerCase();
         return registered.has(identifier) || recorded.has(identifier);
       });
-    }, true);
+    // Every tab prunes whenever any tab writes the installed list. Writing back the value it read with nothing
+    // removed could put this tab's copy over a newer state from another tab, so nothing is written unless this
+    // tab sees an entry to remove. Which entries go is still decided against the persisted list.
+    const cached = parseStates(this.storage.get(key, StorageScope.WORKSPACE));
+    const kept = owned(cached, recordedIdentifiers(this.storage.get(userExtensionsKey, StorageScope.PROFILE)));
+    if (!kept || kept.length === cached.length) {
+      return;
+    }
+    this.update((entries, snapshot) => owned(entries, recordedIdentifiers(snapshot
+      ? snapshot.get(installedAddress)
+      : this.storage.get(userExtensionsKey, StorageScope.PROFILE))), true);
   }
 
   private update(
