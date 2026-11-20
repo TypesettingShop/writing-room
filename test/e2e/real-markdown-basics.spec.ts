@@ -38,7 +38,9 @@ async function answerFromFixtureGallery(route: Route): Promise<void> {
 }
 
 /**
- * The messages the two extensions may leave in the console, exactly. Neither has an unsupported contribution, and the
+ * The messages logged under the two extensions' own ids (`[vscode.markdown] …`, `[github.github-vscode-theme] …`),
+ * exactly; what the workbench logs under the language id (`[markdown] …`) is not collected here, and the editor checks
+ * below catch its failures instead. Neither extension has an unsupported contribution, and the
  * `[markdown]` defaults of keys no extension registers are ignored without a word. The one warning: four of the theme's
  * files give `symbolIcon.constantForeground` an array of colors, which the theme service drops with this documented
  * warning (docs/extension-api-theming-and-views.md, `colors`); only GitHub Dark Default of them is loaded here.
@@ -105,6 +107,8 @@ async function expectBoldSnippetRows(page: Page, rows: number): Promise<void> {
   await expect(suggestions(page)).toBeVisible({ timeout: 15_000 });
   // The snippet rows come from their own provider, after the word rows.
   await page.waitForTimeout(500);
+  // While the widget still says Loading..., no count is final: a count of zero would pass before the providers answer.
+  await expect(suggestions(page).locator('.message').filter({ hasText: 'Loading...' })).toBeHidden({ timeout: 15_000 });
   await expect(boldSnippet(page)).toHaveCount(rows);
 }
 
@@ -130,8 +134,11 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
   requireRealExtensions();
   test.setTimeout(180_000);
   const pins = await readPins();
-  const markdownPin = pins.extensions.find(pin => pin.id === 'vscode.markdown')!;
-  const themePin = pins.extensions.find(pin => pin.id === 'GitHub.github-vscode-theme')!;
+  const markdownPin = pins.extensions.find(pin => pin.id === 'vscode.markdown');
+  const themePin = pins.extensions.find(pin => pin.id === 'GitHub.github-vscode-theme');
+  if (!markdownPin || !themePin) {
+    throw new Error('pins.json has no vscode.markdown or GitHub.github-vscode-theme release.');
+  }
   const messages: string[] = [];
   page.on('console', message => {
     if (/^\[(vscode\.markdown|github\.github-vscode-theme)\]/i.test(message.text())) {
@@ -177,6 +184,8 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
   await test.step('Install vscode.markdown from the Extensions view: the pinned, signed package', async () => {
     const confirmation = await installFromGallery(page, 'vscode.markdown', 'Markdown Language Basics', markdownName);
     expect(confirmation).toContain('vscode · 1.95.3 · vscode.markdown');
+    // `^Install ` also matches "Install Contributions Only"; a package with no code is a web extension.
+    expect(confirmation).toContain('Web extension');
     expect(confirmation).toContain('Source: open-vsx.org');
     expect(confirmation).toContain('SHA-256: ' + markdownPin.vsix.sha256);
     expect(confirmation).toContain(`Signature: verified (${markdownPin.publicKey})`);
@@ -224,22 +233,24 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
   await test.step('Install the GitHub theme and choose GitHub Dark Default, then GitHub Light Default', async () => {
     const confirmation = await installFromGallery(page, 'github-vscode-theme', 'GitHub Theme', themeName);
     expect(confirmation).toMatch(/GitHub · 6\.3\.5 · github\.github-vscode-theme/i);
+    expect(confirmation).toContain('Web extension');
     expect(confirmation).toContain('SHA-256: ' + themePin.vsix.sha256);
     expect(confirmation).toContain(`Signature: verified (${themePin.publicKey})`);
     await show(page, 'README.md');
 
+    // The picker closes before the theme file is read when its preview has not finished: the colors arrive a moment later.
     await chooseTheme(page, 'GitHub Dark Default');
-    expect(await colorVariable(page, 'editor.background')).toBe('#0d1117');
-    expect(await editorBackground(page)).toBe(rgb('#0d1117'));
+    await expect.poll(() => colorVariable(page, 'editor.background')).toBe('#0d1117');
+    await expect.poll(() => editorBackground(page)).toBe(rgb('#0d1117'));
     // markup.heading of the theme: Monaco's built-in tokenizer would give the heading the theme's keyword color.
     await expect.poll(() => tokenStyle(page, 'Title')).toEqual({ color: rgb('#79c0ff'), fontWeight: '700' });
-    expect(await color(page, 'Plain body')).toBe(rgb('#e6edf3'));
+    await expect.poll(() => color(page, 'Plain body')).toBe(rgb('#e6edf3'));
 
     await chooseTheme(page, 'GitHub Light Default');
-    expect(await colorVariable(page, 'editor.background')).toBe('#ffffff');
-    expect(await editorBackground(page)).toBe(rgb('#ffffff'));
+    await expect.poll(() => colorVariable(page, 'editor.background')).toBe('#ffffff');
+    await expect.poll(() => editorBackground(page)).toBe(rgb('#ffffff'));
     await expect.poll(() => color(page, 'Title')).toBe(rgb('#0550ae'));
-    expect(await color(page, 'Plain body')).toBe(rgb('#1f2328'));
+    await expect.poll(() => color(page, 'Plain body')).toBe(rgb('#1f2328'));
     expect(JSON.parse((await persistedSettings(page))!)).toEqual({ 'workbench.colorTheme': 'GitHub Light Default' });
   });
 
@@ -247,7 +258,8 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
     await page.reload();
     await expect(tab(page, 'README.md')).toBeVisible({ timeout: 20_000 });
     await show(page, 'README.md');
-    expect(await colorVariable(page, 'editor.background')).toBe('#ffffff');
+    // Until the theme's extension is registered again and its file read, the default dark theme shows.
+    await expect.poll(() => colorVariable(page, 'editor.background'), { timeout: 20_000 }).toBe('#ffffff');
     await expect(languageStatus(page)).toHaveText('Markdown');
     await expect.poll(() => tokenStyle(page, 'Title'), { timeout: 20_000 }).toEqual({ color: rgb('#0550ae'), fontWeight: '700' });
     expect(await editorBackground(page)).toBe(rgb('#ffffff'));
@@ -289,6 +301,8 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
     await clear(page);
 
     const picker = await openThemePicker(page);
+    // The list is drawn first, so that the zero below is not read off a picker with no rows yet.
+    await expect(page.getByRole('option').first()).toBeVisible();
     await picker.fill('GitHub');
     await expect(page.getByRole('option', { name: /^GitHub/ })).toHaveCount(0);
     await picker.press('Escape');
