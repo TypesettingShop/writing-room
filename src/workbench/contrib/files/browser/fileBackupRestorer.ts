@@ -1,4 +1,5 @@
 import { isEqual } from '../../../../base/common/resources.js';
+import type { URI } from '../../../../base/common/uri.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { BrowserTextFileService } from '../../../services/textfile/browser/textFileService.js';
@@ -22,7 +23,9 @@ export class FileBackupRestorer {
     if (!(textFileService instanceof BrowserTextFileService)) {
       return;
     }
-    void textFileService.backups.listRestorable().then(resources => {
+    const backups = textFileService.backups;
+    const hasEditor = (resource: URI) => groups.groups.some(group => group.editors.some(editor => isEqual(editor.resource, resource)));
+    void backups.listRestorable().then(async resources => {
       // Take the editor list after the storage read. The user may have opened a file since startup.
       const editors = new Set(groups.groups.flatMap(group => group.editors).filter(editor => !editor.isDisposed()));
       for (const editor of editors) {
@@ -32,13 +35,23 @@ export class FileBackupRestorer {
         }
       }
       for (const resource of resources) {
-        if (groups.groups.some(group => group.editors.some(editor => isEqual(editor.resource, resource)))) {
-          continue;
+        try {
+          // A tab closed with Save or Don't Save while the list was read has no draft left to reopen.
+          if (hasEditor(resource) || !await backups.read(resource) || hasEditor(resource)) {
+            continue;
+          }
+          const group = groups.activeGroup;
+          const editor = instantiationService.createInstance(FileEditorInput, resource, { restoredDirty: true });
+          try {
+            void group.openEditor(editor, { index: group.editors.length, inactive: true, preserveFocus: true }).catch(console.warn);
+          } catch (error) {
+            editor.dispose();
+            throw error;
+          }
+          void editor.resolve().catch(() => {});
+        } catch (error) {
+          console.warn(`Could not restore the draft of ${resource}.`, error);
         }
-        const group = groups.activeGroup;
-        const editor = instantiationService.createInstance(FileEditorInput, resource, { restoredDirty: true });
-        void group.openEditor(editor, { index: group.editors.length, inactive: true, preserveFocus: true }).catch(console.warn);
-        void editor.resolve().catch(() => {});
       }
     }).catch(error => console.warn('Could not restore file drafts.', error));
   }

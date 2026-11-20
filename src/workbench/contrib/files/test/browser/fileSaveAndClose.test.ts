@@ -283,6 +283,20 @@ test('startup reuses file tabs opened during recovery and leaves the active grou
   expect(textFiles.files.get(file('missing.md'))?.textEditorModel?.getValue()).toBe('tabless draft');
 });
 
+test('startup does not reopen a file whose draft went while the list was read', async () => {
+  const { FileBackupRestorer } = await import('../../browser/fileBackupRestorer.js');
+  const textFiles = service(ITextFileService) as BrowserTextFileService;
+  // The list names a draft that a Save or Don't Save removed before the tabs were checked.
+  vi.spyOn(textFiles.backups, 'listRestorable').mockResolvedValueOnce([file('a.md')]);
+  const read = vi.spyOn(textFiles.backups, 'read');
+  instantiation.createInstance(FileBackupRestorer);
+
+  await vi.waitFor(() => expect(read).toHaveBeenCalledWith(file('a.md')));
+  expect(await read.mock.results[0].value).toBeUndefined();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(part.activeGroup.editors).toEqual([]);
+});
+
 describe('Explorer deletion of files with drafts outside the editor groups', () => {
   const write = (path: string) => files.writeFile(file(path), new TextEncoder().encode(path));
   const draftText = (path: string) => `draft of ${path}`;

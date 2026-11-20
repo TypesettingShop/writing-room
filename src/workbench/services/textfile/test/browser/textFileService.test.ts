@@ -667,6 +667,26 @@ describe('draft backups', () => {
     expect([claimed?.value, remaining?.value].sort()).toEqual(['first draft', 'second draft']);
   });
 
+  test('a reload keeps its latest draft when an older closed session holds one of the same file', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { locks, held, sessionLock } = makeLocks();
+    const resource = file('/both.txt');
+    // The older session's folder is listed first.
+    vi.setSystemTime(1_000);
+    const stale = new TextFileBackups(files, 'recency', sessionId(1), locks);
+    await stale.write(resource, 'stale draft', meta);
+    vi.setSystemTime(2_000);
+    const reloaded = new TextFileBackups(files, 'recency', sessionId(2), locks);
+    await reloaded.write(resource, 'latest draft', meta);
+    held.delete(sessionLock(stale, 1));
+    held.delete(sessionLock(reloaded, 2));
+
+    vi.setSystemTime(3_000);
+    const next = new TextFileBackups(files, 'recency', sessionId(3), locks);
+    expect((await next.read(resource))?.value).toBe('latest draft');
+    expect(text((await files.readFile(stale.backupResource(resource))).value)).toContain('\nstale draft');
+  });
+
   test('reloading several times without Web Locks keeps one session folder', async () => {
     const resource = file('/a.txt');
     let page = new TextFileBackups(files, 'reload', sessionId(1));

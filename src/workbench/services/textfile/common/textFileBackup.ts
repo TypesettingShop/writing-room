@@ -74,6 +74,11 @@ export class TextFileBackups implements ITextFileBackups {
   private readonly ready: Promise<void>;
   /** Writes, discards and transfers to each backup path run in order. */
   private readonly queues = new Map<string, Promise<unknown>>();
+  /**
+   * Backup names of this session that this page wrote or moved in, with their resources. Only this
+   * page puts files in its folder, so these need no header check before a write or discard.
+   */
+  private readonly owned = new Map<string, string>();
 
   constructor(
     private readonly fileService: IFileService,
@@ -96,13 +101,17 @@ export class TextFileBackups implements ITextFileBackups {
   async write(resource: URI, value: string, meta: ITextFileBackupMeta): Promise<void> {
     await this.ready;
     const location = this.backupResource(resource);
+    const key = hashResource(resource.toString());
     const header = JSON.stringify({ version: BACKUP_FORMAT, resource: resource.toString(), etag: meta.etag ?? null, bom: meta.bom });
     return this.queue(resource, async () => {
-      const stored = await this.readBackup(location);
-      if (stored && stored.draft?.resource.toString() !== resource.toString()) {
-        throw new Error(`Cannot replace the existing draft backup ${location}.`);
+      if (this.owned.get(key) !== resource.toString()) {
+        const stored = await this.readBackup(location);
+        if (stored && stored.draft?.resource.toString() !== resource.toString()) {
+          throw new Error(`Cannot replace the existing draft backup ${location}.`);
+        }
       }
       await this.fileService.writeFile(location, new TextEncoder().encode(header + '\n' + value));
+      this.owned.set(key, resource.toString());
     });
   }
 
@@ -110,9 +119,11 @@ export class TextFileBackups implements ITextFileBackups {
     await this.ready;
     return this.queue(resource, async () => {
       const location = this.backupResource(resource);
-      const stored = await this.readBackup(location);
-      if (stored?.draft?.resource.toString() === resource.toString()) {
+      const key = hashResource(resource.toString());
+      if (this.owned.get(key) === resource.toString()
+        || (await this.readBackup(location))?.draft?.resource.toString() === resource.toString()) {
         await this.deleteBackup(location);
+        this.owned.delete(key);
       }
     });
   }
@@ -155,18 +166,22 @@ export class TextFileBackups implements ITextFileBackups {
 
   private async adoptBackups(): Promise<void> {
     await this.locks?.hold(this.sessionLockName(this.sessionId));
+    const claims: { readonly written: number; readonly run: () => Promise<void> }[] = [];
     for (const child of await this.children(this.root)) {
       if (child.isDirectory && child.name !== this.sessionId && SESSION_ID.test(child.name)) {
-        await this.claim(child.resource, this.sessionLockName(child.name), async () => {
-          for (const entry of await this.children(child.resource)) {
-            if (entry.isFile) {
-              await this.tryRestore(entry.resource, () => this.adoptDraft(entry));
+        claims.push({
+          written: await this.lastWritten(child.resource),
+          run: () => this.claim(child.resource, this.sessionLockName(child.name), async () => {
+            for (const entry of await this.children(child.resource)) {
+              if (entry.isFile) {
+                await this.tryRestore(entry.resource, () => this.adoptDraft(entry));
+              }
             }
-          }
-          if ((await this.children(child.resource)).length === 0) {
-            // A non-recursive delete also checks emptiness at the provider in case the folder gained a file.
-            await this.deleteBackup(child.resource);
-          }
+            if ((await this.children(child.resource)).length === 0) {
+              // A non-recursive delete also checks emptiness at the provider in case the folder gained a file.
+              await this.deleteBackup(child.resource);
+            }
+          }),
         });
       } else if (child.isFile) {
         if (!BACKUP_NAME.test(child.name)) {
@@ -174,8 +189,27 @@ export class TextFileBackups implements ITextFileBackups {
           continue;
         }
         // Older pages hold a shared lock per file under the original name.
-        await this.claim(child.resource, `writing-room/backup${this.root.path}/${child.name}`, () => this.adoptDraft(child));
+        claims.push({
+          written: child.mtime,
+          run: () => this.claim(child.resource, `writing-room/backup${this.root.path}/${child.name}`, () => this.adoptDraft(child)),
+        });
       }
+    }
+    // When several sessions hold a draft of one file, the one written last is claimed first, so a
+    // reload keeps its latest text rather than an older draft from another closed tab.
+    claims.sort((a, b) => b.written - a.written);
+    for (const claim of claims) {
+      await claim.run();
+    }
+  }
+
+  /** When a session folder's drafts were last written. Reading the listing needs no lock. */
+  private async lastWritten(folder: URI): Promise<number> {
+    try {
+      return (await this.children(folder)).reduce((latest, entry) => entry.isFile ? Math.max(latest, entry.mtime) : latest, 0);
+    } catch {
+      // The claim reads the folder again and reports what fails.
+      return 0;
     }
   }
 
@@ -193,6 +227,7 @@ export class TextFileBackups implements ITextFileBackups {
     await this.queue(resource, async () => {
       try {
         await this.fileService.move(entry.resource, this.backupResource(resource));
+        this.owned.set(hashResource(resource.toString()), resource.toString());
       } catch (error) {
         const code = toFileSystemProviderErrorCode(error);
         if (code !== FileSystemProviderErrorCode.FileNotFound && code !== FileSystemProviderErrorCode.FileExists) {
