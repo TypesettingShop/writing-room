@@ -6,7 +6,7 @@ Decided in: wr-efqx.n9k, wr-lnox
 
 ## 색 테마와 색 레지스트리
 
-워크벤치의 색은 모두 **색 id**(`editor.background`, `list.hoverBackground` 같은 VS Code의 이름)로 등록되고, 고른 색 테마가 그 값을 정한다. 색 하나는 CSS 변수 하나가 된다. 변수 이름은 id의 점을 줄표로 바꾼 것이다: `editor.background` → `--vscode-editor-background`.
+워크벤치의 색상은 모두 **색 id**(`editor.background`, `list.hoverBackground` 등 VS Code 표준 이름)로 등록되며, 선택한 색 테마가 그 값을 결정한다. 각 색상은 하나의 CSS 변수에 대응한다. 변수 이름은 id의 점을 하이픈으로 치환하여 생성한다: `editor.background` → `--vscode-editor-background`.
 
 ### 색 레지스트리
 
@@ -62,7 +62,7 @@ Decided in: wr-efqx.n9k, wr-lnox
 ```
 
 - 한 파일은 8 MiB까지 읽는다. 파일을 읽는 길은 `IFileService` 하나다.
-- `include`는 그 파일의 폴더 기준 상대 경로이고 확장 폴더 안에서만 풀린다. 포함한 파일의 값이 먼저 들어가고 포함하는 파일의 값이 이긴다. 깊이 5까지 따라간다: 자기를 포함하는 파일은 여섯 번 읽히고 멈춘다.
+- `include`는 해당 파일의 폴더 기준 상대 경로이며 확장 폴더 내부에서만 참조할 수 있다. 포함 대상 파일의 값이 먼저 적용된 후 이를 포함하는 상위 파일의 값이 우선한다. 깊이 5까지 따라간다: 자기를 포함하는 파일은 여섯 번 읽히고 멈춘다.
 - `colors`: id가 색 id가 아니거나 값이 16진 표기가 아니면 그 색만 버리고 경고한다(`red; } body{…}`, `url(…)`, `rgb(…)` 모두 버려진다). 값 `"default"`는 포함한 파일의 값을 지우고 등록된 기본값으로 돌린다.
 - `tokenColors`: 배열만 읽는다. 규칙의 `scope`는 문자열이나 문자열 배열, `settings`의 `foreground`·`background`는 16진 색, `fontStyle`은 `italic`·`bold`·`underline`·`strikethrough`의 공백 목록이다. 틀린 필드는 그 필드만 버린다. 문자열(TextMate 테마 파일 경로)은 지원하지 않는다고 알린다.
 - `semanticTokenColors`는 지원하지 않는다고 알리고 무시한다. 경고는 테마 하나에 스무 개까지 찍고 나머지는 개수만 알린다.
@@ -74,7 +74,7 @@ Decided in: wr-efqx.n9k, wr-lnox
 - 테마를 적용하면 워크벤치 컨테이너(`.monaco-workbench`)에 등록된 모든 색과 테마가 준 미등록 id의 색을 CSS 변수로 걸고, 종류 클래스(`vs`, `vs-dark`, `hc-black`, `hc-light`) 하나를 단다. 밝은 종류(`vs`, `hc-light`)에서는 `color-scheme`이 `light`가 된다.
 - Monaco: 기본 어두운 테마는 `vs-dark`. 그 밖의 테마는 `writing-room-theme`이라는 한 이름으로 `defineTheme`(base는 종류에 따라 `vs`/`vs-dark`/`hc-black`/`hc-light`, `inherit: true`, 테마가 준 검증된 색, `tokenColors`의 단순 범위(`comment`, `string.quoted`)를 규칙으로)한 뒤 `setTheme`한다. Monaco는 늦게 로드되므로 로드되는 순간(첫 에디터가 생기기 전)과 테마가 바뀔 때 준다.
 - Monaco 적용은 `onDidColorThemeChange`보다 먼저, 같은 흐름 안에서 끝난다. TextMate 토큰화가 그 이벤트 뒤에 Monaco의 색 표를 읽고 테마의 `tokenColors` 전체로 문법 토큰을 칠한다.
-- `onDidColorThemeChange`는 테마가 바뀔 때 한 번 난다. 확장 서비스는 테마가 바뀔 때마다 모든 기여를 다시 적용하는데, 내용이 같은 `themes` 기여는 아무 이벤트도 내지 않는다. 적용 도중 테마가 바뀌면 현재 차례가 끝난 뒤 새 테마로 다시 적용하고, 그 결과를 한 번 알린다. 다시 적용은 처음 적용을 포함해 네 차례까지이고, 그래도 가라앉지 않으면 콘솔에 경고를 남기고 멈춘다.
+- `onDidColorThemeChange`는 테마가 변경될 때 한 번 발생한다. 확장 서비스는 테마가 변경될 때마다 모든 기여를 다시 적용하지만, 내용이 동일한 `themes` 기여는 아무런 이벤트도 발생시키지 않는다. 적용 도중 테마가 바뀌면 현재 작업이 끝난 뒤 새 테마로 다시 적용하고 그 결과를 한 번 전달한다. 재적용은 최초 적용을 포함해 최대 4회까지만 시도하며, 상태가 안정되지 않으면 콘솔에 경고를 남기고 중단한다.
 - 고른 테마의 파일은 비동기로 읽힌다. 읽는 사이 다른 테마를 고르면 늦게 온 결과는 성공이라도 버린다.
 
 ### 고르기와 물러서기
@@ -114,7 +114,7 @@ Decided in: wr-efqx.n9k, wr-lnox
 - `id`는 VS Code의 패턴(`^\w+[.\w+]*$`)을 지켜야 한다: 글자, 숫자, 밑줄, 점. `my-extension.accent`처럼 줄표가 있으면 받지 않는다.
 - 기본값은 16진 색(`#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`)이거나 다른 색의 id다. id는 같은 테마에서 그 색의 값을 따른다(`"dark": "statusBar.background"`). 그 밖의 값(`red; } body{…}`, `url(…)`)은 그 색 전체를 버린다. VS Code처럼 `red` 같은 낱말은 색 id로 읽히므로 그런 색이 없으면 값이 없다.
 - 틀린 항목은 그 항목만 버리고 확장 메시지(오류)를 남긴다. 워크벤치가 이미 등록한 id나 앞선 확장이 등록한 id는 받지 않는다.
-- 기여한 색은 레지스트리에 들어가 모든 테마에서 CSS 변수(`--vscode-myExtension-accent`)가 된다. 테마 파일이 그 id를 정하면 테마의 값이 이긴다. 확장을 제거하면 색과 변수가 빠진다.
+- 확장이 기여한 색은 레지스트리에 등록되어 모든 테마에서 CSS 변수(`--vscode-myExtension-accent`)로 노출된다. 테마 파일이 해당 id의 값을 정의하면 테마의 값이 우선한다. 확장을 제거하면 등록된 색과 변수도 함께 제거된다.
 - 확장 서비스가 테마가 바뀔 때마다 기여를 다시 적용해도, 내용이 같으면 레지스트리는 바뀌지 않는다.
 
 ### `ThemeColor`
@@ -133,7 +133,7 @@ context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(theme => {
 
 - `ColorThemeKind`는 `Light` 1, `Dark` 2, `HighContrast` 3, `HighContrastLight` 4다. 종류는 테마의 `uiTheme`(`vs`, `vs-dark`, `hc-black`, `hc-light`)에서 온다. 내장 테마는 `Writing Room Dark`가 Dark, `Writing Room Light`가 Light다.
 - `activeColorTheme`은 `kind` 하나를 가진 얼린 객체이고, 확장이 활성화되기 전에 이미 맞는 값이다(확장 호스트가 시작할 때 묻는다).
-- `onDidChangeActiveColorTheme`은 종류가 바뀔 때가 아니라 **테마가 바뀔 때마다 한 번** 난다(VS Code와 같다). 같은 종류의 다른 테마로 바꿔도 난다. 같은 테마를 다시 고르면 나지 않는다.
+- `onDidChangeActiveColorTheme`은 종류가 바뀔 때가 아니라 **테마가 바뀔 때마다 한 번** 난다(VS Code와 같다). 동일한 종류의 다른 테마로 변경하더라도 이벤트가 발생한다. 동일한 테마를 다시 선택하는 경우에는 발생하지 않는다.
 - 비활성화되거나 제거된 확장의 리스너는 더 불리지 않는다.
 
 ## 상태 표시줄 색
@@ -219,7 +219,7 @@ view.badge = { value: 3, tooltip: '3 unread notes' };
 
 - 행을 누르면 그 행이 선택되고(항목 커맨드가 있으면 실행), 화살표 키는 초점과 선택을 함께 옮긴다. `canSelectMany`이면 Ctrl(맥은 Cmd)+클릭으로 더하거나 빼고 Shift+클릭이나 Shift+화살표로 범위를 고른다. 선택된 행은 `aria-selected="true"`다.
 - `onDidChangeSelection`, `onDidExpandElement`, `onDidCollapseElement`, `onDidChangeCheckboxState`가 주는 요소는 확장이 `getChildren`으로 준 원래 객체다. 메인 스레드는 핸들만 보내고 확장 호스트가 핸들에서 요소를 되살린다. 다른 확장은 이 뷰의 핸들로 이벤트를 일으킬 수 없다.
-- 펼침 이벤트는 사용자가 펼치거나 접었을 때, `reveal`이 조상을 펼쳤을 때, Collapse All을 눌렀을 때 난다. 제공자가 처음부터 `Expanded`로 준 항목은 이벤트를 내지 않는다.
+- 펼침 이벤트는 사용자가 항목을 펼치거나 접었을 때, `reveal` 호출로 상위 조상 항목이 펼쳐졌을 때, 그리고 Collapse All을 실행했을 때 발생한다. 제공자가 처음부터 `Expanded`로 지정한 항목은 이벤트를 발생시키지 않는다.
 - `visible`과 `onDidChangeVisibility`: 뷰 본문이 화면에 크기를 가지고 있으면 보이는 것이다(다른 뷰 컨테이너로 바꾸거나 컨테이너를 패널로 옮겨 숨으면 `false`).
 - `reveal(element, { select, focus, expand })`: 제공자에 `getParent`가 없으면 `Required registered TreeDataProvider to implement 'getParent' method to access 'reveal' method`로 거절한다. 있으면 `getParent`로 뿌리까지 올라간 뒤 아직 읽지 않은 조상의 자식을 읽어 핸들을 정하고, 뷰를 열어(닫혀 있으면 그 컨테이너를 보이고) 조상을 위에서부터 펼친다. 기본값은 `select: true`, `focus: false`, `expand: false`. `expand`가 `true`면 한 단, 수면 그 단수만큼(최대 3) 요소 아래를 펼친다. 부모 사슬이 돌면 오류다.
 - `showCollapseAll`: 뷰 머리에 `Collapse All` 단추를 둔다.

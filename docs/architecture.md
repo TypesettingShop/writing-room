@@ -1,6 +1,6 @@
 # 아키텍처 맵: VS Code와 writing-room의 대응
 
-writing-room(v0.2.0)은 VS Code 워크벤치를 참고해 처음부터 직접 구현하는 웹 워크벤치다. 이 문서는 두 코드베이스 간 파일 단위 대응표이며, VS Code와 달라진 점을 기록하는 유일한 문서다. VS Code 측 근거는 [README.md](README.md)에 명시된 고정 커밋의 경로와 심볼을 기준으로 한다.
+writing-room(v0.2.0)은 VS Code 워크벤치를 참고해 처음부터 직접 구현하는 웹 워크벤치다. 이 문서는 두 코드베이스 간 파일 단위 대응표이며, VS Code와 달라진 점을 기록하는 유일한 문서다. VS Code 측 참조 근거는 [README.md](README.md)에 명시된 고정 커밋의 경로와 심볼을 기준으로 삼는다.
 
 ## 대응 규칙
 

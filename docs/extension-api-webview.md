@@ -1,6 +1,6 @@
 # Webview
 
-Webview는 확장이 만든 HTML을 에디터나 뷰에 표시한다. 브라우저는 워크벤치와 다른 오리진에서 HTML을 실행한다. [확장 API](extension-api.md)
+Webview는 확장이 생성한 HTML을 에디터나 뷰 영역에 렌더링한다. 브라우저는 워크벤치와 다른 오리진에서 HTML을 실행한다. [확장 API](extension-api.md)
 
 ## 포워딩 주소에서 실행하기
 

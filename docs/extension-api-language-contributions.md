@@ -18,8 +18,8 @@
 
 - `id`는 필수다. `aliases`, `extensions`, `filenames`, `filenamePatterns`, `mimetypes`는 문자열 배열, `firstLine`과 `configuration`은 문자열이다. 모양이 틀린 항목은 그 항목만 거부하고 확장의 메시지에 `contributes.languages[i].<필드>` 경로로 남긴다.
 - 언어 이름은 첫 별칭이다. 별칭이 없으면 id를 쓴다.
-- 같은 id를 여러 번 등록하면 하나로 합친다. 확장자, 파일 이름, 별칭은 합치고, 구성 파일은 등록 순서대로 모두 적용해 뒤의 것이 이긴다.
-- Monaco가 내장한 언어(`javascript`, `markdown` 등 팔십여 개)도 등록된 언어다. 확장이 같은 id를 기여하면 내장 정의 위에 덮는다: 확장자는 합치고, 구성과 토크나이저는 확장 것이 이긴다.
+- 동일한 id를 여러 번 등록하면 하나로 병합한다. 확장자, 파일 이름, 별칭은 합치고, 구성 파일은 등록 순서대로 모두 적용해 뒤의 것이 이긴다.
+- Monaco가 내장한 언어(`javascript`, `markdown` 등 80여 개)도 등록된 언어다. 확장이 동일한 id를 기여하면 내장 정의 위에 덮어쓴다: 확장자는 합치고, 언어 구성과 토크나이저는 확장의 기여 내용이 우선한다.
 - `languages.getLanguages()`는 등록된 모든 언어 id(내장과 기여)를 돌려준다. 단 첫 텍스트 모델이 생기기 전에는 기여 언어와 `plaintext`만 돌려준다(아래 Deviations).
 
 ### 언어 고르기
@@ -31,7 +31,7 @@
 3. `extensions`의 확장자로 끝나는 것 가운데 가장 긴 확장자(`notes.fixture.md`는 `.md`보다 `.fixture.md`).
 4. 경로로 못 고르면 첫 줄이 `firstLine` 정규식과 맞는 언어. 줄 앞의 BOM은 건너뛴다.
 
-비교는 대소문자를 가리지 않는다. 같은 종류에서는 나중에 등록한 것이 이긴다(내장 다음 확장, 확장은 설치 순). 아무것도 아니면 `plaintext`다. `firstLine`이 정규식이 아니면 그 조건만 버리고 경고한다.
+비교 시 대소문자를 구분하지 않는다. 동일 범주에서는 나중에 등록된 규칙이 우선한다(내장 언어 다음 확장, 확장은 설치 순서). 일치하는 조건이 없으면 `plaintext`로 지정된다. `firstLine`이 정규식이 아니면 해당 조건만 제외하고 경고한다.
 
 언어 등록이 바뀌면 열린 모델도 만든 시점의 경로와 첫 줄로 언어를 다시 고른다. 처음 고를 때와 다시 고를 때 모두 첫 줄은 앞 1,000자까지만 본다.
 
@@ -39,11 +39,11 @@
 
 활성 텍스트 에디터가 있으면 상태 표시줄 오른쪽에 그 모델의 언어 이름이 보인다(접근 가능한 이름 `Select Language Mode`). 누르거나 커맨드 팔레트의 **Change Language Mode**(`workbench.action.editor.changeLanguageMode`, `Ctrl+K M`)를 실행하면 언어 목록이 열린다. 이름이나 `(id)`로 걸러 다른 언어를 고르면 그 모델의 언어가 고정된다. 확장이 `languages.setTextDocumentLanguage`를 호출하거나 언어 id를 지정해 모델을 만들어도 고정된다. 기여가 바뀌어도 고정한 언어는 유지된다. 파일의 언어를 다시 경로에 맞추려면 탭을 닫았다가 연다. 모델이 남아 있으면 고정도 남는다. 저장하지 않은 변경이 있거나, 다른 그룹이 같은 파일을 보이거나, 확장이 `workspace.openTextDocument`로 연 문서를 아직 쥐고 있으면(최대 3분) 모델이 남는다.
 
-언어가 바뀌면 상태 표시줄, 에디터의 `editorLangId`와 `resourceLangId` 컨텍스트 키, 모델의 언어가 함께 바뀌고, 문서 API는 닫힘 다음 열림 이벤트를 낸다.
+언어가 변경되면 상태 표시줄, 에디터의 `editorLangId` 및 `resourceLangId` 컨텍스트 키, 모델의 언어가 함께 갱신되며, 문서 API는 닫힘 이벤트에 이어 열림 이벤트를 발생시킨다.
 
 ### `onLanguage` 활성화
 
-`configuration`을 가진 언어마다 그 확장에 `onLanguage:<id>` 활성화 이벤트가 암묵적으로 더해진다(VS Code와 같다). 어떤 언어의 모델이 처음 생기거나 모델의 언어가 그 언어로 처음 바뀌면 `onLanguage:<id>`와 `onLanguage`를 낸다. 세션마다 언어 하나에 한 번이다. `plaintext` 모델은 `onLanguage:plaintext`를 내므로 `onLanguage:markdown`만 기다리는 확장은 깨어나지 않는다.
+`configuration`을 가진 언어마다 해당 확장에 `onLanguage:<id>` 활성화 이벤트가 자동으로 추가된다(VS Code와 동일하다). 어떤 언어의 모델이 처음 생기거나 모델의 언어가 그 언어로 처음 바뀌면 `onLanguage:<id>`와 `onLanguage`를 낸다. 이는 세션별로 언어당 한 번씩만 처리된다. `plaintext` 모델은 `onLanguage:plaintext`를 발생시키므로 `onLanguage:markdown`만 수신 대기하는 확장은 활성화되지 않는다.
 
 ## 언어 구성
 

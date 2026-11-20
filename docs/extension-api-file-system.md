@@ -2,7 +2,7 @@
 
 웹 확장에서 파일을 읽고 쓰거나, 파일 변경을 감시하거나, 자체 스킴의 파일
 시스템을 제공할 때 쓰는 API다. 선언은
-[`vscode.fileSystem.d.ts`](../src/vscode-dts/vscode.fileSystem.d.ts)에 있다.
+[`vscode.fileSystem.d.ts`](../src/vscode-dts/vscode.fileSystem.d.ts)에 정의되어 있다.
 
 ## 워크스페이스 파일 사용
 
