@@ -19,6 +19,7 @@ import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../service
 import type { IEditorGroup } from '../../services/editor/common/editorGroupsService.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../services/editor/common/editorService.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
+import { IExtensionService } from '../../services/extensions/common/extensions.js';
 import { ExtHostWebviewsProxy, MainThreadWebviewsProxy } from '../common/extHost.protocol.webview.js';
 import type {
   ExtHostWebviewsShape, MainThreadWebviewsShape, WebviewContentOptions, WebviewIcon, WebviewPanelOptions, WebviewPanelViewState,
@@ -52,6 +53,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     @IWebviewPanelRestoreService private readonly restore: IWebviewPanelRestoreService,
     @IWebviewStateStore private readonly states: IWebviewStateStore,
     @IWebviewOriginService private readonly origins: IWebviewOriginService,
+    @IExtensionService private readonly extensions: IExtensionService,
   ) {
     super();
     for (const event of [
@@ -87,7 +89,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
     try {
       await this.targetGroup(show.viewColumn).openEditor(input, { preserveFocus: show.preserveFocus });
     } catch (error) {
-      input.dispose();
+      this.disposePanel(input);
       throw error;
     } finally {
       this.scheduleState();
@@ -171,13 +173,16 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
   }
 
   async $disposePanel(extension: string, handle: string): Promise<void> {
-    this.lookup(extension, handle)?.input.dispose();
+    const entry = this.lookup(extension, handle);
+    if (entry) {
+      this.disposePanel(entry.input);
+    }
   }
 
   remove(extension: string): void {
     for (const entry of this.panels.values()) {
       if (entry.owner === extension) {
-        entry.input.dispose();
+        this.disposePanel(entry.input);
       }
     }
     this.removeSerializers(extension);
@@ -198,7 +203,7 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
           this.restore.show(input);
         }
       } else {
-        input.dispose();
+        this.disposePanel(input);
       }
     }
     // A restore still waiting for this host starts again in the next one instead of reporting success.
@@ -365,6 +370,16 @@ export class MainThreadWebviews extends Disposable implements MainThreadWebviews
       visible: input.webview.isVisible,
       viewColumn: column === undefined || column < 0 ? undefined : column + 1,
     };
+  }
+
+  private disposePanel(input: WebviewEditorInput): void {
+    // Unregistering a generation precedes the installation record write. Closing its panels must leave
+    // state ownership to prune, even when the extension disposes its own panels during deactivation.
+    if (input.persistent && this.extensions.extensions?.every(extension => extension.identifier.value !== input.extensionId)) {
+      input.disposeKeepingState();
+    } else {
+      input.dispose();
+    }
   }
 
   private lookup(extension: string, handle: string): PanelEntry | undefined {
