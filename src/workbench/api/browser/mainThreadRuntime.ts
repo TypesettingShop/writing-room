@@ -18,6 +18,53 @@ function randomIdentifier(): string {
     : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const machineIdKey = 'extensions.machineId';
+export const machineIdLockName = 'writing-room:extensions.machineId';
+
+/** Runs `callback` while every tab of the origin is kept out of the machine id. */
+export type MachineIdLock = (name: string, callback: () => string) => Promise<string>;
+
+function browserLock(): MachineIdLock | undefined {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  return locks && ((name, callback) => locks.request(name, callback));
+}
+
+/**
+ * The machine id saved in the profile, created under a Web Lock so tabs opening together agree on it. When the
+ * storage is in memory mode, or the lock or the write fails, it is a value that stays the same for this page and
+ * is not saved. No failure rejects, since every extension waits for this before it activates.
+ */
+export async function resolveMachineId(storage: IStorageService, lock: MachineIdLock | undefined = browserLock()): Promise<string> {
+  const saved = storage.get(machineIdKey, StorageScope.PROFILE);
+  if (saved) {
+    return saved;
+  }
+  const pageMachineId = () => memoryMachineId ??= randomIdentifier();
+  if (storage.usesMemory) {
+    // No value is shared with other tabs, and a browser that blocks storage denies the lock as well.
+    return pageMachineId();
+  }
+  const create = () => {
+    let machineId: string | undefined;
+    try {
+      storage.storeImmediately(machineIdKey, previous => machineId = previous || randomIdentifier(),
+        StorageScope.PROFILE, StorageTarget.MACHINE);
+      return machineId!;
+    } catch {
+      return pageMachineId();
+    }
+  };
+  if (!lock) {
+    return create();
+  }
+  try {
+    return await lock(machineIdLockName, create);
+  } catch {
+    // The callback never ran: the browser denied the lock.
+    return pageMachineId();
+  }
+}
+
 mainThreadCustomers.register('runtime', ({ rpc, instantiation, getExtension }) => {
   const state = instantiation.invokeFunction(accessor => accessor.get(IExtensionStorage));
   const storage = new MainThreadStorage(state, getExtension, rpc.getProxy(ExtHostStorageProxy),
@@ -48,20 +95,7 @@ mainThreadCustomers.register('runtime', ({ rpc, instantiation, getExtension }) =
     },
     async $getEnvironment(key) {
       check(key);
-      const storage = instantiation.invokeFunction(accessor => accessor.get(IStorageService));
-      const setting = 'extensions.machineId';
-      const create = () => {
-        let machineId: string | undefined;
-        try {
-          storage.storeImmediately(setting, previous => machineId = previous || randomIdentifier(),
-            StorageScope.PROFILE, StorageTarget.MACHINE);
-          return machineId!;
-        } catch {
-          return memoryMachineId ??= randomIdentifier();
-        }
-      };
-      const machineId = storage.get(setting, StorageScope.PROFILE)
-        ?? (navigator.locks ? await navigator.locks.request('writing-room:extensions.machineId', create) : create());
+      const machineId = await resolveMachineId(instantiation.invokeFunction(accessor => accessor.get(IStorageService)));
       return { machineId, sessionId: sessionId ??= randomIdentifier() };
     },
     async $readClipboard(key) {
