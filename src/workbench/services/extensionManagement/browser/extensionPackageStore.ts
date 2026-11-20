@@ -67,10 +67,9 @@ export class ExtensionPackageStore implements IExtensionPackageStore {
   ) {}
 
   async isPersistent(): Promise<boolean> {
-    // The user data provider opens its database on first use and says whether it fell back to memory.
+    // The user data provider opens its database on first use, and only then says whether it fell back to memory.
     await this.files.exists(extensionPackagesRoot);
-    const provider = this.files.getProvider(Schemas.vscodeUserData) as { database?: { usesMemory?: unknown } } | undefined;
-    return provider?.database?.usesMemory !== true;
+    return this.files.getProvider(Schemas.vscodeUserData)?.usesMemory !== true;
   }
 
   /** Writes the package's files under a new temporary folder and checks that they all arrived. */

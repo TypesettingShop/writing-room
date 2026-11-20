@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
+import { InMemoryStorageDatabase } from '../../../../../base/parts/storage/common/storage.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
@@ -12,8 +13,7 @@ import { ExtensionManagementService, normalizeExtensionLocation } from '../../co
 const location = 'http://127.0.0.1:5000/ext/';
 const manifest = { name: 'fixture', publisher: 'Example', version: '1.0.0', browser: 'entry.js' };
 
-function setup(load: typeof fetch = async () => Response.json(manifest)) {
-  const storage = new InMemoryStorageService();
+function setup(load: typeof fetch = async () => Response.json(manifest), storage = new InMemoryStorageService()) {
   const scanner = new WebExtensionsScannerService(null, storage);
   const packages = new ExtensionPackageStore(Date.now, new FileService());
   const extensions: IExtensionDescription[] = [];
@@ -198,4 +198,36 @@ test('a folder reinstall can start while the previous registration is awaiting d
   await expect(reinstall).resolves.toMatchObject({ location });
   expect(confirm).toHaveBeenCalledOnce();
   expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({ identifier: 'example.fixture' })]);
+});
+
+/** A storage backend that cannot be opened, so the storage starts in memory mode. */
+class BlockedDatabase extends InMemoryStorageDatabase {
+  override getItems(): Map<string, string> {
+    throw new DOMException('Access is denied for this document.', 'SecurityError');
+  }
+}
+
+test('tells the folder URL confirmation that a session-only list keeps the install for this session', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(new BlockedDatabase());
+  const { scanner, active, service } = setup(undefined, storage);
+  const immediate = vi.spyOn(storage, 'storeImmediately');
+  const confirm = vi.fn(async () => true);
+  await expect(service.installFromLocation(location, confirm)).resolves.toMatchObject({ location });
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: false });
+  expect(active.extensions.map(extension => extension.location)).toEqual([location]);
+  expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({ identifier: 'example.fixture', location })]);
+
+  await expect(service.uninstall('example.fixture')).resolves.toBe(true);
+  expect(scanner.scanUserExtensions()).toEqual([]);
+  await expect(service.installFromLocation(location, confirm)).resolves.toMatchObject({ location });
+  expect(immediate).not.toHaveBeenCalled();
+  vi.restoreAllMocks();
+});
+
+test('tells the folder URL confirmation that a persistent list keeps the install', async () => {
+  const { service } = setup();
+  const confirm = vi.fn(async () => false);
+  await service.installFromLocation(location, confirm);
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: true });
 });

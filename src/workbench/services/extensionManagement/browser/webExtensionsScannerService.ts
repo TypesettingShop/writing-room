@@ -56,6 +56,10 @@ export class WebExtensionsScannerService implements IWebExtensionsScannerService
     return parseInstalled(this.storage.get(userExtensionsKey, scope));
   }
 
+  get sessionOnly(): boolean {
+    return this.storage.usesMemory;
+  }
+
   locked<T>(task: (
     read: () => readonly StoredWebExtension[], write: InstalledListWriter, locations: () => ReadonlySet<string> | undefined,
   ) => Promise<T>): Promise<T> {
@@ -65,10 +69,16 @@ export class WebExtensionsScannerService implements IWebExtensionsScannerService
         if (!active) {
           throw new Error('The installed extensions lock was released.');
         }
-        return this.readPersisted();
+        // The persisted value, which another tab may have written after this tab's cache. In memory mode it is
+        // this tab's list, and the backend is not reopened.
+        return this.storage.getPersisted(userExtensionsKey, scope);
       };
       const read = () => parseInstalled(persisted());
-      const locations = () => recordedLocations(persisted());
+      // A session-only list cannot tell which package folders the persisted records name.
+      const locations = () => {
+        const raw = persisted();
+        return this.storage.usesMemory ? undefined : recordedLocations(raw);
+      };
       const write: InstalledListWriter = extensions => {
         if (!active) {
           return Promise.reject(new Error('The installed extensions lock was released.'));
@@ -77,38 +87,24 @@ export class WebExtensionsScannerService implements IWebExtensionsScannerService
       };
       return task(read, write, locations).finally(() => { active = false; });
     };
-    // Tabs exclude each other with the Web Lock; this tab's own operations also queue without one.
-    const result = this.queue.then(() => this.locks ? this.locks.request(installedExtensionsLockName, run) : run());
+    // Tabs exclude each other with the Web Lock; this tab's own operations also queue without one. A tab in memory
+    // mode shares no list with the others, and a browser that blocks storage denies the lock as well.
+    const result = this.queue.then(() =>
+      this.locks && !this.storage.usesMemory ? this.locks.request(installedExtensionsLockName, run) : run());
     this.queue = result.then(() => {}, () => {});
     return result;
   }
 
-  /** Reads the persisted value, which another tab may have written after this tab's cache. */
-  private readPersisted(): string | undefined {
-    let value: string | undefined;
-    // A transform receives the persisted value. Writing it back unchanged keeps the stored text as it is.
-    const current = this.storage.get(userExtensionsKey, scope);
-    try {
-      this.storage.storeImmediately(userExtensionsKey, stored => {
-        value = stored;
-        if (stored === undefined) {
-          throw new NothingStored();
-        }
-        return stored;
-      }, scope, StorageTarget.USER);
-    } catch (error) {
-      if (!(error instanceof NothingStored)) {
-        throw error;
-      }
-      // The key is gone in storage. Forget a cached copy that another tab's removal has not reached yet.
-      if (current !== undefined) {
+  private async save(extensions: readonly StoredWebExtension[]): Promise<void> {
+    if (this.storage.usesMemory) {
+      // Only this tab's list changes. Reopening the backend would throw where the browser blocks storage.
+      if (extensions.length) {
+        this.storage.store(userExtensionsKey, JSON.stringify(extensions), scope, StorageTarget.USER);
+      } else {
         this.storage.remove(userExtensionsKey, scope);
       }
+      return;
     }
-    return value;
-  }
-
-  private async save(extensions: readonly StoredWebExtension[]): Promise<void> {
     // Every list, the empty one too, is an explicit write that reports a failure before the caller goes on to
     // remove package folders. An empty list then drops its key, which reads back the same.
     this.storage.storeImmediately(userExtensionsKey, JSON.stringify(extensions), scope, StorageTarget.USER);
@@ -117,8 +113,6 @@ export class WebExtensionsScannerService implements IWebExtensionsScannerService
     }
   }
 }
-
-class NothingStored extends Error {}
 
 /** Every location string a saved record names, valid or not; undefined when the list itself cannot be parsed. */
 function recordedLocations(raw: string | undefined): ReadonlySet<string> | undefined {

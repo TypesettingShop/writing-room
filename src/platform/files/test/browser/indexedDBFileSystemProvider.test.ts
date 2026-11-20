@@ -268,3 +268,33 @@ test('reserves settings.json for the configuration store', async () => {
     .rejects.toMatchObject({ code: Code.NoPermissions });
   await userData.writeFile(URI.parse('vscode-userdata:/User/globalStorage/test'), bytes('ok'), write);
 });
+
+test('says whether its files fall back to memory, for both schemes sharing the database', async () => {
+  const opened = setup();
+  expect(opened.provider.usesMemory).toBe(false);
+  await opened.provider.writeFile(resource('/workspace/file'), bytes('kept'), write);
+  expect(opened.provider.usesMemory).toBe(false);
+
+  const warn = vi.fn();
+  const blocked = disposables.add(new BrowserFileDatabase(() => Promise.reject(new DOMException('denied', 'UnknownError')), warn));
+  const vfs = disposables.add(new IndexedDBFileSystemProvider(blocked, Schemas.vscodeVfs));
+  const userData = disposables.add(new IndexedDBFileSystemProvider(blocked, Schemas.vscodeUserData));
+  expect(vfs.usesMemory).toBe(false);
+  await vfs.writeFile(resource('/workspace/file'), bytes('memory'), write);
+  expect(vfs.usesMemory).toBe(true);
+  expect(userData.usesMemory).toBe(true);
+  expect(warn).toHaveBeenCalledTimes(1);
+});
+
+test('starts using memory when a closed database cannot be reopened after another tab upgrades it', async () => {
+  const first = setup();
+  const path = resource('/workspace/file');
+  await first.provider.writeFile(path, bytes('original'), write);
+  (await first.database.get())!.dispose();
+  const newest = setup(2);
+  await newest.provider.writeFile(path, bytes('version two'), write);
+  expect(first.provider.usesMemory).toBe(false);
+  await first.provider.writeFile(path, bytes('memory'), write);
+  expect(first.provider.usesMemory).toBe(true);
+  expect(newest.provider.usesMemory).toBe(false);
+});

@@ -61,3 +61,41 @@ export async function prepareLocationInstall(page: Page, path: string): Promise<
   await enterLocation(page, fixtureOrigin + '/' + path);
   await expect(page.getByRole('option', { name: 'Cancel' })).toBeVisible();
 }
+
+export const sessionOnlyNotice = 'Browser storage is unavailable: the extension stays for this session only.';
+
+/**
+ * Makes the page act like a browser that blocks site data, from the next navigation on: reading the
+ * `localStorage` property throws, `indexedDB.open` fails and Web Locks requests are denied without calling back.
+ * With `storageOnly`, only `localStorage` is blocked, as in a tab whose workbench storage alone fell back.
+ * Blocking `localStorage` alone misses the first failure of a real blocked window, the denied lock.
+ */
+export async function blockStorage(page: Page, { storageOnly = false } = {}): Promise<void> {
+  await page.addInitScript(storageOnly => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('Failed to read the \'localStorage\' property from \'Window\': Access is denied for this document.', 'SecurityError');
+      },
+    });
+    if (!storageOnly) {
+      IDBFactory.prototype.open = () => {
+        throw new DOMException('The user denied permission to access the database.', 'UnknownError');
+      };
+      LockManager.prototype.request = () => Promise.reject(new DOMException('The request was denied.', 'SecurityError'));
+    }
+  }, storageOnly);
+}
+
+/** Collects the page errors and the console messages that say an extension did not activate. */
+export function watchExtensionFailures(page: Page): string[] {
+  const failures: string[] = [];
+  page.on('pageerror', error => failures.push('pageerror: ' + error.message));
+  page.on('console', message => {
+    // Install and uninstall failures are quick pick titles, not console messages; the tests look for those.
+    if (/Could not activate/.test(message.text())) {
+      failures.push(message.text());
+    }
+  });
+  return failures;
+}

@@ -60,6 +60,19 @@ export interface IStorageService {
   ): void;
   remove(key: string, scope: StorageScope): void;
   flush(reason?: WillSaveStateReason): Promise<void>;
+
+  /**
+   * True once this tab's values live only in memory: the persistent backend could not be opened, a write to it
+   * failed, or another tab changed it in a way this code cannot follow. It stays true until the service closes.
+   */
+  readonly usesMemory: boolean;
+  /**
+   * Read the value the persistent backend holds for a key now, even before another tab's storage event arrives.
+   * The cache takes that value and listeners hear an `external` change when it differs. Nothing is written, and a
+   * value this tab queued with `store` or `remove` is the answer. Once `usesMemory` is true, or after the service
+   * closed, this tab's value is the answer. Throws when the persistent backend cannot be read.
+   */
+  getPersisted(key: string, scope: StorageScope): string | undefined;
 }
 
 export function storageKey(scope: StorageScope, key: string): string {
@@ -176,6 +189,22 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
     if (!this.disposed && this.storage.set(storageKey(scope, key), undefined)) {
       this.valueChanges.fire({ scope, key, target: undefined });
     }
+  }
+
+  get usesMemory(): boolean {
+    return this.storage.usesMemory;
+  }
+
+  getPersisted(key: string, scope: StorageScope): string | undefined {
+    const namespacedKey = storageKey(scope, key);
+    if (this.disposed) {
+      return this.storage.get(namespacedKey);
+    }
+    const { value, changed } = this.storage.getPersisted(namespacedKey);
+    if (changed) {
+      this.valueChanges.fire({ scope, key, target: undefined, external: true });
+    }
+    return value;
   }
 
   protected acceptExternalValue(namespacedKey: string, value: string | undefined): void {

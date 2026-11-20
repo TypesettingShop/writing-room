@@ -10,6 +10,7 @@ import { extensionGlobalStorageUri, extensionLogUri, extensionWorkspaceStorageUr
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { ExtensionStateScope, ExtHostStorageShape, MainThreadStorageShape } from '../common/extHost.protocol.runtime.js';
 import { Emitter } from '../../../base/common/event.js';
+import type { URI } from '../../../base/common/uri.js';
 
 const prefix = 'extensions.state.';
 const maxState = 256 * 1024;
@@ -70,9 +71,14 @@ export class ExtensionStorage extends Disposable {
     super();
   }
 
-  private serialize<T>(task: () => Promise<T>): Promise<T> {
+  /**
+   * Runs `task` after this tab's earlier state changes, under the cross-tab lock unless `inTabOnly` says, when
+   * the task starts, that it touches nothing but this tab's values.
+   */
+  private serialize<T>(task: () => Promise<T>, inTabOnly: () => boolean): Promise<T> {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-    const result = this.queue.then(() => locks ? locks.request('writing-room:extensions.state', task) : task());
+    const result = this.queue.then(() =>
+      locks && !inTabOnly() ? locks.request('writing-room:extensions.state', task) : task());
     this.queue = result.then(() => {}, () => {});
     return result;
   }
@@ -122,7 +128,8 @@ export class ExtensionStorage extends Disposable {
         }
         return next;
       }, storageScope, StorageTarget.USER);
-    });
+      // An explicit save reaches the persistent backend in memory mode too, so it keeps the cross-tab lock.
+    }, () => false);
   }
 
   getSecret(id: string, name: string): string | undefined {
@@ -147,14 +154,29 @@ export class ExtensionStorage extends Disposable {
     this.secretChange.fire({ id, name });
   }
 
+  /**
+   * Removes the extension's state, secrets and storage folders. In memory mode only this tab's state goes, and
+   * the folders stay when the files persist: the extension can still be in the persisted list and find them again.
+   */
   async clear(id: string): Promise<void> {
+    // Read once, so the folders follow the state: a fallback after the persisted state went must not keep them.
+    let inMemory = false;
+    // A tab in memory mode shares no state with the others, and a browser that blocks storage denies the lock too.
     await this.serialize(async () => {
+      inMemory = this.storage.usesMemory;
       for (const scope of Object.values(scopeFor)) {
-        this.storage.storeImmediately(prefix + id, () => undefined, scope, StorageTarget.USER);
+        if (inMemory) {
+          this.storage.remove(prefix + id, scope);
+        } else {
+          this.storage.storeImmediately(prefix + id, () => undefined, scope, StorageTarget.USER);
+        }
       }
       this.secrets.delete(id);
-    });
+    }, () => this.storage.usesMemory);
     const paths = [extensionGlobalStorageUri(id), extensionWorkspaceStorageUri(this.workspace.getWorkspace().id, id), extensionLogUri(id)];
+    if (inMemory && await this.filesPersist(paths[0])) {
+      return;
+    }
     await Promise.all(paths.map(async uri => {
       try {
         await this.files.del(uri, { recursive: true });
@@ -164,6 +186,12 @@ export class ExtensionStorage extends Disposable {
         }
       }
     }));
+  }
+
+  private async filesPersist(uri: URI): Promise<boolean> {
+    // The user data provider says whether it fell back to memory only once its database was opened.
+    await this.files.exists(uri);
+    return this.files.getProvider(uri.scheme)?.usesMemory !== true;
   }
 }
 
