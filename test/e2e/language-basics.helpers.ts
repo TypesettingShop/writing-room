@@ -99,6 +99,9 @@ export async function toggleBlockCommentUntil(page: Page, expected: string): Pro
   await expect.poll(async () => {
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press(blockCommentKey);
+    // Monaco renders an edit on the next animation frame. A stale read would let the next attempt toggle the
+    // comment off again and still read the expected text.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const text = await editorText(page);
     if (text !== expected && text !== before) {
       await page.keyboard.press('ControlOrMeta+z');

@@ -7,6 +7,7 @@ import {
   activeEditor, activeGroup, blockCommentKey, changeLanguage, editorText, installLanguageFixture, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
   recordRequests, runCommand, toggleBlockCommentUntil, tokenScopes,
 } from './language-basics.helpers.js';
+import { savedIdentifiers } from './packages.helpers.js';
 
 test.describe('language registry and language mode', () => {
   test('shows the language of the active text editor and changes it from the status bar', async ({ page }) => {
@@ -94,12 +95,15 @@ test.describe('language registry and language mode', () => {
 
     await runCommand(page, 'Uninstall Extension...');
     await page.getByRole('option', { name: /Language Basics Fixture/ }).click();
-    await expect(page.getByRole('option', { name: /Language Basics Fixture/ })).toHaveCount(0);
+    // The picker closes on selection. The installed list is saved after deactivation and configuration disposal.
+    await expect.poll(() => savedIdentifiers(page), { timeout: 15_000 }).not.toContain('fixtures.language-basics');
     await activeEditor(page).focus();
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press(blockCommentKey);
-    await page.waitForTimeout(300);
-    expect(await editorText(page)).toBe('alpha');
+    // The editor handles keys in order, so the typed text shows the toggle's result: a comment that still applied
+    // keeps its delimiters around `x`, and a key that missed the editor leaves `alpha`.
+    await page.keyboard.type('x');
+    await expect.poll(() => editorText(page)).toBe('x');
   });
 
   test('never reads a configuration path that leaves the extension folder', async ({ page }) => {
