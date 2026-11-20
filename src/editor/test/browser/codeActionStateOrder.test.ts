@@ -91,6 +91,20 @@ describe('code action state order', () => {
     expect(model.refreshed).not.toHaveBeenCalled();
   });
 
+  it('releases a result that a request arriving after disposal had already computed', async () => {
+    const model = new Model();
+    model.setState(manualRequest());
+    model.setState(empty, true);
+    const dispose = vi.fn();
+    const late = { type: 1, trigger: { type: 2 }, actions: Promise.resolve({ dispose }), cancel: vi.fn() };
+
+    model.setState(late as unknown as State);
+    await Promise.resolve();
+    expect(late.cancel).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(model.state).toBe(empty);
+  });
+
   it('passes automatic requests through after a manual result settled and over other automatic requests', async () => {
     const model = new Model();
     const manual = manualRequest();

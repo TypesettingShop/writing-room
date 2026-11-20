@@ -200,7 +200,7 @@ const codeActionProvider = {
         return [];
       }
     }
-    // Only the first manual quick fix stalls, so the replacement can open its menu.
+    // Only the first manual request of a `slowaction` document stalls, so the replacement can open its menu.
     if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke
       && document.getText().includes('slowaction') && !slowActionDocuments.has(document)) {
       if (token.isCancellationRequested) {

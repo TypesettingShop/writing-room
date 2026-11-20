@@ -40,9 +40,14 @@ function isTriggered(state: CodeActionState): state is TriggeredState {
     && typeof candidate.actions?.then === 'function' && typeof candidate.cancel === 'function';
 }
 
-function discard(state: TriggeredState): void {
-  // Monaco's controller never sees this state, so it will not observe a rejected result.
-  void state.actions.then(undefined, () => {});
+/** Cancels a state Monaco's controller never sees; with `release`, also lets go of a result it already has. */
+function discard(state: TriggeredState, release = false): void {
+  // The controller will not observe a rejected result either.
+  void state.actions.then(result => {
+    if (release) {
+      (result as { dispose?(): void } | null | undefined)?.dispose?.();
+    }
+  }, () => {});
   state.cancel();
 }
 
@@ -64,9 +69,10 @@ export function installCodeActionStateOrder(prototype: unknown): void {
     const previous = states.get(this);
     const request = isTriggered(state) ? state : undefined;
     if (previous?.disposed) {
-      // Monaco's delayed callbacks can still arrive after disposal.
+      // Monaco's delayed callbacks can still arrive after disposal. The disposed model keeps no result, so
+      // one computed before this cancel would never be released (nor its list in the extension host).
       if (request) {
-        discard(request);
+        discard(request, true);
       }
       return;
     }
