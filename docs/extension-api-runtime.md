@@ -163,10 +163,11 @@ Worker에서 잡히지 않은 오류와 처리되지 않은 Promise 거부는 �
 | 환경 변수 컬렉션 | 터미널 환경에 변경을 적용하지 않는다. |
 | `tasks` | 등록은 정리 가능한 객체를 돌려준다. 조회는 빈 배열, 실행은 거부, 이벤트는 발생하지 않는다. `Task`, `TaskScope`, `TaskGroup`, `CustomExecution`, `ShellExecution`, `ProcessExecution` 및 옵션 열거형은 생성과 값 참조에 사용할 수 있다. |
 | 외부 URI 열기 제안 API | `window.registerExternalUriOpener`(제안 API `externalUriOpener`)는 정리 가능한 객체를 돌려준다. 등록한 열기 도구에 묻지도 맡기지도 않으며 `env.openExternal`은 그 도구를 거치지 않고 오프너 서비스로 연다. `ExternalUriOpenerPriority`는 값을 제공한다. 선언은 upstream 제안 d.ts의 시그니처를 따르며 적합성 검사의 예외 목록(`apiDeviations.json`)에 있다. |
+| 제안 API 안내 | VS Code는 제안 목록에 없는 이름(이미 정식화됐거나 폐기된 이름 등)을 로그에 오류로 남긴다. 일반 배포판은 내장 확장과 제품 설정(`product.json`)·명령줄 등으로 허용된 확장에 제안 API를 연다. Writing Room은 `externalUriOpener`, `multiDocumentHighlightProvider`, `documentPaste`의 등록 API를 모든 확장에 제공하고 등록을 받는다. 그 밖의 이름은 확장 상태와 콘솔에 info 수준의 `Proposed APIs are not supported: <이름 목록>`으로 알린다(wr-yxz6.4qz). |
 | 노트북 | `workspace.notebookDocuments`는 빈 배열이다. 열기, 닫기, 변경, 저장 이벤트는 발생하지 않는다. `NotebookCellKind`는 값을 제공한다. |
 | 워크스페이스 신뢰 | `workspace.isTrusted`는 `true`이며 신뢰 변경 이벤트는 발생하지 않는다. |
 | 텔레메트리 | 항상 꺼져 있다. 로거가 호출을 받아도 보낸 사람의 함수가 실행되지 않는다. |
 | 외부 API | `debug`, `scm`, `tests`, `comments`, `authentication`, `chat`, `lm`, `notebooks`는 `undefined`다. |
 | Worker | 모듈 Worker와 중계 Worker 안의 상대 경로 `importScripts`는 오류로 거부한다. 호스트 자체의 `postMessage`, `close`, `importScripts`는 사용할 수 없다. |
 
-Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t, wr-eycu.4bd, wr-54me
+Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t, wr-eycu.4bd, wr-54me, wr-yxz6

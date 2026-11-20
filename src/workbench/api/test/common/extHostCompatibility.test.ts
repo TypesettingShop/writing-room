@@ -2,6 +2,7 @@
 import { expect, test, vi } from 'vitest';
 import { MainThreadRuntimeProxy } from '../../common/extHost.protocol.runtime.js';
 import type { MainThreadRuntimeShape } from '../../common/extHost.protocol.runtime.js';
+import { acceptedApiProposals } from '../../common/extHostRuntimeProposals.js';
 import { createTestExtensionApi } from './testExtensionHost.js';
 
 test('accepts an external URI opener without ever asking it', async () => {
@@ -22,6 +23,19 @@ test('accepts an external URI opener without ever asking it', async () => {
     expect(opener.canOpenExternalUri).not.toHaveBeenCalled();
     expect(opener.openExternalUri).not.toHaveBeenCalled();
     registration.dispose();
+  } finally {
+    host.dispose();
+  }
+});
+
+test('exposes the registration API for each accepted proposal', async () => {
+  const host = await createTestExtensionApi();
+  try {
+    const api = host.api as unknown as Record<string, Record<string, unknown>>;
+    for (const [proposal, path] of Object.entries(acceptedApiProposals)) {
+      const [namespace, member] = path.split('.');
+      expect(typeof api[namespace]?.[member], proposal + ': ' + path).toBe('function');
+    }
   } finally {
     host.dispose();
   }

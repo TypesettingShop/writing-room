@@ -110,6 +110,39 @@ test('registers valid entries, diagnoses individual failures and cleans up dynam
   expect(viewsRegistry.getViewContainer('ext-test.fallback')).toBeUndefined();
 });
 
+test.each([
+  { proposals: ['externalUriOpener', 'multiDocumentHighlightProvider', 'documentPaste', 'externalUriOpener@2'] },
+  { proposals: ['externalUriOpener', 'fixtureProposal'], unsupported: 'fixtureProposal' },
+  { proposals: ['fixtureB@2', 'fixtureA', 'fixtureB@2'], unsupported: 'fixtureB@2, fixtureA' },
+  { proposals: ['ExternalUriOpener', 'constructor', '__proto__'], unsupported: 'ExternalUriOpener, constructor, __proto__' },
+  { proposals: [42, null, {}, 'fixtureProposal'], unsupported: 'fixtureProposal' },
+  { proposals: [] },
+  { proposals: 'externalUriOpener' },
+])('reports only unsupported API proposals in $proposals', async ({ proposals, unsupported }) => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const extensionId = 'example.proposals';
+  const path = 'enabledApiProposals';
+  const { manifest } = validateExtensionManifest({
+    name: 'proposals', publisher: 'Example', version: '1.0.0', enabledApiProposals: proposals,
+  }, resolve);
+  const extension: IExtensionDescription = {
+    manifest: manifest!, identifier: ExtensionIdentifier.fromManifest(manifest!), isBuiltin: false, location: origin,
+  };
+  service = new ExtensionService(() => ({ extensions: [extension], messages: [] }));
+  service.initialize();
+  expect(await service.whenInstalledExtensionsRegistered()).toBe(true);
+
+  const messages = service.getExtensionsStatus()[extensionId].messages.filter(message => message.path === path);
+  if (unsupported === undefined) {
+    expect(messages).toEqual([]);
+    expect(info).not.toHaveBeenCalled();
+  } else {
+    const message = 'Proposed APIs are not supported: ' + unsupported;
+    expect(messages).toEqual([{ extensionId, severity: 'info', path, message }]);
+    expect(info.mock.calls).toEqual([['[' + extensionId + '] ' + path + ': ' + message]]);
+  }
+});
+
 test('rejects an incompatible extension before registering its command, view or activation events', () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   const base = description('future', {

@@ -44,16 +44,13 @@ const basicsName = /^Uninstall Markdown Language Basics/;
 const browserName = /^Uninstall Simple Browser/;
 
 /**
- * The messages the workbench may log under the extension's own id, and no other. The proposal `documentPaste` is
- * accepted without being enabled (it became API in 1.97), and four contribution points have no counterpart here: the
- * notebook renderer, JSON validation and the preview's style and script points that other extensions use.
- * `vscode.simple-browser` gets the same notice for its proposal `externalUriOpener` (wr-jbmd.g2y: accepted, not run).
+ * The runtime accepts `documentPaste` and `externalUriOpener` without a proposal notice. The Markdown
+ * language extension still declares four unsupported contribution points.
  */
 const allowedMessages = [
-  `info: [${featuresId}] enabledApiProposals: Proposed APIs are not supported.`,
   `info: [${featuresId}] contributes: Unsupported contributions: notebookRenderer, jsonValidation, markdown.previewStyles, markdown.previewScripts`,
 ];
-const allowedBrowserMessages = ['info: [vscode.simple-browser] enabledApiProposals: Proposed APIs are not supported.'];
+const allowedBrowserMessages: readonly string[] = [];
 
 // A 1x1 PNG: the preview shows it through the Webview's resource loading, the hover shows it as a preview.
 const logo = { bytes: [...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')] };
