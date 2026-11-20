@@ -53,6 +53,14 @@ export interface LanguageFeatureGroup {
 
 export type LanguageFeatureGroupFactory = (features: ExtHostLanguageFeatures) => LanguageFeatureGroup;
 
+/**
+ * The diagnostics of one resource as `languages.getDiagnostics(resource)` gives them: the objects every
+ * extension's collections hold, and the workbench's markers of other owners.
+ */
+export interface DiagnosticsSource {
+  getDiagnostics(resource: vscode.Uri): vscode.Diagnostic[];
+}
+
 /** The feature groups, in the order of their members. Each group file exports its factory. */
 const groupFactories: readonly LanguageFeatureGroupFactory[] = [
   createCompletionsGroup, createEditsGroup, createNavigationGroup, createWorkspaceSymbolsGroup, createReceiveOnlyGroup,
@@ -98,7 +106,16 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
     private readonly isLive: (key: string) => boolean,
     /** The bulk edit of the documents area: the one way a provider's workspace edit is applied. */
     readonly bulkEdits: MainThreadBulkEditsShape,
+    private readonly diagnosticsSource?: DiagnosticsSource,
   ) {}
+
+  /**
+   * The diagnostics there are for `resource`; none when no source was given (a test host). The area's
+   * registration always gives the diagnostics area's service, which every extension host has.
+   */
+  diagnostics(resource: vscode.Uri): readonly vscode.Diagnostic[] {
+    return this.diagnosticsSource?.getDiagnostics(resource) ?? [];
+  }
 
   /** The registrations the host keeps, for tests that look for leaks. */
   get size(): number {
@@ -294,10 +311,10 @@ export function checkSelector(selector: vscode.DocumentSelector): LanguageSelect
 
 export function createLanguageFeaturesArea(
   rpc: RPCProtocol, documents: ExtHostDocuments, commands: ExtHostCommands, isLive: (key: string) => boolean,
-  factories: readonly LanguageFeatureGroupFactory[] = groupFactories,
+  diagnostics: DiagnosticsSource | undefined, factories: readonly LanguageFeatureGroupFactory[] = groupFactories,
 ) {
   const features = new ExtHostLanguageFeatures(
-    rpc.getProxy(MainThreadLanguageFeaturesProxy), documents, commands, isLive, rpc.getProxy(MainThreadBulkEditsProxy));
+    rpc.getProxy(MainThreadLanguageFeaturesProxy), documents, commands, isLive, rpc.getProxy(MainThreadBulkEditsProxy), diagnostics);
   const groups = factories.map(factory => factory(features));
   rpc.set(ExtHostLanguageFeaturesProxy, mergeHandlers([features, ...groups]) as unknown as ExtHostLanguageFeaturesSeamShape);
   return { features, groups };
@@ -305,7 +322,8 @@ export function createLanguageFeaturesArea(
 
 extHostApiRegistry.register('languageFeatures', ({ rpc, getService, isLive }) => {
   const { features, groups } = createLanguageFeaturesArea(
-    rpc, getService<ExtHostDocuments>('documents'), getService<ExtHostCommands>('commands'), isLive);
+    rpc, getService<ExtHostDocuments>('documents'), getService<ExtHostCommands>('commands'), isLive,
+    getService<DiagnosticsSource>('diagnostics'));
   const types = Object.assign({ IndentAction, SyntaxTokenType }, ...groups.map(group => group.types ?? {}));
   return {
     service: features,

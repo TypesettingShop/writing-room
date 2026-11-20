@@ -181,6 +181,25 @@ test('comes back after a reload and after a host restart, resolving when shown',
   expect(await probe(page)).toMatchObject({ activations: 1, activeTab: 'custom fixture.noteView' });
 });
 
+test('a custom editor in front at a reload comes back as the custom editor, twice, without falling back to text', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'a.note', 'kept');
+  await treeItem(page, 'a.note').click();
+  const group = groups(page).first();
+  await expect(content(page).locator('#text')).toHaveText('kept');
+
+  // The page going stops the extension host before the state is written for the last time: the editor in
+  // front must not be taken for one whose provider is missing (wr-wnvo).
+  for (let reload = 0; reload < 2; reload++) {
+    await page.reload();
+    await expect(selectedTab(group)).toHaveText('a.note');
+    await expect(content(page).locator('#text')).toHaveText('kept');
+    await expect(group.locator('.monaco-editor')).toHaveCount(0);
+    await expect(page.getByText(/is unavailable\. Its files open in the text editor/)).toHaveCount(0);
+    expect(await page.evaluate(key => localStorage.getItem(key), editorStateKey)).toContain('fixture.noteView');
+  }
+});
+
 test('keeps the draft of a file edited only in a custom text editor across a reload, its tab modified before it shows', async ({ appPage: page }) => {
   await waitForStorage(page);
   await writeWorkspaceFile(page, 'a.note', 'kept');
