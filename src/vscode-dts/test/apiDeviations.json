@@ -106,5 +106,59 @@
     "kind": "missing",
     "issue": "wr-jbmd.g2y",
     "reason": "Proposed API externalUriOpener (vscode.proposed.externalUriOpener.d.ts at the fixed commit), declared with its upstream signature. vscode.simple-browser calls it during activation; the opener is accepted and never asked."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlight",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlight#uri",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlight#highlights",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlight#constructor",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlight#(heritage)",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlightProvider",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlightProvider#provideMultiDocumentHighlights",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.MultiDocumentHighlightProvider#(heritage)",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
+  },
+  {
+    "name": "vscode.languages.registerMultiDocumentHighlightProvider",
+    "kind": "missing",
+    "issue": "wr-c9d8.kxn",
+    "reason": "Proposed API multiDocumentHighlightProvider (vscode.proposed.multiDocumentHighlightProvider.d.ts at the fixed commit), declared with its upstream signature. Monaco's standalone editor has no highlights across documents: the provider is registered, kept and never asked (receive-only, docs/extension-api-language-features.md)."
   }
 ]

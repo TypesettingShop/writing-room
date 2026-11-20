@@ -4,6 +4,7 @@ import { Severity } from '../../../base/common/severity.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import type { BrandedService } from '../../instantiation/common/instantiation.js';
 import type { ResolvedKeybinding } from '../../keybinding/common/keybinding.js';
+import type { IQuickAccessController } from './quickAccess.js';
 
 export const IQuickInputService = createDecorator<IQuickInputService>('quickInputService');
 
@@ -51,6 +52,13 @@ export interface IQuickInput extends IDisposable {
 
 export interface IQuickPick<T extends IQuickPickItem> extends IQuickInput {
   value: string;
+  /**
+   * The part of the value that is selected when the pick shows, as `[start, end]`; without one the
+   * whole value is selected.
+   */
+  valueSelection: readonly [number, number] | undefined;
+  /** Turns the value into the text the items are filtered with. By default it is the value as is. */
+  filterValue: (value: string) => string;
   placeholder: string | undefined;
   prompt: string | undefined;
   items: readonly (T | IQuickPickSeparator)[];
@@ -103,4 +111,6 @@ export interface IQuickInputService extends BrandedService {
   input(options?: IInputOptions): Promise<string | undefined>;
   createQuickPick<T extends IQuickPickItem>(): IQuickPick<T>;
   createInputBox(): IInputBox;
+  /** Opens the quick pick whose provider is chosen by the prefix of its value. */
+  readonly quickAccess: IQuickAccessController;
 }

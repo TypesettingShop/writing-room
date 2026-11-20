@@ -47,6 +47,7 @@ beforeEach(() => {
     backButton: {},
     createQuickPick: () => { throw new Error('Not used by the command palette.'); },
     createInputBox: () => { throw new Error('Not used by the command palette.'); },
+    quickAccess: { show: () => { throw new Error('Not used by the command palette.'); } },
   };
   provider = new CommandsQuickAccessProvider(menus, context, new BrowserLayoutService(), quickInput, storage, new NullConfigurationService());
   pickId = undefined;
