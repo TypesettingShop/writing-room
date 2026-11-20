@@ -73,6 +73,10 @@ panel.iconPath = {
 
 레이아웃에는 탭 제목, 확장 ID, 표시 옵션과 리소스 루트 등 입력 메타데이터를 저장한다. 웹뷰의 `setState`가 넘긴 JSON은 워크스페이스의 별도 키에 저장하며 웹뷰당 256 KiB, 워크스페이스당 전체 1 MiB까지 허용한다. 숨겼다가 다시 연 문서의 `getState`와 새로고침 뒤 직렬화기에 이 상태가 전달된다. 한도를 넘긴 업데이트는 마지막으로 저장한 상태를 유지하고 한 번 경고한다.
 
+워크벤치 스토리지가 메모리 모드로 물러서면 Webview가 열리는 동안 상태는 그 브라우저 탭에서만 유지된다. 이 탭에서는 패널을 다시 복원하거나 WebviewView를 다시 열 때 세션의 마지막 상태를 받는다. 상태 쓰기, 패널 닫기, 확장 제거는 탭 안의 값에만 적용된다. 새로고침하면 저장소에서 읽을 수 있는 마지막 영속 상태로 돌아간다. 메모리 모드에도 같은 용량 한도가 적용된다. 영속 상태 쓰기가 실패하면 직전 값이 남으며 콘솔의 `Webview state could not be saved.` 경고에 저장소 오류가 함께 표시된다.
+
+자동 정리는 설치 기록과 현재 탭의 등록 목록을 함께 확인한다. 다른 탭이 설치했거나 재설치 중인 확장도 설치 기록이 가리키면 상태가 남는다. 목록을 해석할 수 없으면 정리를 보류한다. 확장을 제거하면 설치 목록의 변경이 저장된 뒤 해당 확장의 상태를 정리한다. 메모리 모드에서 제거할 때는 이 탭의 설치 목록과 상태에 같은 규칙을 적용한다.
+
 ## 확장 호스트 재시작
 
 명령 팔레트에서 **Restart Extension Host**를 실행하면, 정상 종료 경로에서 기존 Worker가 살아 있는 패널 객체마다 `onDidDispose`를 한 번 전달한다. 직렬화할 수 있는 탭은 배치와 저장 상태를 보존하며 새 Worker에서 새 핸들로 복원된다. 다른 WebviewPanel 탭은 닫힌다. Worker가 이미 응답하지 않는 경우에는 종료 시한에 맞춰 교체된다 (wr-drjj).
@@ -90,5 +94,6 @@ panel.iconPath = {
 - wr-cpnc.flj. `TabInputWebview.viewType`은 확장이 패널을 만들 때 전달한 식별자다. VS Code의 탭 API는 `mainThreadWebview-` 접두사를 붙인다.
 - wr-ob6x. Writing Room은 탭 아이콘 이미지의 URI를 소유 확장의 설치 폴더로 제한한다. VS Code의 탭 아이콘 설정 경로에는 같은 설치 폴더 검사가 없다. [VS Code의 탭 아이콘 설정 구현](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/api/browser/mainThreadWebviewPanels.ts)
 - wr-cpnc.6ly. 뷰 배지는 이 에픽의 범위 밖이다.
+- wr-d16b. VS Code는 패널 상태를 에디터 직렬화에, 뷰 상태를 `Memento`에 두고 `IStorageService.store`를 사용한다. 두 제품 모두 스토리지가 메모리 모드로 물러서면 상태를 브라우저 탭의 세션 동안 유지한다. Writing Room은 상태를 워크스페이스 키 하나에 저장하고 설치 기록에 따라 정리한다.
 
-Decided in: wr-efqx.n9k, wr-cpnc
+Decided in: wr-efqx.n9k, wr-cpnc, wr-d16b
