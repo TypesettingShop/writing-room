@@ -158,8 +158,10 @@ test.describe('signature help', () => {
 
 test.describe('formatting', () => {
   test('formats the selected lines with the range formatter and the document with the document formatter', async ({ page }) => {
-    await pasteText(page, 'a  b\nfmt  fmt\nfmt c');
-    // Select the second line.
+    const source = 'a  b\nfmt  fmt\nfmt c';
+    await pasteText(page, source);
+    await expect.poll(() => editorText(page)).toBe(source);
+    // Select the second line after Monaco has applied the paste and placed its caret.
     await page.keyboard.press('ControlOrMeta+Home');
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Shift+End');
@@ -173,6 +175,7 @@ test.describe('formatting', () => {
 
   test('drops a slow formatter\'s edits when the text changed before they arrived', async ({ page }) => {
     await pasteText(page, 'slowformat  x');
+    await expect.poll(() => editorText(page)).toBe('slowformat  x');
     await page.keyboard.press('ControlOrMeta+End');
     await page.keyboard.press('Control+Shift+i');
     await page.keyboard.type('Z');
