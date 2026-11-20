@@ -607,7 +607,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
       this.extensionEvents.set(id, new Set(manifest.activationEvents));
       if (Array.isArray(manifest.enabledApiProposals)) {
         const unsupportedProposals = new Set(manifest.enabledApiProposals.filter(proposal =>
-          typeof proposal === 'string' && !Object.hasOwn(acceptedApiProposals, proposal.split('@', 1)[0]),
+          typeof proposal === 'string' && proposal.trim() !== ''
+            && !Object.hasOwn(acceptedApiProposals, proposal.split('@', 1)[0]),
         ));
         if (unsupportedProposals.size) {
           this.report({

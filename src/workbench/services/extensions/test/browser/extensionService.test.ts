@@ -116,6 +116,8 @@ test.each([
   { proposals: ['fixtureB@2', 'fixtureA', 'fixtureB@2'], unsupported: 'fixtureB@2, fixtureA' },
   { proposals: ['ExternalUriOpener', 'constructor', '__proto__'], unsupported: 'ExternalUriOpener, constructor, __proto__' },
   { proposals: [42, null, {}, 'fixtureProposal'], unsupported: 'fixtureProposal' },
+  { proposals: ['', ' ', 'fixtureProposal', ''], unsupported: 'fixtureProposal' },
+  { proposals: ['', '  '] },
   { proposals: [] },
   { proposals: 'externalUriOpener' },
 ])('reports only unsupported API proposals in $proposals', async ({ proposals, unsupported }) => {

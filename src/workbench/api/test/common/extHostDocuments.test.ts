@@ -3,12 +3,15 @@ import { expect, test, vi } from 'vitest';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ExtHostDocumentData } from '../../common/extHostDocumentData.js';
+import { TextDocumentSaveReason } from '../../common/extHostDocuments.js';
 import { ExtHostDocumentSaveParticipant } from '../../common/extHostDocumentSaveParticipant.js';
 import { ExtHostTextEditor } from '../../common/extHostTextEditor.js';
 import type { ExtHostTextEditorDecorations } from '../../common/extHostTextEditorDecorations.js';
-import type { MainThreadEditorsShape } from '../../common/extHost.protocol.documents.js';
+import { ExtHostDocumentsProxy, MainThreadDocumentsProxy } from '../../common/extHost.protocol.documents.js';
+import type { MainThreadDocumentsShape, MainThreadEditorsShape } from '../../common/extHost.protocol.documents.js';
 import { EndOfLine, Position, Range, Selection, SnippetString, TextEdit } from '../../common/extHostTypes.js';
 import type { IModelContentChangedEvent } from '../../../../editor/common/model.js';
+import { createTestExtensionApi } from './testExtensionHost.js';
 
 function mirror(lines: string[], eol = '\n') {
   return new ExtHostDocumentData({
@@ -89,6 +92,34 @@ test('names a save listener failure by public id and applies the next listenerâ€
     });
   } finally {
     participant.dispose();
+    warn.mockRestore();
+  }
+});
+
+test('the assembled API gives a save listener the public id for its warning and the generation key for its edits', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const $applySaveEdits = vi.fn(async () => true);
+  let host: Awaited<ReturnType<typeof createTestExtensionApi>> | undefined;
+  try {
+    // The test extension's generation key is '1' and its public id `test.api`.
+    host = await createTestExtensionApi();
+    host.main.set(MainThreadDocumentsProxy, { $applySaveEdits } as unknown as MainThreadDocumentsShape);
+    const failure = new Error('fixture save failure');
+    host.api.workspace.onWillSaveTextDocument(() => { throw failure; });
+    host.api.workspace.onWillSaveTextDocument(event =>
+      event.waitUntil(Promise.resolve([TextEdit.insert(new Position(0, 0), 'new ')])));
+    const documents = host.main.getProxy(ExtHostDocumentsProxy);
+    await documents.$acceptDocumentDelta({ added: [{
+      id: 'model', uri: URI.parse('untitled:Untitled-1'), lines: ['text'], eol: '\n', version: 1, language: 'plaintext', dirty: false,
+    }] });
+    await documents.$participateInSave('model', 5, Date.now() + 1500, TextDocumentSaveReason.Manual, CancellationToken.None);
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith('[test.api] Save participant failed:', failure);
+    expect($applySaveEdits).toHaveBeenCalledExactlyOnceWith('1', 5, 1, expect.objectContaining({
+      operations: [{ text: 'new ', range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 } }],
+    }));
+  } finally {
+    host?.dispose();
     warn.mockRestore();
   }
 });

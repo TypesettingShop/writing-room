@@ -44,8 +44,10 @@ const basicsName = /^Uninstall Markdown Language Basics/;
 const browserName = /^Uninstall Simple Browser/;
 
 /**
- * The runtime accepts `documentPaste` and `externalUriOpener` without a proposal notice. The Markdown
- * language extension still declares four unsupported contribution points.
+ * The messages the workbench may log under the extension's own id, and no other. Four contribution points have no
+ * counterpart here: the notebook renderer, JSON validation and the preview's style and script points that other
+ * extensions use. The runtime accepts the proposals `documentPaste` and, for `vscode.simple-browser`,
+ * `externalUriOpener`, so neither extension gets a proposal notice (wr-yxz6.4qz).
  */
 const allowedMessages = [
   `info: [${featuresId}] contributes: Unsupported contributions: notebookRenderer, jsonValidation, markdown.previewStyles, markdown.previewScripts`,
