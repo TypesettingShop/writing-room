@@ -1,6 +1,6 @@
 import { selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { collectPageErrors, expect, test } from './fixtures.js';
-import { editorText, openFixtureEditor, openWithLanguageFeatures, runCommand } from './language-features.helpers.js';
+import { editorText, openFixtureEditor, openWithLanguageFeatures, runCommand, unregisterFixtureProviders } from './language-features.helpers.js';
 import {
   expectSymbolsOpen, NO_RESULTS, openFromPalette, openUntitledEditor, quickInputField, reportWorkspaceSymbols, symbolRow, symbolsField,
 } from './workspace-symbols.helpers.js';
@@ -167,7 +167,7 @@ test.describe('with the language feature fixture\'s providers', () => {
   });
 
   test('a removed provider\'s rows are gone', async ({ page }) => {
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await page.keyboard.press('ControlOrMeta+T');
     await expectSymbolsOpen(page);
     await expect(page.getByRole('option', { name: NO_RESULTS })).toBeVisible({ timeout: 15_000 });

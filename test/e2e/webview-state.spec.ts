@@ -97,10 +97,15 @@ for (const action of ['closing the panel', 'uninstalling its extension'] as cons
       await expect(page.getByRole('tab', { name: 'Restorable' })).toHaveCount(0);
     } else {
       await uninstallExtension(page, restoreOwner);
-      await page.keyboard.press('F1');
-      await page.getByRole('combobox').fill('Fixture: Open Restorable Webview');
-      await expect(page.getByRole('option', { name: 'Fixture: Open Restorable Webview', exact: true })).toHaveCount(0);
-      await page.keyboard.press('Escape');
+      // The contributions go once the host has deactivated the extension (wr-eycu.4bd), and the palette lists what
+      // was contributed when it opened, so it opens again until the command is gone.
+      await expect.poll(async () => {
+        await page.keyboard.press('F1');
+        await page.getByRole('combobox').fill('Fixture: Open Restorable Webview');
+        const count = await page.getByRole('option', { name: 'Fixture: Open Restorable Webview', exact: true }).count();
+        await page.keyboard.press('Escape');
+        return count;
+      }).toBe(0);
       expect(await savedIdentifiers(page)).toContain(restoreOwner);
     }
     expect(await stateText(page)).toBe(persisted);

@@ -8,6 +8,8 @@ import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { getKeybindingPlatform } from '../../../../base/common/keybindings.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
+import { forwardMonacoChordPrefix } from '../../../../editor/browser/monaco.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { InputFocusedContext } from '../../../../platform/contextkey/common/contextkeys.js';
@@ -37,6 +39,7 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
   constructor(
     @ICommandService commands: ICommandService,
     @IContextKeyService private readonly context: IContextKeyService,
+    @ICodeEditorService editors: ICodeEditorService,
   ) {
     super(commands, getKeybindingPlatform(window.navigator.platform));
     const inputFocus = InputFocusedContext.bindTo(context);
@@ -63,17 +66,29 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
         return;
       }
 
-      const target = event.composedPath()[0] ?? activeTarget();
+      const path = event.composedPath();
+      const target = path[0] ?? activeTarget();
       const typing = isTextInput(target);
       inputFocus.set(typing);
       // A pending chord owns the next key, so `ctrl+k z` completes (and swallows z) inside an editor too.
       if (typing && key.mightType && !this.inChordMode) {
         return;
       }
-      if (this.dispatch(key.chord, this.context.getContext(target))) {
-        event.preventDefault();
-        event.stopPropagation();
+      const result = this.dispatch(key.chord, this.context.getContext(target));
+      if (result === 'unhandled') {
+        return;
       }
+      // Monaco may finish an unmatched chord for a bubbling event on a registered editor's path, and then
+      // decides the default action. The key reaches nothing else either way.
+      let preventDefault = true;
+      if (result !== 'handled' && event.bubbles && target instanceof HTMLElement
+        && editors.listCodeEditors().some(editor => path.includes(editor.getContainerDomNode()))) {
+        preventDefault = forwardMonacoChordPrefix(result.unmatchedPrefix, event, target) ?? true;
+      }
+      if (preventDefault) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
     };
     inputFocus.set(isTextInput(activeTarget()));
     this._register(addDisposableListener(window, 'keydown', onKeyDown, true));

@@ -8,6 +8,8 @@ import { KeybindingResolver, ResultKind } from './keybindingResolver.js';
 import type { IKeybindingService, ResolvedKeybinding } from './keybinding.js';
 import { KeybindingsRegistry } from './keybindingsRegistry.js';
 
+type DispatchResult = 'unhandled' | 'handled' | { readonly unmatchedPrefix: KeyCodeChord };
+
 export abstract class AbstractKeybindingService extends Disposable implements IKeybindingService {
   declare readonly _serviceBrand: undefined;
   private readonly updated = this._register(new Emitter<void>());
@@ -40,21 +42,21 @@ export abstract class AbstractKeybindingService extends Disposable implements IK
     return this.pending !== undefined;
   }
 
-  protected dispatch(chord: KeyCodeChord, context: IContext): boolean {
+  protected dispatch(chord: KeyCodeChord, context: IContext): DispatchResult {
     const pending = this.pending;
     this.cancelChord();
     const match = this.getResolver().resolve(context, pending ?? chord, pending ? chord : undefined);
     if (match.kind === ResultKind.MoreChordsNeeded) {
       this.pending = chord;
       this.timer = setTimeout(() => this.cancelChord(), 5000);
-      return true;
+      return 'handled';
     }
     if (match.kind === ResultKind.KbFound) {
       const { id, args } = match.rule;
       void this.runCommand(id, args);
-      return true;
+      return 'handled';
     }
-    return pending !== undefined;
+    return pending ? { unmatchedPrefix: pending } : 'unhandled';
   }
 
   protected cancelChord(): void {
