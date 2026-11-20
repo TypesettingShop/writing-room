@@ -193,8 +193,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
 
   private async doResolve(): Promise<void> {
     const backup = await this.host.backups?.read(this.resource).catch(error => {
-      console.warn(`Could not read the backup of ${this.resource}.`, error);
-      return undefined;
+      throw new Error('The unsaved draft could not be read. Reopen the file or reload to try again.', { cause: error });
     });
     if (backup) {
       let orphaned = false;

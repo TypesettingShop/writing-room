@@ -19,7 +19,8 @@ const NOT_TEXT_FILE_SCHEMES: ReadonlySet<string> = new Set([Schemas.http, Schema
 
 /** Whether resources of `scheme` may open as text files, whether or not a provider serves it yet. */
 export function isTextFileScheme(scheme: string): boolean {
-  return scheme !== Schemas.untitled && !NOT_TEXT_FILE_SCHEMES.has(scheme);
+  const normalized = scheme.toLowerCase();
+  return normalized !== Schemas.untitled && !NOT_TEXT_FILE_SCHEMES.has(normalized);
 }
 
 /** Whether `resource` opens as a text file: a scheme the file service serves, other than those above. */
