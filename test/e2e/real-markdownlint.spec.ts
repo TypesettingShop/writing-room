@@ -117,9 +117,14 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
     await expect(problemsStatus(page, '0 errors, 3 warnings')).toBeVisible();
     await expect(activeGroup(page).locator('.squiggly-warning').first()).toBeVisible();
     expect(await activeGroup(page).locator('.squiggly-warning').count()).toBeGreaterThanOrEqual(3);
-    await page.mouse.move(0, 0);
-    await line(page, '##Bad').hover({ position: { x: 8, y: 5 } });
-    await expect(hoverWidget(page)).toContainText('MD018/no-missing-space-atx');
+    // Rested on again until the hover shows: on a busy machine the first rest can end before the hover's delay.
+    await expect.poll(async () => {
+      if (!await hoverWidget(page).isVisible()) {
+        await page.mouse.move(0, 0);
+        await line(page, '##Bad').hover({ position: { x: 8, y: 5 } });
+      }
+      return hoverWidget(page).innerText({ timeout: 2_000 }).catch(() => '');
+    }, { timeout: 20_000, intervals: [1_000] }).toContain('MD018/no-missing-space-atx');
     await page.mouse.move(0, 0);
   });
 
