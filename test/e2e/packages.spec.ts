@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
-  blockStorage, changeFixtureState, enterLocation, expectFixtureState, failStorageWrites, fixtureOrigin, installedKey,
-  installStateFixture, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers, savedRecords, sessionOnlyNotice,
-  watchExtensionFailures,
+  blockStorage, changeFixtureState, countPrompts, enterLocation, expectFixtureState, failStorageWrites, fixtureOrigin,
+  installedKey, installStateFixture, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers, savedRecords,
+  sessionOnlyNotice, watchExtensionFailures,
 } from './packages.helpers.js';
 
 test('two tabs that install different extensions at once both keep their records', async ({ context }) => {
@@ -148,15 +148,17 @@ test('a window that blocks site data can write, read and clear an installed exte
   const failures = watchExtensionFailures(page);
   await blockStorage(page);
   await page.goto('/');
-  await installStateFixture(page);
+  await installStateFixture(page, failures);
   await expectFixtureState(page, 'initial');
   await changeFixtureState(page);
   await expectFixtureState(page, 'changed');
 
+  // The removal finishes after the picker closes, and the next command's palette replaces its failure prompt.
+  const uninstallFailures = await countPrompts(page, 'Could not uninstall extension');
   await uninstall(page, /State Storage Fixture.*writing-room-tests\.state-storage/);
-  await expect(page.getByRole('combobox', { name: 'Could not uninstall extension' })).toHaveCount(0);
   // Installation waits for the pending removal and refuses if its record is still present.
-  await installStateFixture(page);
+  await installStateFixture(page, failures);
+  expect(await uninstallFailures()).toBe(0);
   await expectFixtureState(page, 'initial');
   expect(failures).toEqual([]);
 });
@@ -165,7 +167,7 @@ test('a tab with blocked localStorage can write and read an installed extensionâ
   const failures = watchExtensionFailures(page);
   await blockStorage(page, { storageOnly: true });
   await page.goto('/');
-  await installStateFixture(page);
+  await installStateFixture(page, failures);
   await expectFixtureState(page, 'initial');
   await changeFixtureState(page);
   await expectFixtureState(page, 'changed');
@@ -188,7 +190,7 @@ test('a tab that falls back after a localStorage write fails can activate and sa
     })(),
   ]);
 
-  await installStateFixture(page);
+  await installStateFixture(page, failures);
   await expectFixtureState(page, 'initial');
   await changeFixtureState(page);
   await expectFixtureState(page, 'changed');
