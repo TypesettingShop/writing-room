@@ -1,9 +1,23 @@
 import { selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
-import { expect, test } from './fixtures.js';
+import { collectPageErrors, expect, test } from './fixtures.js';
 import { editorText, openFixtureEditor, openWithLanguageFeatures, runCommand } from './language-features.helpers.js';
 import {
   expectSymbolsOpen, NO_RESULTS, openFromPalette, openUntitledEditor, quickInputField, reportWorkspaceSymbols, symbolRow, symbolsField,
 } from './workspace-symbols.helpers.js';
+
+// An intentional provider exception must include its extension id. The preview build minifies the adapter name.
+const providerError = /^\[fixtures\.language-features\] [\w$]+ failed: Error: The echo symbol provider failed on purpose\.$/;
+const throwingProviderTest = test.extend({
+  pageErrors: async ({ page }, use) => {
+    const collector = collectPageErrors(page);
+    try {
+      await use(collector.errors);
+      expect(collector.errors.map(error => error.split('\n', 1)[0]), 'Browser page errors and console errors').toEqual([expect.stringMatching(providerError)]);
+    } finally {
+      collector.stop();
+    }
+  },
+});
 
 test('the palette lists Go to Symbol in Workspace with its key, and it opens with # and no provider says so', async ({ appPage: page }) => {
   await page.keyboard.press('F1');
@@ -129,11 +143,12 @@ test.describe('with the language feature fixture\'s providers', () => {
     await expect.poll(() => reportWorkspaceSymbols(page), { timeout: 15_000 }).toMatch(/; cancelled [1-9]\d*;/);
   });
 
-  test('a provider that throws does not keep the other provider\'s rows away', async ({ page }) => {
+  throwingProviderTest('a provider that throws does not keep the other provider\'s rows away', async ({ page, pageErrors }) => {
     await runCommand(page, 'Language Features: Throwing Workspace Symbols');
     await page.keyboard.press('ControlOrMeta+T');
     await expectSymbolsOpen(page);
-    await symbolsField(page).pressSequentially('alpha');
+    await symbolsField(page).fill('#alpha');
+    await expect.poll(() => pageErrors.some(error => providerError.test(error.split('\n', 1)[0]))).toBe(true);
     await expect(symbolRow(page, '# Alpha intro')).toBeVisible({ timeout: 15_000 });
     await expect(symbolRow(page, /^query:/)).toHaveCount(0);
   });

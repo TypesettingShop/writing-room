@@ -40,6 +40,7 @@ context.subscriptions.push(vscode.languages.registerHoverProvider({ language: 'm
 
 ## 편집을 내는 기능
 
+- 선택 서식은 편집기에 포커스를 두고 `Ctrl+K`에 이어 `Ctrl+F`를 누른다(macOS는 `⌘K`에 이어 `⌘F`). 범위 서식 제공자가 있는 쓰기 가능한 편집기에서 동작한다.
 - 서식: 편집은 제공자가 읽은 문서 버전을 달고 온다. Monaco가 물을 때의 버전과 다르거나 그 사이 모델이 바뀌었으면 통째로 버린다. 범위 서식은 고른 범위 밖을 건드리는 편집도 적용한다(upstream과 같다). 같은 종류의 제공자가 여럿이면 Monaco가 고른다.
 - 코드 액션과 이름 바꾸기: Monaco에 편집을 주지 않는다. 확장 호스트가 「문서·에디터 API」의 묶음 편집(`$applyWorkspaceEdit`: 확장 권한, 읽기 전용, 버전 검사, 열리지 않은 파일은 열고 고치고 저장)으로 요청 때의 버전에서 적용한다. 코드 액션의 커맨드는 편집이 적용된 뒤에만 돈다. 편집이 거부되면 커맨드는 돌지 않고 "The code action could not be applied" 알림이 뜬다. 편집이 없는 액션은 고를 때 해결한다.
 - 이름 바꾸기의 `prepareRename` 범위와 자리표시 글, 던진 메시지(거부 사유)가 Monaco의 입력 칸과 인라인 메시지로 간다.
@@ -95,4 +96,4 @@ Monaco 독립 실행형에 화면이 없는 제공자다. 등록은 받아 `Disp
 - 받기만 하는 제공자 아홉은 불리지 않는다(위 표) (wr-c9d8.kxn).
 - 저장할 때 서식과 코드 액션, 리팩터링 미리 보기, 붙여넣기 서식이 없다 (wr-c9d8.08x).
 
-Decided in: wr-efqx.n9k, wr-c9d8, wr-c9d8.7u8, wr-c9d8.w6j, wr-c9d8.08x, wr-c9d8.rj2, wr-c9d8.qq0, wr-c9d8.kxn
+Decided in: wr-efqx.n9k, wr-c9d8, wr-c9d8.7u8, wr-c9d8.w6j, wr-c9d8.08x, wr-c9d8.rj2, wr-c9d8.qq0, wr-c9d8.kxn, wr-ykn8
