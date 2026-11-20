@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import 'fake-indexeddb/auto';
 import { afterEach, expect, test, vi } from 'vitest';
+import { IndexedDB } from '../../../../../base/browser/indexedDB.js';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { ZipArchive } from '../../../../../base/common/zip.js';
@@ -8,7 +9,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import type { GalleryDownload, GalleryExtensionVersion } from '../../../../../platform/extensionManagement/common/extensionGalleryService.js';
 import { createVsix, sampleManifest } from '../../../../../platform/extensionManagement/test/common/vsixTestUtils.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
-import { BrowserFileDatabase, FILE_DATABASE_NAME, FILE_DATABASE_VERSION, IndexedDBFileSystemProvider } from '../../../../../platform/files/browser/indexedDBFileSystemProvider.js';
+import { BrowserFileDatabase, FILE_DATABASE_VERSION, IndexedDBFileSystemProvider } from '../../../../../platform/files/browser/indexedDBFileSystemProvider.js';
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../../platform/files/common/files.js';
 import type { IFileSystemProvider } from '../../../../../platform/files/common/files.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
@@ -677,10 +678,9 @@ test('refuses the record when the storage falls back while the package folder mo
 
 test.each([false, true])('rejects an install after IndexedDB falls back (list also falls back: %s)', async listAlsoFallsBack => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
-  const idb = new IDBFactory();
-  vi.stubGlobal('indexedDB', idb);
-  vi.stubGlobal('IDBKeyRange', IDBKeyRange);
-  const filesDatabase = new BrowserFileDatabase();
+  const name = 'extension-package-lifetime-' + crypto.randomUUID();
+  const stores = [Schemas.vscodeUserData, Schemas.vscodeVfs];
+  const filesDatabase = new BrowserFileDatabase(() => IndexedDB.open(name, FILE_DATABASE_VERSION, stores));
   const provider = new IndexedDBFileSystemProvider(filesDatabase, Schemas.vscodeUserData);
   const database = new FallibleDatabase();
   const storage = new InMemoryStorageService(database);
@@ -689,15 +689,8 @@ test.each([false, true])('rejects an install after IndexedDB falls back (list al
   const discard = vi.spyOn(packages, 'discard');
   const confirm = async (confirmation: PackageInstallConfirmation) => {
     expect(confirmation.persistent).toBe(true);
-    await new Promise<void>((resolve, reject) => {
-      const request = idb.open(FILE_DATABASE_NAME, FILE_DATABASE_VERSION + 1);
-      request.onsuccess = () => {
-        request.result.close();
-        resolve();
-      };
-      request.onerror = () => reject(request.error);
-      request.onblocked = () => reject(new Error('The first connection did not close after versionchange.'));
-    });
+    const otherConnection = await IndexedDB.open(name, FILE_DATABASE_VERSION + 1, stores);
+    otherConnection.dispose();
     if (listAlsoFallsBack) {
       fallBack(storage, database);
     }
@@ -718,7 +711,6 @@ test.each([false, true])('rejects an install after IndexedDB falls back (list al
     provider.dispose();
     filesDatabase.dispose();
     storage.dispose();
-    vi.unstubAllGlobals();
   }
 });
 
