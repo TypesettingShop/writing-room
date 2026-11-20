@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
+import { diagnostics, openSettings, settingsKey } from './configuration.helpers.js';
+import { collectPageErrors } from './fixtures.js';
 
 async function openCommandPalette(page: Page) {
   await page.keyboard.press('F1');
@@ -34,9 +36,8 @@ test('runs mutually activating commands and keeps the API available during unins
   const deactivated = page.waitForEvent('console', { predicate: message => message.text() === 'Lifecycle deactivated: first' });
   await page.getByRole('option', { name: /test.runtime-first/ }).click();
   await deactivated;
-  const after = await openCommandPalette(page);
-  await after.fill('Run Runtime Lifecycle');
-  await expect(page.getByText('Run Runtime Lifecycle', { exact: true })).toHaveCount(0);
+  // The contributions go after deactivate and the subscriptions, so the palette opened at once can still list it.
+  await expectNoCommand(page, 'Run Runtime Lifecycle');
 });
 
 async function runRuntimeCommand(page: Page, title: string) {
@@ -135,3 +136,77 @@ for (const installedFrom of ['folder', 'package'] as const) {
     )).toBeVisible();
   });
 }
+
+/** The palette lists what was contributed when it opened, and contributions go once the host has deactivated. */
+async function expectNoCommand(page: Page, title: string) {
+  await expect.poll(async () => {
+    const input = await openCommandPalette(page);
+    await input.fill(title);
+    const count = await page.getByRole('option', { name: title, exact: true }).count();
+    await input.press('Escape');
+    return count;
+  }).toBe(0);
+}
+
+test('lets a subscription use the API while an uninstalled extension disposes it', async ({ page }) => {
+  await seedInstalledExtensions(page, [{
+    location: extensionFixtureLocation('runtime') + 'cleanup/',
+    manifest: {
+      name: 'runtime-cleanup', publisher: 'test', version: '1.0.0', browser: './extension.js',
+      contributes: { commands: [{ command: 'runtime.cleanup.ping', title: 'Ping Runtime Cleanup' }] },
+    },
+  }]);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Ping Runtime Cleanup');
+    await expect(page.getByText('Runtime cleanup is active')).toBeVisible();
+    const disposal = page.waitForEvent('console', {
+      predicate: message => message.text().startsWith('Runtime cleanup disposed')
+        || message.text().includes('Subscription disposal failed'),
+    });
+    await runRuntimeCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /test.runtime-cleanup/ }).click();
+    expect((await disposal).text()).toMatch(/^Runtime cleanup disposed after reading \d+ workspace folders$/);
+    await expectNoCommand(page, 'Ping Runtime Cleanup');
+    expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
+});
+
+test('removes the contributions of an uninstalled extension only after it is deactivated', async ({ page }) => {
+  await seedInstalledExtensions(page, [{
+    location: extensionFixtureLocation('runtime') + 'settings/',
+    manifest: {
+      name: 'runtime-settings', publisher: 'test', version: '1.0.0', browser: './extension.js',
+      contributes: {
+        commands: [{ command: 'runtime.settings.show', title: 'Show Runtime Settings' }],
+        configuration: { properties: { 'runtimeRemoval.server.level': { type: 'string', default: 'off' } } },
+      },
+    },
+  }]);
+  await page.addInitScript(key => {
+    if (!sessionStorage.getItem('runtime-settings-seeded')) {
+      localStorage.setItem(key, '{\n  "runtimeRemoval.server.level": "verbose"\n}\n');
+      sessionStorage.setItem('runtime-settings-seeded', 'true');
+    }
+  }, settingsKey);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Show Runtime Settings');
+    await expect(page.getByText('Runtime settings level: verbose')).toBeVisible();
+    await openSettings(page);
+    await expect(diagnostics(page)).toHaveCount(0);
+
+    // wr-eycu.4bd: the settings listener of a removed extension must not see its section disappear.
+    await runRuntimeCommand(page, 'Uninstall Extension...');
+    await page.getByRole('option', { name: /test.runtime-settings/ }).click();
+    await expect(diagnostics(page)).not.toHaveCount(0);
+    await expectNoCommand(page, 'Show Runtime Settings');
+    expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
+});
