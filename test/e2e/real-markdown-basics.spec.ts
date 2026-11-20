@@ -197,6 +197,8 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
   });
 
   await test.step('Use the language: mode, grammar, configuration and the bold snippet', async () => {
+    await show(page, 'notes.markdn');
+    await expect(languageStatus(page)).toHaveText('Markdown');
     await show(page, 'README.md');
     await expect(languageStatus(page)).toHaveText('Markdown');
     await expect.poll(() => color(page, 'Plain body'), { timeout: 20_000 }).toBe(textMateText);
@@ -286,13 +288,9 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
     await expect(languageStatus(page)).toHaveText('Markdown');
     await expect.poll(() => color(page, 'Plain body'), { timeout: 20_000 }).toBe(builtinText);
     await expect.poll(() => tokenStyle(page, 'Title')).toEqual({ color: builtinHeading, fontWeight: '400' });
-    // Opened again, so that only the language registry decides (an open model keeps its language: wr-jbmd report).
     await show(page, 'later.markdn');
-    await page.keyboard.press('ControlOrMeta+w');
-    await expect(tab(page, 'later.markdn')).toHaveCount(0);
-    await page.keyboard.press('ControlOrMeta+Shift+e');
-    await treeItem(page, 'later.markdn').dblclick();
-    await expect(tab(page, 'later.markdn')).toHaveAttribute('aria-selected', 'true');
+    await expect(languageStatus(page)).toHaveText('Plain Text');
+    await show(page, 'notes.markdn');
     await expect(languageStatus(page)).toHaveText('Plain Text');
     await show(page, 'edit.md');
     await expectStarOverWord(page, '*');
