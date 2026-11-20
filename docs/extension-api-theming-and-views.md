@@ -2,7 +2,7 @@
 
 테마, 색, 트리 뷰와 상태 표시줄의 지원 범위는 이 페이지에 기록한다. 현재 공개된 API와 기여는 [확장 API](extension-api.md)에 있다.
 
-Decided in: wr-efqx.n9k
+Decided in: wr-efqx.n9k, wr-lnox
 
 ## 색 테마와 색 레지스트리
 
@@ -74,7 +74,7 @@ Decided in: wr-efqx.n9k
 - 테마를 적용하면 워크벤치 컨테이너(`.monaco-workbench`)에 등록된 모든 색과 테마가 준 미등록 id의 색을 CSS 변수로 걸고, 종류 클래스(`vs`, `vs-dark`, `hc-black`, `hc-light`) 하나를 단다. 밝은 종류(`vs`, `hc-light`)에서는 `color-scheme`이 `light`가 된다.
 - Monaco: 기본 어두운 테마는 `vs-dark`. 그 밖의 테마는 `writing-room-theme`이라는 한 이름으로 `defineTheme`(base는 종류에 따라 `vs`/`vs-dark`/`hc-black`/`hc-light`, `inherit: true`, 테마가 준 검증된 색, `tokenColors`의 단순 범위(`comment`, `string.quoted`)를 규칙으로)한 뒤 `setTheme`한다. Monaco는 늦게 로드되므로 로드되는 순간(첫 에디터가 생기기 전)과 테마가 바뀔 때 준다.
 - Monaco 적용은 `onDidColorThemeChange`보다 먼저, 같은 흐름 안에서 끝난다. TextMate 토큰화가 그 이벤트 뒤에 Monaco의 색 표를 읽고 테마의 `tokenColors` 전체로 문법 토큰을 칠한다.
-- `onDidColorThemeChange`는 테마가 바뀔 때 한 번 난다. 확장 서비스는 테마가 바뀔 때마다 모든 기여를 다시 적용하는데, 내용이 같은 `themes` 기여는 아무 이벤트도 내지 않는다.
+- `onDidColorThemeChange`는 테마가 바뀔 때 한 번 난다. 확장 서비스는 테마가 바뀔 때마다 모든 기여를 다시 적용하는데, 내용이 같은 `themes` 기여는 아무 이벤트도 내지 않는다. 적용 도중 테마가 바뀌면 현재 차례가 끝난 뒤 새 테마로 다시 적용하고, 그 결과를 한 번 알린다.
 - 고른 테마의 파일은 비동기로 읽힌다. 읽는 사이 다른 테마를 고르면 늦게 온 결과는 성공이라도 버린다.
 
 ### 고르기와 물러서기
