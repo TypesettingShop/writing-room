@@ -122,6 +122,17 @@ test('drags an item to another parent with the values handleDrag put in, and tak
   await expect(eventLog(page)).toContainText('Dropped file: notes.txt (5 bytes)');
 });
 
+test('delivers every outside file of the same MIME type in drop order', async ({ page }) => {
+  await openTreeFixture(page);
+  expect(await dropFromOutside(item(page, 'Inbox'), 'outside text',
+    { name: 'first.png', content: 'first', type: 'image/png' },
+    { name: 'second.png', content: 'second', type: 'image/png' },
+    { name: 'first', content: 'first' },
+    { name: 'second', content: 'second' },
+  )).toBe(true);
+  await expect(eventLog(page)).toContainText(/Dropped file: first\.png \(5 bytes\)[\s\S]*Dropped file: second\.png \(6 bytes\)[\s\S]*Dropped file: first \(5 bytes\)[\s\S]*Dropped file: second \(6 bytes\)/);
+});
+
 test('Escape ends a tree drag, and tree, tab and editor drags do not land on each other', async ({ page }) => {
   await openTreeFixture(page);
   const dropTarget = page.locator('.drop-target');

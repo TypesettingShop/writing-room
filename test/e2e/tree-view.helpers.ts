@@ -54,12 +54,20 @@ export async function dragOver(page: Page, to: Locator): Promise<void> {
   await page.mouse.move(point.x, point.y);
 }
 
-/** Dispatches a drop from outside the window on `target`, carrying `text` and a file. */
-export function dropFromOutside(target: Locator, text: string, file: { name: string; content: string }): Promise<boolean> {
-  return target.evaluate((element, { text, file }) => {
+interface DroppedFile {
+  name: string;
+  content: string;
+  type?: string;
+}
+
+/** Dispatches a drop from outside the window on `target`, carrying `text` and files. */
+export function dropFromOutside(target: Locator, text: string, ...files: DroppedFile[]): Promise<boolean> {
+  return target.evaluate((element, { text, files }) => {
     const data = new DataTransfer();
     data.setData('text/plain', text);
-    data.items.add(new File([file.content], file.name));
+    for (const file of files) {
+      data.items.add(new File([file.content], file.name, { type: file.type }));
+    }
     const bounds = element.getBoundingClientRect();
     const init = { bubbles: true, cancelable: true, dataTransfer: data, clientX: bounds.left + 5, clientY: bounds.top + 5 };
     element.dispatchEvent(new DragEvent('dragenter', init));
@@ -67,5 +75,5 @@ export function dropFromOutside(target: Locator, text: string, file: { name: str
     element.dispatchEvent(over);
     element.dispatchEvent(new DragEvent('drop', init));
     return over.defaultPrevented;
-  }, { text, file });
+  }, { text, files });
 }
