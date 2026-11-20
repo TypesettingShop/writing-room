@@ -1,5 +1,6 @@
 interface CodeActionTrigger {
   readonly type: number;
+  readonly triggerAction?: string;
 }
 
 interface CodeActionState {
@@ -18,7 +19,8 @@ interface CodeActionModel {
 }
 
 interface PendingManual {
-  refresh?: CodeActionTrigger;
+  readonly deadline: number;
+  deferred?: { trigger: CodeActionTrigger; readonly timer: ReturnType<typeof setTimeout> };
 }
 
 interface TrackedState {
@@ -31,6 +33,9 @@ interface TrackedState {
 const triggered = 1;
 const invoke = 1;
 const auto = 2;
+const manualPriorityMs = 5_000;
+// CodeActionTriggerSource.Default in Monaco's automatic cursor and marker queries.
+const automaticRefresh: CodeActionTrigger = { type: auto, triggerAction: 'other (default)' };
 
 const installed = new WeakSet<object>();
 
@@ -79,30 +84,49 @@ export function installCodeActionStateOrder(prototype: unknown): void {
     if (previous?.state === state && !skipNotify) {
       return;
     }
-    if (!skipNotify && request?.trigger.type === auto && previous?.pendingManual) {
-      previous.pendingManual.refresh = request.trigger;
-      discard(request);
-      return;
+    const pending = previous?.pendingManual;
+    if (!skipNotify && request?.trigger.type === auto && previous && pending) {
+      const remaining = pending.deadline - performance.now();
+      if (remaining > 0) {
+        if (pending.deferred) {
+          pending.deferred.trigger = request.trigger;
+        } else {
+          const timer = setTimeout(() => {
+            const deferred = pending.deferred;
+            if (deferred && states.get(this) === previous && previous.pendingManual === pending) {
+              previous.pendingManual = undefined;
+              // The earlier result may have been replaced. Query again with normal Monaco priority.
+              this.trigger(deferred.trigger);
+            }
+          }, remaining);
+          pending.deferred = { trigger: request.trigger, timer };
+        }
+        discard(request);
+        return;
+      }
     }
 
+    clearTimeout(pending?.deferred?.timer);
     // Monaco uses skipNotify for the empty state it sets on disposal.
     const current: TrackedState = { state, disposed: skipNotify === true };
     states.set(this, current);
     if (!skipNotify && request?.trigger.type === invoke) {
-      const pending: PendingManual = {};
-      current.pendingManual = pending;
+      const manual: PendingManual = { deadline: performance.now() + manualPriorityMs };
+      current.pendingManual = manual;
       const finish = () => {
-        current.pendingManual = undefined;
-        const refresh = pending.refresh;
-        if (refresh) {
-          // Give Monaco's controller the first chance to consume the manual result. The automatic
-          // result computed earlier may already have been disposed when the manual one replaced it.
-          queueMicrotask(() => {
-            if (states.get(this) === current) {
-              this.trigger(refresh);
-            }
-          });
+        if (states.get(this) !== current || current.pendingManual !== manual) {
+          return;
         }
+        current.pendingManual = undefined;
+        clearTimeout(manual.deferred?.timer);
+        const refresh = manual.deferred?.trigger ?? automaticRefresh;
+        // Give the controller the first chance to consume the manual result. Monaco may already
+        // have started an automatic query whose 500ms setState delay has not elapsed yet.
+        queueMicrotask(() => {
+          if (states.get(this) === current) {
+            this.trigger(refresh);
+          }
+        });
       };
       void request.actions.then(finish, finish);
     }

@@ -105,20 +105,74 @@ describe('code action state order', () => {
     expect(model.state).toBe(empty);
   });
 
-  it('passes automatic requests through after a manual result settled and over other automatic requests', async () => {
+  it('refreshes when Monaco has started an automatic query but has not set its state yet', async () => {
     const model = new Model();
     const manual = manualRequest();
     const first = automaticRequest();
     const second = automaticRequest();
 
     model.setState(manual);
+    // Monaco computed this automatic result while the manual request was current. Its delayed
+    // setState will arrive after the manual result has replaced it in the shared result cache.
+    await first.result.complete('old automatic actions');
     await manual.result.complete('manual actions');
+    await Promise.resolve();
+    expect(model.refreshed.mock.calls).toEqual([[{ type: 2, triggerAction: 'other (default)' }, ['manual actions']]]);
+
     model.setState(first);
     model.setState(second);
     expect(model.notifications).toEqual([manual, first, second]);
     expect(first.cancel).toHaveBeenCalledOnce();
     expect(second.cancel).not.toHaveBeenCalled();
-    expect(model.refreshed).not.toHaveBeenCalled();
+  });
+
+  it('lets the latest held automatic request take over after five seconds with no further cursor event', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    try {
+      const model = new Model();
+      const manual = manualRequest();
+      const first = automaticRequest();
+      const latest = automaticRequest();
+      model.setState(manual);
+      vi.advanceTimersByTime(1_000);
+      model.setState(first);
+      vi.advanceTimersByTime(3_000);
+      model.setState(latest);
+      vi.advanceTimersByTime(999);
+      expect(model.state).toBe(manual);
+      expect(model.refreshed).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(model.refreshed).toHaveBeenCalledExactlyOnceWith(latest.trigger, []);
+      expect(latest.cancel).toHaveBeenCalledOnce();
+
+      const refreshed = { ...automaticRequest(), trigger: latest.trigger };
+      model.setState(refreshed);
+      expect(model.state).toBe(refreshed);
+      expect(manual.cancel).toHaveBeenCalledOnce();
+      await manual.result.complete('obsolete');
+      await Promise.resolve();
+      expect(model.refreshed).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the takeover timer when a new manual request replaces the old one', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    try {
+      const model = new Model();
+      model.setState(manualRequest());
+      model.setState(automaticRequest());
+      const replacement = manualRequest();
+      model.setState(replacement);
+      vi.advanceTimersByTime(5_000);
+      expect(model.state).toBe(replacement);
+      expect(model.refreshed).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refreshes after a manual rejection and observes rejections of discarded automatic results', async () => {

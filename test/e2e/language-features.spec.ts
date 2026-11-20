@@ -148,6 +148,7 @@ test.describe('hover', () => {
 test.describe('signature help', () => {
   test('marks the active parameter as the arguments are typed', async ({ page }) => {
     await pasteText(page, 'snip');
+    await expect.poll(() => editorText(page)).toBe('snip');
     await page.keyboard.press('End');
     await page.keyboard.type('(');
     await expect(parameterHints(page)).toBeVisible({ timeout: 10_000 });
@@ -235,13 +236,11 @@ test.describe('code actions', () => {
     expect(await editorText(page)).toBe('fix teh word\nplain line');
   });
 
-  test('automatic code actions wait for a slow Organize Imports and refresh the light bulb', async ({ page }) => {
+  test('refreshes the light bulb when an automatic state arrives after Organize Imports settles', async ({ page }) => {
+    // The fixture changes a marker and releases the manual reply after the first automatic query.
     // An indented line has space for Monaco's inline bulb.
-    await onTypo(page, 'sloworganize', '    ');
+    await onTypo(page, 'lateautoorganize', '    ');
     await page.keyboard.press('Shift+Alt+o');
-    await expect(message(page, 'Slow Organize Imports started')).toBeVisible({ timeout: 10_000 });
-    // A same-line cursor move schedules an automatic request while the manual one is pending.
-    await page.keyboard.press('ArrowRight');
     await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
     const lightBulb = activeGroup(page).getByRole('listbox', { name: /^Show Code Actions/ });
     await expect(lightBulb).toBeVisible({ timeout: 10_000 });
@@ -249,6 +248,15 @@ test.describe('code actions', () => {
     await expect(lightBulb).toBeHidden({ timeout: 10_000 });
     await expect.poll(() => reportEdits(page), { timeout: 15_000 })
       .toMatch(/organize imports cancelled 0; code actions cached 0$/);
+  });
+
+  test('automatic code actions take over when Organize Imports never replies', async ({ page }) => {
+    await onTypo(page, 'stalledorganize', '    ');
+    const lightBulb = activeGroup(page).getByRole('listbox', { name: /^Show Code Actions/ });
+    await expect(lightBulb).toBeHidden();
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(lightBulb).toBeVisible({ timeout: 12_000 });
+    await expect.poll(() => reportEdits(page), { timeout: 10_000 }).toContain('organize imports cancelled 1;');
   });
 
   test('a new Organize Imports still cancels a pending one at the extension host', async ({ page }) => {
