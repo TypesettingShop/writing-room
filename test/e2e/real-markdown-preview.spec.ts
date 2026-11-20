@@ -627,6 +627,24 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     // Monaco marks a provider's highlights `wordHighlight`/`wordHighlightStrong`, its own word matches `wordHighlightText`.
     const highlights = (kind: 'provider' | 'textual') => activeGroup(page).locator(kind === 'provider'
       ? '.view-overlays .wordHighlight, .view-overlays .wordHighlightStrong' : '.view-overlays .wordHighlightText').count();
+    const waitForLinkHighlights = async (kind: 'provider' | 'textual', minimum: number) => {
+      await expect(async () => {
+        // Monaco debounces the caret move by 50 ms and clears highlights at Home, where there is no word.
+        await activeEditor(page).focus();
+        await page.keyboard.press('ControlOrMeta+Home');
+        // A click inside an existing highlight reuses it, even if provider registration has changed.
+        await expect.poll(async () => await highlights('provider') + await highlights('textual'), {
+          message: 'Previous occurrence highlights clear at the start of the document',
+          timeout: 3_000,
+        }).toBe(0);
+        await caretOn(page, '#section-renamed', 3);
+        // Leave the caret on the link while Monaco queries and renders. Moving it again would clear the result.
+        await expect.poll(() => highlights(kind), {
+          message: `${kind} occurrence highlights appear with the caret on the link`,
+          timeout: 3_000,
+        }).toBeGreaterThanOrEqual(minimum);
+      }).toPass({ timeout: 20_000 });
+    };
     await caretOn(page, '#section-renamed', 3);
     await expect.poll(() => highlights('textual')).toBeGreaterThan(0);
     expect(await highlights('provider')).toBe(0);
@@ -646,12 +664,8 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await hidePanel(page);
     await show(page, 'notes.md');
     const renamed = await editorText(page);
-    // The provider's highlights: the header and the link to it. The client registers the provider when the setting
-    // reaches it, and Monaco asks again only when the caret moves: the caret is put there again until they show.
-    await expect.poll(async () => {
-      await caretOn(page, '#section-renamed', 3);
-      return highlights('provider');
-    }, { intervals: [1_000] }).toBeGreaterThan(1);
+    // The server registers its provider when it receives the setting. A fresh caret move queries for the header and link.
+    await waitForLinkHighlights('provider', 2);
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
     await page.keyboard.press('Control+Space');
@@ -672,11 +686,8 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await expect(problemItems(page).filter({ hasText: 'missing.md' })).toHaveCount(0);
     await hidePanel(page);
     await show(page, 'notes.md');
-    // Unregistered with the setting: Monaco's own word matches come back.
-    await expect.poll(async () => {
-      await caretOn(page, '#section-renamed', 3);
-      return highlights('textual');
-    }, { intervals: [1_000] }).toBeGreaterThan(0);
+    // The server unregisters its provider when it receives the setting. A fresh query falls back to Monaco's word matches.
+    await waitForLinkHighlights('textual', 1);
     expect(await highlights('provider')).toBe(0);
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
