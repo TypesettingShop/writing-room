@@ -109,7 +109,10 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
     private readonly diagnosticsSource?: DiagnosticsSource,
   ) {}
 
-  /** The diagnostics there are for `resource`; none on a host without the diagnostics area. */
+  /**
+   * The diagnostics there are for `resource`; none when no source was given (a test host). The area's
+   * registration always gives the diagnostics area's service, which every extension host has.
+   */
   diagnostics(resource: vscode.Uri): readonly vscode.Diagnostic[] {
     return this.diagnosticsSource?.getDiagnostics(resource) ?? [];
   }

@@ -222,7 +222,7 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
   const disposables: IDisposable[] = [];
   return {
     ...fake, host, features: host.features, workbench, seam: workbench.seam, api, live, sent, documents, executed, main, worker, bulkEdits, warnings,
-    apiCommands, followed, diagnostics: diagnostics!,
+    apiCommands, followed, diagnostics,
     document: (uri: URI) => documents.getByUri(uri as unknown as vscode.Uri)!,
     dispose: () => {
       for (const disposable of disposables) {

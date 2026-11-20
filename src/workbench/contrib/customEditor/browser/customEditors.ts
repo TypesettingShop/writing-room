@@ -89,6 +89,7 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
       throw new Error(`A custom editor provider is already registered for '${viewType}'.`);
     }
     this.providers.set(viewType, provider);
+    this.resolveWaiting(viewType);
     return toDisposable(() => {
       if (this.providers.get(viewType) === provider) {
         this.providers.delete(viewType);
@@ -124,7 +125,8 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
         if (info && !this.extensions.activationEventIsDone(activationEvent(info.id))) {
           // The activation did not finish: the extension host stopped under it (the page is going, the
           // host failed). The provider is not missing; the editor waits and resolves when it is next
-          // shown. Falling back here would put the text editor in the state the page is about to save.
+          // shown, or, visible, when the provider registers again (`resolveWaiting`). Falling back here
+          // would put the text editor in the state the page is about to save.
           input.resetResolution();
           return;
         }
@@ -143,6 +145,20 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
       await provider.resolve(input, token);
       input.completeResolution(generation);
     })().catch(error => input.completeResolution(generation, 'The custom editor could not be opened: ' + describeError(error)));
+  }
+
+  /**
+   * Editors of `viewType` left waiting by `resolve` when their extension host stopped before the
+   * extension woke: nothing shows a visible one again, so it resolves now that a provider is here (after
+   * Restart Extension Host, say). A hidden one resolves when it is shown.
+   */
+  private resolveWaiting(viewType: string): void {
+    const waiting = this.groups.groups.flatMap(group => group.editors).filter((editor): editor is CustomEditorInput =>
+      editor instanceof CustomEditorInput && editor.viewType === viewType
+      && editor.resolutionState === CustomEditorResolution.Pending && editor.webview.isVisible);
+    for (const input of new Set(waiting)) {
+      queueMicrotask(() => this.resolve(input));
+    }
   }
 
   /** Wakes the extension behind `viewType` and gives what it registered, if it did. */

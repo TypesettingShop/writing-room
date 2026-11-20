@@ -9,7 +9,7 @@ import type {
 } from './extHost.protocol.languageFeatures.js';
 import { CodeActionKind } from './extHostCommonTypes.js';
 import { toMarkerData } from './extHostDiagnosticTypes.js';
-import { Selection } from './extHostEditorTypes.js';
+import { Range, Selection } from './extHostEditorTypes.js';
 import { isCommand, isRange, selectorToDto, textEditsToDto, workspaceEditToOperations } from './extHostLanguageConverters.js';
 import type { ExtHostLanguageFeatures, LanguageFeatureGroup } from './extHostLanguageFeatures.js';
 import { CodeAction, CodeActionTriggerKind } from './extHostLanguageFeatureTypes.js';
@@ -133,11 +133,25 @@ function triggerCharacters(values: readonly unknown[]): string[] {
 function contextDiagnostics(all: readonly vscode.Diagnostic[], range: vscode.Range): vscode.Diagnostic[] {
   const diagnostics: vscode.Diagnostic[] = [];
   for (const diagnostic of all) {
-    if (range.intersection(diagnostic.range) && diagnostics.push(diagnostic) >= MAX_DIAGNOSTICS) {
+    if (meets(range, diagnostic) && diagnostics.push(diagnostic) >= MAX_DIAGNOSTICS) {
       break;
     }
   }
   return diagnostics;
+}
+
+/**
+ * Whether `diagnostic` meets `range`. Its range may have the shape of a range without being a `Range`
+ * (`Diagnostic` and a collection take that), or be broken since it was set: that one meets nothing, so
+ * one extension's diagnostic cannot fail every provider's request.
+ */
+function meets(range: vscode.Range, diagnostic: vscode.Diagnostic): boolean {
+  try {
+    const at = diagnostic.range instanceof Range ? diagnostic.range : new Range(diagnostic.range.start, diagnostic.range.end);
+    return !!range.intersection(at);
+  } catch {
+    return false;
+  }
 }
 
 function kindValue(kind: unknown): string | undefined {

@@ -183,7 +183,7 @@ function lintDiagnostic(range = new Range(0, 5, 0, 7)): vscode.Diagnostic & { fi
 
 /** Puts `diagnostics` in a new collection of extension `key` for `uri`. */
 function lint(diagnostics: vscode.Diagnostic[], key = '1', uri = resource): vscode.DiagnosticCollection {
-  const collection = host!.diagnostics.createDiagnosticCollection(key);
+  const collection = host!.diagnostics!.createDiagnosticCollection(key);
   collection.set(Uri.from(uri) as vscode.Uri, diagnostics);
   return collection;
 }
@@ -251,9 +251,25 @@ test('a cursor that touches a diagnostic\'s start or end takes it in, as an empt
   expect(await at(2, 4)).toEqual([]);
 });
 
+test('a diagnostic whose range is a plain object is compared as a range; a broken one is passed over without failing the request', async () => {
+  await setup();
+  // `Diagnostic` takes what has the shape of a range; a plain one has no `isAfter` of its own.
+  const plain = new Diagnostic({ start: { line: 0, character: 5 }, end: { line: 0, character: 7 } } as vscode.Range, 'Plain', DiagnosticSeverity.Warning);
+  const broken = lintDiagnostic();
+  const kept = lintDiagnostic();
+  lint([plain, broken, kept]);
+  (broken as { range: unknown }).range = undefined;
+  const provide = await recordingProvider();
+  await codeActions({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, { markers: [], trigger: 1 });
+  const diagnostics = provide.mock.calls[0][2].diagnostics;
+  expect(diagnostics).toHaveLength(2);
+  expect(diagnostics[0]).toBe(plain);
+  expect(diagnostics[1]).toBe(kept);
+});
+
 test('diagnostics the workbench mirrors from other owners are in the context too; at most 1000 go to a provider', async () => {
   await setup();
-  await host!.diagnostics.$acceptMarkersChange([[resource, [{ ...marker, code: 'FX1', message: 'Mirrored' }]]]);
+  await host!.diagnostics!.$acceptMarkersChange([[resource, [{ ...marker, code: 'FX1', message: 'Mirrored' }]]]);
   const provide = await recordingProvider();
   await codeActions();
   expect(provide.mock.calls[0][2].diagnostics.map(diagnostic => diagnostic.message)).toEqual(['Mirrored']);
