@@ -109,7 +109,7 @@ const signatureHelpProvider = {
 // --- Formatting, code actions and rename -----------------------------------------------------------
 
 /** What the edit providers saw and did, for `languageFeaturesFixture.reportEdits`. */
-const editReport = { formatted: 0, ranges: [] };
+const editReport = { formatted: 0, ranges: [], only: 'none' };
 
 /** The document formatter: runs of spaces become one. A document holding `slowformat` answers late. */
 const documentFormatter = {
@@ -174,7 +174,10 @@ function lint(document) {
  */
 const codeActionProvider = {
   provideCodeActions(document, range, context) {
-    editReport.only = context.only ? context.only.value : 'none';
+    // Automatic light-bulb queries must not overwrite the kind of an explicit invocation.
+    if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke) {
+      editReport.only = context.only?.value ?? 'none';
+    }
     const actions = [];
     for (const diagnostic of context.diagnostics) {
       if (diagnostic.source !== lintSource || typeof diagnostic.code !== 'object' || diagnostic.code.value !== 'FX1'
@@ -289,7 +292,7 @@ const documentSymbolProvider = {
 };
 
 /**
- * `[[name]]` links to the workspace file `name` (line 2), `<https://...>` to a web address,
+ * `[[name]]` links to the workspace file `name` (line 2), `{external}` to a web address,
  * `{run}` to the fixture's own command and `{other}` to a command the fixture does not contribute.
  */
 const documentLinkProvider = {
@@ -297,16 +300,17 @@ const documentLinkProvider = {
     const links = [];
     for (let line = 0; line < document.lineCount; line++) {
       const text = document.lineAt(line).text;
-      for (const match of text.matchAll(/\[\[([\w.]+)\]\]|<(https:[^>]+)>|\{(run|other)\}/g)) {
+      for (const match of text.matchAll(/\[\[([\w.]+)\]\]|\{(external|run|other)\}/g)) {
         const range = new vscode.Range(line, match.index, line, match.index + match[0].length);
         const link = new vscode.DocumentLink(range);
         if (match[1]) {
           // Resolved when followed.
           link.data = match[1];
-        } else if (match[2]) {
-          link.target = vscode.Uri.parse(match[2]);
+        } else if (match[2] === 'external') {
+          // A label rather than a URL in the buffer gets only the extension's link.
+          link.target = vscode.Uri.parse('https://example.com/');
         } else {
-          link.target = vscode.Uri.parse(match[3] === 'run' ? 'command:languageFeaturesFixture.lensRan?%5B%22link%22%5D' : 'command:workbench.action.closeActiveEditor');
+          link.target = vscode.Uri.parse(match[2] === 'run' ? 'command:languageFeaturesFixture.lensRan?%5B%22link%22%5D' : 'command:workbench.action.closeActiveEditor');
         }
         link.tooltip = 'Fixture link ' + match[0];
         links.push(link);
@@ -427,7 +431,7 @@ const headingSymbolProvider = {
 const echoSymbolProvider = {
   async provideWorkspaceSymbols(query, token) {
     symbolReport.asked++;
-    if (symbolMode === 'throw') {
+    if (symbolMode === 'throw' && query === 'alpha') {
       throw new Error('The echo symbol provider failed on purpose.');
     }
     if (symbolMode === 'slow' && query === 'stale') {

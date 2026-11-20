@@ -1,7 +1,7 @@
 import { readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { expect, test } from './fixtures.js';
 import {
-  actionMenu, actionNames, activeEditor, activeParameter, clickWord, codeLens, editorMessage, editorText, expectSuggestDetails, followLink,
+  actionMenu, actionNames, activeEditor, activeParameter, codeLens, editorMessage, editorText, expectSuggestDetails, followLink,
   hoverWidget, hoverWord, message, openActionMenu, openFixtureEditor, openQuickOutline, openWithLanguageFeatures, parameterHints, pasteText,
   renameInput, reportCompletions, reportEdits, reportSymbols, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
 } from './language-features.helpers.js';
@@ -186,6 +186,7 @@ test.describe('code actions', () => {
   /** Puts the cursor in `teh` of `fix teh word`. */
   async function onTypo(page: import('@playwright/test').Page): Promise<void> {
     await pasteText(page, 'fix teh word\nplain line');
+    await expect.poll(() => editorText(page)).toBe('fix teh word\nplain line');
     await page.keyboard.press('ControlOrMeta+Home');
     for (let i = 0; i < 5; i++) {
       await page.keyboard.press('ArrowRight');
@@ -260,7 +261,8 @@ test.describe('rename', () => {
     await writeWorkspaceFile(page, 'renamed.lft', 'oldName in a file\noldName again\n');
     await activeEditor(page).focus();
     await pasteText(page, 'call oldName here');
-    await page.keyboard.press('Home');
+    await expect.poll(() => editorText(page)).toBe('call oldName here');
+    await page.keyboard.press('ControlOrMeta+Home');
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('ArrowRight');
     }
@@ -292,8 +294,11 @@ test.describe('navigation', () => {
   test('the quick outline lists the headings, and vscode.executeDocumentSymbolProvider gives their tree as DocumentSymbols', async ({ page }) => {
     await pasteText(page, '# Title\ntext\n## Inner\n### Deeper\n## Second');
     const options = await openQuickOutline(page);
-    await expect.poll(() => options.allInnerTexts().then(texts => texts.map(text => text.split('\n')[0]))).toEqual(
-      expect.arrayContaining(['Title', 'Inner', 'Deeper', 'Second']));
+    await expect(options).toHaveCount(4);
+    await expect(options.nth(0)).toHaveAccessibleName('Title (string), symbols (4)');
+    await expect(options.nth(1)).toHaveAccessibleName('Inner (string)');
+    await expect(options.nth(2)).toHaveAccessibleName('Deeper (string)');
+    await expect(options.nth(3)).toHaveAccessibleName('Second (string)');
     await page.keyboard.press('Escape');
     await expect.poll(() => reportSymbols(page), { timeout: 20_000 }).toBe('Symbols: Title(Inner(Deeper) Second); DocumentSymbol true');
   });
@@ -301,31 +306,43 @@ test.describe('navigation', () => {
   test('links are underlined; a workspace link opens its file at the line, an external one asks first, another extension\'s command does not run', async ({ page }) => {
     await waitForStorage(page);
     await writeWorkspaceFile(page, 'linked.lft', 'first line\nsecond line\n');
-    await pasteText(page, 'see [[linked.lft]] and <https://example.com/> or {other} or {run}');
+    await pasteText(page, '[[linked.lft]]\n{external}\n{other}\n{run}');
     await followLink(page, '{other}');
-    await expect(message(page, /is not one its extension contributes/)).toBeVisible({ timeout: 10_000 });
+    const blockedCommand = page.getByRole('region', { name: /is not one its extension contributes/ });
+    await expect(blockedCommand).toBeVisible({ timeout: 10_000 });
+    await expect(selectedTab(page.locator('[data-group-id].active'))).toHaveText(/Untitled-1/);
+    await blockedCommand.getByRole('button', { name: 'Dismiss message' }).click();
     // The fixture's own command runs.
     await followLink(page, '{run}');
     await expect(message(page, 'Lens ran: link')).toBeVisible({ timeout: 10_000 });
-    await followLink(page, '<https://example.com/>');
+    await followLink(page, '{external}');
     const question = page.getByRole('option', { name: /^Cancel/ });
     await expect(page.getByText('Do you want to open this external address?')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('option', { name: /^Open/ })).toContainText('https://example.com/');
     await question.click();
     await followLink(page, '[[linked.lft]]');
     await expect(selectedTab(page.locator('[data-group-id].active'))).toHaveText(/linked\.lft/, { timeout: 15_000 });
     await expect.poll(() => editorText(page)).toBe('first line\nsecond line');
+    await page.keyboard.press('Home');
+    await page.keyboard.type('X');
+    await expect.poll(() => editorText(page)).toBe('first line\nXsecond line');
   });
 
   test('goes to a definition in another file, which opens in an editor', async ({ page }) => {
     await waitForStorage(page);
     await writeWorkspaceFile(page, 'defs.lft', 'first\ndef target here\n');
     await pasteText(page, 'use target now');
-    await clickWord(page, 'target');
-    await expect.poll(async () => {
-      await page.keyboard.press('F12');
-      return selectedTab(page.locator('[data-group-id].active')).innerText({ timeout: 1000 }).catch(() => '');
-    }, { timeout: 20_000, intervals: [1000] }).toContain('defs.lft');
+    await expect.poll(() => editorText(page)).toBe('use target now');
+    await page.keyboard.press('ControlOrMeta+Home');
+    for (let i = 0; i < 'use t'.length; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+    await page.keyboard.press('F12');
+    await expect(selectedTab(page.locator('[data-group-id].active'))).toHaveText(/defs\.lft/, { timeout: 15_000 });
     await expect.poll(() => editorText(page)).toBe('first\ndef target here');
+    await page.keyboard.press('Home');
+    await page.keyboard.type('X');
+    await expect.poll(() => editorText(page)).toBe('first\nXdef target here');
   });
 
   test('folds the provider\'s range: the lines after begin up to the one before end hide, no line more or less', async ({ page }) => {

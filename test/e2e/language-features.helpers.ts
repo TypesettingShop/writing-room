@@ -162,15 +162,20 @@ export const editorLink = (page: Page, text: string): Locator =>
 
 /** Follows a link as the user does: Ctrl (Cmd) and click. */
 export async function followLink(page: Page, text: string): Promise<void> {
-  await expect(editorLink(page, text)).toBeVisible({ timeout: 20_000 });
-  await editorLink(page, text).click({ modifiers: ['ControlOrMeta'] });
+  const link = editorLink(page, text);
+  await expect(link).toBeVisible({ timeout: 20_000 });
+  // Monaco replaces the underline's DOM node when Ctrl and the pointer activate it.
+  await page.mouse.move(0, 0);
+  await page.keyboard.down('ControlOrMeta');
+  try {
+    await link.hover();
+    const activeLink = activeGroup(page).locator('.view-line .detected-link-active').filter({ hasText: text });
+    await activeLink.click();
+  } finally {
+    await page.keyboard.up('ControlOrMeta');
+  }
 }
 
 /** The code lenses Monaco shows in the active editor, by their titles. */
 export const codeLens = (page: Page, title: string | RegExp): Locator =>
   activeGroup(page).locator('.codelens-decoration a').filter({ hasText: title });
-
-/** Puts the cursor on the first `word` of the active editor's rendered text. */
-export async function clickWord(page: Page, word: string): Promise<void> {
-  await activeGroup(page).locator('.view-line span span').filter({ hasText: word }).first().click({ position: { x: 3, y: 5 } });
-}

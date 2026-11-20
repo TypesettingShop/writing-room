@@ -1,8 +1,13 @@
+import { KeyChord, KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import type { URI } from '../../../base/common/uri.js';
 import type { IMonacoTextModel, MonacoNamespace } from '../../../editor/browser/monaco.js';
+import { ICodeEditorService } from '../../../editor/browser/services/codeEditorService.js';
+import { EditorContextKeys } from '../../../editor/common/editorContextKeys.js';
 import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
+import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import type { MarkerDataDto } from '../common/extHost.protocol.diagnostics.js';
 import type {
   CodeActionDto, CodeActionListDto, CodeActionProviderMetadataDto, FormattingEditsDto, FormattingOptionsDto, MainThreadEditsShape,
@@ -27,6 +32,21 @@ import { checkRange } from './mainThreadLanguageFeaturesCompletions.js';
  * - Rename: the extension host applies the edit itself; Monaco gets an empty edit, or the reason the
  *   rename was refused.
  */
+
+// The workbench captures Ctrl+K for its own chords before Monaco can see it.
+const formatSelectionId = 'editor.action.formatSelection';
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+  id: formatSelectionId,
+  weight: KeybindingWeight.EditorContrib,
+  primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyMod.CtrlCmd | KeyCode.KeyF),
+  when: ContextKeyExpr.and(EditorContextKeys.editorTextFocus.isEqualTo(true), EditorContextKeys.readOnly.toNegated()),
+  handler: async accessor => {
+    const action = accessor.get(ICodeEditorService).getFocusedCodeEditor()?.getAction(formatSelectionId);
+    if (action?.isSupported()) {
+      await action.run();
+    }
+  },
+});
 
 type Languages = MonacoNamespace['languages'];
 type DocumentFormattingProvider = Parameters<Languages['registerDocumentFormattingEditProvider']>[1];
