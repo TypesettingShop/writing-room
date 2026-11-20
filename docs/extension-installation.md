@@ -140,6 +140,6 @@ VSIX와 패키지 저장소도 이 계약을 따른다. 커맨드 아이콘은 �
 - 대소문자만 다른 ZIP 항목 이름은 다른 파일로 둔다. VS Code도 막지 않는다(wr-l3ch.285).
 - 스토리지 서비스(`IStorageService`)가 메모리 모드 여부(`usesMemory`)와 키 하나의 영속 값 읽기(`getPersisted`)를 드러내고, 메모리 모드에서는 설치 목록이 그 탭에만 있다. VS Code의 `IStorageService`(`src/vs/platform/storage/common/storage.ts`)에는 둘이 없고, `WebExtensionsScannerService`(`src/vs/workbench/services/extensionManagement/browser/webExtensionsScannerService.ts`)는 목록을 사용자 데이터의 파일에 두고 리소스별 `Queue`로 탭 안의 순서만 지킨다 — 이 저장소는 v0.1.0부터 목록을 스토리지에 두고 탭 사이를 Web Lock으로 막으므로, 저장소를 쓸 수 없는 창에서 어느 쪽도 던지지 않게 하려면 모드를 물어야 한다(wr-uz4j).
 - `IStorageService.keys(scope)`는 해당 범위에서 이 탭이 캐시한 키의 사본을 돌려준다. VS Code는 `keys(scope, target?)`에 선택 인자로 저장 타깃을 받는다. Writing Room은 저장 타깃을 기록하지 않는다(wr-s9ew).
-- 확장 상태 저장은 VS Code와 같이 메모리 모드에서 그 탭에만 쓴다. Writing Room은 이전에 쓰기 실패로 물러선 탭에서 영속 공간이 확보되면 상태를 저장해 새로고침 뒤에 읽을 수 있었다. 이제 물러선 뒤에 쓴 값은 새로고침하면 사라진다(wr-s9ew).
+- 메모리 모드에서 확장 상태를 그 탭에만 저장하는 동작은 VS Code와 같다. Writing Room의 이전 동작과 달라진 점은 쓰기 실패 뒤의 상태 수명이다. 이전에는 영속 공간이 다시 확보되면 새로고침 뒤에도 그 상태를 읽을 수 있었다. 이제 메모리 모드로 물러선 뒤에 쓴 값은 새로고침하면 사라진다(wr-s9ew).
 
 Decided in: wr-efqx.n9k, wr-efqx.x8c, wr-l3ch.285, wr-l3ch.amu, wr-l3ch.9fi, wr-jfx7, wr-uz4j, wr-s9ew

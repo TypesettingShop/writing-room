@@ -110,7 +110,8 @@ export class ExtensionStorage extends Disposable {
 
   /**
    * Queue the task behind this tab's earlier state changes. Skip the cross-tab lock only when `inTabOnly`
-   * confirms at queue entry that the task will use this tab's cache for both reads and writes.
+   * confirms, once the earlier changes have settled and just before the task starts, that the task will use this
+   * tab's cache for both reads and writes.
    */
   private serialize<T>(task: () => Promise<T>, inTabOnly: () => boolean): Promise<T> {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
@@ -145,6 +146,10 @@ export class ExtensionStorage extends Disposable {
           this.storage.remove(key, storageScope);
         } else {
           this.storage.store(key, next, storageScope, StorageTarget.USER);
+        }
+        // `store` and `remove` do nothing once the storage has closed. Report it as `storeImmediately` does.
+        if (this.storage.get(key, storageScope) !== next) {
+          throw new Error('Workbench storage is closed.');
         }
         return;
       }

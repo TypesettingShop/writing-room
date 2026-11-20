@@ -321,6 +321,23 @@ test('memory mode rejects late writes after removal and replacement of an instal
   }
 });
 
+test('in memory mode an update after the storage closed rejects, as it does while persistent', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(new BlockedDatabase());
+  const state = new ExtensionStorage(storage, {} as IFileService, workspace);
+  try {
+    await state.update(extensionId, 'global', 'key', '1', () => true);
+    storage.dispose();
+    await expect(state.update(extensionId, 'global', 'key', '2', () => true)).rejects.toThrow('Workbench storage is closed.');
+    await expect(state.update(extensionId, 'global', 'key', undefined, () => true)).rejects.toThrow('Workbench storage is closed.');
+    expect(state.read(extensionId, 'global')).toBe('{"key":1}');
+  } finally {
+    vi.restoreAllMocks();
+    state.dispose();
+    storage.dispose();
+  }
+});
+
 test('memory mode counts cached state across both scopes and allows a write that shrinks an over-limit total', async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   const database = new FailingWrites();
@@ -408,6 +425,34 @@ test('persistent state writes take the cross-tab lock and a backend write error 
   } finally {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    state.dispose();
+    storage.dispose();
+  }
+});
+
+test('while persistent, a state write checks the installation and the total against what another tab saved', async () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const state = new ExtensionStorage(storage, {} as IFileService, workspace);
+  // Written straight to the backend, as another tab would: this tab's cache does not see it.
+  const writeFromOtherTab = (key: string, value: string, scope = profile) =>
+    database.updateItems({ insert: new Map([[storageKey(scope, key), value]]), delete: new Set() });
+  try {
+    storage.storeImmediately('extensions.user', JSON.stringify([installation]), profile, target);
+    await state.update(extensionId, 'global', 'key', '1', () => true, installation);
+    writeFromOtherTab('extensions.user', '[]');
+    await expect(state.update(extensionId, 'global', 'key', '2', () => true, installation))
+      .rejects.toThrow('is no longer installed');
+    expect(state.read(extensionId, 'global')).toBe('{"key":1}');
+
+    // Neither scope alone passes 2 MiB, so both have to be counted.
+    const large = JSON.stringify({ value: 'x'.repeat(250 * 1024) });
+    for (let index = 0; index < 9; index++) {
+      writeFromOtherTab('extensions.state.test.large' + index, large, index < 4 ? profile : workspaceScope);
+    }
+    await expect(state.update('test.builtin', 'global', 'key', '1', () => true)).rejects.toThrow('2 MiB');
+    expect(state.read('test.builtin', 'global')).toBe('{}');
+  } finally {
     state.dispose();
     storage.dispose();
   }
