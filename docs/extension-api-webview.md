@@ -97,5 +97,6 @@ panel.iconPath = {
 - wr-ob6x. Writing Room은 탭 아이콘 이미지의 URI를 소유 확장의 설치 폴더로 제한한다. VS Code의 탭 아이콘 설정 경로에는 같은 설치 폴더 검사가 없다. [VS Code의 탭 아이콘 설정 구현](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/api/browser/mainThreadWebviewPanels.ts)
 - wr-cpnc.6ly. 뷰 배지는 이 에픽의 범위 밖이다.
 - wr-d16b. VS Code는 패널 상태를 에디터 직렬화에, 뷰 상태를 `Memento`에 두고 `IStorageService.store`를 사용한다. 두 제품 모두 스토리지가 메모리 모드로 물러서면 상태를 브라우저 탭의 세션 동안 유지한다. Writing Room은 상태를 워크스페이스 키 하나에 저장하고 설치 기록에 따라 정리한다.
+- wr-eycu.5b8. 웹뷰 셸의 CSP는 `base-uri 'self'`다. VS Code의 셸 CSP에는 `base-uri`가 없다. 두 셸 모두 콘텐츠 HTML을 셸 문서에서 `DOMParser`로 파싱하므로 콘텐츠의 `<base>`에 셸 정책이 적용된다. `asWebviewUri`로 만든 `<base href>`는 셸과 같은 웹뷰 오리진이라 허용된다. 다른 오리진을 가리키는 `<base>`는 그릴 때마다 셸 콘솔에 CSP 오류를 한 줄 남긴다. 콘텐츠 프레임에서는 VS Code와 같이 `<base>`가 적용된다.
 
-Decided in: wr-efqx.n9k, wr-cpnc, wr-d16b
+Decided in: wr-efqx.n9k, wr-cpnc, wr-d16b, wr-eycu.5b8
