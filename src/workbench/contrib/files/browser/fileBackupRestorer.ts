@@ -37,7 +37,7 @@ export class FileBackupRestorer {
       for (const resource of resources) {
         try {
           // A tab closed with Save or Don't Save while the list was read has no draft left to reopen.
-          if (hasEditor(resource) || !await backups.read(resource) || hasEditor(resource)) {
+          if (hasEditor(resource) || !await backups.hasRestorable(resource) || hasEditor(resource)) {
             continue;
           }
           const group = groups.activeGroup;

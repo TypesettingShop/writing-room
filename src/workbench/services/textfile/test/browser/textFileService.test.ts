@@ -551,6 +551,51 @@ describe('draft backups', () => {
     expect((await second.read(resource))?.value).toBe('second tab typed again');
   });
 
+  test('a page with a denied session lock keeps writing locally and cannot discard a moved draft', async () => {
+    const { locks, held, sessionLock } = makeLocks();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const resource = file('/denied.txt');
+    const older = file('/older.txt');
+    const legacy = legacyBackup(older, 'denied');
+    await files.writeFile(legacy, stored(older, 'earlier session'));
+    const runIfAvailable = vi.fn(locks.runIfAvailable);
+    const denied = new TextFileBackups(files, 'denied', sessionId(1), {
+      hold: async () => { throw new DOMException('Lock denied', 'SecurityError'); },
+      runIfAvailable,
+    });
+
+    await denied.write(resource, 'the denied page’s draft', meta);
+    expect(await denied.read(older)).toBeUndefined();
+    expect(await files.exists(legacy)).toBe(true);
+    expect(runIfAvailable).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Draft adoption is disabled'), expect.any(DOMException));
+
+    const second = new TextFileBackups(files, 'denied', sessionId(2), locks);
+    expect((await second.read(resource))?.value).toBe('the denied page’s draft');
+    expect(await files.exists(denied.backupResource(resource))).toBe(false);
+    // The old page being saved or reverted can only discard its own path.
+    await denied.discard(resource);
+    expect(await files.exists(second.backupResource(resource))).toBe(true);
+
+    held.delete(sessionLock(second, 2));
+    const reloaded = new TextFileBackups(files, 'denied', sessionId(3), locks);
+    expect((await reloaded.read(resource))?.value).toBe('the denied page’s draft');
+    expect(await files.exists(second.backupResource(resource))).toBe(false);
+  });
+
+  test('rechecking a listed draft this session wrote does not read its bytes again', async () => {
+    const resource = file('/listed.txt');
+    const backups = new TextFileBackups(files, 'recheck', sessionId(1));
+    await backups.write(resource, 'unsaved', meta);
+    expect(await backups.listRestorable()).toEqual([resource]);
+    const readFile = vi.spyOn(userData, 'readFileWithStat');
+
+    expect(await backups.hasRestorable(resource)).toBe(true);
+    expect(readFile).not.toHaveBeenCalled();
+    await backups.discard(resource);
+    expect(await backups.hasRestorable(resource)).toBe(false);
+  });
+
   test.each(['save', 'revert', 'soft revert'] as const)('a second model’s %s forgets only its own draft', async action => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const resource = file('/a.txt');
@@ -753,6 +798,31 @@ describe('draft backups', () => {
     expect(model.isDirty()).toBe(true);
     expect(textModel.getValue()).toBe('draft');
     expect(await files.exists(service.backups.backupResource(resource))).toBe(true);
+  });
+
+  test('a failed read of a former session’s draft prevents opening saved text until startup can read it', async () => {
+    const resource = file('/unreadable-at-startup.txt');
+    await files.writeFile(resource, bytes('saved'));
+    const legacy = legacyBackup(resource, workspace.getWorkspace().id);
+    await files.writeFile(legacy, stored(resource, 'prior unsaved draft'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const read = userData.readFileWithStat.bind(userData);
+    const reading = vi.spyOn(userData, 'readFileWithStat').mockImplementation(async (location, options) => {
+      if (location.toString() === legacy.toString()) {
+        throw new Error('Storage is busy');
+      }
+      return read(location, options);
+    });
+    const before = createService().service;
+    await expect(before.files.resolve(resource)).rejects.toThrow('The unsaved draft could not be read');
+    expect(before.files.get(resource)).toBeUndefined();
+    expect(await files.exists(legacy)).toBe(true);
+
+    reading.mockRestore();
+    const restored = await resolve(createService().service, resource.path);
+    expect(restored.model.isDirty()).toBe(true);
+    expect(restored.textModel.getValue()).toBe('prior unsaved draft');
+    expect(await readFile(resource.path)).toBe('saved');
   });
 
   test('startup preserves malformed, mismatched, unsupported and newer drafts and keeps scanning', async () => {

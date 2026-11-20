@@ -79,6 +79,8 @@ export class TextFileBackups implements ITextFileBackups {
    * page puts files in its folder, so these need no header check before a write or discard.
    */
   private readonly owned = new Map<string, string>();
+  /** A listed draft that could not be read stays in its former session for the next startup. */
+  private readonly failedAdoptionReads = new Map<string, unknown>();
 
   constructor(
     private readonly fileService: IFileService,
@@ -131,9 +133,13 @@ export class TextFileBackups implements ITextFileBackups {
   /** Active editors can resolve before the startup contribution, so reads wait for adoption here. */
   async read(resource: URI): Promise<ITextFileBackup | undefined> {
     await this.ready;
-    await this.queues.get(hashResource(resource.toString()));
+    const key = hashResource(resource.toString());
+    await this.queues.get(key);
     const draft = (await this.readBackup(this.backupResource(resource)))?.draft;
     if (draft?.resource.toString() !== resource.toString()) {
+      if (this.failedAdoptionReads.has(key)) {
+        throw this.failedAdoptionReads.get(key);
+      }
       return undefined;
     }
     return {
@@ -160,12 +166,30 @@ export class TextFileBackups implements ITextFileBackups {
     return resources;
   }
 
+  /** Rechecks a resource from the startup list after any queued write or discard. */
+  async hasRestorable(resource: URI): Promise<boolean> {
+    await this.ready;
+    const key = hashResource(resource.toString());
+    await this.queues.get(key);
+    const location = this.backupResource(resource);
+    if (this.owned.get(key) === resource.toString()) {
+      return this.fileService.exists(location);
+    }
+    return (await this.readBackup(location))?.draft?.resource.toString() === resource.toString();
+  }
+
   private sessionLockName(id: string): string {
     return `writing-room/backupSession${this.root.path}/${id}`;
   }
 
   private async adoptBackups(): Promise<void> {
-    await this.locks?.hold(this.sessionLockName(this.sessionId));
+    try {
+      await this.locks?.hold(this.sessionLockName(this.sessionId));
+    } catch (error) {
+      // A denied lock leaves this page writing only to its own session folder.
+      console.warn('Could not lock this draft session. Draft adoption is disabled for this page.', error);
+      return;
+    }
     const claims: { readonly written: number; readonly run: () => Promise<void> }[] = [];
     for (const child of await this.children(this.root)) {
       if (child.isDirectory && child.name !== this.sessionId && SESSION_ID.test(child.name)) {
@@ -195,8 +219,8 @@ export class TextFileBackups implements ITextFileBackups {
         });
       }
     }
-    // When several sessions hold a draft of one file, the one written last is claimed first, so a
-    // reload keeps its latest text rather than an older draft from another closed tab.
+    // Try the most recently written sessions and legacy files first. A session's time is the
+    // latest write among its drafts, so a reload gives priority to the session just edited.
     claims.sort((a, b) => b.written - a.written);
     for (const claim of claims) {
       await claim.run();
@@ -218,7 +242,11 @@ export class TextFileBackups implements ITextFileBackups {
   }
 
   private async adoptDraft(entry: IFileStat): Promise<void> {
-    const draft = (await this.readBackup(entry.resource))?.draft;
+    const stored = await this.readBackup(entry.resource).catch(error => {
+      this.failedAdoptionReads.set(entry.name, error);
+      throw error;
+    });
+    const draft = stored?.draft;
     if (!draft) {
       return;
     }

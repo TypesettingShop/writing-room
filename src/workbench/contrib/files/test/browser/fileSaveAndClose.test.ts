@@ -288,13 +288,41 @@ test('startup does not reopen a file whose draft went while the list was read', 
   const textFiles = service(ITextFileService) as BrowserTextFileService;
   // The list names a draft that a Save or Don't Save removed before the tabs were checked.
   vi.spyOn(textFiles.backups, 'listRestorable').mockResolvedValueOnce([file('a.md')]);
-  const read = vi.spyOn(textFiles.backups, 'read');
+  const hasRestorable = vi.spyOn(textFiles.backups, 'hasRestorable');
   instantiation.createInstance(FileBackupRestorer);
 
-  await vi.waitFor(() => expect(read).toHaveBeenCalledWith(file('a.md')));
-  expect(await read.mock.results[0].value).toBeUndefined();
+  await vi.waitFor(() => expect(hasRestorable).toHaveBeenCalledWith(file('a.md')));
+  expect(await hasRestorable.mock.results[0].value).toBe(false);
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(part.activeGroup.editors).toEqual([]);
+});
+
+test('a temporary draft read failure shows an error and reopening recovers the draft', async () => {
+  const textFiles = service(ITextFileService) as BrowserTextFileService;
+  const resource = file('a.md');
+  await textFiles.backups.write(resource, 'unsaved and irreplaceable', { etag: undefined, bom: false });
+  const location = textFiles.backups.backupResource(resource);
+  const readFile = files.readFile.bind(files);
+  const reading = vi.spyOn(files, 'readFile').mockImplementation(async (target, options) => {
+    if (target.toString() === location.toString()) {
+      throw new Error('Storage is busy');
+    }
+    return readFile(target, options);
+  });
+
+  const input = instantiation.createInstance(FileEditorInput, resource, { restoredDirty: true });
+  await part.activeGroup.openEditor(input);
+  expect(document.querySelector('.file-error-editor [role="alert"]')?.textContent)
+    .toContain('The unsaved draft could not be read. Reopen the file or reload to try again.');
+  expect(textFiles.files.get(resource)).toBeUndefined();
+  expect(await files.exists(location)).toBe(true);
+  expect(await read('a.md')).toBe('alpha');
+  expect(await part.activeGroup.closeEditor(input)).toBe(true);
+
+  reading.mockRestore();
+  const reopened = await openFile('a.md');
+  expect(reopened.isDirty()).toBe(true);
+  expect(textFiles.files.get(resource)?.textEditorModel?.getValue()).toBe('unsaved and irreplaceable');
 });
 
 describe('Explorer deletion of files with drafts outside the editor groups', () => {
