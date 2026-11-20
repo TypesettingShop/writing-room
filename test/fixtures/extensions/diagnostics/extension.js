@@ -32,6 +32,24 @@ module.exports.activate = context => {
       vscode.Uri.parse('untitled:Many-' + index), items.slice(index * 1000, (index + 1) * 1000),
     ]));
   }));
+  // A linter's way: the fix rides on the diagnostic object, and the quick fix reads it from the context.
+  const lintFile = vscode.Uri.parse('vscode-vfs://writing-room/workspace/lint.txt');
+  context.subscriptions.push(vscode.commands.registerCommand('diagnosticsFixture.setWithFix', () => {
+    const item = diagnostic(0, 0, 3, 'Misspelled word', vscode.DiagnosticSeverity.Warning, 'FX9');
+    item.fixInfo = { replacement: 'the' };
+    collection.set(lintFile, [item]);
+  }));
+  context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ scheme: 'vscode-vfs', pattern: '**/lint.txt' }, {
+    provideCodeActions: (document, _range, { diagnostics }) => diagnostics
+      .filter(item => item.source === 'fixture' && item.fixInfo)
+      .map(item => {
+        const fix = new vscode.CodeAction(`Apply the fix of ${item.code}`, vscode.CodeActionKind.QuickFix);
+        fix.edit = new vscode.WorkspaceEdit();
+        fix.edit.replace(document.uri, item.range, item.fixInfo.replacement);
+        fix.diagnostics = [item];
+        return fix;
+      }),
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('diagnosticsFixture.clear', () => collection.clear()));
   context.subscriptions.push(vscode.commands.registerCommand('diagnosticsFixture.report', () => {
     const all = vscode.languages.getDiagnostics(document);

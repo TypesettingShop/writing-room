@@ -159,7 +159,7 @@ test('formatting edits from the extension host are checked before Monaco applies
 
 // --- Code actions ----------------------------------------------------------------------------------
 
-/** A marker as Monaco's marker service holds it: the code's target is Monaco's URI. */
+/** A marker as Monaco's marker service holds it. Providers no longer get these: the context is the extension host's. */
 const marker = {
   owner: 'fixture', resource: { scheme: 'vscode-vfs', authority: 'writing-room', path: '/workspace/a.lft', query: '', fragment: '' },
   severity: 4, message: 'Double space', source: 'fixture-lint',
@@ -171,6 +171,23 @@ async function codeActions(range: object = { startLineNumber: 1, startColumn: 6,
   return provider('CodeActionProvider').provideCodeActions(model(), range, context, cancel);
 }
 
+/** The double space the fixture linter finds on the first line, with a field of its own, as linters keep their fixes. */
+function lintDiagnostic(range = new Range(0, 5, 0, 7)): vscode.Diagnostic & { fixInfo?: unknown } {
+  const diagnostic: vscode.Diagnostic & { fixInfo?: unknown } = new Diagnostic(range, 'Double space', DiagnosticSeverity.Warning);
+  diagnostic.source = 'fixture-lint';
+  diagnostic.code = { value: 'FX1', target: Uri.parse('https://example.test/rules/FX1') as vscode.Uri };
+  diagnostic.tags = [DiagnosticTag.Unnecessary];
+  diagnostic.fixInfo = { insertText: ' ' };
+  return diagnostic;
+}
+
+/** Puts `diagnostics` in a new collection of extension `key` for `uri`. */
+function lint(diagnostics: vscode.Diagnostic[], key = '1', uri = resource): vscode.DiagnosticCollection {
+  const collection = host!.diagnostics!.createDiagnosticCollection(key);
+  collection.set(Uri.from(uri) as vscode.Uri, diagnostics);
+  return collection;
+}
+
 /** A provider that fixes its own diagnostic, found by source and code, and offers a command too. */
 function fixingProvider(fix: (diagnostic: vscode.Diagnostic) => CodeAction): vscode.CodeActionProvider {
   return {
@@ -180,32 +197,103 @@ function fixingProvider(fix: (diagnostic: vscode.Diagnostic) => CodeAction): vsc
   };
 }
 
-test('the context\'s diagnostics are Monaco\'s markers with source, code and its link, range, message, severity and tags as they were', async () => {
-  const { languages } = await setup();
+/** Registers a provider that records its calls and offers nothing. */
+async function recordingProvider() {
   const provide = vi.fn((_document: vscode.TextDocument, _range: vscode.Range | vscode.Selection, _context: vscode.CodeActionContext): CodeAction[] => []);
-  languages().registerCodeActionsProvider('lftest', { provideCodeActions: provide });
+  host!.api('1').registerCodeActionsProvider('lftest', { provideCodeActions: provide });
   await settle();
+  return provide;
+}
+
+test('the context\'s diagnostics are the very objects in the extension host\'s collections that the range touches, not Monaco\'s markers', async () => {
+  await setup();
+  const own = lintDiagnostic();
+  const elsewhere = lintDiagnostic(new Range(2, 0, 2, 4));
+  const another = new Diagnostic(new Range(0, 0, 0, 6), 'From another extension', DiagnosticSeverity.Error);
+  const otherFile = lintDiagnostic();
+  lint([own, elsewhere]);
+  lint([another], '2');
+  lint([otherFile], '1', other);
+  const provide = await recordingProvider();
+  // Monaco's markers cross still; they are not what the provider gets.
   await codeActions({ startLineNumber: 1, startColumn: 6, endLineNumber: 1, endColumn: 8, selectionStartLineNumber: 1, selectionStartColumn: 8, positionLineNumber: 1, positionColumn: 6 },
-    { markers: [marker, { ...marker, message: '' }], only: 'quickfix', trigger: 1 });
+    { markers: [{ ...marker, message: 'From Monaco' }], only: 'quickfix', trigger: 1 });
   const [, range, context] = provide.mock.calls[0];
   expect(range).toBeInstanceOf(Selection);
   expect([(range as vscode.Selection).anchor, (range as vscode.Selection).active]).toEqual([new Position(0, 7), new Position(0, 5)]);
   expect(context.triggerKind).toBe(CodeActionTriggerKind.Invoke);
   expect(context.only?.value).toBe('quickfix');
   expect(context.only?.contains(CodeActionKind.QuickFix.append('fixture'))).toBe(true);
-  expect(context.diagnostics).toHaveLength(1);
-  const [diagnostic] = context.diagnostics;
-  expect(diagnostic).toBeInstanceOf(Diagnostic);
-  expect(diagnostic).toMatchObject({
-    message: 'Double space', source: 'fixture-lint', severity: DiagnosticSeverity.Warning, range: new Range(0, 5, 0, 7), tags: [DiagnosticTag.Unnecessary],
+  expect(context.diagnostics).toHaveLength(2);
+  expect(context.diagnostics[0]).toBe(own);
+  expect(context.diagnostics[1]).toBe(another);
+  // What the extension put on its diagnostic is there, as it was.
+  expect((context.diagnostics[0] as typeof own).fixInfo).toEqual({ insertText: ' ' });
+  expect(context.diagnostics[0]).toMatchObject({ message: 'Double space', severity: DiagnosticSeverity.Warning, range: new Range(0, 5, 0, 7) });
+});
+
+test('a cursor that touches a diagnostic\'s start or end takes it in, as an empty diagnostic at the cursor; one apart does not', async () => {
+  await setup();
+  const word = lintDiagnostic();
+  const empty = lintDiagnostic(new Range(1, 4, 1, 4));
+  lint([word, empty]);
+  const provide = await recordingProvider();
+  const at = async (line: number, column: number) => {
+    provide.mockClear();
+    await codeActions({ startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column }, { markers: [], trigger: 2 });
+    return provide.mock.calls[0][2].diagnostics;
+  };
+  expect(await at(1, 8)).toEqual([word]);
+  expect((await at(1, 8))[0]).toBe(word);
+  expect((await at(1, 6))[0]).toBe(word);
+  expect(await at(1, 9)).toEqual([]);
+  expect((await at(2, 5))[0]).toBe(empty);
+  expect(await at(2, 4)).toEqual([]);
+});
+
+test('a diagnostic whose range is a plain object is compared as a range; a broken one is passed over without failing the request', async () => {
+  await setup();
+  // `Diagnostic` takes what has the shape of a range; a plain one has no `isAfter` of its own.
+  const plain = new Diagnostic({ start: { line: 0, character: 5 }, end: { line: 0, character: 7 } } as vscode.Range, 'Plain', DiagnosticSeverity.Warning);
+  const broken = lintDiagnostic();
+  const kept = lintDiagnostic();
+  lint([plain, broken, kept]);
+  (broken as { range: unknown }).range = undefined;
+  const provide = await recordingProvider();
+  await codeActions({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, { markers: [], trigger: 1 });
+  const diagnostics = provide.mock.calls[0][2].diagnostics;
+  expect(diagnostics).toHaveLength(2);
+  expect(diagnostics[0]).toBe(plain);
+  expect(diagnostics[1]).toBe(kept);
+});
+
+test('diagnostics the workbench mirrors from other owners are in the context too; at most 1000 go to a provider', async () => {
+  await setup();
+  await host!.diagnostics!.$acceptMarkersChange([[resource, [{ ...marker, code: 'FX1', message: 'Mirrored' }]]]);
+  const provide = await recordingProvider();
+  await codeActions();
+  expect(provide.mock.calls[0][2].diagnostics.map(diagnostic => diagnostic.message)).toEqual(['Mirrored']);
+
+  lint(Array.from({ length: 1005 }, () => lintDiagnostic()));
+  provide.mockClear();
+  await codeActions();
+  const diagnostics = provide.mock.calls[0][2].diagnostics;
+  expect(diagnostics).toHaveLength(1000);
+});
+
+test('a host without the diagnostics area gives a provider no diagnostics', async () => {
+  host = await createLanguageFeatureTestHost({
+    hostGroups: [createEditsGroup], mainGroups: [createMainThreadEdits], diagnostics: false,
+    documents: [{ uri: resource, text: lines.join('\n'), language: 'lftest', version: 3 }],
   });
-  const code = diagnostic.code as { value: string; target: vscode.Uri };
-  expect(code.value).toBe('FX1');
-  expect(code.target.toString()).toBe('https://example.test/rules/FX1');
+  const provide = await recordingProvider();
+  await codeActions();
+  expect(provide.mock.calls[0][2].diagnostics).toEqual([]);
 });
 
 test('a quick fix is listed with its kind, preference, diagnostics and reason; picking it applies its edit, then its command', async () => {
   const { languages, run, bulkEdits, executed } = await setup();
+  lint([lintDiagnostic()]);
   const callback = () => 'kept';
   languages().registerCodeActionsProvider('lftest', fixingProvider(diagnostic => {
     const fix = new CodeAction('Use one space', CodeActionKind.QuickFix.append('fixture'));
@@ -265,6 +353,7 @@ test('a quick fix is listed with its kind, preference, diagnostics and reason; p
 
 test('when the edit is refused, the command does not run and the user is told', async () => {
   const { languages, run, bulkEdits, executed, warnings } = await setup();
+  lint([lintDiagnostic()]);
   languages().registerCodeActionsProvider('lftest', fixingProvider(diagnostic => {
     const fix = new CodeAction('Use one space', CodeActionKind.QuickFix);
     fix.edit = new WorkspaceEdit();
