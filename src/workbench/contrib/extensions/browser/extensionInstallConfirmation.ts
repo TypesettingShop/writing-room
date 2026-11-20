@@ -4,6 +4,9 @@ import type { PackageInstallConfirmation } from '../../../services/extensionMana
 
 export const sourceNames = { location: 'folder URL', vsix: 'VSIX', gallery: 'Open VSX' } as const;
 
+/** Told by every install confirmation whose extension is kept for this session only. */
+export const sessionOnlyNotice = 'Browser storage is unavailable: the extension stays for this session only.';
+
 /** Prompts with facts about the package bytes that will be installed. */
 export async function confirmPackage(
   quickInput: IQuickInputService,
@@ -34,7 +37,7 @@ export async function confirmPackage(
     ...gallery && signature === 'verified' ? [`The key comes from ${gallery.label} during installation. Verification detects changes in transit or at the CDN. A compromised registry could provide both a changed package and key.`] : [],
     ...gallery && manifest.extensionDependencies?.length ? ['Dependencies: ' + manifest.extensionDependencies.join(', ')] : [],
     `engines.vscode ${confirmation.engine} is compatible with ${product.version}`,
-    ...confirmation.persistent ? [] : ['Browser storage is unavailable: the extension stays for this session only.'],
+    ...confirmation.persistent ? [] : [sessionOnlyNotice],
     ...confirmation.warnings,
     'Extension code can make requests as this page’s origin.',
   ];

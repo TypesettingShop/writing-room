@@ -10,6 +10,7 @@ import { extensionGlobalStorageUri, extensionLogUri, extensionWorkspaceStorageUr
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { ExtensionStateScope, ExtHostStorageShape, MainThreadStorageShape } from '../common/extHost.protocol.runtime.js';
 import { Emitter } from '../../../base/common/event.js';
+import type { URI } from '../../../base/common/uri.js';
 
 const prefix = 'extensions.state.';
 const maxState = 256 * 1024;
@@ -72,7 +73,9 @@ export class ExtensionStorage extends Disposable {
 
   private serialize<T>(task: () => Promise<T>): Promise<T> {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-    const result = this.queue.then(() => locks ? locks.request('writing-room:extensions.state', task) : task());
+    // A tab in memory mode shares no state with the others, and a browser that blocks storage denies the lock too.
+    const result = this.queue.then(() =>
+      locks && !this.storage.usesMemory ? locks.request('writing-room:extensions.state', task) : task());
     this.queue = result.then(() => {}, () => {});
     return result;
   }
@@ -147,14 +150,25 @@ export class ExtensionStorage extends Disposable {
     this.secretChange.fire({ id, name });
   }
 
+  /**
+   * Removes the extension's state, secrets and storage folders. In memory mode only this tab's state goes, and
+   * the folders stay when the files persist: the extension can still be in the persisted list and find them again.
+   */
   async clear(id: string): Promise<void> {
     await this.serialize(async () => {
       for (const scope of Object.values(scopeFor)) {
-        this.storage.storeImmediately(prefix + id, () => undefined, scope, StorageTarget.USER);
+        if (this.storage.usesMemory) {
+          this.storage.remove(prefix + id, scope);
+        } else {
+          this.storage.storeImmediately(prefix + id, () => undefined, scope, StorageTarget.USER);
+        }
       }
       this.secrets.delete(id);
     });
     const paths = [extensionGlobalStorageUri(id), extensionWorkspaceStorageUri(this.workspace.getWorkspace().id, id), extensionLogUri(id)];
+    if (this.storage.usesMemory && await this.filesPersist(paths[0])) {
+      return;
+    }
     await Promise.all(paths.map(async uri => {
       try {
         await this.files.del(uri, { recursive: true });
@@ -164,6 +178,12 @@ export class ExtensionStorage extends Disposable {
         }
       }
     }));
+  }
+
+  private async filesPersist(uri: URI): Promise<boolean> {
+    // The user data provider says whether it fell back to memory only once its database was opened.
+    await this.files.exists(uri);
+    return this.files.getProvider(uri.scheme)?.usesMemory !== true;
   }
 }
 

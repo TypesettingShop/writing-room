@@ -108,10 +108,23 @@ export interface PackageInstallConfirmation {
   readonly isWebExtension: boolean;
   /** The record this install replaces (another version) or reinstalls (the same version). */
   readonly existing?: Pick<StoredWebExtension, 'version' | 'source'>;
-  /** False when browser storage keeps files for this session only. */
+  /** False when the installed list or the package files are kept for this session only. */
   readonly persistent: boolean;
   readonly warnings: readonly string[];
 }
+
+/** What the folder URL install confirmation is told about the install's lifetime. */
+export interface LocationInstallConfirmation {
+  /** False when the installed list is kept for this session only. A folder install writes no files. */
+  readonly persistent: boolean;
+}
+
+/**
+ * The installed list lives only in this tab while the package files persist: other tabs and the next start would
+ * see the files without any record this tab could keep, so a package is not installed here.
+ */
+export const sessionListPackageError = 'Workbench storage is unavailable in this tab, so a package cannot be kept here.'
+  + ' Reload the page and try again.';
 
 export interface PackageInstallOptions {
   readonly signal?: AbortSignal;
@@ -319,7 +332,7 @@ export class ExtensionManagementService {
 
   async installFromLocation(
     value: string,
-    confirm: (extension: IExtensionDescription) => Promise<boolean>,
+    confirm: (extension: IExtensionDescription, lifetime: LocationInstallConfirmation) => Promise<boolean>,
   ): Promise<IExtensionDescription | undefined> {
     await this.active.whenInstalledExtensionsRegistered();
     const location = normalizeExtensionLocation(value);
@@ -334,7 +347,7 @@ export class ExtensionManagementService {
 
   private async install(
     location: URL,
-    confirm: (extension: IExtensionDescription) => Promise<boolean>,
+    confirm: (extension: IExtensionDescription, lifetime: LocationInstallConfirmation) => Promise<boolean>,
   ): Promise<IExtensionDescription | undefined> {
     const manifest = validateInstalledManifest(await this.loadManifest(location), location.href);
     const identifier = ExtensionIdentifier.fromManifest(manifest).value;
@@ -344,7 +357,7 @@ export class ExtensionManagementService {
     this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
     const nls = usesNlsPlaceholders(manifest) ? await this.loadNls(location) : undefined;
     const description = toExtensionDescription({ identifier, location: location.href, manifest, nls });
-    if (!await confirm(description)) {
+    if (!await confirm(description, { persistent: !this.scanner.sessionOnly })) {
       return undefined;
     }
     const record: StoredWebExtension = {
@@ -481,11 +494,13 @@ export class ExtensionManagementService {
     // install replaces and then fail the commit as a change from another window.
     await this.changes;
     const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
+    // Refused before the confirmation, so nobody accepts an install that cannot happen.
+    const persistent = await this.packageLifetime();
     const confirmed = await confirm({
       identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature, engine,
       isWebExtension: gallery !== undefined || manifest.browser !== undefined,
       existing: previous && { version: previous.version, source: previous.source },
-      persistent: await this.packages.isPersistent(), warnings,
+      persistent, warnings,
     });
     if (!confirmed) {
       return undefined;
@@ -498,6 +513,18 @@ export class ExtensionManagementService {
       ...(gallery ? { galleryUrl: gallery.release.download } : {}),
     };
     return this.serialize(() => this.commitPackage(pkg, record, previous, preloaded, signal));
+  }
+
+  /**
+   * True when both the installed list and the package files persist, false when the install lasts for this
+   * session. Throws when only the list is session-only, which leaves no way to keep the package files to it.
+   */
+  private async packageLifetime(): Promise<boolean> {
+    const filesPersist = await this.packages.isPersistent();
+    if (this.scanner.sessionOnly && filesPersist) {
+      throw new Error(sessionListPackageError);
+    }
+    return filesPersist && !this.scanner.sessionOnly;
   }
 
   private async commitPackage(
@@ -533,6 +560,9 @@ export class ExtensionManagementService {
           stoppedPrevious = true;
           await this.active.whenExtensionRemoved?.(identifier);
         }
+        // The storage can fall back to memory after the confirmation. A session-only list must not move a
+        // package into persistent files, where it could replace a folder that a record this tab cannot see uses.
+        await this.packageLifetime();
         // Only `current` can name this identifier and version. A folder there that it does not use is left
         // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
         await this.packages.commit(staged, true);
@@ -689,7 +719,8 @@ export class ExtensionManagementService {
   /**
    * Removes the extension from this tab and waits for its deactivation, then removes its record, its package
    * folder and its state. A failed record write registers the extension again; a failed folder removal is left
-   * to the startup cleanup; a failed state removal is reported without registering the extension again.
+   * to the startup cleanup; a failed state removal is reported without registering the extension again. While the
+   * list is session-only, folders in persistent files stay for the tabs and starts that still record them.
    */
   uninstall(identifier: string): Promise<boolean> {
     return this.serialize(() => this.remove(identifier));
@@ -735,10 +766,16 @@ export class ExtensionManagementService {
     }
   }
 
-  /** Call while holding the installed-list lock, with the list just written. */
+  /**
+   * Call while holding the installed-list lock, with the list just written. A session-only list says nothing about
+   * persistent files, which other tabs and the next start still use, so it removes a folder only from session files.
+   */
   private async removeUnreferenced(location: string, installed: readonly StoredWebExtension[]): Promise<void> {
     if (isExtensionPackageLocation(location) && !installed.some(extension => extension.location === location)) {
       try {
+        if (this.scanner.sessionOnly && await this.packages.isPersistent()) {
+          return;
+        }
         await this.packages.remove(location);
       } catch (error) {
         console.warn(`Could not remove the extension package folder '${location}'. It is removed at a later start.`, error);

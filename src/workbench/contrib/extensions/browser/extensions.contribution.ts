@@ -15,7 +15,7 @@ import {
 import { readPackageIcon } from '../../../services/extensionManagement/browser/extensionPackageStore.js';
 import '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
-import { sourceNames } from './extensionInstallConfirmation.js';
+import { sessionOnlyNotice, sourceNames } from './extensionInstallConfirmation.js';
 import { IExtensionsWorkbenchService } from './extensionsWorkbenchService.js';
 import './extensionsViewlet.js';
 import { registerExtensionIconReader } from '../../../services/extensions/browser/remoteExtensionIcons.js';
@@ -168,7 +168,7 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
         }
         return;
       }
-      await management.installFromLocation(location, async ({ manifest, location, nls }) => {
+      await management.installFromLocation(location, async ({ manifest, location, nls }, { persistent }) => {
         const origin = new URL(location).origin;
         const name = localizedDisplayName(manifest, nls);
         const selected = await workbench.queuePrompt(() => quickInput.pick([
@@ -177,7 +177,7 @@ registerAction2(class InstallExtensionFromLocation extends Action2 {
             id: 'install',
             label: 'Install',
             description: `${name} · ${manifest.publisher} · ${manifest.version}`,
-            detail: `${origin} · Extension code can make requests as this page’s origin.`,
+            detail: [origin, ...persistent ? [] : [sessionOnlyNotice], 'Extension code can make requests as this page’s origin.'].join(' · '),
           },
         ], { title: 'Install extension from ' + origin }));
         return selected?.id === 'install';

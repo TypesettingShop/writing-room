@@ -1,7 +1,13 @@
 import { expect, test, vi } from 'vitest';
-import type { IFileService } from '../../../../platform/files/common/files.js';
+import { Schemas } from '../../../../base/common/network.js';
+import { InMemoryStorageDatabase } from '../../../../base/parts/storage/common/storage.js';
+import { BrowserFileDatabase, IndexedDBFileSystemProvider } from '../../../../platform/files/browser/indexedDBFileSystemProvider.js';
+import type { IFileService, IFileSystemProvider } from '../../../../platform/files/common/files.js';
+import { FileService } from '../../../../platform/files/common/fileService.js';
+import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import type { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { extensionGlobalStorageUri, extensionLogUri, extensionWorkspaceStorageUri } from '../../../services/extensions/common/extensionStoragePaths.js';
 import { ExtensionStorage } from '../../browser/mainThreadStorage.js';
 
 test('rejects per-extension and aggregate overflow without changing old state', async () => {
@@ -68,6 +74,103 @@ test('queues a second write before it requests the browser lock', async () => {
     allowFirst();
     await Promise.allSettled([first, second]);
     vi.unstubAllGlobals();
+    state.dispose();
+    storage.dispose();
+  }
+});
+
+/** A storage backend that cannot be opened, so the storage starts in memory mode. */
+class BlockedDatabase extends InMemoryStorageDatabase {
+  override getItems(): Map<string, string> {
+    throw new DOMException('Access is denied for this document.', 'SecurityError');
+  }
+}
+
+const workspace = { getWorkspace: () => ({ id: 'workspace-id' }) } as IWorkspaceContextService;
+const extensionId = 'test.sample';
+const folders = [extensionGlobalStorageUri(extensionId), extensionWorkspaceStorageUri('workspace-id', extensionId), extensionLogUri(extensionId)];
+
+async function clearSetup(storage: InMemoryStorageService, provider: IFileSystemProvider) {
+  const files = new FileService();
+  files.registerProvider(Schemas.vscodeUserData, provider);
+  const state = new ExtensionStorage(storage, files, workspace);
+  // Written directly: a state update is still refused in memory mode.
+  storage.store('extensions.state.' + extensionId, '{"name":"global"}', StorageScope.PROFILE, StorageTarget.USER);
+  storage.store('extensions.state.' + extensionId, '{"name":"workspace"}', StorageScope.WORKSPACE, StorageTarget.USER);
+  state.setSecret(extensionId, 'token', 'secret');
+  for (const folder of folders) {
+    await files.writeFile(folder.with({ path: folder.path + '/file' }), new Uint8Array([1]));
+  }
+  const exists = async () => Promise.all(folders.map(folder => files.exists(folder)));
+  return { files, state, exists };
+}
+
+function denyLocks() {
+  const request = vi.fn(() => Promise.reject(new DOMException('The request was denied.', 'SecurityError')));
+  vi.stubGlobal('navigator', { locks: { request } });
+  return request;
+}
+
+test('in a window that blocks storage, clearing removes this tab\'s state, secrets and session folders without a lock', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(new BlockedDatabase());
+  const provider = new IndexedDBFileSystemProvider(new BrowserFileDatabase(() => Promise.reject(new Error('blocked')), () => {}), Schemas.vscodeUserData);
+  const { state, exists } = await clearSetup(storage, provider);
+  const request = denyLocks();
+  const immediate = vi.spyOn(storage, 'storeImmediately');
+  try {
+    expect(JSON.parse(state.read(extensionId, 'global'))).toEqual({ name: 'global' });
+    await expect(state.clear(extensionId)).resolves.toBeUndefined();
+    expect(storage.get('extensions.state.' + extensionId, StorageScope.PROFILE)).toBeUndefined();
+    expect(storage.get('extensions.state.' + extensionId, StorageScope.WORKSPACE)).toBeUndefined();
+    expect(state.getSecret(extensionId, 'token')).toBeUndefined();
+    expect(await exists()).toEqual([false, false, false]);
+    expect(request).not.toHaveBeenCalled();
+    expect(immediate).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    state.dispose();
+    storage.dispose();
+  }
+});
+
+test('in memory mode with persistent files, clearing keeps the storage folders the persisted list may still use', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(new BlockedDatabase());
+  const { state, exists } = await clearSetup(storage, new InMemoryFileSystemProvider());
+  const request = denyLocks();
+  try {
+    await state.clear(extensionId);
+    expect(request).not.toHaveBeenCalled();
+    expect(storage.get('extensions.state.' + extensionId, StorageScope.PROFILE)).toBeUndefined();
+    expect(state.getSecret(extensionId, 'token')).toBeUndefined();
+    expect(await exists()).toEqual([true, true, true]);
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    state.dispose();
+    storage.dispose();
+  }
+});
+
+test('while persistent, clearing takes the lock, removes the saved state and the storage folders', async () => {
+  const storage = new InMemoryStorageService();
+  const { state, exists } = await clearSetup(storage, new InMemoryFileSystemProvider());
+  const request = vi.fn(async (_name: string, callback: () => Promise<void>) => callback());
+  vi.stubGlobal('navigator', { locks: { request } });
+  const immediate = vi.spyOn(storage, 'storeImmediately');
+  try {
+    expect(JSON.parse(state.read(extensionId, 'global'))).toEqual({ name: 'global' });
+    await state.clear(extensionId);
+    expect(request).toHaveBeenCalledExactlyOnceWith('writing-room:extensions.state', expect.any(Function));
+    expect(immediate).toHaveBeenCalledTimes(2);
+    expect(storage.get('extensions.state.' + extensionId, StorageScope.PROFILE)).toBeUndefined();
+    expect(storage.get('extensions.state.' + extensionId, StorageScope.WORKSPACE)).toBeUndefined();
+    expect(await exists()).toEqual([false, false, false]);
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     state.dispose();
     storage.dispose();
   }
