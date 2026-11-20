@@ -1,8 +1,6 @@
 declare module 'vscode' {
   // Language features (wr-c9d8). The seam: document selectors, `languages.match` and language configurations.
-  // `GlobPattern` is declared here until the file system area's declaration (wr-8a5f) is merged.
-
-  export type GlobPattern = string | RelativePattern;
+  // `GlobPattern` is the file system area's (vscode.fileSystem.d.ts).
 
   export interface DocumentFilter {
     readonly language?: string;
