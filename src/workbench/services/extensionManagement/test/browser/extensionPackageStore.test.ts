@@ -638,3 +638,20 @@ test('an uninstall after the storage fell back keeps the persistent package fold
   expect(await folders()).toEqual(['tester.sample-1.0.0']);
   expect(database.getItems().get(`${StorageScope.PROFILE}:${userExtensionsKey}`)).toContain(location);
 });
+
+test('refuses the record when the storage falls back while the package folder moves', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const database = new FallibleDatabase();
+  const storage = new InMemoryStorageService(database);
+  const { service, confirm, packages, records, active } = setup(undefined, fetch, storage);
+  const commit = packages.commit.bind(packages);
+  vi.spyOn(packages, 'commit').mockImplementation(async (staged, overwrite) => {
+    const committed = await commit(staged, overwrite);
+    fallBack(storage, database);
+    return committed;
+  });
+  await expect(service.installPackage(createVsix(), source, confirm)).rejects.toThrow(sessionListPackageError);
+  expect(records()).toEqual([]);
+  expect(active.addExtension).not.toHaveBeenCalled();
+  expect(database.getItems().get(`${StorageScope.PROFILE}:${userExtensionsKey}`)).toBeUndefined();
+});

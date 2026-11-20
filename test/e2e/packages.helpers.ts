@@ -87,12 +87,13 @@ export async function blockStorage(page: Page, { storageOnly = false } = {}): Pr
   }, storageOnly);
 }
 
-/** Collects the page errors and the console messages that say an extension did not activate or install. */
+/** Collects the page errors and the console messages that say an extension did not activate. */
 export function watchExtensionFailures(page: Page): string[] {
   const failures: string[] = [];
   page.on('pageerror', error => failures.push('pageerror: ' + error.message));
   page.on('console', message => {
-    if (/Could not (activate|install extension|uninstall extension)/.test(message.text())) {
+    // Install and uninstall failures are quick pick titles, not console messages; the tests look for those.
+    if (/Could not activate/.test(message.text())) {
       failures.push(message.text());
     }
   });

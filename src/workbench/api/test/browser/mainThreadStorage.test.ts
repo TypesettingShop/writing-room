@@ -175,3 +175,36 @@ test('while persistent, clearing takes the lock, removes the saved state and the
     storage.dispose();
   }
 });
+
+test('in memory mode a state update, which still reaches the persistent backend, keeps the cross-tab lock', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  class FailingWrites extends InMemoryStorageDatabase {
+    fail = false;
+    override updateItems(update: Parameters<InMemoryStorageDatabase['updateItems']>[0]): void {
+      if (this.fail) {
+        throw new Error('quota exceeded');
+      }
+      super.updateItems(update);
+    }
+  }
+  const database = new FailingWrites();
+  const storage = new InMemoryStorageService(database);
+  database.fail = true;
+  storage.store('unrelated', 'value', StorageScope.PROFILE, StorageTarget.USER);
+  void storage.flush();
+  database.fail = false;
+  expect(storage.usesMemory).toBe(true);
+  const state = new ExtensionStorage(storage, {} as IFileService, workspace);
+  const request = vi.fn(async (_name: string, callback: () => Promise<void>) => callback());
+  vi.stubGlobal('navigator', { locks: { request } });
+  try {
+    await state.update('test.builtin', 'global', 'key', '1', () => true);
+    expect(request).toHaveBeenCalledExactlyOnceWith('writing-room:extensions.state', expect.any(Function));
+    expect(database.getItems().get(`${StorageScope.PROFILE}:extensions.state.test.builtin`)).toBe('{"key":1}');
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    state.dispose();
+    storage.dispose();
+  }
+});

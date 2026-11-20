@@ -562,12 +562,17 @@ export class ExtensionManagementService {
         }
         // The storage can fall back to memory after the confirmation. A session-only list must not move a
         // package into persistent files, where it could replace a folder that a record this tab cannot see uses.
-        await this.packageLifetime();
+        const persistent = await this.packageLifetime();
         // Only `current` can name this identifier and version. A folder there that it does not use is left
         // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
         await this.packages.commit(staged, true);
         committed = true;
         try {
+          // The storage can also fall back while the folder moves. Checked with no await before the write, so a
+          // session-only record never names a package folder in persistent files.
+          if (persistent && this.scanner.sessionOnly) {
+            throw new Error(sessionListPackageError);
+          }
           await write([...installed.filter(entry => entry.identifier !== identifier), record]);
         } catch (error) {
           await this.removeUnreferenced(location, installed);

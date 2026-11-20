@@ -42,6 +42,8 @@ class ExtensionPackagesContribution extends Disposable {
         const recorded = locations();
         if (recorded) {
           await packages.cleanup(recorded);
+        } else if (scanner.sessionOnly) {
+          console.warn('Skipped the extension package cleanup: the installed extensions list is kept for this session only.');
         } else {
           console.warn('Skipped the extension package cleanup: the installed extensions list cannot be read.');
         }
