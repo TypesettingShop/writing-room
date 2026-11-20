@@ -40,7 +40,9 @@ test.describe('completions', () => {
   });
 
   test('inserts up to the cursor with Enter and replaces with Shift+Enter, as the item\'s ranges say', async ({ page }) => {
-    await pasteText(page, 'fixtureRest tail');
+    const text = 'fixtureRest tail';
+    await pasteText(page, text);
+    await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('Home');
     for (let i = 0; i < 'fixtureRe'.length; i++) {
       await page.keyboard.press('ArrowRight');
@@ -51,7 +53,7 @@ test.describe('completions', () => {
     await expect.poll(() => editorText(page)).toBe('fixtureReplacest tail');
 
     await page.keyboard.press('ControlOrMeta+z');
-    await expect.poll(() => editorText(page)).toBe('fixtureRest tail');
+    await expect.poll(() => editorText(page)).toBe(text);
     await triggerSuggest(page);
     await expect(suggestion(page, 'fixtureReplace')).toBeVisible();
     await page.keyboard.press('Shift+Enter');
@@ -146,6 +148,7 @@ test.describe('hover', () => {
 test.describe('signature help', () => {
   test('marks the active parameter as the arguments are typed', async ({ page }) => {
     await pasteText(page, 'snip');
+    await expect.poll(() => editorText(page)).toBe('snip');
     await page.keyboard.press('End');
     await page.keyboard.type('(');
     await expect(parameterHints(page)).toBeVisible({ timeout: 10_000 });
@@ -188,12 +191,12 @@ test.describe('formatting', () => {
 
 test.describe('code actions', () => {
   /** Puts the cursor in `teh` of `fix teh word`. */
-  async function onTypo(page: import('@playwright/test').Page, lastLine = 'plain line'): Promise<void> {
-    const text = 'fix teh word\n' + lastLine;
+  async function onTypo(page: import('@playwright/test').Page, lastLine = 'plain line', indent = ''): Promise<void> {
+    const text = indent + 'fix teh word\n' + lastLine;
     await pasteText(page, text);
     await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('ControlOrMeta+Home');
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < indent.length + 5; i++) {
       await page.keyboard.press('ArrowRight');
     }
   }
@@ -231,6 +234,38 @@ test.describe('code actions', () => {
     await page.keyboard.press('Shift+Alt+o');
     await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
     expect(await editorText(page)).toBe('fix teh word\nplain line');
+  });
+
+  test('refreshes the light bulb when an automatic state arrives after Organize Imports settles', async ({ page }) => {
+    // The fixture changes a marker and releases the manual reply after the first automatic query.
+    // An indented line has space for Monaco's inline bulb.
+    await onTypo(page, 'lateautoorganize', '    ');
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
+    const lightBulb = activeGroup(page).getByRole('listbox', { name: /^Show Code Actions/ });
+    await expect(lightBulb).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('ArrowDown');
+    await expect(lightBulb).toBeHidden({ timeout: 10_000 });
+    await expect.poll(() => reportEdits(page), { timeout: 15_000 })
+      .toMatch(/organize imports cancelled 0; code actions cached 0$/);
+  });
+
+  test('automatic code actions take over when Organize Imports never replies', async ({ page }) => {
+    await onTypo(page, 'stalledorganize', '    ');
+    const lightBulb = activeGroup(page).getByRole('listbox', { name: /^Show Code Actions/ });
+    await expect(lightBulb).toBeHidden();
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(lightBulb).toBeVisible({ timeout: 12_000 });
+    await expect.poll(() => reportEdits(page), { timeout: 10_000 }).toContain('organize imports cancelled 1;');
+  });
+
+  test('a new Organize Imports still cancels a pending one at the extension host', async ({ page }) => {
+    await onTypo(page, 'sloworganize');
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(message(page, 'Slow Organize Imports started')).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
+    expect(await reportEdits(page)).toContain('organize imports cancelled 1;');
   });
 
   test('a second quick fix request can cancel a pending request without a page error', async ({ page }) => {
@@ -307,6 +342,7 @@ test.describe('rename', () => {
 
   test('shows the provider\'s refusal', async ({ page }) => {
     await pasteText(page, 'locked');
+    await expect.poll(() => editorText(page)).toBe('locked');
     await page.keyboard.press('Home');
     await expect.poll(async () => {
       await page.keyboard.press('F2');
@@ -403,14 +439,16 @@ test.describe('navigation', () => {
   });
 
   test('folds the provider\'s range: the lines after begin up to the one before end hide, no line more or less', async ({ page }) => {
-    await pasteText(page, 'begin\ninside one\ninside two\nend\nafter');
+    const text = 'begin\ninside one\ninside two\nend\nafter';
+    await pasteText(page, text);
+    await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('ControlOrMeta+Home');
     await expect.poll(async () => {
       await page.keyboard.press('ControlOrMeta+Shift+BracketLeft');
       return editorText(page);
     }, { timeout: 20_000, intervals: [1000] }).toBe('begin\nend\nafter');
     await page.keyboard.press('ControlOrMeta+Shift+BracketRight');
-    await expect.poll(() => editorText(page)).toBe('begin\ninside one\ninside two\nend\nafter');
+    await expect.poll(() => editorText(page)).toBe(text);
   });
 
   test('a code lens runs its command, and after the provider\'s change event shows the new lenses', async ({ page }) => {

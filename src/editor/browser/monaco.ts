@@ -3,6 +3,7 @@
 import type * as Monaco from 'monaco-editor';
 import type { KeyCodeChord } from '../../base/common/keybindings.js';
 import { announceEditorLoaded } from '../../platform/theme/browser/editorThemeHook.js';
+import { installCodeActionStateOrder } from './codeActionStateOrder.js';
 import { editorTextModelResolver } from './textModelServiceHook.js';
 
 export type MonacoNamespace = typeof Monaco;
@@ -98,7 +99,8 @@ async function load(): Promise<MonacoNamespace> {
     },
   };
   const [
-    monaco, { StandaloneServices }, { IKeybindingService }, { StandardKeyboardEvent }, { InMemoryTextModelService }, { SyncDescriptor },
+    monaco, { StandaloneServices }, { IKeybindingService }, { StandardKeyboardEvent },
+    { InMemoryTextModelService }, { SyncDescriptor }, codeActions,
   ] = await Promise.all([
     import('monaco-editor'),
     // @ts-expect-error Monaco exports this standalone service entry point without declarations.
@@ -111,7 +113,10 @@ async function load(): Promise<MonacoNamespace> {
     import('monaco-editor/editor/common/services/inMemoryTextModelService.js'),
     // @ts-expect-error Monaco exports its service descriptor without declarations.
     import('monaco-editor/platform/instantiation/common/descriptors.js'),
+    // @ts-expect-error Monaco exports its standalone code action model without declarations.
+    import('monaco-editor/editor/contrib/codeAction/browser/codeActionModel.js'),
   ]);
+  installCodeActionStateOrder(codeActions.CodeActionModel?.prototype);
   // Monaco takes overrides only when it first makes its services, which the theme below already does;
   // later ones (the third argument of editor.create) are ignored without a word. So this comes first.
   StandaloneServices.initialize({ textModelService: new SyncDescriptor(workbenchTextModelService(InMemoryTextModelService)) });
