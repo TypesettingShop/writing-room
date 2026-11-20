@@ -340,3 +340,108 @@ describe('fallback and browser events', () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('memory mode and persisted reads', () => {
+  test('a service that opened the browser storage is not in memory mode', () => {
+    const storage = disposables.add(new BrowserStorageService());
+    expect(storage.usesMemory).toBe(false);
+  });
+
+  test('reads another tab\'s value before its storage event arrives, writes nothing and reads only that key', () => {
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    area.setItem(physicalKey('unrelated'), 'other');
+    const reader = disposables.add(new BrowserStorageService());
+    const writer = disposables.add(new BrowserStorageService());
+    const change = vi.fn();
+    reader.onDidChangeValue(scope, undefined, disposables)(change);
+    writer.store('shared', 'from writer', scope, target);
+    void writer.flush();
+
+    const read = vi.spyOn(window.Storage.prototype, 'getItem');
+    const write = vi.spyOn(window.Storage.prototype, 'setItem');
+    const remove = vi.spyOn(window.Storage.prototype, 'removeItem');
+    expect(reader.getPersisted('shared', scope)).toBe('from writer');
+    expect(reader.get('shared', scope)).toBe('from writer');
+    expect(read.mock.calls).toEqual([[STORAGE_VERSION_KEY], [physicalKey('shared')]]);
+    expect(change.mock.calls).toEqual([[{ scope, key: 'shared', target: undefined, external: true }]]);
+
+    writer.remove('shared', scope);
+    void writer.flush();
+    remove.mockClear();
+    expect(reader.getPersisted('shared', scope)).toBeUndefined();
+    expect(reader.get('shared', scope)).toBeUndefined();
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(write).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  test('does not mark an empty origin when reading', () => {
+    const storage = disposables.add(new BrowserStorageService());
+    expect(storage.getPersisted('missing', scope)).toBeUndefined();
+    expect(area.length).toBe(0);
+  });
+
+  test('keeps a value this tab queued and persists it afterwards', async () => {
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    const storage = disposables.add(new BrowserStorageService());
+    storage.store('queued', 'local', scope, target);
+    area.setItem(physicalKey('queued'), 'other tab');
+    expect(storage.getPersisted('queued', scope)).toBe('local');
+    await Promise.resolve();
+    expect(area.getItem(physicalKey('queued'))).toBe('local');
+  });
+
+  test('throws when another tab moved the schema on while this tab persists', () => {
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    const storage = disposables.add(new BrowserStorageService());
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION + 1));
+    area.setItem(physicalKey('saved'), 'from newer build');
+    expect(() => storage.getPersisted('saved', scope)).toThrow(/schema/);
+    expect(storage.get('saved', scope)).toBeUndefined();
+  });
+
+  test('a blocked browser storage property puts the service in memory mode, and reads answer this tab without reopening it', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const getter = vi.spyOn(window, storageProperty, 'get').mockImplementation(() => {
+      throw new DOMException('Access denied', 'SecurityError');
+    });
+    const storage = disposables.add(new BrowserStorageService());
+    expect(storage.usesMemory).toBe(true);
+    storage.store('key', 'session', scope, target);
+    expect(storage.getPersisted('key', scope)).toBe('session');
+    expect(storage.getPersisted('missing', scope)).toBeUndefined();
+    expect(getter).toHaveBeenCalledTimes(1);
+  });
+
+  test('a newer saved schema puts the service in memory mode, and reads do not return the saved value', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION + 1));
+    area.setItem(physicalKey('future'), 'preserved');
+    const storage = disposables.add(new BrowserStorageService());
+    expect(storage.usesMemory).toBe(true);
+    expect(storage.getPersisted('future', scope)).toBeUndefined();
+  });
+
+  test('a failed write puts the service in memory mode', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const storage = disposables.add(new BrowserStorageService());
+    failSetItem(physicalKey('key'));
+    storage.store('key', 'session', scope, target);
+    void storage.flush();
+    expect(storage.usesMemory).toBe(true);
+    vi.restoreAllMocks();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    area.setItem(physicalKey('key'), 'other tab');
+    expect(storage.getPersisted('key', scope)).toBe('session');
+  });
+
+  test('a schema change seen in a storage event puts the service in memory mode', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    const storage = disposables.add(new BrowserStorageService());
+    expect(storage.usesMemory).toBe(false);
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION + 1));
+    storageEvent(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION + 1));
+    expect(storage.usesMemory).toBe(true);
+  });
+});

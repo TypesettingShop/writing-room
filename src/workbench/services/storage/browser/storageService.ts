@@ -184,6 +184,16 @@ class LocalStorageDatabase implements IStorageDatabase {
     }
   }
 
+  getItem(key: string): string | undefined {
+    const area = this.area;
+    if (!area) {
+      throw new Error('Workbench storage is not open.');
+    }
+    // Only the schema marker and this key are read; the marker check counts keys only for an unmarked origin.
+    this.checkVersion(area);
+    return area.getItem(STORAGE_PREFIX + key) ?? undefined;
+  }
+
   readExternal(event: StorageEvent): ReadonlyMap<string, string | undefined> | undefined {
     const area = this.area;
     if (!area || event.storageArea !== area) {
