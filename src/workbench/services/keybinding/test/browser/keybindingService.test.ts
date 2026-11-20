@@ -5,9 +5,12 @@ import { formatKeybinding } from '../../../../../base/common/keybindingLabels.js
 import { parseKeybinding } from '../../../../../base/common/keybindingParser.js';
 import { decodeKeybinding } from '../../../../../base/common/keybindings.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import * as monaco from '../../../../../editor/browser/monaco.js';
+import { CodeEditorService } from '../../../../../editor/browser/services/codeEditorService.js';
+import type { ICodeEditor } from '../../../../../editor/browser/services/codeEditorService.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contextkey.js';
-import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import type { IKeybindingRule } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { KeybindingResolver, ResultKind } from '../../../../../platform/keybinding/common/keybindingResolver.js';
 import { WorkbenchKeybindingService } from '../../browser/keybindingService.js';
@@ -45,19 +48,21 @@ let store: DisposableStore;
 let root: ContextKeyService;
 let execute: Mock<(id: string, ...args: unknown[]) => Promise<unknown>>;
 let service: WorkbenchKeybindingService;
+let editors: CodeEditorService;
 let target: HTMLDivElement;
 let input: HTMLInputElement;
 
 beforeEach(() => {
   store = new DisposableStore();
   root = store.add(new ContextKeyService());
+  editors = store.add(new CodeEditorService());
   execute = vi.fn().mockResolvedValue(undefined);
   service = store.add(new WorkbenchKeybindingService({
     _serviceBrand: undefined,
     async executeCommand<T>(id: string, ...args: unknown[]): Promise<T> {
       return await execute(id, ...args) as T;
     },
-  }, root));
+  }, root, editors));
   target = document.createElement('div');
   target.tabIndex = 0;
   input = document.createElement('input');
@@ -128,6 +133,86 @@ test('swallows a chord prefix and a mismatched continuation, and times out after
   expect(execute).not.toHaveBeenCalled();
   press(target, 'F4');
   expect(execute).toHaveBeenCalledExactlyOnceWith('mismatch-alone');
+});
+
+function registerEditorContainer(): void {
+  editors.addCodeEditor({ getContainerDomNode: () => target } as unknown as ICodeEditor);
+  target.append(input);
+}
+
+test('forwards an unmatched chord with its original prefix inside a registered editor', () => {
+  bind('chord', 'ctrl+shift+k ctrl+s');
+  registerEditorContainer();
+  const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(true);
+  const received = vi.fn();
+  input.addEventListener('keydown', received);
+  const modifiers = { ctrlKey: true, shiftKey: true };
+
+  expect(press(input, 'KeyK', modifiers).defaultPrevented).toBe(true);
+  expect(received).not.toHaveBeenCalled();
+  const second = press(input, 'KeyX', { ctrlKey: true });
+  expect(second.defaultPrevented).toBe(false);
+  expect(received).toHaveBeenCalledExactlyOnceWith(second);
+  expect(forward).toHaveBeenCalledExactlyOnceWith(parseKeybinding('ctrl+shift+k')!.chords[0], second, input);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+test('keeps a mismatched continuation swallowed when Monaco declines it or the event cannot bubble there', () => {
+  bind('chord', 'ctrl+k ctrl+s');
+  registerEditorContainer();
+  const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(false);
+  const received = vi.fn();
+  input.addEventListener('keydown', received);
+  const ctrl = { ctrlKey: true };
+
+  press(input, 'KeyK', ctrl);
+  expect(press(input, 'KeyX', ctrl).defaultPrevented).toBe(true);
+  expect(received).not.toHaveBeenCalled();
+  expect(forward).toHaveBeenCalledOnce();
+
+  forward.mockClear();
+  press(input, 'KeyK', ctrl);
+  expect(press(input, 'KeyX', { ...ctrl, bubbles: false }).defaultPrevented).toBe(true);
+  expect(forward).not.toHaveBeenCalled();
+});
+
+test('keeps extension chord matches and outside-editor mismatches out of Monaco', () => {
+  bind('extension-chord', 'ctrl+k ctrl+x', { weight: KeybindingWeight.ExternalExtension });
+  registerEditorContainer();
+  const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(true);
+  const outside = document.createElement('input');
+  document.body.append(outside);
+  const ctrl = { ctrlKey: true };
+
+  press(input, 'KeyK', ctrl);
+  expect(press(input, 'KeyX', ctrl).defaultPrevented).toBe(true);
+  expect(execute).toHaveBeenCalledExactlyOnceWith('extension-chord');
+
+  press(outside, 'KeyK', ctrl);
+  expect(press(outside, 'KeyC', ctrl).defaultPrevented).toBe(true);
+  expect(forward).not.toHaveBeenCalled();
+});
+
+test('composition cancels a pending chord without forwarding it', () => {
+  bind('chord', 'ctrl+k ctrl+s');
+  registerEditorContainer();
+  const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(true);
+  const ctrl = { ctrlKey: true };
+
+  for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+    press(input, 'KeyK', ctrl);
+    expect(press(input, 'KeyX', { ...ctrl, ...composition }).defaultPrevented).toBe(false);
+    expect(press(input, 'KeyS', ctrl).defaultPrevented).toBe(false);
+  }
+  expect(forward).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
+});
+
+test('swallows an unmatched editor continuation before Monaco has loaded', () => {
+  bind('chord', 'ctrl+k ctrl+s');
+  registerEditorContainer();
+  press(input, 'KeyK', { ctrlKey: true });
+  expect(press(input, 'KeyX', { ctrlKey: true }).defaultPrevented).toBe(true);
 });
 
 test('completes a chord whose second stroke is a plain letter while typing in a text input', () => {
