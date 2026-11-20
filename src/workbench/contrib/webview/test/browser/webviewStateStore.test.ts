@@ -1,5 +1,6 @@
-import { expect, it, vi } from 'vitest';
-import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { afterEach, expect, it, vi } from 'vitest';
+import { InMemoryStorageDatabase } from '../../../../../base/parts/storage/common/storage.js';
+import { InMemoryStorageService, storageKey, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { WebviewStateStore } from '../../browser/webviewStateStore.js';
 
 it('preserves earlier states and warns once when a pane or the workspace exceeds its byte budget', () => {
@@ -40,6 +41,116 @@ it('checks the owning extension and ignores malformed stored JSON', () => {
     expect(states.get('id', 'fixture.other')).toBe('true');
     states.delete('id', 'fixture.other');
     expect(states.get('id', 'fixture.other')).toBeUndefined();
+  } finally {
+    storage.dispose();
+  }
+});
+
+const stateAddress = storageKey(StorageScope.WORKSPACE, 'webview.states.v1');
+const owner = 'fixture.owner';
+
+afterEach(() => vi.restoreAllMocks());
+
+it('mutates only this tab after a flush failure, even when the persistent backend works again', async () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    states.set('set', owner, '0');
+    states.set('close', owner, '1');
+    states.set('prune', 'fixture.other', '2');
+    const saved = database.getItems().get(stateAddress);
+    vi.spyOn(database, 'updateItems').mockImplementationOnce(() => { throw new Error('write blocked'); });
+    storage.store('trigger', true, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+    await storage.flush();
+    expect(storage.usesMemory).toBe(true);
+    const immediate = vi.spyOn(storage, 'storeImmediately');
+    const readBackend = vi.spyOn(database, 'getItems');
+
+    states.set('set', owner, '3');
+    expect(states.get('set', owner)).toBe('3');
+    states.delete('close', owner);
+    expect(states.get('close', owner)).toBeUndefined();
+    states.removeMissingExtensions(new Set([owner]));
+    expect(states.get('prune', 'fixture.other')).toBeUndefined();
+    await storage.flush();
+
+    expect(immediate).not.toHaveBeenCalled();
+    expect(readBackend).not.toHaveBeenCalled();
+    expect(database.getItems().get(stateAddress)).toBe(saved);
+  } finally {
+    storage.dispose();
+  }
+});
+
+it('saves, enforces both limits and deletes in a tab whose backend never opens', () => {
+  const database = new InMemoryStorageDatabase();
+  vi.spyOn(database, 'getItems').mockImplementation(() => { throw new Error('read blocked'); });
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  try {
+    expect(storage.usesMemory).toBe(true);
+    warning.mockClear();
+    states.set('first', owner, 'false');
+    expect(states.get('first', owner)).toBe('false');
+    expect(warning).not.toHaveBeenCalled();
+    states.set('first', owner, JSON.stringify('가'.repeat(256 * 1024 / 3)));
+    expect(states.get('first', owner)).toBe('false');
+    const large = JSON.stringify('a'.repeat(256 * 1024 - 2));
+    for (let i = 0; i < 4; i++) {
+      states.set(String(i), owner, large);
+    }
+    expect(states.get('2', owner)).toBe(large);
+    expect(states.get('3', owner)).toBeUndefined();
+    expect(warning).toHaveBeenCalledExactlyOnceWith(
+      'Webview state could not be saved. The limits are 256 KiB per webview and 1 MiB per workspace.',
+    );
+    states.delete('first', owner);
+    expect(states.get('first', owner)).toBeUndefined();
+    states.removeMissingExtensions(new Set());
+    expect(states.get('2', owner)).toBeUndefined();
+  } finally {
+    storage.dispose();
+  }
+});
+
+it('merges writes with the persisted state even while this tab has a stale cache', () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  try {
+    const fromAnotherTab = { id: 'another', extension: owner, state: '1' };
+    database.updateItems({
+      insert: new Map([[stateAddress, JSON.stringify([fromAnotherTab])]]), delete: new Set(),
+    });
+    expect(states.get('another', owner)).toBeUndefined();
+    states.set('local', owner, '2');
+    expect(database.getItems().get(stateAddress)).toBe(JSON.stringify([
+      fromAnotherTab, { id: 'local', extension: owner, state: '2' },
+    ]));
+  } finally {
+    storage.dispose();
+  }
+});
+
+it('drops failed persistent writes and warns with the backend error once', () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    states.set('id', owner, '0');
+    const saved = database.getItems().get(stateAddress);
+    const error = new Error('quota exhausted');
+    vi.spyOn(database, 'updateItems').mockImplementation(() => { throw error; });
+    states.set('id', owner, '1');
+    states.set('id', owner, '2');
+    expect(states.get('id', owner)).toBe('0');
+    expect(database.getItems().get(stateAddress)).toBe(saved);
+    expect(storage.usesMemory).toBe(false);
+    expect(warning).toHaveBeenCalledExactlyOnceWith('Webview state could not be saved.', error);
   } finally {
     storage.dispose();
   }

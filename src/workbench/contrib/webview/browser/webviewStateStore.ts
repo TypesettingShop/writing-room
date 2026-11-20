@@ -57,7 +57,8 @@ function parseStates(raw: string | undefined): StoredWebviewState[] {
 
 export class WebviewStateStore implements IWebviewStateStore {
   declare readonly _serviceBrand: undefined;
-  private warned = false;
+  private warnedAboutLimit = false;
+  private warnedAboutWrite = false;
 
   constructor(@IStorageService private readonly storage: IStorageService) {}
 
@@ -68,7 +69,7 @@ export class WebviewStateStore implements IWebviewStateStore {
 
   set(id: string, extension: string, state: string): void {
     if (!isWebviewState(state)) {
-      this.warn();
+      this.warnAboutLimit();
       return;
     }
     this.update(entries => [...entries.filter(entry => entry.id !== id || entry.extension !== extension),
@@ -84,31 +85,44 @@ export class WebviewStateStore implements IWebviewStateStore {
   }
 
   private update(change: (entries: StoredWebviewState[]) => StoredWebviewState[], allowMissing = false): void {
-    if (allowMissing && this.storage.get(key, StorageScope.WORKSPACE) === undefined) {
+    const memory = this.storage.usesMemory;
+    const cached = this.storage.get(key, StorageScope.WORKSPACE);
+    if (allowMissing && cached === undefined) {
+      return;
+    }
+    const transform = (raw: string | undefined): string => {
+      const entries = parseStates(raw);
+      const updated = change(entries);
+      if (allowMissing && updated.length === entries.length && raw) {
+        return raw;
+      }
+      const encoded = JSON.stringify(updated);
+      if (!fits(encoded, totalLimit)) {
+        this.warnAboutLimit();
+        return raw ?? '[]';
+      }
+      return encoded;
+    };
+    if (memory) {
+      const updated = transform(cached);
+      if (updated !== cached) {
+        this.storage.store(key, updated, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+      }
       return;
     }
     try {
-      this.storage.storeImmediately(key, raw => {
-        const entries = parseStates(raw);
-        const updated = change(entries);
-        if (allowMissing && updated.length === entries.length && raw) {
-          return raw;
-        }
-        const encoded = JSON.stringify(updated);
-        if (!fits(encoded, totalLimit)) {
-          this.warn();
-          return raw ?? '[]';
-        }
-        return encoded;
-      }, StorageScope.WORKSPACE, StorageTarget.MACHINE);
-    } catch {
-      this.warn();
+      this.storage.storeImmediately(key, transform, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+    } catch (error) {
+      if (!this.warnedAboutWrite) {
+        this.warnedAboutWrite = true;
+        console.warn('Webview state could not be saved.', error);
+      }
     }
   }
 
-  private warn(): void {
-    if (!this.warned) {
-      this.warned = true;
+  private warnAboutLimit(): void {
+    if (!this.warnedAboutLimit) {
+      this.warnedAboutLimit = true;
       console.warn('Webview state could not be saved. The limits are 256 KiB per webview and 1 MiB per workspace.');
     }
   }
