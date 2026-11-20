@@ -24,6 +24,11 @@ import { CustomEditorInput, CustomEditorResolution, describeError } from './cust
 import { ICustomEditorService } from './customEditorService.js';
 import type { ICustomEditorProvider } from './customEditorService.js';
 
+/** The event that wakes the extension behind `viewType`, as VS Code names it. */
+function activationEvent(viewType: string): string {
+  return 'onCustomEditor:' + viewType;
+}
+
 /**
  * Puts the contributed custom editors in the editor resolver and resolves their inputs with the
  * providers extensions register.
@@ -116,6 +121,13 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
         return;
       }
       if (!info || !provider) {
+        if (info && !this.extensions.activationEventIsDone(activationEvent(info.id))) {
+          // The activation did not finish: the extension host stopped under it (the page is going, the
+          // host failed). The provider is not missing; the editor waits and resolves when it is next
+          // shown. Falling back here would put the text editor in the state the page is about to save.
+          input.resetResolution();
+          return;
+        }
         await this.reopenInTextEditor(input, info?.displayName ?? input.viewType);
         return;
       }
@@ -135,7 +147,7 @@ export class CustomEditorService extends Disposable implements ICustomEditorServ
 
   /** Wakes the extension behind `viewType` and gives what it registered, if it did. */
   private async activateProvider(viewType: string): Promise<ICustomEditorProvider | undefined> {
-    await this.extensions.activateByEvent('onCustomEditor:' + viewType);
+    await this.extensions.activateByEvent(activationEvent(viewType));
     return this.providers.get(viewType);
   }
 

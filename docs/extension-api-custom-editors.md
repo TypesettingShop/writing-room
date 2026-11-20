@@ -92,7 +92,8 @@ vscode.window.registerCustomEditorProvider('example.preview', {
 ## 수명
 
 - 해결은 탭이 처음 보일 때 한다. 해결이 끝나기 전에 탭을 닫으면 `token`이 취소되고 늦게 온 결과는 버린다. 제공자가 던지면 탭에 `The custom editor could not be opened: <이유>`가 보인다.
-- 새로고침하면 Custom Editor 탭이 같은 자리에 돌아오고, 보일 때 확장을 깨워 다시 해결한다.
+- 새로고침하면 Custom Editor 탭이 같은 자리에 돌아오고, 보일 때 확장을 깨워 다시 해결한다. 복원 순서는 upstream과 같다: 저장한 탭을 되살리고(`CustomEditorInputSerializer`), 탭이 보이면 설치 확장의 등록을 기다린 뒤 `onCustomEditor:<viewType>`으로 확장을 깨우고, 제공자의 `resolveCustomTextEditor`(또는 `resolveCustomEditor`)를 부른다.
+- 텍스트 에디터로 물러서는 것은 제공자가 정말 없을 때뿐이다: `viewType`의 기여가 없어졌거나(확장 제거), 활성화가 끝났는데 제공자를 등록하지 않았을 때. 그때 탭을 텍스트 에디터로 바꾸고 `viewType`마다 페이지에 한 번 알린다. 활성화가 끝나지 않은 채 확장 호스트가 멈추면(페이지가 떠나며 호스트를 먼저 멈출 때, 호스트가 죽었을 때) 물러서지 않고 탭이 다시 기다린다. 그래서 앞에 보이던 Custom Editor도 새로고침 뒤 그대로 돌아온다 (wr-v108.ck3).
 - **Restart Extension Host** 뒤에는 열린 에디터가 새 호스트에서 다시 해결된다. 자기 문서를 가진 에디터는 문서를 새로 연다. 저장하지 않은 변경이 있었으면 사라졌다고 알린다.
 - 확장은 자기 매니페스트에 있는 `viewType`만, 하나에 제공자 하나만 등록할 수 있다. 어긋나면 `registerCustomEditorProvider`가 던진다.
 
