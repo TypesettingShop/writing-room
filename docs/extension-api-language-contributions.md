@@ -37,7 +37,7 @@
 
 ### 언어 모드
 
-활성 텍스트 에디터가 있으면 상태 표시줄 오른쪽에 그 모델의 언어 이름이 보인다(접근 가능한 이름 `Select Language Mode`). 누르거나 커맨드 팔레트의 **Change Language Mode**(`workbench.action.editor.changeLanguageMode`, `Ctrl+K M`)를 실행하면 언어 목록이 열린다. 이름이나 `(id)`로 걸러 다른 언어를 고르면 그 모델의 언어가 고정된다. 확장이 `languages.setTextDocumentLanguage`를 호출하거나 언어 id를 지정해 모델을 만들어도 고정된다. 기여가 바뀌어도 고정한 언어는 유지된다. 파일의 언어를 다시 경로에 맞추려면 탭을 닫았다가 연다.
+활성 텍스트 에디터가 있으면 상태 표시줄 오른쪽에 그 모델의 언어 이름이 보인다(접근 가능한 이름 `Select Language Mode`). 누르거나 커맨드 팔레트의 **Change Language Mode**(`workbench.action.editor.changeLanguageMode`, `Ctrl+K M`)를 실행하면 언어 목록이 열린다. 이름이나 `(id)`로 걸러 다른 언어를 고르면 그 모델의 언어가 고정된다. 확장이 `languages.setTextDocumentLanguage`를 호출하거나 언어 id를 지정해 모델을 만들어도 고정된다. 기여가 바뀌어도 고정한 언어는 유지된다. 파일의 언어를 다시 경로에 맞추려면 탭을 닫았다가 연다. 모델이 남아 있으면 고정도 남는다. 저장하지 않은 변경이 있거나, 다른 그룹이 같은 파일을 보이거나, 확장이 `workspace.openTextDocument`로 연 문서를 아직 쥐고 있으면(최대 3분) 모델이 남는다.
 
 언어가 바뀌면 상태 표시줄, 에디터의 `editorLangId`와 `resourceLangId` 컨텍스트 키, 모델의 언어가 함께 바뀌고, 문서 API는 닫힘 다음 열림 이벤트를 낸다.
 

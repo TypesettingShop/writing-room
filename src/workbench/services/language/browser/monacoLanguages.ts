@@ -86,7 +86,7 @@ export class MonacoLanguageBridge extends Disposable {
   }
 
   private connect(): Promise<MonacoNamespace | undefined> {
-    this.connecting ??= this.loadMonaco().then(monaco => {
+    this.connecting ??= loadMonaco().then(monaco => {
       if (this.monaco) {
         return this.monaco;
       }
@@ -114,11 +114,6 @@ export class MonacoLanguageBridge extends Disposable {
       return undefined;
     });
     return this.connecting;
-  }
-
-  /** Overridden by tests, which have no editor package. */
-  protected loadMonaco(): Promise<MonacoNamespace> {
-    return loadMonaco();
   }
 
   private registerLanguageIds(monaco: MonacoNamespace): void {

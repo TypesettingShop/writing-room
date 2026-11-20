@@ -100,10 +100,15 @@ test('will-save edits require the pending save and a current document version', 
   let continueSaving!: () => void;
   const received = vi.fn(() => new Promise<void>(resolve => { continueSaving = resolve; }));
   const save = vi.fn();
+  // Without a tab the untitled save would reach the file service, so only the guard keeps `save` uncalled.
   const { service, willSave } = bridge([tracked.value], {
     $acceptDocumentDelta: async () => {},
     $participateInSave: received,
-  }, () => true, { files: { canHandleResource: () => true, save } });
+  }, () => true, {
+    files: { canHandleResource: () => true, save },
+    editorService: { findEditors: () => [] } as unknown as IEditorService,
+    untitled: { get: () => undefined } as unknown as IUntitledTextEditorService,
+  });
   try {
     await service.$startDocumentSync();
     const promises: Promise<unknown>[] = [];
