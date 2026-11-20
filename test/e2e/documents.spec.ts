@@ -155,7 +155,10 @@ interface EditorsReport {
 /** How many reporting fixture commands each page has run; the fixture numbers its messages the same way. */
 const fixtureRuns = new WeakMap<Page, number>();
 
-/** Runs a reporting fixture command from the palette and returns the text after `prefix` of the message it shows. */
+/**
+ * Runs a reporting fixture command from the palette, dismisses the message it shows and returns the text after
+ * `prefix`. Only three toasts show at once, so a message left open would hold the fourth back until one times out.
+ */
 async function fixtureMessage(page: Page, title: string, prefix: string): Promise<string> {
   const run = (fixtureRuns.get(page) ?? 0) + 1;
   fixtureRuns.set(page, run);
@@ -165,7 +168,11 @@ async function fixtureMessage(page: Page, title: string, prefix: string): Promis
   const head = `[${run}] ${prefix}`;
   const message = page.getByText(head);
   await expect(message).toBeVisible({ timeout: 15_000 });
-  return (await message.textContent())!.slice(head.length);
+  const text = (await message.textContent())!;
+  const toast = page.getByRole('region', { name: text, exact: true });
+  await toast.getByRole('button', { name: 'Dismiss message' }).click();
+  await expect(toast).toHaveCount(0);
+  return text.slice(head.length);
 }
 
 async function reportEditors(page: Page): Promise<EditorsReport> {

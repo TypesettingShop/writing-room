@@ -52,7 +52,7 @@ class FakeMonacoTextModel extends TestTextModel {
   updateOptions(): void {}
 }
 
-/** A file input whose text is `text`, or which cannot be text when `failure` is set. */
+/** A file input whose text is its name, or which cannot be text when `failure` is set. */
 class TestFileInput extends EditorInput {
   readonly textModel: TestTextModel;
 

@@ -219,10 +219,10 @@ exports.activate = context => {
   }));
   context.subscriptions.push(vscode.commands.registerCommand('documents.showFileFromSide', async () => {
     // Another group in front, then the file in the first column and in a new third one.
-    await window.showTextDocument(await workspace.openTextDocument({ content: 'side' }), { viewColumn: vscode.ViewColumn.Beside });
-    const file = await workspace.openTextDocument(Uri.parse('vscode-vfs://writing-room/workspace/shown.md'));
     let shown;
     try {
+      await window.showTextDocument(await workspace.openTextDocument({ content: 'side' }), { viewColumn: vscode.ViewColumn.Beside });
+      const file = await workspace.openTextDocument(Uri.parse('vscode-vfs://writing-room/workspace/shown.md'));
       const first = await window.showTextDocument(file, vscode.ViewColumn.One);
       const firstActive = window.activeTextEditor === first;
       const third = await window.showTextDocument(file, { viewColumn: vscode.ViewColumn.Three, preserveFocus: true });
@@ -238,7 +238,8 @@ exports.activate = context => {
   }));
   context.subscriptions.push(vscode.commands.registerCommand('documents.editActiveEditor', async () => {
     const editor = window.activeTextEditor;
-    const applied = !!editor && await editor.edit(builder => builder.insert(new Position(0, 0), 'edited '));
+    const applied = !!editor && await editor.edit(builder => builder.insert(new Position(0, 0), 'edited '))
+      .then(result => result, error => error.message);
     return report('Edited ', `${describe(editor) ?? 'no editor'}: ${applied}`);
   }));
   context.subscriptions.push(vscode.commands.registerCommand('documents.renameAtResource', async () => {
