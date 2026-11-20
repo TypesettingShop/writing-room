@@ -10,7 +10,13 @@ Webview는 확장이 만든 HTML을 에디터나 뷰에 표시한다. 브라우�
 WRITING_ROOM_WEBVIEW_PORT=5174 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-프리뷰는 `npm run build` 뒤 같은 환경 변수와 인자로 `npm run preview`를 실행한다. 포트는 시작할 때 읽으므로 포트를 바꾼 뒤 프리뷰를 다시 빌드할 필요가 없다. 앱과 같은 포트 또는 이미 쓰는 포트를 주면 서버 시작이 실패한다.
+프리뷰는 `npm run build` 뒤 같은 환경 변수로 프리뷰의 앱 포트 4173에서 연다. 이때 아래의 5173은 4173으로 읽는다.
+
+```sh
+WRITING_ROOM_WEBVIEW_PORT=5174 npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+```
+
+포트는 시작할 때 읽으므로 포트를 바꾼 뒤 프리뷰를 다시 빌드할 필요가 없다. 앱과 같은 포트 또는 이미 쓰는 포트를 주면 서버 시작이 실패한다.
 
 1. Coder에서 5173과 5174를 각각 포워딩한다. 워크벤치의 주소에 `5173--`처럼 앱 포트 숫자가 한 번만 나타나는지 확인한다.
 2. 워크벤치의 같은 주소에서 `/webview/config.json`을 열어 `appPort`와 `webviewPort`가 실제 포트와 맞는지 확인한다.
