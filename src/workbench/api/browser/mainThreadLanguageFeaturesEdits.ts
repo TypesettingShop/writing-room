@@ -17,7 +17,7 @@ import type {
 import type { EditorPosition, EditorRange, EditorSelection } from '../common/extHostTypeConverters.js';
 import { sanitizeMarker } from './mainThreadDiagnostics.js';
 import { paneControl } from './mainThreadEditors.js';
-import { checkSelector, request } from './mainThreadLanguageFeatures.js';
+import { checkSelector, modelResource, request } from './mainThreadLanguageFeatures.js';
 import type { MainThreadLanguageFeatures } from './mainThreadLanguageFeatures.js';
 import { checkRange } from './mainThreadLanguageFeaturesCompletions.js';
 
@@ -262,8 +262,18 @@ export class MainThreadEdits implements MainThreadEditsShape, IDisposable {
       }
     };
     const at = rangeOrSelection(range as EditorRange & Partial<EditorSelection>);
+    // The extension host has the workbench's markers (its collections and its mirror): only the markers
+    // Monaco's own language workers made, which live in Monaco alone, cross with the request.
+    const workbenchOwners = this.seam.workbenchMarkerOwners(modelResource(model));
+    const monacoOnly = Array.isArray(context?.markers)
+      // Monaco's markers are its `IMarker`s, which name their owner; the published type leaves it out.
+      ? context.markers.filter(marker => {
+        const owner = (marker as { owner?: unknown } | undefined)?.owner;
+        return typeof owner === 'string' && !workbenchOwners.has(owner);
+      })
+      : [];
     const contextDto = {
-      markers: markers(context?.markers),
+      markers: markers(monacoOnly),
       only: typeof context?.only === 'string' && context.only ? text(context.only) : undefined,
       trigger: CODE_ACTION_TRIGGERS.has(context?.trigger) ? context.trigger : 1,
     };

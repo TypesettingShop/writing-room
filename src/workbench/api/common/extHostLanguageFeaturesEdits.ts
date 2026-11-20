@@ -8,7 +8,7 @@ import type {
   FormattingOptionsDto, RenameLocationDto, RenameResultDto,
 } from './extHost.protocol.languageFeatures.js';
 import { CodeActionKind } from './extHostCommonTypes.js';
-import { toMarkerData } from './extHostDiagnosticTypes.js';
+import { fromMarkerData, toMarkerData } from './extHostDiagnosticTypes.js';
 import { Range, Selection } from './extHostEditorTypes.js';
 import { isCommand, isRange, selectorToDto, textEditsToDto, workspaceEditToOperations } from './extHostLanguageConverters.js';
 import type { ExtHostLanguageFeatures, LanguageFeatureGroup } from './extHostLanguageFeatures.js';
@@ -127,14 +127,28 @@ function triggerCharacters(values: readonly unknown[]): string[] {
 /**
  * The diagnostics of a code action context, as VS Code's code action adapter takes them: those of the
  * document whose range meets `range` (a cursor that touches one counts), the very objects the
- * extension host holds, so what an extension put on its diagnostic is there. Monaco's markers are not
- * used.
+ * extension host holds, so what an extension put on its diagnostic is there. Then the markers of
+ * Monaco's own language workers (`json`, `css`, ...), which only Monaco has: the workbench sends just
+ * those with the request, the markers of the range, and they come as diagnostics made from them.
  */
-function contextDiagnostics(all: readonly vscode.Diagnostic[], range: vscode.Range): vscode.Diagnostic[] {
+function contextDiagnostics(all: readonly vscode.Diagnostic[], range: vscode.Range, monacoMarkers: readonly MarkerDataDto[] | undefined): vscode.Diagnostic[] {
   const diagnostics: vscode.Diagnostic[] = [];
   for (const diagnostic of all) {
     if (meets(range, diagnostic) && diagnostics.push(diagnostic) >= MAX_DIAGNOSTICS) {
+      return diagnostics;
+    }
+  }
+  for (const marker of Array.isArray(monacoMarkers) ? monacoMarkers : []) {
+    if (diagnostics.length >= MAX_DIAGNOSTICS) {
       break;
+    }
+    try {
+      const diagnostic = fromMarkerData(marker);
+      if (meets(range, diagnostic)) {
+        diagnostics.push(diagnostic);
+      }
+    } catch {
+      // A marker without a message or range is no diagnostic.
     }
   }
   return diagnostics;
@@ -337,7 +351,7 @@ export class ExtHostEdits implements ExtHostEditsShape, LanguageFeatureGroup {
       const version = document.version;
       const only = typeof context?.only === 'string' && context.only ? CodeActionKind.Empty.append(context.only) : undefined;
       const value = await adapter.provider.provideCodeActions(document, range, {
-        diagnostics: contextDiagnostics(this.features.diagnostics(document.uri), range),
+        diagnostics: contextDiagnostics(this.features.diagnostics(document.uri), range, context?.markers),
         only,
         triggerKind: context?.trigger === CodeActionTriggerKind.Automatic ? CodeActionTriggerKind.Automatic : CodeActionTriggerKind.Invoke,
       }, token as vscode.CancellationToken);

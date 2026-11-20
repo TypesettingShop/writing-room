@@ -40,6 +40,8 @@ afterEach(() => {
 async function setup() {
   host = await createLanguageFeatureTestHost({
     hostGroups: [createEditsGroup], mainGroups: [createMainThreadEdits],
+    // `marker`'s owner is an extension's collection, which the workbench's marker service holds.
+    markerOwners: () => new Set(['fixture']),
     documents: [
       { uri: resource, text: lines.join('\n'), language: 'lftest', version: 3 },
       { uri: other, text: 'uses alpha', language: 'lftest', version: 7 },
@@ -159,7 +161,7 @@ test('formatting edits from the extension host are checked before Monaco applies
 
 // --- Code actions ----------------------------------------------------------------------------------
 
-/** A marker as Monaco's marker service holds it. Providers no longer get these: the context is the extension host's. */
+/** A marker as Monaco's marker service holds it, of an extension's collection (`fixture`): the workbench holds that owner, so it does not cross. */
 const marker = {
   owner: 'fixture', resource: { scheme: 'vscode-vfs', authority: 'writing-room', path: '/workspace/a.lft', query: '', fragment: '' },
   severity: 4, message: 'Double space', source: 'fixture-lint',
@@ -215,7 +217,7 @@ test('the context\'s diagnostics are the very objects in the extension host\'s c
   lint([another], '2');
   lint([otherFile], '1', other);
   const provide = await recordingProvider();
-  // Monaco's markers cross still; they are not what the provider gets.
+  // Monaco also gives the marker the bridge drew for the extension's collection: it does not come a second time.
   await codeActions({ startLineNumber: 1, startColumn: 6, endLineNumber: 1, endColumn: 8, selectionStartLineNumber: 1, selectionStartColumn: 8, positionLineNumber: 1, positionColumn: 6 },
     { markers: [{ ...marker, message: 'From Monaco' }], only: 'quickfix', trigger: 1 });
   const [, range, context] = provide.mock.calls[0];
@@ -281,9 +283,26 @@ test('diagnostics the workbench mirrors from other owners are in the context too
   expect(diagnostics).toHaveLength(1000);
 });
 
+test('the markers of Monaco\'s own language workers come after the extension host\'s diagnostics; the workbench\'s are not repeated', async () => {
+  const { sent } = await setup();
+  const own = lintDiagnostic();
+  lint([own]);
+  const provide = await recordingProvider();
+  // Monaco gives the markers of the range: the workbench's (the extension's collection, drawn by the bridge) and its JSON worker's.
+  const json = { ...marker, owner: 'json', code: 'Unexpected', source: undefined, message: 'Expected comma', tags: [] };
+  sent.length = 0;
+  await codeActions(undefined, { markers: [marker, json, { ...json, message: 'Elsewhere', startLineNumber: 3, endLineNumber: 3 }], trigger: 2 });
+  const diagnostics = provide.mock.calls[0][2].diagnostics;
+  expect(diagnostics.map(diagnostic => diagnostic.message)).toEqual(['Double space', 'Expected comma']);
+  expect(diagnostics[0]).toBe(own);
+  expect(diagnostics[1]).toMatchObject({ range: new Range(0, 5, 0, 7), code: 'Unexpected', severity: DiagnosticSeverity.Warning });
+  // Only Monaco's own markers cross: the workbench's are on the extension host already.
+  expect(JSON.stringify(sent)).not.toContain('Double space');
+});
+
 test('a host without the diagnostics area gives a provider no diagnostics', async () => {
   host = await createLanguageFeatureTestHost({
-    hostGroups: [createEditsGroup], mainGroups: [createMainThreadEdits], diagnostics: false,
+    hostGroups: [createEditsGroup], mainGroups: [createMainThreadEdits], diagnostics: false, markerOwners: () => new Set(['fixture']),
     documents: [{ uri: resource, text: lines.join('\n'), language: 'lftest', version: 3 }],
   });
   const provide = await recordingProvider();
