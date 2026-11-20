@@ -287,6 +287,8 @@ export class ExtensionsActivator {
         // Still activating, so the API stays live while the subscriptions are disposed (wr-eycu.u4t).
         this.disposeSubscriptions(extension);
         extension.state = 'failed';
+        // A dispose callback can push more while the API is live; with the API closed it cannot register again.
+        this.disposeSubscriptions(extension);
         this.release(description.key);
         const message = `Could not activate ${description.id} from ${description.entry}: ${error instanceof Error ? error.message : error}`;
         console.error(message);
@@ -341,6 +343,9 @@ export class ExtensionsActivator {
     this.removing.delete(extension);
     extension.state = 'inactive';
     extension.waitingFor.clear();
+    // A dispose callback can push more while the API is live, such as an `extensions.onDidChange` listener that only
+    // the subscriptions release; with the API closed it cannot register again.
+    this.disposeSubscriptions(extension);
     this.release(key);
   }
 

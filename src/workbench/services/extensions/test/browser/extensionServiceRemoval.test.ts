@@ -323,3 +323,26 @@ test('never registers two generations of one extension together', async () => {
   expect(registered('removalTest.newer')).toBe(false);
   expect(both).toEqual([]);
 });
+
+test('ends the removal when removing the contributions fails', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const { service } = start(description('alpha'));
+  const { host, key } = await activate(service, 'alpha');
+  service.removeExtension('test.alpha');
+  const removal = whenRemoved(service, 'test.alpha');
+  await settled();
+  let fail = false;
+  disposables.push(ExtensionsRegistry.registerExtensionPoint({ name: 'removalTestFailingPoint',
+    validate: (_value): _value is unknown => true, accept: () => {
+      if (fail) {
+        fail = false;
+        throw new Error('expected failure');
+      }
+    } }));
+  fail = true;
+  expect(() => host.access!.setStatus(key, { state: 'inactive' })).not.toThrow();
+  await settled();
+  expect(removal.done).toBe(true);
+  expect(errors).toHaveBeenCalledWith(expect.stringContaining('[test.alpha] Could not remove the contributions'),
+    expect.any(Error));
+});

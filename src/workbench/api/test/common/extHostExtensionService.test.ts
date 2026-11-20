@@ -447,3 +447,40 @@ test('keeps the API live while a failed activation disposes its subscriptions', 
     host.dispose();
   }
 });
+
+test('disposes what a removed extension subscribes while it disposes its subscriptions', async () => {
+  const channel = new MessageChannel();
+  const main = new RPCProtocol(channel.port1);
+  const worker = new RPCProtocol(channel.port2);
+  const removed = deferred();
+  let calls = 0;
+  main.set(MainContext.MainThreadExtensionService, {
+    async $setActivationStatus(key, status) {
+      if (key === 'late' && status.state === 'inactive') {
+        removed.resolve();
+      }
+    },
+  });
+  const service = new ExtHostExtensionService(worker, async (extension, api) => ({
+    activate(context) {
+      if (extension.id === 'late') {
+        context.subscriptions.push({
+          dispose: () => context.subscriptions.push(api.extensions.onDidChange(() => calls++)),
+        });
+      }
+    },
+  }));
+  try {
+    const host = main.getProxy(ExtHostContext.ExtHostExtensionService);
+    await host.$deltaExtensions([description('late'), description('other')], []);
+    await host.$activateByEvent('onCommand:test');
+    await host.$deltaExtensions([], ['late']);
+    await removed.promise;
+    await host.$deltaExtensions([description('added')], []);
+    expect(calls).toBe(0);
+  } finally {
+    service.dispose();
+    main.dispose();
+    worker.dispose();
+  }
+});

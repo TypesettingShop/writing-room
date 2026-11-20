@@ -521,10 +521,16 @@ export class ExtensionService extends Disposable implements IExtensionService {
         const leaving = this.leaving.get(id);
         const removal = new Promise<void>(resolve => host.removing.set(key, () => {
           // The host has disposed the extension's subscriptions, or has ended: its contributions can go now.
-          if (leaving) {
-            this.finishLeaving(id, leaving);
+          // This runs once, so a contribution point that throws must not leave `whenExtensionRemoved` waiting.
+          try {
+            if (leaving) {
+              this.finishLeaving(id, leaving);
+            }
+          } catch (error) {
+            console.error(`[${id}] Could not remove the contributions of the removed extension:`, error);
+          } finally {
+            resolve();
           }
-          resolve();
         }));
         const completed = Promise.all([previous, removal]).then(() => {
           if (this.removals.get(id) === completed) {
