@@ -2,6 +2,7 @@ import type * as vscode from 'vscode';
 import type { IModelContentChangedEvent, IRange } from '../../../editor/common/model.js';
 import { EndOfLine, Position, Range } from './extHostEditorTypes.js';
 import type { DocumentSnapshot } from './extHost.protocol.documents.js';
+import { languageWordPattern } from './extHostLanguageWordPatterns.js';
 
 export function fromModelRange(range: IRange): Range {
   return new Range(range.startLineNumber - 1, range.startColumn - 1, range.endLineNumber - 1, range.endColumn - 1);
@@ -155,7 +156,8 @@ export class ExtHostDocumentData {
 
   private wordRange(position: vscode.Position, pattern?: RegExp): Range | undefined {
     const { line, character } = this.validatePosition(position);
-    const source = pattern ?? defaultWord;
+    // The language's configured word pattern, else the default (wr-c9d8: `setLanguageConfiguration`).
+    const source = pattern ?? languageWordPattern(this.language) ?? defaultWord;
     const regex = new RegExp(source.source, source.flags.replace(/[gy]/g, '') + 'g');
     if (regex.test('')) {
       return pattern ? this.wordRange(position) : undefined;
