@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
-  blockStorage, changeFixtureState, countPrompts, enterLocation, expectFixtureState, failStorageWrites, fixtureOrigin,
-  installedKey, installStateFixture, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers, savedRecords,
-  sessionOnlyNotice, watchExtensionFailures,
+  blockStorage, changeFixtureState, countPrompts, enterLocation, expectFixtureState, failStorageWrites, fallBackWhileConfirming, fixtureOrigin,
+  installedKey, installLifetimeChangedError, installStateFixture, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers, savedRecords,
+  sessionOnlyNotice, upgradeFileDatabase, watchExtensionFailures,
 } from './packages.helpers.js';
 
 test('two tabs that install different extensions at once both keep their records', async ({ context }) => {
@@ -194,5 +194,60 @@ test('a tab that falls back after a localStorage write fails can activate and sa
   await expectFixtureState(page, 'initial');
   await changeFixtureState(page);
   await expectFixtureState(page, 'changed');
+  expect(failures).toEqual([]);
+});
+
+async function expectLifetimeRejection(page: Page): Promise<void> {
+  const error = page.getByRole('combobox', { name: 'Could not install extension' });
+  await expect(error).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('option', { name: 'OK ' + installLifetimeChangedError, exact: true }).click();
+  await expect(error).toHaveCount(0);
+}
+
+async function expectExtensionAbsent(page: Page, container: string, command: string): Promise<void> {
+  await expect(activityBar(page).getByRole('button', { name: container, exact: true })).toHaveCount(0);
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill(command);
+  await expect(page.getByRole('option', { name: command, exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+}
+
+test('rejects a confirmed persistent VSIX after another tab upgrades the file database', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await page.goto('/');
+  await enterLocation(page, fixtureOrigin + '/vsix/sample.vsix');
+  await expect(vsixChoice(page)).toContainText('Source: ' + fixtureOrigin + '/vsix/sample.vsix');
+  await expect(vsixChoice(page)).not.toContainText(sessionOnlyNotice);
+
+  await upgradeFileDatabase(page);
+  await vsixChoice(page).click();
+  await expectLifetimeRejection(page);
+  expect(await savedIdentifiers(page)).toEqual([]);
+  expect(await packageFolders(page)).toEqual([]);
+  await expectExtensionAbsent(page, 'VSIX Fixture', 'Run VSIX Fixture');
+
+  await page.reload();
+  await expectExtensionAbsent(page, 'VSIX Fixture', 'Run VSIX Fixture');
+  expect(await savedIdentifiers(page)).toEqual([]);
+  expect(await packageFolders(page)).toEqual([]);
+  expect(failures).toEqual([]);
+});
+
+test('rejects a confirmed persistent folder URL after the install list falls back to memory', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await page.goto('/');
+  await prepareLocationInstall(page, 'remote');
+  await expect(remoteChoice(page)).toBeVisible();
+  await expect(remoteChoice(page)).not.toContainText(sessionOnlyNotice);
+
+  await fallBackWhileConfirming(page);
+  await remoteChoice(page).click();
+  await expectLifetimeRejection(page);
+  expect(await savedIdentifiers(page)).toEqual([]);
+  await expectExtensionAbsent(page, 'Remote Fixture', 'Run Remote Fixture');
+
+  await page.reload();
+  await expectExtensionAbsent(page, 'Remote Fixture', 'Run Remote Fixture');
+  expect(await savedIdentifiers(page)).toEqual([]);
   expect(failures).toEqual([]);
 });

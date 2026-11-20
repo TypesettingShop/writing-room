@@ -63,6 +63,8 @@ export async function prepareLocationInstall(page: Page, path: string): Promise<
 }
 
 export const sessionOnlyNotice = 'Browser storage is unavailable: the extension stays for this session only.';
+export const installLifetimeChangedError = 'Browser storage became unavailable after the confirmation, so the extension was not installed.'
+  + ' Install it again to keep it for this session only.';
 
 /**
  * Makes the page act like a browser that blocks site data, from the next navigation on: reading the
@@ -169,4 +171,44 @@ export async function expectFixtureState(page: Page, state: 'initial' | 'changed
 export async function changeFixtureState(page: Page): Promise<void> {
   await runCommand(page, 'Change State Storage Fixture', /^Change State Storage Fixture$/);
   await expectStateToast(page, 'State Storage Fixture changed both values');
+}
+
+/** Change the database version from a second document on this origin. */
+export async function upgradeFileDatabase(page: Page): Promise<void> {
+  const other = await page.context().newPage();
+  try {
+    await other.route('**/storage-version-test', route => route.fulfill({
+      contentType: 'text/html', body: '<!doctype html><title>Storage version test</title>',
+    }));
+    await other.goto(new URL('/storage-version-test', page.url()).href);
+    await other.evaluate(() => new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('writing-room-files', 2);
+      request.onsuccess = () => {
+        request.result.close();
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('The workbench has not released its old file database connection.'));
+    }));
+  } finally {
+    await other.close();
+  }
+}
+
+/** Flushes workbench state without closing the open confirmation. */
+export async function fallBackWhileConfirming(page: Page): Promise<void> {
+  const warning = page.waitForEvent('console', {
+    predicate: event => event.type() === 'warning' && event.text().startsWith('Workbench storage switched to memory.'),
+    timeout: 15_000,
+  });
+  await failStorageWrites(page);
+  const flush = page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+  await Promise.all([warning, flush]);
 }
