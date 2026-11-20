@@ -32,9 +32,9 @@ const tab = (page: Page, name: string) => page.getByRole('tab', { name, exact: t
 const line = (page: Page, text: string) => activeGroup(page).locator('.view-line').filter({ hasText: text }).first();
 /**
  * The editor's text without its blank lines, which Monaco renders as empty rows that the rendered text does not keep,
- * and with the middle dots it draws for trailing spaces made plain.
+ * and with the dots it draws for selected spaces made plain (U+00B7, or U+2E31 when the font's middle dot is the wider).
  */
-const editorText = async (page: Page) => (await renderedEditorText(page)).replaceAll('\u00b7', ' ').split('\n').filter(row => row !== '').join('\n');
+const editorText = async (page: Page) => (await renderedEditorText(page)).replace(/[\u00b7\u2e31]/g, ' ').split('\n').filter(row => row !== '').join('\n');
 const squash = (text: string) => text.split('\n').filter(row => row !== '').join('\n');
 const lintName = /^Uninstall markdownlint/;
 const sortName = /^Uninstall Sort Lines/i;
@@ -234,15 +234,22 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
     await expect.poll(() => rules(page)).toEqual([]);
     const { tab: outputTab, channels, log } = outputView(page);
     await outputTab.click();
-    await expect(channels.getByRole('option', { name: 'markdownlint' })).toHaveCount(0);
     // markdownlint's own dispose callback clears its diagnostic collection after that collection was disposed (its order,
     // as in VS Code). The workbench keeps the extension's cleanup error in the extension host log, not in the console
     // (wr-54me). Lines of the extension's timers after removal are not asserted: whether one fires is timing.
     await channels.getByRole('option', { name: 'Extension Host (Worker)' }).click();
-    await expect(log).toContainText('[davidanson.vscode-markdownlint] Subscription disposal failed:');
-    await expect(log).toContainText('illegal state - object is disposed');
+    // The channel list is drawn now, so its missing entry is a fact rather than a list not shown yet.
+    await expect(channels.getByRole('option', { name: 'markdownlint' })).toHaveCount(0);
+    // The error is the one of that disposal: it follows the extension's line, not some other line of the log.
+    await expect(log).toContainText(
+      /\[davidanson\.vscode-markdownlint\] Subscription disposal failed: [\s\S]*?illegal state - object is disposed/);
+    // A command that is still there would show: first a query the list must show (a built-in command), then the one it
+    // must not, read once the first query's entry has gone from the list.
     await page.keyboard.press('F1');
+    await page.getByRole('combobox').fill('Focus Problems');
+    await expect(page.getByRole('option', { name: /Focus Problems/ })).toBeVisible();
     await page.getByRole('combobox').fill('markdownlint: Toggle');
+    await expect(page.getByRole('option', { name: /Focus Problems/ })).toHaveCount(0);
     await expect(page.getByRole('option', { name: /markdownlint/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
   });

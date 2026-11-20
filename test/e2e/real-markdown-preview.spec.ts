@@ -24,8 +24,8 @@ import {
   actionMenu, actionNames, hoverWidget, openActionMenu, openQuickOutline, renameInput, suggestionNames, suggestList,
   triggerSuggest,
 } from './language-features.helpers.js';
-import { activeEditor, diagnostics, openSettings, replaceText, saveSettings, settingsTab } from './configuration.helpers.js';
-import { problemItems } from './diagnostics.helpers.js';
+import { activeEditor, diagnostics, openSettings, replaceText, saveSettings, settingsEditor } from './configuration.helpers.js';
+import { problemItems, problemsTree } from './diagnostics.helpers.js';
 import { packageFolders, savedRecords } from './packages.helpers.js';
 import {
   installFromGallery, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
@@ -118,7 +118,10 @@ async function caretOn(page: Page, text: string, offset = 0): Promise<void> {
   await expect(async () => {
     const token = activeGroup(page).locator('.view-line span span').filter({ hasText: text }).first();
     await expect(token).toBeVisible({ timeout: 5_000 });
-    const index = (await token.textContent())!.replaceAll(' ', ' ').indexOf(text) + offset;
+    const content = (await token.textContent())!.replaceAll('\u00a0', ' ');
+    // The locator's text filter ignores case; the caret is measured from the exact text only.
+    expect(content.indexOf(text), `"${text}" in the token "${content}"`).toBeGreaterThanOrEqual(0);
+    const index = content.indexOf(text) + offset;
     const width = await token.evaluate((element, index) => {
       const range = document.createRange();
       const node = element.firstChild!;
@@ -163,6 +166,9 @@ async function undoUntil(page: Page, text: string): Promise<void> {
     const current = await editorText(page);
     if (current !== expected) {
       await page.keyboard.press('ControlOrMeta+z');
+      // Monaco draws the undone text at an animation frame: the next read must see it, or one undo too many takes back
+      // an earlier, saved edit (the rename) that no further undo brings back.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     }
     return current;
   }, { intervals: [300] }).toBe(expected);
@@ -190,7 +196,7 @@ async function selectedLines(page: Page): Promise<string[]> {
     return [...editor.querySelectorAll<HTMLElement>('.view-line')]
       .filter(line => tops.has(line.style.top))
       .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top))
-      .map(line => (line.textContent ?? '').replaceAll(' ', ' '));
+      .map(line => (line.textContent ?? '').replaceAll('\u00a0', ' '));
   });
 }
 
@@ -265,6 +271,7 @@ test('가: the preview opens to the side and in place, follows the text, comes b
     await preview(page).getByText('body text and more').dblclick();
     await expect(tab(page, 'notes.md')).toHaveAttribute('aria-selected', 'true');
     await expect(activeEditor(page)).toBeFocused();
+    await expect.poll(() => caretLine(page)).toBe('body text and more');
   });
 
   await test.step('Reload: the preview tab comes back with its content', async () => {
@@ -283,12 +290,18 @@ test('가: the preview opens to the side and in place, follows the text, comes b
   });
 
   await test.step('The tab\'s context menu runs Open Preview with the tab\'s file', async () => {
+    // Another file is the active editor, so only the tab's own resource gives a preview of notes.md.
+    await page.keyboard.press('ControlOrMeta+Shift+e');
+    await treeItem(page, 'other.md').dblclick();
+    await expect(tab(page, 'other.md')).toHaveAttribute('aria-selected', 'true');
     await tab(page, 'notes.md').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Open Preview', exact: true }).click();
     await expect(tab(page, 'Preview notes.md')).toHaveAttribute('aria-selected', 'true');
     await expect(preview(page).locator('h1')).toHaveText('Notes title');
     await page.getByRole('button', { name: 'Close Preview notes.md' }).click();
     await expect(tab(page, 'Preview notes.md')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Close other.md' }).click();
+    await expect(tab(page, 'other.md')).toHaveCount(0);
   });
 
   await test.step('Ctrl+Shift+V opens the preview in the editor\'s own group', async () => {
@@ -526,6 +539,9 @@ test('다: the language server\'s thirteen features, the settings that turn two 
       await page.mouse.move(x, y);
       await page.keyboard.down('ControlOrMeta');
       try {
+        // Go to definition opens other.md as well: the link's own active underline shows the links contribution has it.
+        await expect(activeGroup(page).locator('.view-line .detected-link-active').filter({ hasText: './other.md#install' }))
+          .toBeVisible({ timeout: 5_000 });
         await page.mouse.click(x, y);
       } finally {
         await page.keyboard.up('ControlOrMeta');
@@ -615,12 +631,16 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await caretOn(page, '#section-renamed', 3);
     await expect.poll(() => highlights('textual')).toBeGreaterThan(0);
     expect(await highlights('provider')).toBe(0);
+    // Validation is off by default: the Problems view, on screen, has no row for the broken link. A hidden view has no
+    // rows to count at all.
+    await command(page, 'View: Focus Problems (Errors, Warnings, Infos)');
+    await expect(problemsTree(page).or(page.getByText('No problems have been detected in the workspace.'))).toBeVisible();
     await expect(problemItems(page).filter({ hasText: 'missing.md' })).toHaveCount(0);
+    await hidePanel(page);
 
     await openSettings(page);
     await replaceText(page, '{\n  "markdown.validate.enabled": true,\n  "markdown.occurrencesHighlight.enabled": true,\n  "markdown.suggest.paths.enabled": false\n}');
     await saveSettings(page);
-    await expect(diagnostics(page)).toHaveCount(0);
     await show(page, 'notes.md');
     await command(page, 'View: Focus Problems (Errors, Warnings, Infos)');
     await expect(problemItems(page).filter({ hasText: 'missing.md' })).toHaveCount(1);
@@ -636,11 +656,17 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await page.keyboard.press('End');
     await page.keyboard.type(' [z](./');
     await page.keyboard.press('Control+Space');
-    await expect.poll(async () => await suggestList(page).isVisible() ? completionLabels(page) : []).not.toContain('other.md, File');
+    // Read once every provider has answered: the widget then shows its list, or Monaco's message that there is none.
+    const noSuggestions = activeGroup(page).locator('.suggest-widget .message').filter({ hasText: 'No suggestions.' });
+    await expect.poll(async () => await suggestList(page).isVisible() || await noSuggestions.isVisible()).toBe(true);
+    expect(await suggestList(page).isVisible() ? await completionLabels(page) : []).not.toContain('other.md, File');
     await page.keyboard.press('Escape');
     await undoUntil(page, renamed);
 
     await show(page, 'settings.json');
+    // The three settings, saved since the start of this part, are the extension's own: none is marked as unknown.
+    await expect(settingsEditor(page).locator('.view-line').filter({ hasText: 'markdown.suggest.paths.enabled' })).toBeVisible();
+    await expect(diagnostics(page)).toHaveCount(0);
     await replaceText(page, '{\n  "markdown.validate.enabled": false,\n  "markdown.occurrencesHighlight.enabled": false\n}');
     await saveSettings(page);
     await command(page, 'View: Focus Problems (Errors, Warnings, Infos)');
@@ -676,10 +702,19 @@ test('다: the language server\'s thirteen features, the settings that turn two 
     await show(page, 'notes.md');
     await activeEditor(page).focus();
     await page.keyboard.press('Control+Shift+O');
-    await expect(page.locator('.quick-input-widget').filter({ visible: true }).getByRole('option')).toHaveCount(0);
+    // Nothing can be waited for: without a symbol provider the outline does not open, and a provider's symbols would
+    // arrive a moment after the outline did.
+    await page.waitForTimeout(1_000);
+    await expect(page.locator('.quick-input-widget').filter({ visible: true }).getByRole('option')
+      .filter({ hasText: /Notes title|Section renamed/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
+    // A command that is still there would show: first a query the list must show (a built-in command), then the one it
+    // must not, read once the first query's entry has gone from the list.
     await page.keyboard.press('F1');
+    await page.getByRole('combobox').fill('Focus Problems');
+    await expect(page.getByRole('option', { name: /Focus Problems/ })).toBeVisible();
     await page.getByRole('combobox').fill('Markdown: Open Preview');
+    await expect(page.getByRole('option', { name: /Focus Problems/ })).toHaveCount(0);
     await expect(page.getByRole('option', { name: /Open Preview/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await show(page, 'settings.json');

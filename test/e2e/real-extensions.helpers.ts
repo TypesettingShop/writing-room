@@ -107,15 +107,21 @@ export async function openExtensions(page: Page): Promise<void> {
   await expect(gallerySearch(page)).toBeFocused();
 }
 
+/**
+ * The package is downloaded and its signature checked before the confirmation shows, and unpacked into storage after it
+ * is accepted: seconds for a large one (vscode.markdown-language-features is 4 MB) on a busy machine.
+ */
+const installTimeout = 20_000;
+
 /** Searches the gallery, installs the row that has `rowText`, and returns the confirmation's text before accepting it. */
 export async function installFromGallery(page: Page, query: string, rowText: string, installedName: RegExp): Promise<string> {
   await openExtensions(page);
   await gallerySearch(page).fill(query);
   await galleryResults(page).getByRole('listitem').filter({ hasText: rowText }).getByRole('button', { name: /^Install / }).click();
   const confirmation = page.getByRole('option', { name: /^Install / });
-  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toBeVisible({ timeout: installTimeout });
   const text = await confirmation.innerText();
   await confirmation.click();
-  await expect(uninstallButton(page, installedName)).toBeVisible();
+  await expect(uninstallButton(page, installedName)).toBeVisible({ timeout: installTimeout });
   return text;
 }
