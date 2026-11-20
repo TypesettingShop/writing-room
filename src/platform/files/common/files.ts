@@ -198,6 +198,8 @@ export interface IFileSystemProvider {
   readonly capabilities: FileSystemProviderCapabilities;
   readonly onDidChangeCapabilities?: Event<void>;
   readonly onDidChangeFile: Event<readonly IFileChange[]>;
+  /** True when what this provider stores now goes away with the page. Absent means the provider does not say. */
+  readonly usesMemory?: boolean;
   stat(resource: URI): Promise<IStat>;
   readdir(resource: URI): Promise<readonly [string, FileType][]>;
   readFile(resource: URI, options?: IFileReadOptions): Promise<Uint8Array>;

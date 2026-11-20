@@ -72,6 +72,11 @@ export class IndexedDBFileSystemProvider extends StoredFileSystemProvider {
     super();
   }
 
+  /** True once the database could not be opened and files live in this page. False before the first use. */
+  get usesMemory(): boolean {
+    return this.database.usesMemory;
+  }
+
   override watch(resource: URI): IDisposable {
     const watch = super.watch(resource);
     void this.database.get().then(db => { if (db) { this.startChannel(); } }).catch(() => {});
