@@ -195,6 +195,61 @@ exports.activate = context => {
     ]);
   }));
 
+  // What extensions see of the text editors, by file name and column, whatever opened them.
+  const describe = editor => editor && `${editor.document.uri.path.split('/').pop()}@${editor.viewColumn}`;
+  const sameDocuments = uri => workspace.textDocuments.filter(document => document.uri.toString() === uri.toString()).length;
+  const editorEvents = [];
+  // Each message carries its run, as notifications hide after a while and cannot be counted.
+  let runs = 0;
+  const report = (prefix, value) => window.showInformationMessage(`[${++runs}] ${prefix}${value}`);
+  context.subscriptions.push(
+    workspace.onDidOpenTextDocument(document => editorEvents.push(`open ${document.uri.path.split('/').pop()}`)),
+    window.onDidChangeActiveTextEditor(editor => editorEvents.push(`active ${describe(editor) ?? 'none'}`)),
+    window.onDidChangeVisibleTextEditors(editors => editorEvents.push(`visible ${editors.map(describe).join(',')}`)),
+  );
+  context.subscriptions.push(vscode.commands.registerCommand('documents.reportEditors', () => {
+    const active = window.activeTextEditor;
+    return report('Text editors: ', JSON.stringify({
+      active: describe(active) ?? null,
+      activeIsUri: active?.document.uri instanceof Uri,
+      visible: window.visibleTextEditors.map(describe),
+      documents: active ? sameDocuments(active.document.uri) : 0,
+      events: editorEvents.splice(0),
+    }));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('documents.showFileFromSide', async () => {
+    // Another group in front, then the file in the first column and in a new third one.
+    let shown;
+    try {
+      await window.showTextDocument(await workspace.openTextDocument({ content: 'side' }), { viewColumn: vscode.ViewColumn.Beside });
+      const file = await workspace.openTextDocument(Uri.parse('vscode-vfs://writing-room/workspace/shown.md'));
+      const first = await window.showTextDocument(file, vscode.ViewColumn.One);
+      const firstActive = window.activeTextEditor === first;
+      const third = await window.showTextDocument(file, { viewColumn: vscode.ViewColumn.Three, preserveFocus: true });
+      shown = {
+        first: describe(first), firstActive, third: describe(third),
+        sameDocument: first.document === file && third.document === file && first !== third,
+        visible: window.visibleTextEditors.map(describe), documents: sameDocuments(file.uri),
+      };
+    } catch (error) {
+      shown = { error: error.message };
+    }
+    return report('Shown from side: ', JSON.stringify(shown));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('documents.editActiveEditor', async () => {
+    const editor = window.activeTextEditor;
+    const applied = !!editor && await editor.edit(builder => builder.insert(new Position(0, 0), 'edited '))
+      .then(result => result, error => error.message);
+    return report('Edited ', `${describe(editor) ?? 'no editor'}: ${applied}`);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('documents.renameAtResource', async () => {
+    // The built-in command opens the resource in a text editor first; there is no rename provider.
+    const uri = Uri.parse('vscode-vfs://writing-room/workspace/renamed.md');
+    const outcome = await vscode.commands.executeCommand('editor.action.rename', [uri, new Position(0, 0)])
+      .then(() => 'ran', error => error.message);
+    return report('Rename at resource: ', outcome);
+  }));
+
   async function saveUntitled(visibility) {
     const content = visibility === 'hidden' ? 'Draft from a hidden extension document' : 'Draft from a visible extension document';
     const document = await workspace.openTextDocument({ content });
