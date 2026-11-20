@@ -232,9 +232,15 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
     await expect(problemsStatus(page, '0 errors, 0 warnings')).toBeVisible();
     await showProblems(page);
     await expect.poll(() => rules(page)).toEqual([]);
-    const { tab: outputTab, channels } = outputView(page);
+    const { tab: outputTab, channels, log } = outputView(page);
     await outputTab.click();
     await expect(channels.getByRole('option', { name: 'markdownlint' })).toHaveCount(0);
+    // markdownlint's own dispose callback clears its diagnostic collection after that collection was disposed (its order,
+    // as in VS Code). The workbench keeps the extension's cleanup error in the extension host log, not in the console
+    // (wr-54me). Lines of the extension's timers after removal are not asserted: whether one fires is timing.
+    await channels.getByRole('option', { name: 'Extension Host (Worker)' }).click();
+    await expect(log).toContainText('[davidanson.vscode-markdownlint] Subscription disposal failed:');
+    await expect(log).toContainText('illegal state - object is disposed');
     await page.keyboard.press('F1');
     await page.getByRole('combobox').fill('markdownlint: Toggle');
     await expect(page.getByRole('option', { name: /markdownlint/ })).toHaveCount(0);
@@ -296,5 +302,7 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
     await expect.poll(() => packageFolders(page)).toEqual([]);
   });
 
-  expect(messages).toEqual(allowedMessages);
+  // Each start of the extension host (the install, the reload) logs the notice again: every message is an allowed one,
+  // and each allowed one shows.
+  expect([...new Set(messages)].sort()).toEqual([...allowedMessages].sort());
 });
