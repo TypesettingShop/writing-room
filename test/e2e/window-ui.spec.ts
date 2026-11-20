@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures.js';
-import { dismissAllToasts, message, openWindowUiFixture, outputView, runCommand } from './window-ui.helpers.js';
+import { dismissAllToasts, message, openWindowUiFixture, openWindowUiFixtureWithPausedClock, outputView, runCommand } from './window-ui.helpers.js';
 
 test('an extension picks one item, many items and a name, and gets its own objects back', async ({ page }) => {
   await openWindowUiFixture(page);
@@ -185,33 +185,33 @@ test('notification progress fills, cancels once and goes when the task ends; win
 });
 
 test('three toasts show at once and the waiting ones follow; the v0.1.0 buttons still answer', async ({ page }) => {
-  await openWindowUiFixture(page);
+  await openWindowUiFixtureWithPausedClock(page);
   await runCommand(page, 'Window UI: Flood');
   const toasts = page.locator('.extension-toast');
   await expect(toasts).toHaveCount(3);
   await expect(toasts.getByRole('status')).toHaveText(['Flood 1', 'Flood 2', 'Flood 3']);
-  await toasts.first().getByRole('button', { name: 'Dismiss message' }).click();
+  await toasts.first().getByRole('button', { name: 'Dismiss message' }).press('Enter');
   await expect(toasts.getByRole('status')).toHaveText(['Flood 2', 'Flood 3', 'Flood 4']);
   await toasts.first().getByRole('button', { name: 'Dismiss message' }).press('Escape');
   await expect(toasts.getByRole('status')).toHaveText(['Flood 3', 'Flood 4', 'Flood 5']);
 });
 
 test('plain information closes after ten seconds while a question stays open', async ({ page }) => {
-  await openWindowUiFixture(page);
-  await page.clock.install();
+  await openWindowUiFixtureWithPausedClock(page);
   await runCommand(page, 'Window UI: Show Toast Samples');
   const information = message(page, 'Temporary information');
   const choice = page.getByRole('button', { name: 'Keep', exact: true });
   await expect(information).toBeVisible();
   await expect(choice).toBeVisible();
-  await page.clock.fastForward(10_000);
+  await page.clock.runFor(9_999);
+  await expect(information).toBeVisible();
+  await page.clock.runFor(1);
   await expect(information).toHaveCount(0);
   await expect(choice).toBeVisible();
 });
 
 test('an error displaces ordinary information and dismissing it brings the information back', async ({ page }) => {
-  await openWindowUiFixture(page);
-  await page.clock.install();
+  await openWindowUiFixtureWithPausedClock(page);
   await runCommand(page, 'Window UI: Flood');
   const dismiss = page.getByRole('button', { name: 'Dismiss message', exact: true });
   const displaced = message(page, 'Flood 3');
@@ -221,7 +221,7 @@ test('an error displaces ordinary information and dismissing it brings the infor
   await expect(urgent.getByRole('alert')).toHaveText('Urgent failure');
   await expect(displaced).toHaveCount(0);
   await expect(dismiss).toHaveCount(3);
-  await urgent.getByRole('button', { name: 'Dismiss message' }).click();
+  await urgent.getByRole('button', { name: 'Dismiss message' }).press('Enter');
   await expect(displaced).toBeVisible();
   await expect(message(page, 'Flood 4')).toHaveCount(0);
   await dismissAllToasts(page);

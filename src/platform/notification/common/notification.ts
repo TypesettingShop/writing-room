@@ -58,8 +58,8 @@ export interface IPromptOptions {
  * Shows up to three toasts at the bottom right. Errors and progress take priority over ordinary
  * toasts, which can return to the queue while the user isn't interacting with them.
  * Plain information toasts close after ten seconds on screen when the window has focus and the
- * user isn't interacting with them. Overflow drops the oldest waiting toasts that have never
- * been shown and have no progress.
+ * user isn't interacting with them. The delay starts over when the window regains focus.
+ * Overflow drops the oldest waiting toasts with no actions or progress that have never been shown.
  */
 export interface INotificationService extends BrandedService {
   notify(notification: INotification): INotificationHandle;

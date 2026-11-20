@@ -13,6 +13,15 @@ export async function openWindowUiFixture(page: Page): Promise<void> {
   await page.goto('/');
 }
 
+/** Lets the workbench start normally, then pauses time before any test toasts arrive. */
+export async function openWindowUiFixtureWithPausedClock(page: Page): Promise<void> {
+  const start = Date.now();
+  await page.clock.install({ time: start });
+  await openWindowUiFixture(page);
+  await expect(page.getByRole('tab', { name: 'Welcome' })).toBeVisible();
+  await page.clock.pauseAt(start + 60_000);
+}
+
 /** Runs a command from the palette with the keyboard, so focus goes back where it was before it runs. */
 export async function runCommand(page: Page, title: string): Promise<void> {
   await page.keyboard.press('F1');
@@ -27,7 +36,7 @@ export const message = (page: Page, text: string): Locator => page.getByRole('st
 export async function dismissAllToasts(page: Page): Promise<void> {
   const dismiss = page.getByRole('button', { name: 'Dismiss message', exact: true });
   while (await dismiss.count()) {
-    await dismiss.first().click();
+    await dismiss.first().press('Enter');
   }
 }
 

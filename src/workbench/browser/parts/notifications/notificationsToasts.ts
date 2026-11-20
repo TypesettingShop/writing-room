@@ -33,23 +33,25 @@ class Toast implements INotificationHandle {
   private progressBar: HTMLElement | undefined;
   private buttons: HTMLElement | undefined;
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
-  readonly urgent: boolean;
 
   constructor(
     private notification: INotification,
     private readonly owner: NotificationsToasts,
     readonly arrival: number,
-  ) {
-    this.urgent = notification.severity === Severity.Error || !!notification.progress;
-  }
+  ) {}
 
   get source(): string | undefined {
     return this.notification.source;
   }
 
+  /** Errors, and toasts while they show progress, go first and are never displaced. */
+  get urgent(): boolean {
+    return this.notification.severity === Severity.Error || !!this.notification.progress;
+  }
+
   get droppable(): boolean {
     // A rendered toast has already been shown. Its response stays live while it waits.
-    return !this.element && !this.notification.progress;
+    return !this.element && !this.notification.progress && !this.notification.actions?.length;
   }
 
   show(stack: HTMLElement): void {
@@ -91,9 +93,14 @@ class Toast implements INotificationHandle {
   }
 
   private renderActions(): void {
+    const buttons = this.buttons;
+    if (this.closed || !buttons) {
+      return;
+    }
     this.actionListeners.clear();
     const actions = this.notification.actions ?? [];
-    this.buttons?.replaceChildren(...actions.map(action => {
+    const focused = [...buttons.children].findIndex(button => button === button.ownerDocument.activeElement);
+    buttons.replaceChildren(...actions.map(action => {
       const button = $('button', { type: 'button' }, String(action.label));
       if (action.enabled === false) {
         button.setAttribute('aria-disabled', 'true');
@@ -101,6 +108,11 @@ class Toast implements INotificationHandle {
       this.actionListeners.add(addDisposableListener(button, 'click', () => this.run(action)));
       return button;
     }));
+    if (focused !== -1) {
+      // Keep keyboard focus in the toast, so it still counts as in use and is not displaced.
+      const next = buttons.children[Math.min(focused, buttons.children.length - 1)] ?? this.element?.querySelector('[aria-label="Dismiss message"]');
+      (next as HTMLElement | null | undefined)?.focus();
+    }
   }
 
   private renderProgress(): void {
@@ -121,14 +133,23 @@ class Toast implements INotificationHandle {
     }
   }
 
+  restartCloseTimer(): void {
+    this.clearCloseTimer();
+    this.updateCloseTimer();
+  }
+
+  private clearCloseTimer(): void {
+    clearTimeout(this.closeTimer);
+    this.closeTimer = undefined;
+  }
+
   private updateCloseTimer(): void {
     const { severity, progress, actions } = this.notification;
     const element = this.element;
     const shouldTime = !this.closed && element?.parentElement && !progress && !actions?.length
-      && (severity === Severity.Info || severity === Severity.Ignore);
+      && (severity === Severity.Info || severity === Severity.Ignore) && this.owner.hasFocus();
     if (!shouldTime) {
-      clearTimeout(this.closeTimer);
-      this.closeTimer = undefined;
+      this.clearCloseTimer();
     } else if (this.closeTimer === undefined) {
       this.closeTimer = setTimeout(() => {
         this.closeTimer = undefined;
@@ -166,10 +187,14 @@ class Toast implements INotificationHandle {
   }
 
   updateProgress(progress: INotificationProgressState | undefined): void {
+    if (this.closed) {
+      return;
+    }
     this.notification = { ...this.notification, progress };
     this.renderProgress();
     this.updateCloseTimer();
-    this.recheckPosition();
+    // Progress can change priority even while the toast is waiting.
+    this.owner.fillVisible();
   }
 
   updateActions(actions: readonly INotificationAction[]): void {
@@ -206,17 +231,27 @@ export class NotificationsToasts extends Disposable {
   private nextArrival = 0;
   private disposed = false;
   private pointer: { x: number; y: number } | undefined;
+  private pointerFrame: number | undefined;
+  /** Where focus is going while a focus change in the stack is under way. */
+  private focusing: Node | undefined;
 
-  constructor(layout: HTMLElement, private readonly hasFocus = () => layout.ownerDocument.hasFocus()) {
+  constructor(layout: HTMLElement, readonly hasFocus = () => layout.ownerDocument.hasFocus()) {
     super();
     const document = layout.ownerDocument;
+    const view = document.defaultView;
     this.stack = document.createElement('div');
     this.stack.className = 'extension-toasts';
     layout.append(this.stack);
     const trackPointer = (event: PointerEvent) => {
       if (event.pointerType !== 'touch') {
         this.pointer = { x: event.clientX, y: event.clientY };
-        this.fillVisible();
+        if (view && this.pointerFrame === undefined && this.visible.some(toast => !toast.urgent)
+          && this.waiting.some(toast => toast.urgent)) {
+          this.pointerFrame = view.requestAnimationFrame(() => {
+            this.pointerFrame = undefined;
+            this.fillVisible();
+          });
+        }
       }
     };
     this._register(addDisposableListener(document, 'pointerover', trackPointer, true));
@@ -227,10 +262,34 @@ export class NotificationsToasts extends Disposable {
         this.fillVisible();
       }
     }, true));
-    // Read activeElement after the focus transition has finished.
-    this._register(addDisposableListener(this.stack, 'focusout', () => queueMicrotask(() => this.fillVisible())));
+    this._register(addDisposableListener(this.stack, 'focusout', event => {
+      // In a user's focus change the browser runs this microtask before focus lands, while activeElement is
+      // still the body, so the element gaining focus counts as focused.
+      const next = event.relatedTarget as Node | null;
+      const focusing = next && this.stack.contains(next) ? next : undefined;
+      queueMicrotask(() => {
+        this.focusing = focusing;
+        try {
+          this.fillVisible();
+        } finally {
+          this.focusing = undefined;
+        }
+      });
+    }));
+    if (view) {
+      const windowFocusChanged = () => {
+        for (const toast of this.visible) {
+          toast.restartCloseTimer();
+        }
+      };
+      this._register(addDisposableListener(view, 'focus', windowFocusChanged));
+      this._register(addDisposableListener(view, 'blur', windowFocusChanged));
+    }
     this._register(toDisposable(() => {
       this.disposed = true;
+      if (this.pointerFrame !== undefined) {
+        view?.cancelAnimationFrame(this.pointerFrame);
+      }
       for (const toast of [...this.waiting, ...this.visible]) {
         toast.close();
       }
@@ -262,7 +321,8 @@ export class NotificationsToasts extends Disposable {
   }
 
   private isInteracting(element: HTMLElement, pointer: Element | null): boolean {
-    return element.contains(this.stack.ownerDocument.activeElement) || element.contains(pointer);
+    return element.contains(this.stack.ownerDocument.activeElement) || element.contains(pointer)
+      || (this.focusing !== undefined && element.contains(this.focusing));
   }
 
   private trim(source: string | undefined): void {
@@ -289,7 +349,7 @@ export class NotificationsToasts extends Disposable {
         this.showNext(urgent === -1 ? 0 : urgent);
         continue;
       }
-      if (urgent === -1) {
+      if (urgent === -1 || this.visible.every(toast => toast.urgent)) {
         return;
       }
       const pointer = this.pointerTarget();
@@ -363,6 +423,10 @@ export class NotificationService extends Disposable implements INotificationServ
         options?.onCancel?.();
       }
     });
+    if (handle.closed) {
+      // Dropped as it arrived, or the service is gone: its close event has already fired.
+      options?.onCancel?.();
+    }
     return handle;
   }
 }

@@ -122,6 +122,35 @@ test('removing an extension settles its visible, displaced and never displayed t
   expect(vi.getTimerCount()).toBe(0);
 });
 
+function fillProgressQueue(): void {
+  for (let index = 0; index < 3; index++) {
+    notifications.error('Visible ' + index);
+  }
+  for (let index = 0; index < 10; index++) {
+    notifications.notify({ severity: Severity.Info, message: 'Task ' + index, source: 'Fixture A', progress: { infinite: true } });
+  }
+}
+
+test('a prompt closed as it arrives still calls its cancellation once', () => {
+  fillProgressQueue();
+  const dropped = vi.fn();
+  expect(notifications.prompt(Severity.Info, 'Dropped on arrival', [], { source: 'Fixture A', onCancel: dropped }).closed).toBe(true);
+  expect(dropped).toHaveBeenCalledTimes(1);
+  notifications.dispose();
+  const onCancel = vi.fn();
+  expect(notifications.prompt(Severity.Info, 'After dispose', [], { onCancel }).closed).toBe(true);
+  expect(onCancel).toHaveBeenCalledTimes(1);
+});
+
+test('an extension receives an answer when its information message is dropped on arrival', async () => {
+  fillProgressQueue();
+  vi.useFakeTimers();
+  const resolved = vi.fn();
+  void hostMessages.showMessage('a', 'info', 'Dropped on arrival').then(resolved, () => {});
+  await vi.advanceTimersByTimeAsync(30);
+  expect(resolved).toHaveBeenCalledExactlyOnceWith(undefined);
+});
+
 test('a modal message is a dialog whose Escape answers with the close item, or undefined', async () => {
   const keep = { title: 'Keep', isCloseAffordance: true };
   const remove = { title: 'Delete' };
@@ -153,7 +182,8 @@ test('a modal message is a dialog whose Escape answers with the close item, or u
 });
 
 test('three toasts show at once, the rest wait, and a flood drops its oldest waiting toasts', async () => {
-  const answers = Array.from({ length: 15 }, (_, index) => hostMessages.showMessage('a', 'info', 'Message ' + index, 'OK'));
+  const answers = Array.from({ length: 15 }, (_, index) =>
+    hostMessages.showMessage('a', 'info', 'Message ' + index, ...(index < 3 ? ['OK'] : [])));
   answers.forEach(answer => answer.catch(() => {}));
   await settle();
   expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['Message 0', 'Message 1', 'Message 2']);

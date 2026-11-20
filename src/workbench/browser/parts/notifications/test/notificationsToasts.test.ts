@@ -106,13 +106,25 @@ test('changing actions or progress stops the timer and becoming eligible starts 
   expect(handle.closed).toBe(true);
 });
 
-test('tries again when the window and the toast lose their respective focus', () => {
+test('starts a full delay when the window regains focus', () => {
   const handle = info('Focused');
+  advance(toastAutoCloseDelay - 1);
   windowFocused = false;
-  advance();
+  window.dispatchEvent(new FocusEvent('blur'));
+  advance(toastAutoCloseDelay * 2);
   expect(handle.closed).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
 
   windowFocused = true;
+  window.dispatchEvent(new FocusEvent('focus'));
+  advance(toastAutoCloseDelay - 1);
+  expect(handle.closed).toBe(false);
+  advance(1);
+  expect(handle.closed).toBe(true);
+});
+
+test('tries again when focus has moved out of the toast', () => {
+  const handle = info('Focused');
   dismiss(shown()[0]).focus();
   advance();
   expect(handle.closed).toBe(false);
@@ -187,11 +199,12 @@ test('displaces the latest ordinary toast, keeps live updates and restores the w
   expect(onClose).not.toHaveBeenCalled();
   third.updateMessage('Updated third');
   third.updateProgress({ worked: 60 });
+  expect(labels()).toEqual(['First', 'Error', 'Updated third']);
   urgent.close();
-  expect(labels()).toEqual(['First', 'Second', 'Updated third']);
-  expect(shown()[2]).toBe(retained[2]);
-  expect(shown()[2].querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')).toBe('60');
-  const choose = shown()[2].querySelector<HTMLButtonElement>('.extension-toast-actions button')!;
+  expect(labels()).toEqual(['First', 'Updated third', 'Second']);
+  expect(shown()[1]).toBe(retained[2]);
+  expect(shown()[1].querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')).toBe('60');
+  const choose = shown()[1].querySelector<HTMLButtonElement>('.extension-toast-actions button')!;
   choose.click();
   choose.click();
   expect(answer).toHaveBeenCalledTimes(1);
@@ -243,6 +256,77 @@ test('holds a hovered or focused toast and rechecks as the user leaves it', asyn
   expect(labels()).toEqual(['First error', 'Working', 'Waiting error']);
 });
 
+test('keeps a toast whose own button gains focus when the focus change runs microtasks first', async () => {
+  error('First error');
+  progress('Working');
+  info('Question', [{ label: 'Yes', run() {} }]);
+  const question = shown()[2];
+  const button = dismiss(question);
+  const action = question.querySelector<HTMLButtonElement>('.extension-toast-actions button')!;
+  button.focus();
+  error('Waiting error');
+  expect(labels()).toEqual(['First error', 'Working', 'Question']);
+  // Chromium runs the focusout microtask while activeElement is still the body.
+  Object.defineProperty(document, 'activeElement', { configurable: true, get: () => document.body });
+  try {
+    button.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: action }));
+    await Promise.resolve();
+    expect(labels()).toEqual(['First error', 'Working', 'Question']);
+    button.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: document.body }));
+    await Promise.resolve();
+    expect(labels()).toEqual(['First error', 'Working', 'Waiting error']);
+  } finally {
+    Reflect.deleteProperty(document, 'activeElement');
+  }
+});
+
+test('a toast is urgent while it shows progress', () => {
+  error('First error');
+  error('Second error');
+  const task = info('Task');
+  task.updateProgress({ worked: 10 });
+  error('Third error');
+  expect(labels()).toEqual(['First error', 'Second error', 'Task']);
+  task.updateProgress(undefined);
+  expect(labels()).toEqual(['First error', 'Second error', 'Third error']);
+  expect(task.closed).toBe(false);
+});
+
+test('a queued toast takes priority as soon as progress is added', () => {
+  info('First');
+  info('Second');
+  info('Third');
+  const task = info('Queued task');
+  expect(labels()).toEqual(['First', 'Second', 'Third']);
+  task.updateProgress({ worked: 10 });
+  expect(labels()).toEqual(['First', 'Second', 'Queued task']);
+});
+
+test('an action that updates the actions keeps keyboard focus in its toast', () => {
+  error('First error');
+  progress('Working');
+  let handle: ReturnType<typeof info> | undefined;
+  handle = info('Question', [{ label: 'Next', keepOpen: true, run: () => handle!.updateActions([{ label: 'Done', run() {} }]) }]);
+  const question = shown()[2];
+  question.querySelector<HTMLButtonElement>('.extension-toast-actions button')!.focus();
+  error('Waiting error');
+  question.querySelector<HTMLButtonElement>('.extension-toast-actions button')!.click();
+  expect(document.activeElement?.textContent).toBe('Done');
+  expect(labels()).toEqual(['First error', 'Working', 'Question']);
+});
+
+test('new actions for a closed toast are ignored', () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const handle = toasts.add({ severity: Severity.Warning, message: 'Closed' });
+    handle.close();
+    handle.updateActions([{ label: 'Late', run() {} }]);
+    expect(warn).not.toHaveBeenCalled();
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 test('gives a waiting error the slot when the pointer leaves the window', () => {
   error('First error');
   progress('Working');
@@ -253,6 +337,27 @@ test('gives a waiting error the slot when the pointer leaves the window', () => 
     error('Waiting error');
     expect(labels()).toEqual(['First error', 'Working', 'Hovered']);
     layout.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }));
+    expect(labels()).toEqual(['First error', 'Working', 'Waiting error']);
+  });
+});
+
+test('checks the latest pointer position once per frame while an urgent toast is waiting', () => {
+  error('First error');
+  progress('Working');
+  info('Hovered');
+  const hovered = shown()[2];
+  const hit = vi.fn((x: number) => x === 1 ? hovered : null);
+  withHitTest(hit, () => {
+    movePointer(1);
+    error('Waiting error');
+    hit.mockClear();
+    movePointer(2);
+    movePointer(1);
+    advance(16);
+    expect(hit).toHaveBeenCalledExactlyOnceWith(1, 0);
+    expect(labels()).toEqual(['First error', 'Working', 'Hovered']);
+    movePointer(2);
+    advance(16);
     expect(labels()).toEqual(['First error', 'Working', 'Waiting error']);
   });
 });
@@ -269,6 +374,26 @@ test('a source flood evicts older waiting toasts without closing a displaced toa
   expect(queued.slice(3).every(toast => !toast.closed)).toBe(true);
   urgent.close();
   expect(labels()).toEqual(['First error', 'Second error', 'Shown']);
+});
+
+test('a displacement from another source preserves questions waiting at the queue limit', () => {
+  error('First error');
+  error('Second error');
+  const notice = toasts.add({ severity: Severity.Warning, message: 'Shown from A', source: 'A' });
+  const answer = vi.fn();
+  const question = toasts.add({
+    severity: Severity.Info, message: 'Question from A', source: 'A', actions: [{ label: 'Yes', run: answer }],
+  });
+  const ordinary = Array.from({ length: 9 }, (_, index) =>
+    toasts.add({ severity: Severity.Info, message: 'From A ' + index, source: 'A' }));
+  const urgent = toasts.add({ severity: Severity.Error, message: 'Urgent from B', source: 'B' });
+  expect(question.closed).toBe(false);
+  expect(ordinary[0].closed).toBe(true);
+  urgent.close();
+  notice.close();
+  expect(labels()).toEqual(['First error', 'Second error', 'Question from A']);
+  shown()[2].querySelector<HTMLButtonElement>('.extension-toast-actions button')!.click();
+  expect(answer).toHaveBeenCalledTimes(1);
 });
 
 test('closing visible and displaced toasts and disposing leaves no scheduled closes', () => {
