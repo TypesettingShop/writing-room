@@ -15,6 +15,8 @@ const compilerOptions = ts.getParsedCommandLineOfConfigFile(join(projectRoot, 't
     throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
   },
 })!.options;
+// Shared by every lookup that goes through the real file system; a planted host gets no cache, so it cannot see stale entries.
+const resolutionCache = ts.createModuleResolutionCache(projectRoot, name => name, compilerOptions);
 
 function sourceSegments(file: string): string[] {
   const path = relative(srcRoot, file);
@@ -28,7 +30,8 @@ function resolveImport(file: string, specifier: string, host: ts.ModuleResolutio
     : undefined;
   // The compiler resolves a folder import to its index file, whose parent is then the imported folder.
   // A path it cannot find, such as a planted one, is checked as written.
-  return ts.resolveModuleName(local ?? path, file, compilerOptions, host).resolvedModule?.resolvedFileName ?? local;
+  const cache = host === ts.sys ? resolutionCache : undefined;
+  return ts.resolveModuleName(local ?? path, file, compilerOptions, host, cache).resolvedModule?.resolvedFileName ?? local;
 }
 
 function importedPath(node: ts.Node): ts.StringLiteralLike | undefined {
@@ -57,7 +60,8 @@ const storageAccess = new Map([
 ]);
 
 function findViolations(file: string, contents: string, host: ts.ModuleResolutionHost = ts.sys): string[] {
-  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
+  // Without parent pointers: every position below is read with `source` passed in, and parsing is faster.
+  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, false);
   const from = sourceSegments(file);
   const violations: string[] = [];
 
@@ -98,7 +102,11 @@ function findViolations(file: string, contents: string, host: ts.ModuleResolutio
   return violations;
 }
 
-test('src imports obey the layer and common/browser boundaries', () => {
+// It parses every file under src (about 550, growing with each epic): a few seconds alone, more than the default
+// 5 s while the whole suite runs on a loaded machine (wr-jbmd.k62).
+const wholeTreeTimeout = 60_000;
+
+test('src imports obey the layer and common/browser boundaries', { timeout: wholeTreeTimeout }, () => {
   const files = readdirSync(srcRoot, { recursive: true, withFileTypes: true })
     .filter(entry => entry.isFile() && sourceExtension.test(entry.name))
     .map(entry => join(entry.parentPath, entry.name))

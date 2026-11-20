@@ -1,6 +1,10 @@
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { fetchBoundedResource, ResourceRequestError } from '../../../../base/parts/request/common/boundedFetch.js';
+import { galleryId } from '../../../../platform/extensionManagement/common/extensionGalleryService.js';
+import type { GalleryDownload, GalleryExtensionVersion } from '../../../../platform/extensionManagement/common/extensionGalleryService.js';
 import { readVsix, vsixLimits } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { sha256Hex } from '../../../../platform/extensionManagement/common/extensionSignature.js';
+import type { ExtensionSignature } from '../../../../platform/extensionManagement/common/extensionSignature.js';
 import { readManifestNls } from '../../../../platform/extensionManagement/common/extensionNls.js';
 import { isRecord, isValidExtensionVersion, validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
@@ -13,7 +17,7 @@ import { extensionResourceLimits, resolveExtensionEntry, resolveExtensionPath } 
 import { IExtensionService } from '../../extensions/common/extensions.js';
 
 export type ExtensionSource = 'location' | 'vsix' | 'gallery';
-export type ExtensionSignatureState = 'verified' | 'unsigned' | 'unverifiable';
+export type ExtensionSignatureState = ExtensionSignature['state'];
 
 /** An installed extension record, storage schema 2. */
 export interface StoredWebExtension {
@@ -74,11 +78,11 @@ export interface IExtensionPackageStore extends BrandedService {
 export const IExtensionManagementService = createDecorator<ExtensionManagementService>('extensionManagementService');
 
 /** Where a package came from, as the confirmation shows it. */
-export interface PackageInstallSource {
-  readonly kind: 'vsix';
-  /** The file name or the URL the bytes came from. */
-  readonly label: string;
-}
+export type PackageInstallSource =
+  | { readonly kind: 'vsix'; readonly label: string }
+  | { readonly kind: 'gallery'; readonly label: string; readonly host: string; readonly keyId?: string; readonly license?: string };
+
+type GalleryPackage = Omit<GalleryDownload, 'bytes'> & { readonly release: GalleryExtensionVersion };
 
 /** What the person confirms. Every value describes the bytes that are installed after confirmation. */
 export interface PackageInstallConfirmation {
@@ -93,7 +97,7 @@ export interface PackageInstallConfirmation {
   readonly signature: ExtensionSignatureState;
   /** The `engines.vscode` range, which matched `product.version`. */
   readonly engine: string;
-  /** False when the package has no `browser` entry: only its contributions apply. */
+  /** Web entry or, for gallery installs, a declarative package without a host entry. */
   readonly isWebExtension: boolean;
   /** The record this install replaces (another version) or reinstalls (the same version). */
   readonly existing?: Pick<StoredWebExtension, 'version' | 'source'>;
@@ -108,10 +112,7 @@ export interface PackageInstallOptions {
   readonly language?: string;
 }
 
-export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
-}
+export { sha256Hex };
 
 function readNlsBundle(bytes: Uint8Array, path: string): Record<string, string> {
   const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -272,6 +273,26 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function validateGalleryPackage(pkg: VsixPackage, release: GalleryExtensionVersion): void {
+  const { manifest } = pkg;
+  if (pkg.identifier !== release.id || manifest.version !== release.version) {
+    throw new Error('The package identifier or version does not match Open VSX metadata.');
+  }
+  if (!release.isWebExtension || (manifest.browser === undefined && manifest.main !== undefined)) {
+    throw new Error('The downloaded package is not a web extension.');
+  }
+  if (release.hasExtensionPack || (manifest.extensionPack !== undefined
+    && (!Array.isArray(manifest.extensionPack) || manifest.extensionPack.length !== 0))) {
+    throw new Error('Open VSX extension packs are not supported.');
+  }
+  const dependencies = manifest.extensionDependencies ?? [];
+  const expected = new Set(release.dependencies.map(galleryId));
+  if (!Array.isArray(dependencies) || !dependencies.every(id => typeof id === 'string' && expected.has(id.toLowerCase()))
+    || new Set(dependencies.map(id => id.toLowerCase())).size !== expected.size) {
+    throw new Error('The package dependencies do not match Open VSX metadata.');
+  }
+}
+
 export class ExtensionManagementService {
   declare readonly _serviceBrand: undefined;
   private readonly pendingLocations = new Map<string, Promise<IExtensionDescription | undefined>>();
@@ -310,6 +331,9 @@ export class ExtensionManagementService {
   ): Promise<IExtensionDescription | undefined> {
     const manifest = validateInstalledManifest(await this.loadManifest(location), location.href);
     const identifier = ExtensionIdentifier.fromManifest(manifest).value;
+    // Removal unregisters before deactivation and the catalog write. A reinstall from the palette may
+    // be requested as soon as the views disappear, so wait for any already queued removal first.
+    await this.changes;
     this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
     const nls = usesNlsPlaceholders(manifest) ? await this.loadNls(location) : undefined;
     const description = toExtensionDescription({ identifier, location: location.href, manifest, nls });
@@ -359,34 +383,69 @@ export class ExtensionManagementService {
    */
   async installPackage(
     bytes: Uint8Array<ArrayBuffer>,
-    source: PackageInstallSource,
+    source: Extract<PackageInstallSource, { kind: 'vsix' }>,
     confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
     options: PackageInstallOptions = {},
+  ): Promise<IExtensionDescription | undefined> {
+    return this.installPackageBytes(bytes, source, confirm, options);
+  }
+
+  installFromGallery(
+    release: GalleryExtensionVersion,
+    download: GalleryDownload,
+    confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
+    options: PackageInstallOptions = {},
+  ): Promise<IExtensionDescription | undefined> {
+    const { bytes, ...verified } = download;
+    return this.installPackageBytes(bytes, {
+      kind: 'gallery', label: new URL(release.download).host, host: verified.host,
+      ...(verified.signature.state === 'unsigned' ? {} : { keyId: verified.signature.keyId }),
+      ...(release.license ? { license: release.license } : {}),
+    }, confirm, options, { ...verified, release });
+  }
+
+  private async installPackageBytes(
+    bytes: Uint8Array<ArrayBuffer>,
+    source: PackageInstallSource,
+    confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>,
+    options: PackageInstallOptions,
+    gallery?: GalleryPackage,
   ): Promise<IExtensionDescription | undefined> {
     await this.active.whenInstalledExtensionsRegistered();
     if (bytes.byteLength > vsixLimits.download) {
       throw new Error(`The package is ${bytes.byteLength} bytes, more than the ${vsixLimits.download}-byte limit.`);
     }
     const sha256 = await sha256Hex(bytes);
-    const existing = this.pendingPackages.get(sha256);
+    options.signal?.throwIfAborted();
+    if (gallery && sha256 !== gallery.sha256) {
+      throw new Error('The package bytes no longer match the verified Open VSX checksum.');
+    }
+    // A local install of identical bytes must not supply the confirmation or source of a gallery install.
+    const key = gallery ? `gallery:${gallery.release.id}:${gallery.release.version}:${sha256}` : sha256;
+    const existing = this.pendingPackages.get(key);
     if (existing) {
       return existing;
     }
-    const request = this.doInstallPackage(bytes, sha256, source, confirm, options)
-      .finally(() => this.pendingPackages.delete(sha256));
-    this.pendingPackages.set(sha256, request);
+    const request = this.doInstallPackage(bytes, sha256, source, confirm, options, gallery)
+      .finally(() => this.pendingPackages.delete(key));
+    this.pendingPackages.set(key, request);
     return request;
   }
 
   private async doInstallPackage(
     bytes: Uint8Array<ArrayBuffer>, sha256: string, source: PackageInstallSource,
     confirm: (confirmation: PackageInstallConfirmation) => Promise<boolean>, { signal, language = 'en' }: PackageInstallOptions,
+    gallery: GalleryPackage | undefined,
   ): Promise<IExtensionDescription | undefined> {
     const pkg = await readVsix(bytes, signal);
     const { identifier } = pkg;
     const version = pkg.manifest.version;
     const location = extensionPackageLocation(identifier, version);
     const manifest = validateInstalledManifest(pkg.manifest, location);
+    if (gallery) {
+      validateGalleryPackage(pkg, gallery.release);
+    }
+    const signature = gallery?.signature.state ?? 'unsigned';
     const engine = manifest.engines?.vscode;
     if (typeof engine !== 'string' || !isValidExtensionVersion(product.version, engine)) {
       throw new Error(engine === undefined
@@ -411,10 +470,13 @@ export class ExtensionManagementService {
     // Files read before the confirmation are handed to the store, so no file is unpacked twice.
     const preloaded = new Map<VsixFile, Uint8Array<ArrayBuffer>>();
     const nls = usesNlsPlaceholders(manifest) ? await this.readPackageNls(pkg, language, warnings, preloaded, signal) : undefined;
+    // As for a folder install: a queued removal still has its record, which would be shown as the version this
+    // install replaces and then fail the commit as a change from another window.
+    await this.changes;
     const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
     const confirmed = await confirm({
-      identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature: 'unsigned', engine,
-      isWebExtension: manifest.browser !== undefined,
+      identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature, engine,
+      isWebExtension: gallery !== undefined || manifest.browser !== undefined,
       existing: previous && { version: previous.version, source: previous.source },
       persistent: await this.packages.isPersistent(), warnings,
     });
@@ -422,9 +484,11 @@ export class ExtensionManagementService {
       return undefined;
     }
 
+    signal?.throwIfAborted();
     const record: StoredWebExtension = {
-      identifier, location, manifest, installedAt: Date.now(), source: 'vsix', version,
-      packageSha256: sha256, signature: 'unsigned', ...(nls ? { nls } : {}),
+      identifier, location, manifest, installedAt: Date.now(), source: source.kind, version,
+      packageSha256: sha256, signature, ...(nls ? { nls } : {}),
+      ...(gallery ? { galleryUrl: gallery.release.download } : {}),
     };
     return this.serialize(() => this.commitPackage(pkg, record, previous, preloaded, signal));
   }
@@ -434,13 +498,25 @@ export class ExtensionManagementService {
     preloaded: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>, signal: AbortSignal | undefined,
   ): Promise<IExtensionDescription> {
     const { identifier, location } = record;
+    signal?.throwIfAborted();
     const staged = await this.packages.stage(pkg, signal, preloaded);
     const replaced = this.installed.find(extension => extension.identifier.value === identifier);
     let stoppedPrevious = false;
     let committed = false;
     try {
       await this.scanner.locked(async (read, write) => {
+        signal?.throwIfAborted();
         const installed = read();
+        if (record.source === 'gallery') {
+          const missing = record.manifest.extensionDependencies?.find(id => {
+            const dependency = id.toLowerCase();
+            return !installed.some(entry => entry.identifier === dependency)
+              && !this.active.extensions?.some(entry => entry.isBuiltin && entry.identifier.value === dependency);
+          });
+          if (missing) {
+            throw new Error(`'${missing}' is no longer installed. Try again.`);
+          }
+        }
         const current = installed.find(entry => entry.identifier === identifier);
         if (current?.location !== previous?.location || current?.installedAt !== previous?.installedAt) {
           throw new Error(`'${identifier}' changed in another window during the install. Try again.`);
@@ -592,7 +668,7 @@ export class ExtensionManagementService {
     let bytes: Uint8Array<ArrayBuffer>;
     try {
       ({ bytes } = await fetchBoundedResource(url, {
-        limit: vsixLimits.download, request: this.fetchManifest, signal: options.signal,
+        limit: vsixLimits.download, request: this.fetchManifest, signal: options.signal, idleTimeout: true,
       }));
     } catch (error) {
       if (error instanceof ResourceRequestError) {

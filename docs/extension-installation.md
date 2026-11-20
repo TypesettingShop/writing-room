@@ -7,7 +7,7 @@ URL과 VSIX 설치, 패키지 저장소와 갤러리의 지원 범위는 이 페
 VSIX는 확장 하나를 담은 ZIP 파일이다. 확장의 파일은 `extension/` 아래에 있고 루트에 `extension.vsixmanifest`가 있다. 두 길로 설치한다.
 
 - **Install from VSIX...**(`workbench.extensions.action.installVSIX`): 브라우저의 파일 선택 창에서 `.vsix` 하나를 고른다. 파일 선택 창은 커맨드를 실행한 사용자 동작에서만 열린다.
-- **Install Extension from Location...**: 주소의 경로가 `.vsix`로 끝나면 그 파일을 내려받아 패키지로 설치한다. 그 밖의 주소는 지금처럼 폴더 URL이다. 주소 규칙은 폴더 URL과 같다(HTTPS 또는 `http://localhost`, `http://127.0.0.1`, 자격 증명 없음, 리다이렉트를 따라가지 않음, CORS 필요). 다운로드 링크에 필요한 쿼리는 남기고 `#` 뒤는 버린다.
+- **Install Extension from Location...**: 주소의 경로가 `.vsix`로 끝나면 그 파일을 내려받아 패키지로 설치한다. 그 밖의 주소는 지금처럼 폴더 URL이다. 주소 규칙은 폴더 URL과 같다(HTTPS 또는 `http://localhost`, `http://127.0.0.1`, 자격 증명 없음, 리다이렉트를 따라가지 않음, CORS 필요). 다운로드 링크에 필요한 쿼리는 남기고 `#` 뒤는 버린다. 내려받는 동안 알림에서 **Cancel**을 선택하거나 알림을 닫아 취소할 수 있다. 파일을 받기 시작할 때와 전송 중에 30초 동안 진행이 없으면 요청이 끝난다.
 
 설치 순서:
 
@@ -45,9 +45,32 @@ ZIP은 믿지 않는 입력으로 읽는다. 다음은 거부한다: 절대 경�
 
 매니페스트에 `%키%` 값이 있으면 `package.nls.json`을 읽어 설치 기록의 `nls`에 넣는다(256 KiB까지). 폴더 URL 설치는 같은 이름의 파일을 그 폴더에서 받고, 없거나 읽지 못하면 넘어간다. `%키%` 값이 없는 매니페스트는 이 파일을 요청하지 않는다. 확인 화면과 제거 목록의 표시 이름은 이 문자열로 바꿔 보인다.
 
+## Extensions에서 갤러리 검색과 설치
+
+1. Activity Bar의 **Extensions**를 열거나 **Show Extensions**를 실행한다. 단축키는 Windows·Linux에서 Ctrl+Shift+X, macOS에서 Cmd+Shift+X다.
+2. **Search Open VSX**에 확장 이름을 입력하고 결과에서 **Install**을 선택한다. 새 버전이 있으면 **Update**가 표시된다. 검색 영역에 `.vsix` 하나를 끌어다 놓아 로컬 파일을 설치할 수도 있다.
+3. 내려받기와 검증이 끝나면 확인 화면에서 식별자·게시자·버전·라이선스, 실제 갤러리와 다운로드 호스트, 크기·SHA-256·서명 상태, 웹 확장 여부를 확인한다. 이미 설치한 의존성은 그대로 사용한다. 없는 의존성은 최대 세 단계까지 각각 확인받아 먼저 설치한다. 확장 팩은 거부한다.
+4. 설치한 확장은 **Installed**에서 확인하고 **Uninstall**로 제거한다. 진행 중에는 행의 **Cancel**, 실패하면 **Retry**를 사용할 수 있다. 갤러리 연결이 끊겨도 **Installed** 목록을 쓸 수 있다.
+
+갤러리는 검색 한 페이지에 최대 20개를 반환한다. 응답 JSON과 서명 묶음은 각각 1 MiB, 아이콘은 256 KiB, VSIX는 50 MiB까지 읽는다. 갤러리의 일반 요청 제한은 30초다. 큰 VSIX는 진행이 있는 동안 받을 수 있고, 30초 정지하면 끊는다. 요청 할당량이 소진된 것이 확인되면 1분간 새 요청을 멈춘다.
+
+### 무결성과 서명
+
+SHA-256은 언제나 실제로 설치할 VSIX 바이트에서 계산하고 갤러리가 준 값과 비교한다. Ed25519 서명도 같은 바이트에서 검증한다. 해시가 다르거나 서명이 틀리거나 서명 묶음·키의 입력이 잘못되면 패키지 설치를 중단한다. 매니페스트의 식별자·버전과 웹 확장 여부도 검사한다.
+
+서명이 없으면 **This package has no signature**, 브라우저가 Ed25519를 지원하지 않으면 **This browser could not verify the Ed25519 signature**를 표시한다. 두 경고의 기본 선택은 **Cancel**이다. 직접 설치를 선택하는 경우에도 SHA-256은 일치해야 한다.
+
+공개 키는 설치 시점에 화면에 표시된 갤러리에서 받는다. Ed25519 검증은 그 키에 대한 패키지의 서명을 확인해 전송 경로나 CDN에서 바뀐 패키지를 거른다. 갤러리 자체가 침해되면 공격자가 패키지·해시·서명·키를 함께 바꿀 수 있다. 설치한 웹 확장의 코드는 앱 오리진의 Worker에서 실행된다.
+
+### 배포 설정
+
+제품 설정 `VITE_WRITING_ROOM_PRODUCT`의 기본 서비스는 `https://open-vsx.org`다. `{"extensionsGallery":null}`은 검색과 갤러리 요청을 끈다. 같은 설정에서 다른 필드가 검증에 실패해도 이 비활성화가 유지된다.
+
+다른 갤러리를 지정할 때는 `extensionsGallery.serviceUrl`에 HTTPS 주소를, 다운로드 최종 호스트를 추가할 때는 `extensionsGallery.allowedDownloadHosts`에 호스트 이름을 지정한다. HTTP는 `localhost`와 `127.0.0.1`에서 쓸 수 있다. 자산 요청은 갤러리 오리진에서 시작한다. 갤러리 호스트 자체와 목록에 있는 이름이 최종 응답 호스트로 허용되며, 앱은 본문을 읽기 전에 최종 호스트와 프로토콜을 검사한다. 이 검사는 DNS 호스트 이름에 적용되며 포트와 중간 리다이렉트는 브라우저가 처리한다. 기본 호스트 목록은 `open-vsx.org`와 `openvsx.eclipsecontent.org`다.
+
 ## 패키지 저장소
 
-패키지 설치(VSIX, 나중에 Open VSX)는 파일을 브라우저 저장소(IndexedDB `writing-room-files`의 `vscode-userdata`)에 풀어 두고 거기서 실행한다. 설치한 뒤에는 네트워크 없이 새로고침해도 확장이 돈다.
+패키지 설치(VSIX, 갤러리)는 파일을 브라우저 저장소(IndexedDB `writing-room-files`의 `vscode-userdata`)에 풀어 두고 거기서 실행한다. 설치한 뒤에는 네트워크 없이 새로고침해도 확장이 돈다.
 
 - 패키지 폴더: `vscode-userdata:/extensions/<publisher>.<name>-<version>/`. 식별자는 소문자다. VSIX의 `extension/` 아래가 그대로 들어간다.
 - 설치는 "임시 폴더(`/extensions/.tmp-<무작위>/`)에 풀기 → 모든 파일과 크기, `package.json`의 식별자·버전 확인 → 최종 이름으로 바꾸기(저장소 트랜잭션 하나) → 설치 목록 쓰기 → 확장 등록" 순서다. 어느 단계에서 실패해도 앞 단계를 되돌린다. 예외는 같은 버전의 **Reinstall**이다: 폴더를 새 내용으로 바꾼 뒤 등록이 실패하면 옛 기록으로 되돌리지 않고 새 파일과 맞는 새 기록을 남긴다. 확장은 다음 새로고침 때 등록된다. 한 탭 안의 설치와 제거는 기록·폴더·등록을 바꾸는 단계를 하나씩 차례로 한다. 탭이 중간에 닫혀도 기록이 있는 확장은 폴더가 있고, 기록에 없는 폴더는 확장으로 보이지 않는다.
@@ -104,12 +127,4 @@ VSIX와 패키지 저장소도 이 계약을 따른다. 커맨드 아이콘은 �
 - 폴더 URL 설치는 같은 식별자가 있으면 거부하고, VSIX만 바꾸기와 다시 설치를 묻는다(wr-l3ch.9fi).
 - 대소문자만 다른 ZIP 항목 이름은 다른 파일로 둔다. VS Code도 막지 않는다(wr-l3ch.285).
 
-Decided in: wr-efqx.n9k
-
-Decided in: wr-efqx.x8c
-
-Decided in: wr-l3ch.285
-
-Decided in: wr-l3ch.amu
-
-Decided in: wr-l3ch.9fi
+Decided in: wr-efqx.n9k, wr-efqx.x8c, wr-l3ch.285, wr-l3ch.amu, wr-l3ch.9fi, wr-jfx7

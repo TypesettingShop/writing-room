@@ -97,6 +97,7 @@ extHostApiRegistry.register('runtime', ({ rpc, isLive }) => {
         },
         namespaces: {
           tasks: compatibility.tasks,
+          window: compatibility.window,
           l10n: localization.api(),
           env: {
             appName: 'Writing Room', appHost: 'web', uiKind: 2, uriScheme: 'writing-room',
