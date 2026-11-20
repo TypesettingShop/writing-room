@@ -2018,3 +2018,5 @@
 {"ts":"2026-11-20T20:49:09Z","id":"wr-cau9.w4k","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: openai/gpt-6.2-sol (medium — 하이라이트 대기 두 곳과 비교 계측을 맡았다. 세션 추론 설정은 high였다.)"}
 {"ts":"2026-11-20T20:49:09Z","id":"wr-cau9.w4k","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"review","to":"done","note":"마일스톤 병합 d23e947에서 검증한 하이라이트 대기를 반영했다."}
 {"ts":"2026-11-20T20:49:09Z","id":"wr-cau9.3ds","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"in_progress","to":"done","note":"리뷰 지적 #1~#5는 비차단으로 판단했다. 추가 수정 없이 검증한 278aeb5를 d23e947에 병합했다. 근거는 Decided alone 노트에 있다."}
+{"ts":"2026-11-20T20:49:34Z","id":"wr-cau9","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Next: wr-cau9와 멤버 및 리뷰를 닫았다. milestone/wr-mq3n 병합은 d23e947이다. 위키 교훈 인계는 에픽 노트에 있으며 최종 마일스톤 인수는 감독이 맡는다."}
+{"ts":"2026-11-20T20:49:41Z","id":"wr-cau9","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Report-checked: d23e947 (278aeb5 포함 확인)"}
