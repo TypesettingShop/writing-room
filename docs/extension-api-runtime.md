@@ -86,6 +86,12 @@ HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤
 활성화가 실패했을 때와 호스트를 끝낼 때에도 API가 살아 있는 동안 구독을
 정리한다. 페이지를 떠날 때에는 호스트가 약속의 완료를 기다리지 않는다.
 
+제거를 시작하면 그 확장은 바로 확장 목록과 활성화 대상에서 빠진다. 그 확장의
+기여(설정, 커맨드, 메뉴, 뷰, 언어 등)는 호스트가 `deactivate`와 구독 정리를
+끝낸 뒤에 함께 빠진다. 그래서 정리 중인 확장의 설정 리스너는 자기 설정 구역이
+사라진 변경을 받지 않는다. 그 사이에는 커맨드가 팔레트에 남아 보일 수 있다.
+호스트가 없거나 멈추거나 끝나면 기여는 그때 빠진다.
+
 ## 지역화
 
 매니페스트의 표시 문자열은 `package.nls.json`의 `%키%` 항목을 참조할 수 있다.
@@ -121,6 +127,7 @@ HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤
 
 | 영역 | 동작 |
 | --- | --- |
+| 확장 제거 | VS Code는 활성화된 확장을 그 자리에서 빼지 않고 확장 호스트를 다시 시작할 때 비활성화한 뒤 기여를 바꾼다. 여기서는 호스트를 다시 시작하지 않고 그 확장만 비활성화한 뒤 기여를 뺀다(wr-eycu.4bd). |
 | `globalState.setKeysForSync` | 호출을 받는다. 설정 동기화는 실행하지 않는다. |
 | 환경 변수 컬렉션 | 터미널 환경에 변경을 적용하지 않는다. |
 | `tasks` | 등록은 정리 가능한 객체를 돌려준다. 조회는 빈 배열, 실행은 거부, 이벤트는 발생하지 않는다. `Task`, `TaskScope`, `TaskGroup`, `CustomExecution`, `ShellExecution`, `ProcessExecution` 및 옵션 열거형은 생성과 값 참조에 사용할 수 있다. |
@@ -131,4 +138,4 @@ HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤
 | 외부 API | `debug`, `scm`, `tests`, `comments`, `authentication`, `chat`, `lm`, `notebooks`는 `undefined`다. |
 | Worker | 모듈 Worker와 중계 Worker 안의 상대 경로 `importScripts`는 오류로 거부한다. 호스트 자체의 `postMessage`, `close`, `importScripts`는 사용할 수 없다. |
 
-Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t
+Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t, wr-eycu.4bd

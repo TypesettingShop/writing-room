@@ -54,6 +54,12 @@ interface HostSession {
 export class ExtensionService extends Disposable implements IExtensionService {
   declare readonly _serviceBrand: undefined;
   private readonly descriptions = new Map<string, IExtensionDescription>();
+  /**
+   * Removed extensions that the host still deactivates. They are out of `extensions`, the host's list and activation,
+   * but their contributions stay, so their code never sees a world without them (wr-eycu.4bd). Each leaves
+   * `descriptions` once the host reports it inactive or ends.
+   */
+  private readonly leaving = new Map<string, IExtensionDescription>();
   private readonly messages = new Map<string, IExtensionMessage[]>();
   private readonly scanMessages: IExtensionMessage[] = [];
   private readonly changed = this._register(new Emitter<void>());
@@ -151,7 +157,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   get extensions(): readonly IExtensionDescription[] {
-    return [...this.descriptions.values()];
+    return [...this.descriptions.values()].filter(extension => !this.leaving.has(extension.identifier.value));
   }
 
   addExtension(extension: IExtensionDescription): boolean {
@@ -170,19 +176,43 @@ export class ExtensionService extends Disposable implements IExtensionService {
     return true;
   }
 
+  /**
+   * Takes the extension out of `extensions` at once. A host that knows it deactivates it first: its contributions
+   * stay until the host reports it inactive or ends, and `whenExtensionRemoved` waits for that. Without such a host
+   * they go now.
+   */
   removeExtension(id: string): boolean {
     const identifier = id.toLowerCase();
     const description = this.descriptions.get(identifier);
-    if (!description) {
+    if (!description || this.leaving.has(identifier)) {
       return false;
     }
+    this.activationStatus.delete(identifier);
+    const key = this.extensionKeys.get(description);
+    if (!this.initialized || !key || !this.host?.desired.has(key)) {
+      this.forgetExtension(identifier, description);
+      return true;
+    }
+    this.leaving.set(identifier, description);
+    this.extensionsChanged();
+    return true;
+  }
+
+  /** Ends a removal that `removeExtension` started, unless that generation already left. */
+  private finishLeaving(identifier: string, description: IExtensionDescription): void {
+    if (this.leaving.get(identifier) === description) {
+      this.leaving.delete(identifier);
+      this.forgetExtension(identifier, description);
+    }
+  }
+
+  private forgetExtension(identifier: string, description: IExtensionDescription): void {
     const containers = this.viewHandler.containerIds(identifier);
     this.descriptions.delete(identifier);
     this.processed.delete(identifier);
-    this.activationStatus.delete(identifier);
     this.extensionKeys.delete(description);
     this.remoteIcons?.remove(identifier);
-    if (this.initialized) {
+    if (this.initialized && !this.stopping) {
       this.applyContributions();
       if (containers.length) {
         this.instantiation?.invokeFunction(accessor => {
@@ -191,7 +221,6 @@ export class ExtensionService extends Disposable implements IExtensionService {
         });
       }
     }
-    return true;
   }
 
   async clearExtensionStorage(id: string): Promise<void> {
@@ -229,7 +258,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
     void Promise.all(extensions.map(async extension => {
       try {
         const translations = await loadLocaleManifest(files, extension, this.locale, signal);
-        if (!translations || this.stopping || this.descriptions.get(extension.identifier.value) !== extension) {
+        if (!translations || this.stopping || this.descriptions.get(extension.identifier.value) !== extension
+          || this.leaving.has(extension.identifier.value)) {
           return false;
         }
         this.localized.set(extension, translations);
@@ -261,6 +291,11 @@ export class ExtensionService extends Disposable implements IExtensionService {
 
   private addDescription(extension: IExtensionDescription): boolean {
     const id = extension.identifier.value;
+    const leaving = this.leaving.get(id);
+    if (leaving) {
+      // An install that did not wait for the removal: the old generation's contributions go before the new ones come.
+      this.finishLeaving(id, leaving);
+    }
     if (this.descriptions.has(id)) {
       const message: IExtensionMessage = { extensionId: id, severity: 'error', path: 'publisher/name', message: 'Duplicate extension identifier.' };
       if (this.initialized) {
@@ -288,7 +323,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   getExtensionsStatus(): Readonly<Record<string, { messages: readonly IExtensionMessage[]; activationEvents: readonly string[]; activation: ExtensionHostStatus }>> {
-    const identifiers = new Set([...this.descriptions.keys(), ...this.messages.keys()]);
+    const identifiers = new Set([...this.descriptions.keys(), ...this.messages.keys()].filter(id => !this.leaving.has(id)));
     return Object.fromEntries([...identifiers].map(id => [id, {
       messages: this.messages.get(id) ?? [],
       activationEvents: [...this.extensionEvents.get(id) ?? []],
@@ -483,7 +518,14 @@ export class ExtensionService extends Disposable implements IExtensionService {
       for (const key of removed) {
         const { id } = host.registered.get(key)!;
         const previous = this.removals.get(id);
-        const removal = new Promise<void>(resolve => host.removing.set(key, resolve));
+        const leaving = this.leaving.get(id);
+        const removal = new Promise<void>(resolve => host.removing.set(key, () => {
+          // The host has disposed the extension's subscriptions, or has ended: its contributions can go now.
+          if (leaving) {
+            this.finishLeaving(id, leaving);
+          }
+          resolve();
+        }));
         const completed = Promise.all([previous, removal]).then(() => {
           if (this.removals.get(id) === completed) {
             this.removals.delete(id);
@@ -550,7 +592,8 @@ export class ExtensionService extends Disposable implements IExtensionService {
     this.commandOwners.clear();
     const contributions = new DisposableStore();
     this.contributions.value = contributions;
-    const entries = this.extensions.map(extension => this.localizedDescription(extension));
+    // A leaving extension keeps its contributions in its place until the host has deactivated it.
+    const entries = [...this.descriptions.values()].map(extension => this.localizedDescription(extension));
     for (const extension of entries) {
       const id = extension.identifier.value;
       const { manifest } = extension;
