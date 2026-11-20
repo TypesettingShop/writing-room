@@ -133,23 +133,41 @@ export class DataTransferItem implements vscode.DataTransferItem {
 }
 
 export class DataTransfer implements vscode.DataTransfer {
-  private readonly items = new Map<string, vscode.DataTransferItem>();
+  readonly #items = new Map<string, vscode.DataTransferItem[]>();
 
-  get(mimeType: string): vscode.DataTransferItem | undefined {
-    return this.items.get(mimeType.toLowerCase());
-  }
-
-  set(mimeType: string, value: vscode.DataTransferItem): void {
-    this.items.set(mimeType.toLowerCase(), value);
-  }
-
-  forEach(callbackfn: (item: vscode.DataTransferItem, mimeType: string, dataTransfer: DataTransfer) => void, thisArg?: unknown): void {
-    for (const [mimeType, item] of this.items) {
-      callbackfn.call(thisArg, item, mimeType, this);
+  constructor(init?: Iterable<readonly [string, vscode.DataTransferItem]>) {
+    for (const [mimeType, item] of init ?? []) {
+      const key = mimeType.toLowerCase();
+      const existing = this.#items.get(key);
+      if (existing) {
+        existing.push(item);
+      } else {
+        this.#items.set(key, [item]);
+      }
     }
   }
 
-  [Symbol.iterator](): IterableIterator<[string, vscode.DataTransferItem]> {
-    return this.items.entries();
+  get(mimeType: string): vscode.DataTransferItem | undefined {
+    return this.#items.get(mimeType.toLowerCase())?.[0];
+  }
+
+  set(mimeType: string, value: vscode.DataTransferItem): void {
+    this.#items.set(mimeType.toLowerCase(), [value]);
+  }
+
+  forEach(callbackfn: (item: vscode.DataTransferItem, mimeType: string, dataTransfer: DataTransfer) => void, thisArg?: unknown): void {
+    for (const [mimeType, items] of this.#items) {
+      for (const item of items) {
+        callbackfn.call(thisArg, item, mimeType, this);
+      }
+    }
+  }
+
+  *[Symbol.iterator](): IterableIterator<[string, vscode.DataTransferItem]> {
+    for (const [mimeType, items] of this.#items) {
+      for (const item of items) {
+        yield [mimeType, item];
+      }
+    }
   }
 }

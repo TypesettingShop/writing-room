@@ -335,3 +335,32 @@ test('handleDrop gets what handleDrag put in for the same extension, and strings
   await trees.$handleDrop('e', 'target', again.handle, [], 'drag-3');
   expect(dropped[5].values).toEqual([]);
 });
+
+test('handleDrop iterates every file of the same type and keeps the first item for get', async () => {
+  const trees = new ExtHostTreeViews(mainThread(), () => ['target']);
+  const handleDrop = vi.fn((_target: unknown, transfer: vscode.DataTransfer) => {
+    expect(transfer.get('TEXT/PLAIN')?.value).toBe('outside text');
+    expect(transfer.get('image/png')?.asFile()?.name).toBe('one.png');
+    expect([...transfer].map(([mime, item]) => [mime, item.asFile()?.name ?? item.value])).toEqual([
+      ['text/plain', 'outside text'],
+      ['text/plain', 'notes.txt'],
+      ['image/png', 'one.png'],
+      ['image/png', 'two.png'],
+      ['application/octet-stream', 'one'],
+      ['application/octet-stream', 'two'],
+    ]);
+  });
+  trees.createTreeView('e', 'target', {
+    getChildren: () => [], getTreeItem: () => new TreeItem('target'),
+  }, { dragAndDropController: { dragMimeTypes: [], dropMimeTypes: ['text/plain', 'files'], handleDrop } });
+  const data = new Uint8Array([1, 2, 3]);
+  await trees.$handleDrop('e', 'target', undefined, [
+    { mimeType: 'text/plain', value: 'outside text' },
+    { mimeType: 'text/plain', value: '', file: { name: 'notes.txt', data } },
+    { mimeType: 'image/png', value: '', file: { name: 'one.png', data } },
+    { mimeType: 'image/png', value: '', file: { name: 'two.png', data } },
+    { mimeType: 'application/octet-stream', value: '', file: { name: 'one', data } },
+    { mimeType: 'application/octet-stream', value: '', file: { name: 'two', data } },
+  ], undefined);
+  expect(handleDrop).toHaveBeenCalledTimes(1);
+});

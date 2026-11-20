@@ -38,6 +38,8 @@ configurationRegistry.registerConfiguration({
   properties: { locale: { type: 'string', default: 'en', description: 'Language for extensions. Takes effect when the workbench restarts.' } },
 });
 
+const maxContributionReapplications = 3;
+
 type ExtensionScan = () => { extensions: readonly IExtensionDescription[]; messages: readonly IExtensionMessage[] };
 interface HostSession {
   readonly worker: WebWorkerExtensionHost;
@@ -68,6 +70,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
   private readonly remoteIcons?: RemoteExtensionIcons;
   private initialized = false;
   private applying = false;
+  private contributionRefreshRequested = false;
   private readonly activationStatus = new Map<string, ExtensionHostStatus>();
   private readonly extensionKeys = new Map<IExtensionDescription, string>();
   private nextExtensionKey = 0;
@@ -111,7 +114,7 @@ export class ExtensionService extends Disposable implements IExtensionService {
       }));
     }
     const refreshContributions = () => {
-      if (this.initialized && !this.applying) {
+      if (this.initialized) {
         this.applyContributions();
       }
     };
@@ -514,10 +517,26 @@ export class ExtensionService extends Disposable implements IExtensionService {
   }
 
   private applyContributions(): void {
+    if (this.applying) {
+      this.contributionRefreshRequested = true;
+      return;
+    }
     this.applying = true;
     try {
-      this.registerContributions();
+      // A contribution can synchronously change the theme or the extension-point registry.
+      // Finish this pass before reading the new state and publishing the result.
+      for (let pass = 0; pass <= maxContributionReapplications; pass++) {
+        this.contributionRefreshRequested = false;
+        this.registerContributions();
+        if (!this.contributionRefreshRequested) {
+          break;
+        }
+      }
+      if (this.contributionRefreshRequested) {
+        console.warn('Extension contribution refresh did not settle after repeated application.');
+      }
     } finally {
+      this.contributionRefreshRequested = false;
       this.applying = false;
     }
     this.extensionsChanged();
