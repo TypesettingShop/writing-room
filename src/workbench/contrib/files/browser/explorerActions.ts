@@ -222,9 +222,13 @@ async function rename(services: IOperationServices, item: ExplorerItem, name: st
 
 /**
  * Deletes `item`, a folder with everything in it, once the user confirms. Editors that show it or
- * anything below it close first, asking about unsaved changes; a cancel there keeps everything.
+ * anything below it close first, asking about unsaved changes. Dirty models left behind are
+ * discarded only after the file deletion succeeds.
  */
-async function deleteItem(services: IOperationServices, item: ExplorerItem): Promise<void> {
+export async function deleteItem(
+  services: Omit<IOperationServices, 'quickInput' | 'resolver'> & { readonly quickInput: Pick<IQuickInputService, 'pick'> },
+  item: ExplorerItem,
+): Promise<void> {
   const { explorer, fileService, textFiles, quickInput, groups } = services;
   const resource = item.resource;
 
@@ -248,12 +252,8 @@ async function deleteItem(services: IOperationServices, item: ExplorerItem): Pro
       return;
     }
   }
-  // Text whose editors are all gone but that was not saved or reverted yet goes with its file.
-  for (const model of textFiles.files.models) {
-    if (isEqualOrParent(model.resource, resource) && model.isDirty()) {
-      await model.revert({ soft: true });
-    }
-  }
+  const dirty = textFiles.files.models.filter(model => isEqualOrParent(model.resource, resource) && model.isDirty())
+    .map(model => ({ model, version: model.textEditorModel?.getVersionId() }));
 
   // The item after it takes the selection, or the one before, or its folder.
   const siblings = item.parent?.visibleChildren ?? [];
@@ -266,6 +266,16 @@ async function deleteItem(services: IOperationServices, item: ExplorerItem): Pro
     explorer.showError(`Unable to delete '${item.name}': ${describeError(error)}`);
     explorer.focusView();
     return;
+  }
+  // Keep edits that arrived after deletion began, for example from an extension with the model open.
+  for (const { model, version } of dirty) {
+    if (model.isDirty() && model.textEditorModel?.getVersionId() === version) {
+      try {
+        await model.revert({ soft: true });
+      } catch (error) {
+        console.warn(`Could not discard the draft of deleted file ${model.resource}.`, error);
+      }
+    }
   }
   if (item.parent) {
     await explorer.resolveFolder(item.parent);

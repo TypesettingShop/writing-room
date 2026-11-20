@@ -139,11 +139,23 @@ export function listBackups(page: Page): Promise<string[]> {
       request.onerror = () => reject(request.error);
     });
     try {
-      const keys = await new Promise<IDBValidKey[]>(resolve => {
-        const request = db.transaction('vscode-userdata').objectStore('vscode-userdata').getAllKeys();
-        request.onsuccess = () => resolve(request.result);
+      return await new Promise<string[]>((resolve, reject) => {
+        const backups: string[] = [];
+        const request = db.transaction('vscode-userdata').objectStore('vscode-userdata').openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve(backups);
+            return;
+          }
+          if (cursor.value?.type === 1 && typeof cursor.key === 'string'
+            && /^\/User\/workspaceStorage\/[^/]+\/backups\/(?:[a-f0-9]{32}\/)?[a-f0-9]{16}$/.test(cursor.key)) {
+            backups.push(cursor.key);
+          }
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error);
       });
-      return keys.filter((key): key is string => typeof key === 'string' && /^\/User\/workspaceStorage\/[^/]+\/backups\/[^/]+$/.test(key));
     } finally {
       db.close();
     }

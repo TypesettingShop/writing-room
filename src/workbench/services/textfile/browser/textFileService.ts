@@ -13,7 +13,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IFileDialogService } from '../../dialogs/common/dialogs.js';
 import { IUntitledTextEditorService } from '../../untitled/common/untitledTextEditorService.js';
-import { TextFileBackups } from '../common/textFileBackup.js';
+import { createBackupSessionId, TextFileBackups } from '../common/textFileBackup.js';
 import { TextFileEditorModelManager } from '../common/textFileEditorModelManager.js';
 import { isTextFileResource, ITextFileService, UntitledTextFileService } from '../common/textfiles.js';
 import type { ITextFileRevertOptions, ITextFileSaveOptions, SaveReason } from '../common/textfiles.js';
@@ -37,7 +37,7 @@ export class BrowserTextFileService extends UntitledTextFileService {
     @IInstantiationService private readonly instantiationService: IInstantiationService,
   ) {
     super(untitledService);
-    this.backups = new TextFileBackups(fileService, workspace.getWorkspace().id);
+    this.backups = new TextFileBackups(fileService, workspace.getWorkspace().id, createBackupSessionId());
     this.fileModels = this._register(instantiationService.createInstance(TextFileEditorModelManager,
       (model, reason) => this.runSaveParticipants(model.resource, reason), this.backups));
     this._register(this.files.onDidChangeDirty(model => this.fireDidChangeDirty(model.resource)));

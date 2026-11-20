@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Event } from '../../../../../base/common/event.js';
 import { formatKeybinding } from '../../../../../base/common/keybindingLabels.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
@@ -26,11 +27,15 @@ import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.
 import type { IFileDialogService as IFileDialogs, ISaveDialogOptions } from '../../../../services/dialogs/common/dialogs.js';
 import { GroupDirection, IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
+import type { BrowserTextFileService } from '../../../../services/textfile/browser/textFileService.js';
+import { BACKUP_DELAY } from '../../../../services/textfile/common/textFileEditorModel.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 import { UntitledTextEditorInput } from '../../../../services/untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService } from '../../../../services/untitled/common/untitledTextEditorService.js';
 import { FileEditorResolverContribution } from '../../browser/editors/fileEditorHandler.js';
 import { FileEditorInput } from '../../browser/editors/fileEditorInput.js';
+import { deleteItem } from '../../browser/explorerActions.js';
+import { ExplorerService } from '../../browser/explorerService.js';
 import '../../../../workbench.web.main.js';
 
 // jsdom cannot run Monaco; the text editor panes get the fake.
@@ -134,6 +139,7 @@ afterEach(async () => {
     model.dispose();
   }
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 async function openFile(path: string, group = part.activeGroup): Promise<FileEditorInput> {
@@ -238,6 +244,184 @@ describe('closing asks first', () => {
     expect(right.editors).toEqual([second, third]);
     expect(down.editors).toEqual([fourth]);
     expect([second, third, fourth].map(editor => editor.model.getValue())).toEqual(['two', 'three', 'four']);
+  });
+});
+
+test('startup reuses file tabs opened during recovery and leaves the active group, editor and focus in place', async () => {
+  const { FileBackupRestorer } = await import('../../browser/fileBackupRestorer.js');
+  const textFiles = service(ITextFileService) as BrowserTextFileService;
+  const meta = { etag: undefined, bom: false };
+  await textFiles.backups.write(file('a.md'), 'existing draft', meta);
+  await textFiles.backups.write(file('missing.md'), 'tabless draft', meta);
+  const resume = new DeferredPromise<void>();
+  const listRestorable = textFiles.backups.listRestorable.bind(textFiles.backups);
+  vi.spyOn(textFiles.backups, 'listRestorable').mockImplementationOnce(async () => {
+    await resume.p;
+    return listRestorable();
+  });
+  instantiation.createInstance(FileBackupRestorer);
+
+  const left = part.activeGroup;
+  const leftInput = await openFile('a.md', left);
+  const right = part.addGroup(left, GroupDirection.RIGHT);
+  const rightInput = await openFile('a.md', right);
+  const active = await openFile('b.md', right);
+  const focus = document.body.appendChild(document.createElement('button'));
+  disposables.add({ dispose: () => focus.remove() });
+  focus.focus();
+  await resume.complete();
+
+  await vi.waitFor(() => expect(names(right.editors)).toEqual(['a.md', 'b.md', 'missing.md']));
+  expect(left.editors).toEqual([leftInput]);
+  expect(right.editors.slice(0, 2)).toEqual([rightInput, active]);
+  expect(part.activeGroup).toBe(right);
+  expect(right.activeEditor).toBe(active);
+  expect(document.activeElement).toBe(focus);
+  expect(leftInput.isDirty()).toBe(true);
+  expect(rightInput.isDirty()).toBe(true);
+  await right.editors[2].resolve();
+  expect(textFiles.files.get(file('missing.md'))?.textEditorModel?.getValue()).toBe('tabless draft');
+});
+
+test('startup does not reopen a file whose draft went while the list was read', async () => {
+  const { FileBackupRestorer } = await import('../../browser/fileBackupRestorer.js');
+  const textFiles = service(ITextFileService) as BrowserTextFileService;
+  // The list names a draft that a Save or Don't Save removed before the tabs were checked.
+  vi.spyOn(textFiles.backups, 'listRestorable').mockResolvedValueOnce([file('a.md')]);
+  const hasRestorable = vi.spyOn(textFiles.backups, 'hasRestorable');
+  instantiation.createInstance(FileBackupRestorer);
+
+  await vi.waitFor(() => expect(hasRestorable).toHaveBeenCalledWith(file('a.md')));
+  expect(await hasRestorable.mock.results[0].value).toBe(false);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(part.activeGroup.editors).toEqual([]);
+});
+
+test('a temporary draft read failure shows an error and reopening recovers the draft', async () => {
+  const textFiles = service(ITextFileService) as BrowserTextFileService;
+  const resource = file('a.md');
+  await textFiles.backups.write(resource, 'unsaved and irreplaceable', { etag: undefined, bom: false });
+  const location = textFiles.backups.backupResource(resource);
+  const readFile = files.readFile.bind(files);
+  const reading = vi.spyOn(files, 'readFile').mockImplementation(async (target, options) => {
+    if (target.toString() === location.toString()) {
+      throw new Error('Storage is busy');
+    }
+    return readFile(target, options);
+  });
+
+  const input = instantiation.createInstance(FileEditorInput, resource, { restoredDirty: true });
+  await part.activeGroup.openEditor(input);
+  expect(document.querySelector('.file-error-editor [role="alert"]')?.textContent)
+    .toContain('The unsaved draft could not be read. Reopen the file or reload to try again.');
+  expect(textFiles.files.get(resource)).toBeUndefined();
+  expect(await files.exists(location)).toBe(true);
+  expect(await read('a.md')).toBe('alpha');
+  expect(await part.activeGroup.closeEditor(input)).toBe(true);
+
+  reading.mockRestore();
+  const reopened = await openFile('a.md');
+  expect(reopened.isDirty()).toBe(true);
+  expect(textFiles.files.get(resource)?.textEditorModel?.getValue()).toBe('unsaved and irreplaceable');
+});
+
+describe('Explorer deletion of files with drafts outside the editor groups', () => {
+  const write = (path: string) => files.writeFile(file(path), new TextEncoder().encode(path));
+  const draftText = (path: string) => `draft of ${path}`;
+
+  async function prepare(target: string, paths: readonly string[]) {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const textFiles = service(ITextFileService) as BrowserTextFileService;
+    await Promise.all(paths.map(write));
+    const models = [];
+    for (const path of paths) {
+      const reference = await textFiles.resolve(file(path));
+      const model = textFiles.files.get(file(path))!;
+      reference.textEditorModel!.setValue(draftText(path));
+      reference.dispose();
+      models.push(model);
+    }
+    await vi.advanceTimersByTimeAsync(BACKUP_DELAY + 10);
+    for (const path of paths) {
+      expect((await textFiles.backups.read(file(path)))?.value).toBe(draftText(path));
+    }
+
+    const explorer = disposables.add(instantiation.createInstance(ExplorerService));
+    await explorer.resolveFolder(explorer.root);
+    expect(await explorer.select(file(target))).toBe(true);
+    const quickInput = { pick: vi.fn().mockResolvedValue({ id: 'delete' }) };
+    const remove = () => deleteItem({ explorer, fileService: files, textFiles, quickInput, groups: part }, explorer.selection!);
+    return { explorer, models, remove, textFiles };
+  }
+
+  test.each([
+    { target: 'a.md', paths: ['a.md'], sibling: 'b.md' },
+    { target: 'a', paths: ['a/first.md', 'a/sub/second.md'], sibling: 'ab/sibling.md' },
+  ])('a refused deletion of $target preserves its drafts and a retry removes only those drafts', async ({ target, paths, sibling }) => {
+    const { explorer, models, remove, textFiles } = await prepare(target, [...paths, sibling]);
+    expect(part.activeGroup.isEmpty).toBe(true);
+    const error = vi.spyOn(explorer, 'showError').mockImplementation(() => {});
+    const focus = vi.spyOn(explorer, 'focusView');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(provider, 'delete').mockRejectedValueOnce(new Error('Storage is busy'));
+
+    await remove();
+    expect(error).toHaveBeenCalledWith(`Unable to delete '${target}': Storage is busy`);
+    expect(focus).toHaveBeenCalledOnce();
+    expect(explorer.selection?.resource.toString()).toBe(file(target).toString());
+    for (const [index, path] of paths.entries()) {
+      expect(await read(path)).toBe(path);
+      expect(textFiles.files.get(file(path))).toBe(models[index]);
+      expect(models[index].isDirty()).toBe(true);
+      expect(models[index].textEditorModel?.getValue()).toBe(draftText(path));
+      expect((await textFiles.backups.read(file(path)))?.value).toBe(draftText(path));
+    }
+
+    const reveals = vi.fn();
+    disposables.add(explorer.onDidRequestReveal(reveals));
+    await remove();
+    for (const [index, path] of paths.entries()) {
+      expect(await exists(path)).toBe(false);
+      expect(models[index].isDirty()).toBe(false);
+      expect(await textFiles.backups.read(file(path))).toBeUndefined();
+      expect(textFiles.files.get(file(path))).toBeUndefined();
+    }
+    expect(await read(sibling)).toBe(sibling);
+    expect(models.at(-1)?.isDirty()).toBe(true);
+    expect((await textFiles.backups.read(file(sibling)))?.value).toBe(draftText(sibling));
+    const selection = explorer.selection;
+    expect(selection?.name).toBe(target === 'a.md' ? sibling : 'ab');
+    expect(reveals).toHaveBeenCalledWith({ item: selection, focus: true });
+  });
+
+  test('a draft edited while the provider is deleting the file remains recoverable', async () => {
+    const path = 'a.md';
+    const { models: [model], remove, textFiles } = await prepare(path, [path]);
+    const del = provider.delete.bind(provider);
+    vi.spyOn(provider, 'delete').mockImplementationOnce(async (resource, options) => {
+      model.textEditorModel!.setValue('edited while deleting');
+      await del(resource, options);
+    });
+
+    await remove();
+    await vi.advanceTimersByTimeAsync(BACKUP_DELAY + 10);
+    expect(await exists(path)).toBe(false);
+    expect(model.isDirty()).toBe(true);
+    expect((await textFiles.backups.read(file(path)))?.value).toBe('edited while deleting');
+  });
+
+  test('a failed draft discard after deletion still refreshes and moves the selection', async () => {
+    const path = 'a.md';
+    const { explorer, models: [model], remove, textFiles } = await prepare(path, [path]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(model, 'revert').mockRejectedValueOnce(new Error('Could not discard'));
+
+    await remove();
+    expect(await exists(path)).toBe(false);
+    expect(explorer.find(file(path))).toBeUndefined();
+    expect(explorer.selection?.name).toBe('b.md');
+    expect((await textFiles.backups.read(file(path)))?.value).toBe(draftText(path));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not discard the draft'), expect.any(Error));
   });
 });
 
