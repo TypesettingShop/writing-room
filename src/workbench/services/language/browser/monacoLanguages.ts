@@ -1,8 +1,7 @@
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
-import type { URI } from '../../../../base/common/uri.js';
 import { loadMonaco } from '../../../../editor/browser/monaco.js';
 import type { MonacoNamespace } from '../../../../editor/browser/monaco.js';
-import { ILanguageService, PLAINTEXT_LANGUAGE_ID } from '../../../../editor/common/languages/language.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { readLanguageConfiguration } from '../../../contrib/codeEditor/common/languageConfigurationExtensionPoint.js';
@@ -63,7 +62,7 @@ export class MonacoLanguageBridge extends Disposable {
 
   constructor(
     @ILanguageService private readonly languageService: ILanguageService,
-    @IModelService private readonly modelService: IModelService,
+    @IModelService modelService: IModelService,
     @IExtensionService private readonly extensionService: IExtensionService,
     @IFileService private readonly fileService: IFileService,
   ) {
@@ -96,7 +95,6 @@ export class MonacoLanguageBridge extends Disposable {
       for (const definition of monaco.languages.getLanguages()) {
         this.builtinDefinitions.set(definition.id, definition);
       }
-      const unresolved = service instanceof WorkbenchLanguageService ? service.takeUnresolvedGuesses() : [];
       if (service instanceof WorkbenchLanguageService) {
         service.setBuiltinLanguages([...this.builtinDefinitions.values()].map((definition): ILanguageDefinition => ({
           id: definition.id,
@@ -109,7 +107,6 @@ export class MonacoLanguageBridge extends Disposable {
         })));
       }
       this.registerLanguageIds(monaco);
-      this.reguessModels(unresolved);
       return monaco;
     }, error => {
       this.connecting = undefined;
@@ -129,23 +126,6 @@ export class MonacoLanguageBridge extends Disposable {
     for (const languageId of this.languageService.getRegisteredLanguageIds()) {
       if (!known.has(languageId)) {
         monaco.languages.register({ id: languageId });
-      }
-    }
-  }
-
-  /**
-   * A model created before the built-in languages were known fell back to plain text when its path names
-   * a built-in language (`notes.js`); it gets that language now.
-   */
-  private reguessModels(resources: readonly URI[]): void {
-    for (const resource of resources) {
-      const model = this.modelService.getModel(resource);
-      if (!model || model.isDisposed() || model.getLanguageId() !== PLAINTEXT_LANGUAGE_ID) {
-        continue;
-      }
-      const language = this.languageService.guessLanguageIdByFilepathOrFirstLine(resource);
-      if (language && language !== PLAINTEXT_LANGUAGE_ID) {
-        this.modelService.setModelLanguage(model, language);
       }
     }
   }

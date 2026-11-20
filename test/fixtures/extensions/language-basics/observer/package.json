@@ -1,0 +1,19 @@
+{
+  "name": "language-basics-observer",
+  "publisher": "fixtures",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "browser": "./extension.js",
+  "activationEvents": ["onCommand:languageBasics.reportLanguageEvents"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "languageBasics.reportLanguageEvents",
+        "title": "Report Language Events",
+        "category": "Language Basics"
+      }
+    ]
+  }
+}

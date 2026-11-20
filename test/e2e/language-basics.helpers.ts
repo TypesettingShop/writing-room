@@ -5,7 +5,7 @@ import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFi
 import { expect, renderedText } from './fixtures.js';
 
 /** A fixture folder under `test/fixtures/extensions/language-basics/`: `''` is the main fixture. */
-export type LanguageFixture = '' | 'broken/';
+export type LanguageFixture = '' | 'broken/' | 'observer/';
 
 function manifest(fixture: LanguageFixture): IExtensionManifest {
   return JSON.parse(readFileSync(new URL(`../fixtures/extensions/language-basics/${fixture}package.json`, import.meta.url), 'utf8')) as IExtensionManifest;
@@ -19,6 +19,15 @@ export function languageFixtureLocation(fixture: LanguageFixture = ''): string {
 export async function openWithLanguageFixtures(page: Page, fixtures: readonly LanguageFixture[] = ['']): Promise<void> {
   await seedInstalledExtensions(page, fixtures.map(fixture => ({ location: languageFixtureLocation(fixture), manifest: manifest(fixture) })));
   await page.goto('/');
+}
+
+/** Installs the main fixture into an already running workbench. */
+export async function installLanguageFixture(page: Page): Promise<void> {
+  await runCommand(page, 'Install Extension from Location...');
+  const location = page.getByRole('textbox', { name: 'Install Extension from Location' });
+  await location.fill(languageFixtureLocation());
+  await location.press('Enter');
+  await page.getByRole('option', { name: /^Install Language Basics Fixture/ }).click();
 }
 
 /** Every request whose URL matches `pattern`, from now on. */
