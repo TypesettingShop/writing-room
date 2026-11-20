@@ -383,6 +383,73 @@ async function reportSymbols() {
   return vscode.window.showInformationMessage('Symbols: ' + describe(symbols ?? []) + '; DocumentSymbol ' + instances);
 }
 
+// --- Workspace symbols -------------------------------------------------------------------------------
+
+/** How the second workspace symbol provider answers: 'slow' (late for one query), 'throw', or at once. */
+let symbolMode = 'normal';
+const symbolReport = { asked: 0, cancelled: 0 };
+/** Whether `query`'s characters appear in `name` in order, ignoring case (as the Markdown language server does). */
+const fuzzy = (query, name) => {
+  let at = 0;
+  for (const character of name.toLowerCase()) {
+    if (at < query.length && character === query[at].toLowerCase()) {
+      at++;
+    }
+  }
+  return at === query.length;
+};
+
+/** The headings (`# ...` lines) of every `.lft` file of the workspace folder, open or not. */
+const headingSymbolProvider = {
+  async provideWorkspaceSymbols(query) {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!folder) {
+      return [];
+    }
+    const symbols = [];
+    for (const [name, type] of await vscode.workspace.fs.readDirectory(folder)) {
+      if (type !== vscode.FileType.File || !name.endsWith('.lft')) {
+        continue;
+      }
+      const uri = vscode.Uri.joinPath(folder, name);
+      const lines = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)).split('\n');
+      lines.forEach((text, line) => {
+        if (/^#+\s/.test(text) && fuzzy(query, text)) {
+          symbols.push(new vscode.SymbolInformation(text, vscode.SymbolKind.String, 'Headings', new vscode.Location(uri, new vscode.Range(line, 0, line, text.length))));
+        }
+      });
+    }
+    return symbols;
+  },
+};
+
+/** A second provider: its rows are `query:<the query>`; in 'slow' mode the query `stale` answers late. */
+const echoSymbolProvider = {
+  async provideWorkspaceSymbols(query, token) {
+    symbolReport.asked++;
+    if (symbolMode === 'throw') {
+      throw new Error('The echo symbol provider failed on purpose.');
+    }
+    if (symbolMode === 'slow' && query === 'stale') {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (token.isCancellationRequested) {
+        symbolReport.cancelled++;
+      }
+    }
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    return folder ? [new vscode.SymbolInformation('query:' + query, vscode.SymbolKind.Key, '', new vscode.Location(vscode.Uri.joinPath(folder, 'echo.lft'), new vscode.Position(0, 0)))] : [];
+  },
+};
+
+/** What `vscode.executeWorkspaceSymbolProvider` gives, whether the results are API instances, and the extension host's kept answers. */
+async function reportWorkspaceSymbols() {
+  const symbols = await vscode.commands.executeCommand('vscode.executeWorkspaceSymbolProvider', '');
+  const instances = symbols.every(symbol => symbol instanceof vscode.SymbolInformation && symbol.location instanceof vscode.Location);
+  const cached = await vscode.commands.executeCommand('_workbench.languageFeatures.workspaceSymbolCacheSize');
+  return vscode.window.showInformationMessage('Workspace symbols: ' + symbols.map(symbol => symbol.name).sort().join(' | ')
+    + '; SymbolInformation ' + instances + '; asked ' + symbolReport.asked + '; cancelled ' + symbolReport.cancelled + '; cached ' + cached);
+}
+
 /** Registers every provider of the fixture; the disposables take them back. */
 const providers = () => [
   vscode.languages.registerCompletionItemProvider(selector, completionProvider, '.'),
@@ -402,6 +469,8 @@ const providers = () => [
   vscode.languages.registerDefinitionProvider(selector, definitionProvider),
   vscode.languages.registerFoldingRangeProvider(selector, foldingRangeProvider),
   vscode.languages.registerCodeLensProvider(selector, codeLensProvider),
+  vscode.languages.registerWorkspaceSymbolProvider(headingSymbolProvider),
+  vscode.languages.registerWorkspaceSymbolProvider(echoSymbolProvider),
 ];
 
 module.exports.activate = context => {
@@ -446,6 +515,9 @@ module.exports.activate = context => {
     lensesChanged.fire();
   }));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportSymbols', reportSymbols));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportWorkspaceSymbols', reportWorkspaceSymbols));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.slowSymbols', () => { symbolMode = 'slow'; }));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.throwingSymbols', () => { symbolMode = 'throw'; }));
   // Not awaited: the message stays until it is dismissed, and activation must not wait for that.
   void vscode.window.showInformationMessage('Language features fixture activated');
 };

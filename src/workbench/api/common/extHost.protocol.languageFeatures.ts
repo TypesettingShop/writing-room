@@ -482,11 +482,44 @@ export interface ExtHostNavigationShape {
 
 // --- The merged shapes ---------------------------------------------------------------------------
 
+// --- Workspace symbols (wr-c9d8.qq0) --------------------------------------------------------------
+
+/** A workspace symbol as it crosses. The range is Monaco's (1-based); `cacheId` finds the provider's own symbol to resolve. */
+export interface WorkspaceSymbolDto {
+  readonly name: string;
+  readonly containerName?: string;
+  /** VS Code's `SymbolKind` value. */
+  readonly kind: number;
+  readonly tags?: readonly number[];
+  readonly location: { readonly uri: URI; readonly range?: EditorRange };
+  /** The answer's id and the symbol's index in it. */
+  readonly cacheId?: readonly [number, number];
+}
+
+export interface WorkspaceSymbolListDto {
+  readonly id: number;
+  readonly symbols: readonly WorkspaceSymbolDto[];
+}
+
+export interface MainThreadWorkspaceSymbolsShape {
+  $registerNavigateTypeSupport(extension: string, handle: number, supportsResolve: boolean): Promise<void>;
+  /** Every provider of every extension host, for `vscode.executeWorkspaceSymbolProvider`. */
+  $executeWorkspaceSymbolProvider(query: string): Promise<WorkspaceSymbolDto[]>;
+}
+
+export interface ExtHostWorkspaceSymbolsShape {
+  $provideWorkspaceSymbols(handle: number, query: string, token: CancellationToken): Promise<WorkspaceSymbolListDto | undefined>;
+  $resolveWorkspaceSymbol(handle: number, symbol: WorkspaceSymbolDto, token: CancellationToken): Promise<WorkspaceSymbolDto | undefined>;
+  $releaseWorkspaceSymbols(handle: number, id: number): Promise<void>;
+  /** How many answers the extension host keeps, for tests that look for leaks. */
+  $workspaceSymbolCacheSize(): Promise<number>;
+}
+
 export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape & MainThreadCompletionsShape & MainThreadEditsShape
-  & MainThreadNavigationShape;
+  & MainThreadNavigationShape & MainThreadWorkspaceSymbolsShape;
 
 export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape & ExtHostCompletionsShape & ExtHostEditsShape
-  & ExtHostNavigationShape;
+  & ExtHostNavigationShape & ExtHostWorkspaceSymbolsShape;
 
 /**
  * The `$` methods of every feature group, bound, under one object: each side answers under one RPC

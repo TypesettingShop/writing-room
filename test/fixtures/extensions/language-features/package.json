@@ -63,6 +63,21 @@
         "command": "languageFeaturesFixture.reportSymbols",
         "title": "Report Symbols",
         "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportWorkspaceSymbols",
+        "title": "Report Workspace Symbols",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.slowSymbols",
+        "title": "Slow Workspace Symbols",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.throwingSymbols",
+        "title": "Throwing Workspace Symbols",
+        "category": "Language Features"
       }
     ]
   }

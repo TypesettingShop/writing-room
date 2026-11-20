@@ -20,6 +20,7 @@ import { setLanguageWordPattern } from './extHostLanguageWordPatterns.js';
 import { createCompletionsGroup } from './extHostLanguageFeaturesCompletions.js';
 import { createEditsGroup } from './extHostLanguageFeaturesEdits.js';
 import { createNavigationGroup } from './extHostLanguageFeaturesNavigation.js';
+import { createWorkspaceSymbolsGroup } from './extHostLanguageFeaturesWorkspaceSymbols.js';
 
 /*
  * The seam every language feature provider goes through.
@@ -52,7 +53,9 @@ export interface LanguageFeatureGroup {
 export type LanguageFeatureGroupFactory = (features: ExtHostLanguageFeatures) => LanguageFeatureGroup;
 
 /** The feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly LanguageFeatureGroupFactory[] = [createCompletionsGroup, createEditsGroup, createNavigationGroup];
+const groupFactories: readonly LanguageFeatureGroupFactory[] = [
+  createCompletionsGroup, createEditsGroup, createNavigationGroup, createWorkspaceSymbolsGroup,
+];
 
 export enum IndentAction { None = 0, Indent = 1, IndentOutdent = 2, Outdent = 3 }
 export enum SyntaxTokenType { Other = 0, Comment = 1, String = 2, RegEx = 3 }

@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from './fixtures.js';
+import { message, runCommand } from './language-features.helpers.js';
 
 export const SYMBOLS_PLACEHOLDER = 'Type the name of a symbol to open.';
 export const NO_RESULTS = 'No matching workspace symbols';
@@ -35,4 +36,18 @@ export async function expectSymbolsOpen(page: Page): Promise<void> {
   await expect(field).toHaveValue('#');
   expect(await field.evaluate(input => [(input as HTMLInputElement).selectionStart, (input as HTMLInputElement).selectionEnd]))
     .toEqual([1, 1]);
+}
+
+/** A row of the symbols screen, by the symbol's name. */
+export const symbolRow = (page: Page, name: string | RegExp): Locator =>
+  page.getByRole('option', { name: typeof name === 'string' ? new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:,|\\s|$)') : name });
+
+/** Runs the language feature fixture's workspace symbol report and gives its message. */
+export async function reportWorkspaceSymbols(page: Page): Promise<string> {
+  await runCommand(page, 'Language Features: Report Workspace Symbols');
+  const toast = message(page, /^Workspace symbols: /).last();
+  await expect(toast).toBeVisible({ timeout: 10_000 });
+  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Workspace symbols: '))!;
+  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
+  return text;
 }

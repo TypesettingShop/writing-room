@@ -15,6 +15,7 @@ import { mainThreadCustomers } from './mainThreadCustomers.js';
 import { createMainThreadCompletions } from './mainThreadLanguageFeaturesCompletions.js';
 import { createMainThreadEdits } from './mainThreadLanguageFeaturesEdits.js';
 import { createMainThreadNavigation, trackProviders } from './mainThreadLanguageFeaturesNavigation.js';
+import { createMainThreadWorkspaceSymbols } from './mainThreadLanguageFeaturesWorkspaceSymbols.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from '../common/extHost.protocol.languageFeatures.js';
 import type {
   CommandDto, ExtHostLanguageFeaturesShape, LanguageConfigurationDto, MainThreadLanguageFeaturesSeamShape, RegExpDto,
@@ -35,7 +36,9 @@ const MAX_SELECTOR_STRING = 1024;
 export type MainThreadLanguageFeatureGroupFactory = (seam: MainThreadLanguageFeatures) => object & Partial<IDisposable>;
 
 /** The workbench's feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [createMainThreadCompletions, createMainThreadEdits, createMainThreadNavigation];
+const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [
+  createMainThreadCompletions, createMainThreadEdits, createMainThreadNavigation, createMainThreadWorkspaceSymbols,
+];
 
 function selectorString(value: unknown): string | undefined {
   if (value === undefined) {
@@ -231,7 +234,23 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
    * loaded. A handle already in use, or an extension that is not registered, is refused. If the handle
    * goes before `create` finishes, what it made is disposed.
    */
-  async register(extension: string, handle: number, create: (monaco: MonacoNamespace) => IDisposable | Promise<IDisposable>): Promise<void> {
+  register(extension: string, handle: number, create: (monaco: MonacoNamespace) => IDisposable | Promise<IDisposable>): Promise<void> {
+    return this.add(extension, handle, async () => {
+      const monaco = await this.options.monaco();
+      // Every Monaco provider made is known workbench-wide, for the `vscode.execute*` commands.
+      return () => create(trackProviders(monaco, this, handle));
+    });
+  }
+
+  /**
+   * Registers `handle` of `extension` for a feature the workbench answers itself, without Monaco
+   * (workspace symbols): `create` runs at once. Released as `register`'s registrations are.
+   */
+  registerInWorkbench(extension: string, handle: number, create: () => IDisposable): Promise<void> {
+    return this.add(extension, handle, async () => create);
+  }
+
+  private async add(extension: string, handle: number, ready: () => Promise<() => IDisposable | Promise<IDisposable>>): Promise<void> {
     if (this.disposed || typeof extension !== 'string' || !this.getExtension(extension)) {
       throw new Error('The extension is not registered.');
     }
@@ -241,12 +260,11 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
     const registration: Registration = { extension };
     this.registrations.set(handle, registration);
     try {
-      const monaco = await this.options.monaco();
+      const create = await ready();
       if (this.registrations.get(handle) !== registration) {
         return;
       }
-      // Every Monaco provider made is known workbench-wide, for the `vscode.execute*` commands.
-      const disposable = await create(trackProviders(monaco, this, handle));
+      const disposable = await create();
       if (this.registrations.get(handle) !== registration) {
         disposable.dispose();
         return;
