@@ -248,3 +248,86 @@ it('writes nothing when every saved owner is still registered or recorded', () =
     storage.dispose();
   }
 });
+
+it('reclaims only panels closed during unregister, deferring the same panel while another tab can restore it', async () => {
+  const held = new Set<string>();
+  const request = vi.fn(async (name: string, options: LockOptions, run: LockGrantedCallback<unknown>) => {
+    if (options.mode === 'shared') {
+      held.add(name);
+      try {
+        return await run({ name, mode: 'shared' });
+      } finally {
+        held.delete(name);
+      }
+    }
+    expect(options.ifAvailable).toBe(true);
+    return run(held.has(name) ? null : { name, mode: 'exclusive' });
+  });
+  vi.stubGlobal('navigator', { locks: { request } });
+  const database = new InMemoryStorageDatabase();
+  const first = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(first);
+  const otherStorage = new InMemoryStorageService(database);
+  const otherTab = new WebviewStateStore(otherStorage);
+  const registered = new Set([owner]);
+  try {
+    first.storeImmediately(userExtensionsKey, JSON.stringify([{ identifier: owner }]), StorageScope.PROFILE, StorageTarget.USER);
+    for (const id of ['closed', 'restoring', 'still-open', 'view/dashboard']) {
+      states.set(id, owner, '1');
+    }
+    for (const id of ['closed', 'restoring', 'still-open']) {
+      states.deferClosedPanelCleanup(id, owner);
+    }
+    const restoring = otherTab.trackOpenPanel('restoring', owner);
+    const open = states.trackOpenPanel('still-open', owner);
+    try {
+      states.removeMissingExtensions(new Set());
+      expect(states.get('closed', owner)).toBe('1');
+      expect(request.mock.calls.filter(([, options]) => options.ifAvailable)).toHaveLength(0);
+
+      states.removeMissingExtensions(registered);
+      const exclusive = request.mock.results.slice(2).map(result => result.value);
+      await Promise.all(exclusive);
+      expect(states.get('closed', owner)).toBeUndefined();
+      expect(states.get('restoring', owner)).toBe('1');
+      expect(states.get('still-open', owner)).toBe('1');
+      expect(states.get('view/dashboard', owner)).toBe('1');
+    } finally {
+      restoring.dispose();
+      open.dispose();
+    }
+
+    await Promise.all(request.mock.results.slice(0, 2).map(result => result.value));
+    states.removeMissingExtensions(registered);
+    await vi.waitFor(() => {
+      expect(states.get('restoring', owner)).toBeUndefined();
+      expect(states.get('still-open', owner)).toBeUndefined();
+    });
+    expect(states.get('view/dashboard', owner)).toBe('1');
+  } finally {
+    otherStorage.dispose();
+    first.dispose();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('skips the write when only the stale cache shows something to prune', () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  try {
+    states.set('pane', owner, '1');
+    database.updateItems({
+      insert: new Map([[installedAddress, JSON.stringify([{ identifier: owner }])]]), delete: new Set(),
+    });
+    expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
+    const write = vi.spyOn(database, 'updateItems');
+
+    states.removeMissingExtensions(new Set());
+
+    expect(write).not.toHaveBeenCalled();
+    expect(states.get('pane', owner)).toBe('1');
+  } finally {
+    storage.dispose();
+  }
+});

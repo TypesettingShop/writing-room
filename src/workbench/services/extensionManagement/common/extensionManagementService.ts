@@ -369,32 +369,29 @@ export class ExtensionManagementService {
       ...(nls ? { nls } : {}),
     };
     return this.serialize(async () => {
-      // A folder install has no files to stage, so it registers first: its commands are there as soon as the
-      // confirmation closes, not only after the cross-tab lock is granted. A failed write unregisters it again.
       this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
-      // An install whose lifetime already changed is refused before it registers, so it never activates.
       if (confirmedPersistent && this.scanner.sessionOnly) {
         throw new Error(installLifetimeChangedError);
       }
-      if (!this.active.addExtension?.(description)) {
-        throw new Error(`Could not register extension '${identifier}'.`);
-      }
-      try {
-        await this.scanner.locked(async (read, write) => {
-          const installed = read();
-          if (installed.some(entry => entry.identifier === identifier)) {
-            throw new Error(`'${identifier}' is already installed. Uninstall it before replacing it.`);
+      return this.scanner.locked(async (read, write) => {
+        const installed = read();
+        this.ensureAvailable(identifier, installed);
+        if (confirmedPersistent && this.scanner.sessionOnly) {
+          throw new Error(installLifetimeChangedError);
+        }
+        // A registered extension can activate and save state. Publish its record before that state can
+        // appear so another tab's prune sees the owner, and roll back under the same lock on failure.
+        await write([...installed, record]);
+        try {
+          if (!this.active.addExtension?.(description)) {
+            throw new Error(`Could not register extension '${identifier}'.`);
           }
-          if (confirmedPersistent && this.scanner.sessionOnly) {
-            throw new Error(installLifetimeChangedError);
-          }
-          await write([...installed, record]);
-        });
-      } catch (error) {
-        this.active.removeExtension?.(identifier);
-        throw error;
-      }
-      return description;
+        } catch (error) {
+          await write(installed).catch(cleanup => console.error(`Could not restore the installed list for '${identifier}'.`, cleanup));
+          throw error;
+        }
+        return description;
+      });
     });
   }
 

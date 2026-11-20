@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import {
-  blockStorage, enterLocation, fixtureOrigin, runCommand, savedIdentifiers, savedRecords, sessionOnlyNotice,
+  blockStorage, enterLocation, fixtureOrigin, installedKey, runCommand, savedIdentifiers, savedRecords, sessionOnlyNotice,
 } from './packages.helpers.js';
 import {
   fallBackAfterOneWrite, installFolder, openRestorablePanel, restartHost, restoreOwner, savedStates, saveLayout, schemaKey,
@@ -124,6 +124,7 @@ test('an early tab installing another extension keeps the state of an extension 
   const second = await context.newPage();
   await second.goto('/');
   await installFolder(second, 'webview/restore', restoreChoice);
+  await expect.poll(() => savedIdentifiers(second)).toContain(restoreOwner);
   await openRestorablePanel(second);
   await incrementPanel(second, '1');
   await expect.poll(() => savedStates(second)).toEqual([
@@ -166,4 +167,34 @@ test('reinstalling a package preserves its recorded Webview state until uninstal
   await uninstallExtension(page, vsixOwner);
   await expect.poll(() => savedIdentifiers(page)).not.toContain(vsixOwner);
   await expect.poll(() => savedStates(page)).toEqual([]);
+});
+
+test('reclaims a panel closed during failed uninstall when its owner is registered again', async ({ page }) => {
+  await seedInstalledExtensions(page, [{ location: restoreLocation, manifest: restoreManifest }]);
+  await page.goto('/');
+  await openRestorablePanel(page);
+  await incrementPanel(page, '1');
+  await expect.poll(() => savedStates(page)).toEqual([
+    expect.objectContaining({ extension: restoreOwner, state: '{"count":1}' }),
+  ]);
+
+  await page.evaluate(key => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, name, value) {
+      if (this === window.localStorage && name === key) {
+        Storage.prototype.setItem = original;
+        throw new DOMException('Could not commit the removal in this test.', 'QuotaExceededError');
+      }
+      original.call(this, name, value);
+    };
+  }, installedKey);
+  await uninstallExtension(page, restoreOwner);
+  await expect(page.getByRole('combobox', { name: 'Could not uninstall extension' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Restorable' })).toHaveCount(0);
+  expect(await savedIdentifiers(page)).toContain(restoreOwner);
+  await expect.poll(() => savedStates(page)).toEqual([]);
+
+  await page.getByRole('option', { name: /^OK / }).click();
+  await openRestorablePanel(page);
+  await expect(webviewContent(page).locator('#counter')).toHaveText('0');
 });

@@ -44,18 +44,22 @@ export class WebviewEditorInput extends EditorInput {
     readonly options: WebviewPanelOptions,
     readonly webview: WebviewOverlay,
     readonly persistent: boolean,
-    @IWebviewStateStore states: IWebviewStateStore,
+    @IWebviewStateStore private readonly states: IWebviewStateStore,
   ) {
     super();
     this.resource = URI.from({ scheme: Schemas.webviewPanel, path: id });
     this._register(webview);
     if (persistent) {
+      this._register(states.trackOpenPanel(id, extensionId));
       this.discardStateOnDispose = this._register(this.onWillDispose(() => states.delete(id, extensionId)));
     }
   }
 
   disposeKeepingState(): void {
-    this.discardStateOnDispose?.dispose();
+    if (this.discardStateOnDispose && !this.isDisposed()) {
+      this.states.deferClosedPanelCleanup(this.id, this.extensionId);
+      this.discardStateOnDispose.dispose();
+    }
     this.dispose();
   }
 

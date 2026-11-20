@@ -7,14 +7,17 @@ import { InMemoryStorageService, storageKey, StorageScope, StorageTarget } from 
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
 import { ExtensionPackageStore } from '../../browser/extensionPackageStore.js';
+import type { InstalledListLocks } from '../../browser/webExtensionsScannerService.js';
 import { userExtensionsKey, WebExtensionsScannerService } from '../../browser/webExtensionsScannerService.js';
 import { ExtensionManagementService, installLifetimeChangedError, normalizeExtensionLocation } from '../../common/extensionManagementService.js';
 
 const location = 'http://127.0.0.1:5000/ext/';
 const manifest = { name: 'fixture', publisher: 'Example', version: '1.0.0', browser: 'entry.js' };
 
-function setup(load: typeof fetch = async () => Response.json(manifest), storage = new InMemoryStorageService()) {
-  const scanner = new WebExtensionsScannerService(null, storage);
+function setup(
+  load: typeof fetch = async () => Response.json(manifest), storage = new InMemoryStorageService(), locks: InstalledListLocks | null = null,
+) {
+  const scanner = new WebExtensionsScannerService(locks, storage);
   const packages = new ExtensionPackageStore(Date.now, new FileService());
   const extensions: IExtensionDescription[] = [];
   const active = Object.assign(new NullExtensionService(), {
@@ -84,17 +87,49 @@ test('serializes concurrent installs and removes both catalog and active registr
   expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
 });
 
-test('leaves no contribution when writing fails and writes no list when registration fails', async () => {
+test('never registers after a failed list write and rolls the list back when registration fails', async () => {
   const { storage, scanner, active, service } = setup();
   const write = vi.spyOn(storage, 'storeImmediately').mockImplementationOnce(() => { throw new Error('write failed'); });
   await expect(service.installFromLocation(location, async () => true)).rejects.toThrow('write failed');
-  // A folder install registers before the cross-tab write and unregisters when that write fails.
   expect(active.extensions).toEqual([]);
-  expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
+  expect(active.addExtension).not.toHaveBeenCalled();
   write.mockRestore();
   active.addExtension.mockReturnValueOnce(false);
   await expect(service.installFromLocation(location, async () => true)).rejects.toThrow('Could not register');
   expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
+});
+
+test('keeps a folder extension inactive until it holds the cross-tab lock and its record is saved', async () => {
+  const waiting = new DeferredPromise<void>();
+  const grant = new DeferredPromise<void>();
+  const locks: InstalledListLocks = {
+    async request(_name, task) {
+      void waiting.complete();
+      await grant.p;
+      return task();
+    },
+  };
+  const { storage, service, active, scanner } = setup(undefined, undefined, locks);
+  try {
+    const install = service.installFromLocation(location, async () => true);
+    try {
+      await waiting.p;
+      expect(active.addExtension).not.toHaveBeenCalled();
+      expect(scanner.scanUserExtensions()).toEqual([]);
+      active.addExtension.mockImplementationOnce(extension => {
+        // Activation can save Webview state immediately. A simultaneous prune in another tab must find the owner.
+        expect(storage.getPersisted(userExtensionsKey, StorageScope.PROFILE)).toContain(extension.identifier.value);
+        active.extensions.push(extension);
+        return true;
+      });
+    } finally {
+      void grant.complete();
+      await install;
+    }
+    expect(active.addExtension).toHaveBeenCalledOnce();
+  } finally {
+    storage.dispose();
+  }
 });
 
 test('rejects duplicate built-ins and manifests with invalid fields or paths before confirmation', async () => {
@@ -265,13 +300,8 @@ test.each(['at confirmation', 'inside the list lock'])(
       expect(scanner.scanUserExtensions()).toEqual([]);
       expect(database.getItems().get(storageKey(StorageScope.PROFILE, userExtensionsKey))).toBeUndefined();
       expect(active.extensions).toEqual([]);
-      if (timing === 'at confirmation') {
-        // Refused before it registers, so the extension never activates.
-        expect(active.addExtension).not.toHaveBeenCalled();
-        expect(active.removeExtension).not.toHaveBeenCalled();
-      } else {
-        expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
-      }
+      expect(active.addExtension).not.toHaveBeenCalled();
+      expect(active.removeExtension).not.toHaveBeenCalled();
 
       const retry = vi.fn(async () => true);
       await expect(service.installFromLocation(location, retry)).resolves.toMatchObject({ location });
