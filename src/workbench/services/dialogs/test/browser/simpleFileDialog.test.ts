@@ -56,6 +56,7 @@ class ScriptedQuickInput implements IQuickInput {
   readonly backButton: IQuickInputButton = { icon: 'arrow-left', tooltip: 'Back' };
   createQuickPick<T extends IQuickPickItem>(): IQuickPick<T> { throw new Error('The dialog does not create quick picks.'); }
   createInputBox(): IInputBox { throw new Error('The dialog does not create input boxes.'); }
+  readonly quickAccess = { show(): void { throw new Error('The dialog does not use quick access.'); } };
 }
 
 const choose = (label: string): Answer => question => {
