@@ -111,7 +111,7 @@ SHA-256은 언제나 실제로 설치할 VSIX 바이트에서 계산하고 갤�
 
 ### 두 탭
 
-설치 목록의 읽고 고쳐 쓰기는 Web Lock `writing-room:extensions.user`로 감싼다. 잠금 안에서는 그 탭의 캐시가 아니라 스토리지에 저장된 값을 읽으므로(스토리지의 키 하나 영속 읽기, 아무것도 쓰지 않는다), 두 탭이 동시에 다른 확장을 설치해도 두 기록이 모두 남는다. 확인한 뒤 다른 탭이 같은 식별자의 기록을 바꿨으면 설치를 멈추고 다시 하라고 알린다. Web Locks가 없는 브라우저에서는 탭 안의 순서만 지킨다. 스토리지가 메모리 모드인 탭은 Web Lock을 청하지 않고 그 탭의 목록으로 일하며 탭 안의 순서만 지킨다. 다른 탭과 나눌 목록이 없고, 사이트 데이터를 막은 창에서는 잠금 요청이 거부되기 때문이다. 확장 상태 지우기와 `machineId`도 같다. 스토리지가 영속인데 잠금 요청이 거부되면 설치 목록의 작업은 그 오류로 끝난다.
+설치 목록의 읽고 고쳐 쓰기는 Web Lock `writing-room:extensions.user`로 감싼다. 잠금 안에서는 그 탭의 캐시가 아니라 스토리지에 저장된 값을 읽으므로(스토리지의 키 하나 영속 읽기, 아무것도 쓰지 않는다), 두 탭이 동시에 다른 확장을 설치해도 두 기록이 모두 남는다. 확인한 뒤 다른 탭이 같은 식별자의 기록을 바꿨으면 설치를 멈추고 다시 하라고 알린다. Web Locks가 없는 브라우저에서는 탭 안의 순서만 지킨다. 스토리지가 메모리 모드인 탭은 Web Lock을 청하지 않고 그 탭의 목록으로 일하며 탭 안의 순서만 지킨다. 다른 탭과 나눌 목록이 없고, 사이트 데이터를 막은 창에서는 잠금 요청이 거부되기 때문이다. 확장 상태 저장과 지우기, `machineId`도 같다. 스토리지가 영속인데 잠금 요청이 거부되면 설치 목록의 작업은 그 오류로 끝난다.
 
 폴더 URL 설치는 풀 파일이 없어서 이 탭에 먼저 등록한 뒤 잠금 안에서 기록을 쓴다. 확인 화면이 닫히자마자 커맨드를 쓸 수 있고, 기록을 쓰지 못하면 등록을 푼다.
 
@@ -139,5 +139,7 @@ VSIX와 패키지 저장소도 이 계약을 따른다. 커맨드 아이콘은 �
 - 폴더 URL 설치는 같은 식별자가 있으면 거부하고, VSIX만 바꾸기와 다시 설치를 묻는다(wr-l3ch.9fi).
 - 대소문자만 다른 ZIP 항목 이름은 다른 파일로 둔다. VS Code도 막지 않는다(wr-l3ch.285).
 - 스토리지 서비스(`IStorageService`)가 메모리 모드 여부(`usesMemory`)와 키 하나의 영속 값 읽기(`getPersisted`)를 드러내고, 메모리 모드에서는 설치 목록이 그 탭에만 있다. VS Code의 `IStorageService`(`src/vs/platform/storage/common/storage.ts`)에는 둘이 없고, `WebExtensionsScannerService`(`src/vs/workbench/services/extensionManagement/browser/webExtensionsScannerService.ts`)는 목록을 사용자 데이터의 파일에 두고 리소스별 `Queue`로 탭 안의 순서만 지킨다 — 이 저장소는 v0.1.0부터 목록을 스토리지에 두고 탭 사이를 Web Lock으로 막으므로, 저장소를 쓸 수 없는 창에서 어느 쪽도 던지지 않게 하려면 모드를 물어야 한다(wr-uz4j).
+- `IStorageService.keys(scope)`는 해당 범위에서 이 탭이 캐시한 키의 사본을 돌려준다. VS Code는 `keys(scope, target?)`에 선택 인자로 저장 타깃을 받는다. Writing Room은 저장 타깃을 기록하지 않는다(wr-s9ew).
+- 확장 상태 저장은 VS Code와 같이 메모리 모드에서 그 탭에만 쓴다. Writing Room은 이전에 쓰기 실패로 물러선 탭에서 영속 공간이 확보되면 상태를 저장해 새로고침 뒤에 읽을 수 있었다. 이제 물러선 뒤에 쓴 값은 새로고침하면 사라진다(wr-s9ew).
 
-Decided in: wr-efqx.n9k, wr-efqx.x8c, wr-l3ch.285, wr-l3ch.amu, wr-l3ch.9fi, wr-jfx7, wr-uz4j
+Decided in: wr-efqx.n9k, wr-efqx.x8c, wr-l3ch.285, wr-l3ch.amu, wr-l3ch.9fi, wr-jfx7, wr-uz4j, wr-s9ew
