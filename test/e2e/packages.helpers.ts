@@ -87,6 +87,22 @@ export async function blockStorage(page: Page, { storageOnly = false } = {}): Pr
   }, storageOnly);
 }
 
+/**
+ * Makes `localStorage.setItem` throw a quota error from now on, as in a tab that ran out of quota. Reads, removals,
+ * IndexedDB and Web Locks keep working, so a removal from the persisted backend is not refused.
+ */
+export async function failStorageWrites(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, key, value) {
+      if (this === window.localStorage) {
+        throw new DOMException('Test blocked localStorage writes.', 'QuotaExceededError');
+      }
+      setItem.call(this, key, value);
+    };
+  });
+}
+
 /** Collects the page errors and the console messages that say an extension did not activate. */
 export function watchExtensionFailures(page: Page): string[] {
   const failures: string[] = [];
@@ -98,4 +114,59 @@ export function watchExtensionFailures(page: Page): string[] {
     }
   });
   return failures;
+}
+
+/**
+ * Counts, from now on, how often a quick input titled `title` opens. A failure prompt that the next command replaces
+ * at once still counts; a locator checked after that command would miss it.
+ */
+export async function countPrompts(page: Page, title: string): Promise<() => Promise<number>> {
+  const key = 'test.prompts:' + title;
+  await page.evaluate(({ key, title }) => {
+    const counts = globalThis as unknown as Record<string, number>;
+    counts[key] = 0;
+    let open = false;
+    new MutationObserver(() => {
+      const shown = [...document.querySelectorAll('[role="combobox"]')].some(box => box.getAttribute('aria-label') === title);
+      if (shown && !open) {
+        counts[key]++;
+      }
+      open = shown;
+    }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-label'] });
+  }, { key, title });
+  return () => page.evaluate(key => (globalThis as unknown as Record<string, number>)[key], key);
+}
+
+async function expectStateToast(page: Page, message: string, name: string | RegExp = message): Promise<void> {
+  const toast = page.getByRole('region', { name, exact: true });
+  await expect(toast).toBeVisible({ timeout: 15_000 });
+  await expect(toast).toHaveAccessibleName(message);
+  await toast.getByRole('button', { name: 'Dismiss message' }).click();
+  await expect(toast).toHaveCount(0);
+}
+
+/** `failures` comes from `watchExtensionFailures`. */
+export async function installStateFixture(page: Page, failures: readonly string[]): Promise<void> {
+  await prepareLocationInstall(page, 'packages/state');
+  const install = page.getByRole('option', { name: /^Install State Storage Fixture/ });
+  await expect(install).toContainText(sessionOnlyNotice);
+  await install.click();
+  try {
+    await expectStateToast(page, 'State Storage Fixture activated');
+  } catch (error) {
+    // A refused state write fails the activation. Report why, not only that the toast never came.
+    expect(failures).toEqual([]);
+    throw error;
+  }
+  await expect(page.getByRole('combobox', { name: 'Could not install extension' })).toHaveCount(0);
+}
+
+export async function expectFixtureState(page: Page, state: 'initial' | 'changed'): Promise<void> {
+  await runCommand(page, 'Read State Storage Fixture', /^Read State Storage Fixture$/);
+  await expectStateToast(page, `State Storage Fixture read global ${state} and workspace ${state}`, /^State Storage Fixture read /);
+}
+
+export async function changeFixtureState(page: Page): Promise<void> {
+  await runCommand(page, 'Change State Storage Fixture', /^Change State Storage Fixture$/);
+  await expectStateToast(page, 'State Storage Fixture changed both values');
 }

@@ -1,0 +1,14 @@
+{
+  "name": "state-storage",
+  "publisher": "writing-room-tests",
+  "displayName": "State Storage Fixture",
+  "version": "1.0.0",
+  "browser": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "fixture.stateStorage.read", "title": "Read State Storage Fixture" },
+      { "command": "fixture.stateStorage.change", "title": "Change State Storage Fixture" }
+    ]
+  }
+}
