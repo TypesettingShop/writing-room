@@ -2,7 +2,7 @@
 
 테마, 색, 트리 뷰와 상태 표시줄의 지원 범위는 이 페이지에 기록한다. 현재 공개된 API와 기여는 [확장 API](extension-api.md)에 있다.
 
-Decided in: wr-efqx.n9k
+Decided in: wr-efqx.n9k, wr-lnox
 
 ## 색 테마와 색 레지스트리
 
@@ -74,7 +74,7 @@ Decided in: wr-efqx.n9k
 - 테마를 적용하면 워크벤치 컨테이너(`.monaco-workbench`)에 등록된 모든 색과 테마가 준 미등록 id의 색을 CSS 변수로 걸고, 종류 클래스(`vs`, `vs-dark`, `hc-black`, `hc-light`) 하나를 단다. 밝은 종류(`vs`, `hc-light`)에서는 `color-scheme`이 `light`가 된다.
 - Monaco: 기본 어두운 테마는 `vs-dark`. 그 밖의 테마는 `writing-room-theme`이라는 한 이름으로 `defineTheme`(base는 종류에 따라 `vs`/`vs-dark`/`hc-black`/`hc-light`, `inherit: true`, 테마가 준 검증된 색, `tokenColors`의 단순 범위(`comment`, `string.quoted`)를 규칙으로)한 뒤 `setTheme`한다. Monaco는 늦게 로드되므로 로드되는 순간(첫 에디터가 생기기 전)과 테마가 바뀔 때 준다.
 - Monaco 적용은 `onDidColorThemeChange`보다 먼저, 같은 흐름 안에서 끝난다. TextMate 토큰화가 그 이벤트 뒤에 Monaco의 색 표를 읽고 테마의 `tokenColors` 전체로 문법 토큰을 칠한다.
-- `onDidColorThemeChange`는 테마가 바뀔 때 한 번 난다. 확장 서비스는 테마가 바뀔 때마다 모든 기여를 다시 적용하는데, 내용이 같은 `themes` 기여는 아무 이벤트도 내지 않는다.
+- `onDidColorThemeChange`는 테마가 바뀔 때 한 번 난다. 확장 서비스는 테마가 바뀔 때마다 모든 기여를 다시 적용하는데, 내용이 같은 `themes` 기여는 아무 이벤트도 내지 않는다. 적용 도중 테마가 바뀌면 현재 차례가 끝난 뒤 새 테마로 다시 적용하고, 그 결과를 한 번 알린다. 다시 적용은 처음 적용을 포함해 네 차례까지이고, 그래도 가라앉지 않으면 콘솔에 경고를 남기고 멈춘다.
 - 고른 테마의 파일은 비동기로 읽힌다. 읽는 사이 다른 테마를 고르면 늦게 온 결과는 성공이라도 버린다.
 
 ### 고르기와 물러서기
@@ -280,7 +280,7 @@ vscode.window.createTreeView('notes.list', {
 - 드래그를 시작하면 바로 `handleDrag(원래 요소들, dataTransfer, token)`을 부른다. 채운 `DataTransfer`는 드래그가 끝날 때까지 확장 호스트에 남는다.
 - 드롭을 받는 트리는 `handleDrop`이 있어야 하고, 같은 뷰에서 온 드래그, `dropMimeTypes`에 끈 트리의 `application/vnd.code.tree.<뷰 id 소문자>`나 그 트리의 `dragMimeTypes`가 든 드래그, 또는 바깥에서 온 드래그 가운데 `dropMimeTypes`에 든 형식(파일은 `files`나 그 파일의 형식)이 있는 것만 받는다. 받을 수 있는 동안 아래 행(빈 곳이면 트리 전체)에 `list.dropBackground` 색이 칠해진다.
 - `handleDrop(대상 요소, dataTransfer, token)`의 `dataTransfer`에는 `application/vnd.code.tree.<원본 뷰>`(값은 `{"id", "itemHandles"}` JSON)이 늘 있고, 같은 확장의 트리에서 온 드래그면 `handleDrag`가 넣은 항목이 **값 그대로**(같은 객체) 들어 있다. 다른 확장의 트리에서 온 드래그는 그 항목의 `asString()` 결과 문자열만, 받는 트리의 `dropMimeTypes`에 든 형식만 받는다. 글로 바꿀 수 없는 값(서로 가리키는 객체)은 문자열 쪽에서 빠진다. 행이 아닌 빈 곳에 놓으면 대상은 `undefined`다.
-- 운영체제에서 끌어온 파일은 형식(없으면 `application/octet-stream`)으로 들어가고 `asFile()`이 `{ name, data() }`를 준다. 항목 하나당 50 MiB까지 읽으며, 넘는 파일의 `data()`는 `The file '<이름>' is too large to drop.`으로 거절한다. 문자열 형식(`text/plain` 등)은 `dropMimeTypes`에 들어 있을 때 그 글을 준다.
+- 운영체제에서 끌어온 파일은 형식(없으면 `application/octet-stream`)으로 들어가고 `asFile()`이 `{ name, data() }`를 준다. 항목 하나당 50 MiB까지 읽으며, 넘는 파일의 `data()`는 `The file '<이름>' is too large to drop.`으로 거절한다. 문자열 형식(`text/plain` 등)은 `dropMimeTypes`에 들어 있을 때 그 글을 준다. 같은 형식의 파일을 여럿 놓아도 모두 전달된다. `get(형식)`은 그 형식의 첫 항목을 주므로 파일을 모두 받으려면 `DataTransfer`를 순회한다. `forEach`와 순회는 형식별로 묶어 같은 형식 안에서는 놓은 순서대로 내보낸다. `set(형식, 항목)`은 그 형식의 모든 항목을 새 항목 하나로 바꾼다.
 - 드래그 세션은 v0.1.0의 규율을 따른다. 놓기, `dragend`, Escape, 창이 초점을 잃음, `pagehide` 가운데 먼저 오는 것에서 끝나고, 끝나면 드롭 표시와 창 안의 페이로드가 사라지며 놓지 않고 끝났다면 `handleDrag`의 토큰을 취소하고 확장 호스트가 쥔 값을 놓는다. 끄는 도중 그 트리의 제공자가 사라지면(확장 제거, 해제) 세션을 끝낸다.
 - 트리 드래그는 자기 표식(`application/x-writing-room-tree`)과 세션을 가진다. 에디터 영역, 탭 줄, 뷰 컨테이너는 자기 표식과 진행 중인 세션만 받으므로 트리 드래그를 받지 않는다. 거꾸로 트리는 에디터·에디터 그룹·뷰 컨테이너 드래그를 표식이나 진행 중인 세션으로 알아보고, `dropMimeTypes`에 `text/plain`이 있어도 받지 않는다.
 

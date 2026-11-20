@@ -130,6 +130,13 @@ module.exports.activate = context => {
   context.subscriptions.push(vscode.commands.registerCommand('windowUi.status', () => {
     context.subscriptions.push(vscode.window.setStatusBarMessage('$(refresh~spin) Refreshing notes', 60_000));
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.toastSamples', () => {
+    say('Temporary information');
+    void vscode.window.showInformationMessage('Persistent question', 'Keep');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('windowUi.error', () => {
+    void vscode.window.showErrorMessage('Urgent failure');
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('windowUi.flood', () => {
     for (let index = 1; index <= 5; index++) {
       say('Flood ' + index);

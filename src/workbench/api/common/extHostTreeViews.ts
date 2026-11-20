@@ -645,10 +645,9 @@ export class ExtHostTreeViews implements ExtHostTreeViewsShape {
     if (target !== undefined && element === undefined) {
       return;
     }
-    const transfer = new DataTransfer();
-    for (const item of items) {
-      transfer.set(item.mimeType, item.file ? new FileDataTransferItem(item.file.name, item.file.data) : new DataTransferItem(item.value));
-    }
+    const transfer = new DataTransfer(items.map(({ mimeType, file, value }) => [
+      mimeType, file ? new FileDataTransferItem(file.name, file.data) : new DataTransferItem(value),
+    ]));
     // A drag from this extension's own tree carries the values `handleDrag` put in, not their strings.
     const source = drag === undefined ? undefined : await this.drags.get(extension)?.get(drag);
     for (const [mimeType, item] of source ?? []) {

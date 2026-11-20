@@ -54,6 +54,11 @@ export class MainThreadMessageService implements MainThreadMessageServiceShape, 
       const handle = this.notifications.prompt(type, text, list.map((item, index) => ({
         label: item.title, run: () => { chosen = index; },
       })), { source });
+      if (handle.closed) {
+        // The queue may drop it before prompt returns.
+        resolve(undefined);
+        return;
+      }
       const entry = { dispose: () => handle.close() };
       entries.add(entry);
       handle.onDidClose(() => {
