@@ -1,9 +1,12 @@
+import { isRecord } from '../../../../platform/extensions/common/extensionValidator.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IStorageService, storageKey, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { userExtensionsKey } from '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
 
 const key = 'webview.states.v1';
+const installedAddress = storageKey(StorageScope.PROFILE, userExtensionsKey);
 const individualLimit = 256 * 1024;
 const totalLimit = 1024 * 1024;
 const utf8 = new TextEncoder();
@@ -20,7 +23,7 @@ export interface IWebviewStateStore extends BrandedService {
   get(id: string, extension: string): string | undefined;
   set(id: string, extension: string, state: string): void;
   delete(id: string, extension: string): void;
-  removeMissingExtensions(installed: ReadonlySet<string>): void;
+  removeMissingExtensions(registered: ReadonlySet<string>): void;
 }
 
 function fits(text: string, limit: number): boolean {
@@ -55,6 +58,23 @@ function parseStates(raw: string | undefined): StoredWebviewState[] {
   return [];
 }
 
+/** An unreadable list cannot authorize removal. Keep every identifier the records name. */
+function recordedIdentifiers(raw: string | undefined): ReadonlySet<string> | undefined {
+  if (raw === undefined) {
+    return new Set();
+  }
+  try {
+    const records: unknown = JSON.parse(raw);
+    if (Array.isArray(records)) {
+      return new Set(records.flatMap(record =>
+        isRecord(record) && typeof record.identifier === 'string' ? [record.identifier.toLowerCase()] : []));
+    }
+  } catch {
+    // Leave all state in place until the installed list can be read.
+  }
+  return undefined;
+}
+
 export class WebviewStateStore implements IWebviewStateStore {
   declare readonly _serviceBrand: undefined;
   private warnedAboutLimit = false;
@@ -80,20 +100,31 @@ export class WebviewStateStore implements IWebviewStateStore {
     this.update(entries => entries.filter(entry => entry.id !== id || entry.extension !== extension), true);
   }
 
-  removeMissingExtensions(installed: ReadonlySet<string>): void {
-    this.update(entries => entries.filter(entry => installed.has(entry.extension)), true);
+  removeMissingExtensions(registered: ReadonlySet<string>): void {
+    this.update((entries, snapshot) => {
+      const recorded = recordedIdentifiers(snapshot
+        ? snapshot.get(installedAddress)
+        : this.storage.get(userExtensionsKey, StorageScope.PROFILE));
+      return recorded && entries.filter(entry => {
+        const identifier = entry.extension.toLowerCase();
+        return registered.has(identifier) || recorded.has(identifier);
+      });
+    }, true);
   }
 
-  private update(change: (entries: StoredWebviewState[]) => StoredWebviewState[], allowMissing = false): void {
+  private update(
+    change: (entries: StoredWebviewState[], snapshot?: ReadonlyMap<string, string>) => StoredWebviewState[] | undefined,
+    allowMissing = false,
+  ): void {
     const memory = this.storage.usesMemory;
     const cached = this.storage.get(key, StorageScope.WORKSPACE);
     if (allowMissing && cached === undefined) {
       return;
     }
-    const transform = (raw: string | undefined): string => {
+    const transform = (raw: string | undefined, snapshot?: ReadonlyMap<string, string>): string | undefined => {
       const entries = parseStates(raw);
-      const updated = change(entries);
-      if (allowMissing && updated.length === entries.length && raw) {
+      const updated = change(entries, snapshot);
+      if (!updated || (allowMissing && updated.length === entries.length && raw)) {
         return raw;
       }
       const encoded = JSON.stringify(updated);

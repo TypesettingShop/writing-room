@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { InMemoryStorageDatabase } from '../../../../../base/parts/storage/common/storage.js';
 import { InMemoryStorageService, storageKey, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { userExtensionsKey } from '../../../../services/extensionManagement/browser/webExtensionsScannerService.js';
 import { WebviewStateStore } from '../../browser/webviewStateStore.js';
 
 it('preserves earlier states and warns once when a pane or the workspace exceeds its byte budget', () => {
@@ -46,6 +47,7 @@ it('checks the owning extension and ignores malformed stored JSON', () => {
   }
 });
 
+const installedAddress = storageKey(StorageScope.PROFILE, userExtensionsKey);
 const stateAddress = storageKey(StorageScope.WORKSPACE, 'webview.states.v1');
 const owner = 'fixture.owner';
 
@@ -151,6 +153,77 @@ it('drops failed persistent writes and warns with the backend error once', () =>
     expect(database.getItems().get(stateAddress)).toBe(saved);
     expect(storage.usesMemory).toBe(false);
     expect(warning).toHaveBeenCalledExactlyOnceWith('Webview state could not be saved.', error);
+  } finally {
+    storage.dispose();
+  }
+});
+
+it('prunes only unregistered owners absent from the same persisted snapshot of the installation list', () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  try {
+    const records = JSON.stringify([{ identifier: 'Fixture.Owner', location: 'invalid' }, null, 8]);
+    database.updateItems({ insert: new Map([[installedAddress, records]]), delete: new Set() });
+    expect(storage.get(userExtensionsKey, StorageScope.PROFILE)).toBeUndefined();
+    const readBackend = vi.spyOn(database, 'getItems');
+    states.set('other-tab', owner, '1');
+    states.set('registered', 'fixture.builtin', '2');
+    states.set('orphan', 'fixture.orphan', '3');
+    readBackend.mockClear();
+
+    states.removeMissingExtensions(new Set(['fixture.builtin']));
+
+    expect(readBackend).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(database.getItems().get(stateAddress)!)).toEqual([
+      { id: 'other-tab', extension: owner, state: '1' },
+      { id: 'registered', extension: 'fixture.builtin', state: '2' },
+    ]);
+  } finally {
+    storage.dispose();
+  }
+});
+
+it.each(['', '{', '{}'])('preserves state while the recorded list %j is unreadable', raw => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  try {
+    states.set('pane', owner, '1');
+    const saved = database.getItems().get(stateAddress);
+    storage.storeImmediately(userExtensionsKey, raw, StorageScope.PROFILE, StorageTarget.USER);
+
+    states.removeMissingExtensions(new Set());
+
+    expect(states.get('pane', owner)).toBe('1');
+    expect(database.getItems().get(stateAddress)).toBe(saved);
+  } finally {
+    storage.dispose();
+  }
+});
+
+it('uses the installation list in this tab after falling back to memory', async () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const states = new WebviewStateStore(storage);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    states.set('saved-owner', owner, '1');
+    states.set('tab-owner', 'fixture.tab', '2');
+    storage.storeImmediately(userExtensionsKey, JSON.stringify([{ identifier: owner }]), StorageScope.PROFILE, StorageTarget.USER);
+    const saved = database.getItems();
+    vi.spyOn(database, 'updateItems').mockImplementationOnce(() => { throw new Error('write blocked'); });
+    storage.store(userExtensionsKey, JSON.stringify([{ identifier: 'fixture.tab' }]), StorageScope.PROFILE, StorageTarget.USER);
+    await storage.flush();
+    expect(storage.usesMemory).toBe(true);
+    const readBackend = vi.spyOn(database, 'getItems');
+
+    states.removeMissingExtensions(new Set());
+
+    expect(states.get('saved-owner', owner)).toBeUndefined();
+    expect(states.get('tab-owner', 'fixture.tab')).toBe('2');
+    expect(readBackend).not.toHaveBeenCalled();
+    expect(database.getItems()).toEqual(saved);
   } finally {
     storage.dispose();
   }

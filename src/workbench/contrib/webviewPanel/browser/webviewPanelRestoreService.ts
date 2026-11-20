@@ -1,8 +1,10 @@
-import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+import { userExtensionsKey } from '../../../services/extensionManagement/browser/webExtensionsScannerService.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IWebviewStateStore } from '../../webview/browser/webviewStateStore.js';
 import type { WebviewEditorInput } from './webviewEditorInput.js';
@@ -21,7 +23,11 @@ export class WebviewPanelRestoreService extends Disposable implements IWebviewPa
   private readonly serializers = new Map<string, Serializer>();
   private readonly pending = new WeakMap<WebviewEditorInput, number>();
 
-  constructor(@IExtensionService private readonly extensions: IExtensionService, @IWebviewStateStore state: IWebviewStateStore) {
+  constructor(
+    @IExtensionService private readonly extensions: IExtensionService,
+    @IWebviewStateStore state: IWebviewStateStore,
+    @IStorageService storage: IStorageService,
+  ) {
     super();
     const prune = () => {
       if (extensions.extensions) {
@@ -31,7 +37,13 @@ export class WebviewPanelRestoreService extends Disposable implements IWebviewPa
     if (extensions.onDidChangeExtensions) {
       this._register(extensions.onDidChangeExtensions(prune));
     }
-    void extensions.whenInstalledExtensionsRegistered().then(prune);
+    const listeners = this._register(new DisposableStore());
+    void extensions.whenInstalledExtensionsRegistered().then(() => {
+      if (!listeners.isDisposed) {
+        storage.onDidChangeValue(StorageScope.PROFILE, userExtensionsKey, listeners)(prune);
+        prune();
+      }
+    });
   }
 
   register(extension: string, viewType: string, restore: Serializer): IDisposable {
