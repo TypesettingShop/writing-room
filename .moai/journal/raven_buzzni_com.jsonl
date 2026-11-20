@@ -2029,3 +2029,11 @@
 {"ts":"2026-11-20T20:50:55Z","id":"wr-cu7u","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Report-checked: d963b76 (eb8d3c8 포함 확인, 의미 바뀐 47곳 복원)"}
 {"ts":"2026-11-20T20:50:55Z","id":"wr-2jw9","kind":"create","by":"레이븐","by_email":"raven@buzzni.com","title":"v0.2.0 최종 인수 실행(마일스톤 전체 스위트와 실제 확장)"}
 {"ts":"2026-11-20T20:51:12Z","id":"wr-2jw9","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Sent: codex %2"}
+{"ts":"2026-11-20T20:51:22Z","id":"wr-q40v","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"todo","to":"in_progress"}
+{"ts":"2026-11-20T20:51:38Z","id":"wr-2jw9","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"todo","to":"in_progress"}
+{"ts":"2026-11-20T20:52:29Z","id":"wr-q40v","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Lesson: lessons/keep-polling-read-only"}
+{"ts":"2026-11-20T20:52:41Z","id":"wr-q40v","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Decided alone: 새 교훈 페이지를 권고안으로 채택했다. 기존 교훈은 후속 호출 전에 검사 대상의 효과를 확인하는 규칙을 담고 있다. 이번 실패에는 재시도가 결과를 지우는 순서와 입력 뒤 상태만 읽는 대기 절차가 있어 별도 페이지로 정리하고 기존 교훈을 연결했다. 기존 교훈만 가리키는 Lesson: 노트로 갈음하는 방안도 검토했다."}
+{"ts":"2026-11-20T20:54:02Z","id":"wr-q40v","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"model: openai/gpt-6.2-sol (low — 기존 교훈과 대조하여 문서 한 쪽을 작성하는 작업. 담당자 부재 중 세션의 실제 모델과 high 추론 설정을 사용했다.)"}
+{"ts":"2026-11-20T20:54:19Z","id":"wr-q40v","kind":"status","by":"레이븐","by_email":"raven@buzzni.com","from":"in_progress","to":"done","note":"교훈 페이지를 77d148e로 milestone/wr-mq3n에 머지했다. 머지된 위키 53개 페이지의 링크와 앵커를 확인했다."}
+{"ts":"2026-11-20T20:54:25Z","id":"wr-q40v","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Next: 교훈 페이지의 마일스톤 머지와 이슈 닫기를 마쳤다. 최종 인수는 wr-2jw9에서 이어진다."}
+{"ts":"2026-11-20T20:54:31Z","id":"wr-q40v","kind":"note","by":"레이븐","by_email":"raven@buzzni.com","text":"Report-checked: 77d148e (교훈 페이지 머지 확인)"}
