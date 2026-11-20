@@ -109,7 +109,7 @@ const signatureHelpProvider = {
 // --- Formatting, code actions and rename -----------------------------------------------------------
 
 /** What the edit providers saw and did, for `languageFeaturesFixture.reportEdits`. */
-const editReport = { formatted: 0, ranges: [], only: 'none' };
+const editReport = { formatted: 0, ranges: [], only: 'none', organizeImportsCancelled: 0 };
 
 /** The document formatter: runs of spaces become one. A document holding `slowformat` answers late. */
 const documentFormatter = {
@@ -167,6 +167,21 @@ function lint(document) {
 }
 
 const slowActionDocuments = new WeakSet();
+const slowOrganizeDocuments = new WeakSet();
+
+function waitForCodeActions(token, delay) {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      cancellation.dispose();
+      resolve(false);
+    }, delay);
+    const cancellation = token.onCancellationRequested(() => {
+      clearTimeout(timer);
+      cancellation.dispose();
+      resolve(true);
+    });
+  });
+}
 
 /**
  * Quick fixes for the fixture's own diagnostics, found by source and code in the context: a preferred
@@ -176,7 +191,16 @@ const slowActionDocuments = new WeakSet();
  */
 const codeActionProvider = {
   async provideCodeActions(document, range, context, token) {
-    // Only the first manual request stalls, so the replacement can open its menu.
+    const slowOrganize = context.only?.value === 'source.organizeImports' && document.getText().includes('sloworganize');
+    if (slowOrganize && !slowOrganizeDocuments.has(document) && !token.isCancellationRequested) {
+      slowOrganizeDocuments.add(document);
+      void vscode.window.showInformationMessage('Slow Organize Imports started');
+      if (await waitForCodeActions(token, 2000)) {
+        editReport.organizeImportsCancelled++;
+        return [];
+      }
+    }
+    // Only the first manual quick fix stalls, so the replacement can open its menu.
     if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke
       && document.getText().includes('slowaction') && !slowActionDocuments.has(document)) {
       if (token.isCancellationRequested) {
@@ -184,17 +208,7 @@ const codeActionProvider = {
       }
       slowActionDocuments.add(document);
       void vscode.window.showInformationMessage('Slow code action started');
-      await new Promise(resolve => {
-        const timer = setTimeout(() => {
-          cancellation.dispose();
-          resolve();
-        }, 1250);
-        const cancellation = token.onCancellationRequested(() => {
-          clearTimeout(timer);
-          cancellation.dispose();
-          resolve();
-        });
-      });
+      await waitForCodeActions(token, 1250);
       if (token.isCancellationRequested) {
         return [];
       }
@@ -539,7 +553,8 @@ module.exports.activate = context => {
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportEdits', async () => {
     const cached = await vscode.commands.executeCommand('_workbench.languageFeatures.codeActionCacheSize');
     return vscode.window.showInformationMessage('Edits: formatted ' + editReport.formatted + '; ranges ' + editReport.ranges.join(',')
-      + '; options ' + editReport.options + '; only ' + editReport.only + '; code actions cached ' + cached);
+      + '; options ' + editReport.options + '; only ' + editReport.only
+      + '; organize imports cancelled ' + editReport.organizeImportsCancelled + '; code actions cached ' + cached);
   }));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.lensRan', heading =>
     vscode.window.showInformationMessage('Lens ran: ' + heading)));

@@ -37,6 +37,7 @@ vi.mock('monaco-editor/platform/keybinding/common/keybinding.js', () => ({ IKeyb
 vi.mock('monaco-editor/base/browser/keyboardEvent.js', () => ({ StandardKeyboardEvent: class {} }));
 vi.mock('monaco-editor/editor/common/services/inMemoryTextModelService.js', () => ({ InMemoryTextModelService: fake.InMemoryTextModelService }));
 vi.mock('monaco-editor/platform/instantiation/common/descriptors.js', () => ({ SyncDescriptor: fake.SyncDescriptor }));
+vi.mock('monaco-editor/editor/contrib/codeAction/browser/codeActionModel.js', () => ({ CodeActionModel: undefined }));
 
 afterEach(() => {
   fake.calls.length = 0;

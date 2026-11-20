@@ -188,12 +188,12 @@ test.describe('formatting', () => {
 
 test.describe('code actions', () => {
   /** Puts the cursor in `teh` of `fix teh word`. */
-  async function onTypo(page: import('@playwright/test').Page, lastLine = 'plain line'): Promise<void> {
-    const text = 'fix teh word\n' + lastLine;
+  async function onTypo(page: import('@playwright/test').Page, lastLine = 'plain line', indent = ''): Promise<void> {
+    const text = indent + 'fix teh word\n' + lastLine;
     await pasteText(page, text);
     await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('ControlOrMeta+Home');
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < indent.length + 5; i++) {
       await page.keyboard.press('ArrowRight');
     }
   }
@@ -231,6 +231,31 @@ test.describe('code actions', () => {
     await page.keyboard.press('Shift+Alt+o');
     await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
     expect(await editorText(page)).toBe('fix teh word\nplain line');
+  });
+
+  test('automatic code actions wait for a slow Organize Imports and refresh the light bulb', async ({ page }) => {
+    // An indented line has space for Monaco's inline bulb.
+    await onTypo(page, 'sloworganize', '    ');
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(message(page, 'Slow Organize Imports started')).toBeVisible({ timeout: 10_000 });
+    // A same-line cursor move schedules an automatic request while the manual one is pending.
+    await page.keyboard.press('ArrowRight');
+    await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
+    const lightBulb = activeGroup(page).getByRole('listbox', { name: /^Show Code Actions/ });
+    await expect(lightBulb).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('ArrowDown');
+    await expect(lightBulb).toBeHidden({ timeout: 10_000 });
+    await expect.poll(() => reportEdits(page), { timeout: 15_000 })
+      .toMatch(/organize imports cancelled 0; code actions cached 0$/);
+  });
+
+  test('a new Organize Imports still cancels a pending one at the extension host', async ({ page }) => {
+    await onTypo(page, 'sloworganize');
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(message(page, 'Slow Organize Imports started')).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
+    expect(await reportEdits(page)).toContain('organize imports cancelled 1;');
   });
 
   test('a second quick fix request can cancel a pending request without a page error', async ({ page }) => {
