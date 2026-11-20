@@ -210,6 +210,11 @@ test('keeps deactivation and subscription errors in the host log over uninstall 
   try {
     await runRuntimeCommand(page, 'Ping Runtime Cleanup Errors');
     await expect(page.getByText('Runtime cleanup error fixture is active')).toBeVisible();
+    const panel = outputView(page).panel;
+    if (await panel.isVisible()) {
+      await runRuntimeCommand(page, 'View: Toggle Panel Visibility');
+    }
+    await expect(panel).toBeHidden();
     const lastSubscription = page.waitForEvent('console', {
       predicate: message => message.text() === 'Runtime cleanup error fixture disposed its last subscription',
     });
@@ -217,7 +222,7 @@ test('keeps deactivation and subscription errors in the host log over uninstall 
     await page.getByRole('option', { name: /test.runtime-cleanup-errors/ }).click();
     await lastSubscription;
     await expectNoCommand(page, 'Ping Runtime Cleanup Errors');
-    await expect(outputView(page).panel).toBeHidden();
+    await expect(panel).toBeHidden();
 
     const output = await openRuntimeOutput(page);
     await workerLogChannel(output).click();
