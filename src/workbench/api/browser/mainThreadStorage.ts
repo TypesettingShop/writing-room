@@ -43,13 +43,50 @@ function validateName(name: unknown): asserts name is string {
 
 type Installation = Pick<StoredWebExtension, 'identifier' | 'installedAt' | 'location'>;
 
-function isCurrentInstallation(snapshot: ReadonlyMap<string, string>, installation: Installation): boolean {
+function isCurrentInstallation(stored: string | undefined, installation: Installation): boolean {
   try {
-    const entries: unknown = JSON.parse(snapshot.get(installedAddress) ?? '[]');
+    const entries: unknown = JSON.parse(stored ?? '[]');
     return Array.isArray(entries) && entries.some(entry => entry?.identifier === installation.identifier
       && entry.installedAt === installation.installedAt && entry.location === installation.location);
   } catch {
     return false;
+  }
+}
+
+function nextState(
+  id: string, name: string, json: string | undefined, stored: string | undefined, otherStates: Iterable<string>,
+): string | undefined {
+  const state: Record<string, unknown> = Object.assign(Object.create(null), parseState(stored));
+  if (json === undefined) {
+    delete state[name];
+  } else {
+    state[name] = JSON.parse(json);
+  }
+  const next = JSON.stringify(state);
+  const size = measure(next);
+  if (size > maxState) {
+    throw new Error(`Extension '${id}' exceeds the 256 KiB state limit.`);
+  }
+  if (next === emptyState) {
+    return undefined;
+  }
+  let total = size;
+  for (const text of otherStates) {
+    total += measure(text);
+  }
+  if (total > maxAllState && size > (stored === undefined ? 0 : measure(stored))) {
+    throw new Error('Extensions exceed the 2 MiB total state limit.');
+  }
+  return next;
+}
+
+function* otherPersistedStates(snapshot: ReadonlyMap<string, string>, address: string): IterableIterator<string> {
+  const profilePrefix = storageKey(StorageScope.PROFILE, prefix);
+  const workspacePrefix = storageKey(StorageScope.WORKSPACE, prefix);
+  for (const [other, text] of snapshot) {
+    if (other !== address && (other.startsWith(profilePrefix) || other.startsWith(workspacePrefix))) {
+      yield text;
+    }
   }
 }
 
@@ -72,8 +109,8 @@ export class ExtensionStorage extends Disposable {
   }
 
   /**
-   * Runs `task` after this tab's earlier state changes, under the cross-tab lock unless `inTabOnly` says, when
-   * the task starts, that it touches nothing but this tab's values.
+   * Queue the task behind this tab's earlier state changes. Skip the cross-tab lock only when `inTabOnly`
+   * confirms at queue entry that the task will use this tab's cache for both reads and writes.
    */
   private serialize<T>(task: () => Promise<T>, inTabOnly: () => boolean): Promise<T> {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
@@ -97,39 +134,42 @@ export class ExtensionStorage extends Disposable {
       }
       const storageScope = scopeFor[scope];
       const key = prefix + id;
-      const address = storageKey(storageScope, key);
-      this.storage.storeImmediately(key, (stored, snapshot) => {
-        if (installation && !isCurrentInstallation(snapshot, installation)) {
+      // A tab can fall back while waiting for the lock. Memory mode is permanent for this tab.
+      if (this.storage.usesMemory) {
+        if (installation && !isCurrentInstallation(this.storage.get(userExtensionsKey, StorageScope.PROFILE), installation)) {
           throw new Error(`Extension '${id}' is no longer installed.`);
         }
-        const state: Record<string, unknown> = Object.assign(Object.create(null), parseState(stored));
-        if (json === undefined) {
-          delete state[name];
+        const stored = this.storage.get(key, storageScope);
+        const next = nextState(id, name, json, stored, this.otherCachedStates(storageScope, key));
+        if (next === undefined) {
+          this.storage.remove(key, storageScope);
         } else {
-          state[name] = JSON.parse(json);
+          this.storage.store(key, next, storageScope, StorageTarget.USER);
         }
-        const next = JSON.stringify(state);
-        const size = measure(next);
-        if (size > maxState) {
-          throw new Error(`Extension '${id}' exceeds the 256 KiB state limit.`);
+        return;
+      }
+
+      const address = storageKey(storageScope, key);
+      this.storage.storeImmediately(key, (stored, snapshot) => {
+        if (installation && !isCurrentInstallation(snapshot.get(installedAddress), installation)) {
+          throw new Error(`Extension '${id}' is no longer installed.`);
         }
-        if (next === emptyState) {
-          return undefined;
-        }
-        let total = size;
-        for (const [other, text] of snapshot) {
-          if (other !== address && (other.startsWith(storageKey(StorageScope.PROFILE, prefix))
-            || other.startsWith(storageKey(StorageScope.WORKSPACE, prefix)))) {
-            total += measure(text);
+        return nextState(id, name, json, stored, otherPersistedStates(snapshot, address));
+      }, storageScope, StorageTarget.USER);
+    }, () => this.storage.usesMemory);
+  }
+
+  private *otherCachedStates(scope: StorageScope, key: string): IterableIterator<string> {
+    for (const otherScope of Object.values(scopeFor)) {
+      for (const otherKey of this.storage.keys(otherScope)) {
+        if (otherKey.startsWith(prefix) && (otherKey !== key || otherScope !== scope)) {
+          const text = this.storage.get(otherKey, otherScope);
+          if (text !== undefined) {
+            yield text;
           }
         }
-        if (total > maxAllState && size > (stored === undefined ? 0 : measure(stored))) {
-          throw new Error('Extensions exceed the 2 MiB total state limit.');
-        }
-        return next;
-      }, storageScope, StorageTarget.USER);
-      // An explicit save reaches the persistent backend in memory mode too, so it keeps the cross-tab lock.
-    }, () => false);
+      }
+    }
   }
 
   getSecret(id: string, name: string): string | undefined {
