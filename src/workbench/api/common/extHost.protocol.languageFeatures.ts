@@ -215,7 +215,10 @@ export interface FormattingEditsDto {
   readonly edits: readonly EditorTextEdit[];
 }
 
-/** Monaco's code action context: the markers of the range, the kind asked for, the trigger (1 invoke, 2 auto). */
+/**
+ * Monaco's code action context: the markers of the range that only Monaco has (its own language workers';
+ * the workbench's are on the extension host already), the kind asked for, the trigger (1 invoke, 2 auto).
+ */
 export interface CodeActionContextDto {
   readonly markers: readonly MarkerDataDto[];
   readonly only?: string;

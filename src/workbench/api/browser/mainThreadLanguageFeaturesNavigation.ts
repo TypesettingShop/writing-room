@@ -26,6 +26,7 @@ import { checkRegExp, checkSelector, isSynchronized, modelResource, request, whe
 import type { MainThreadLanguageFeatures } from './mainThreadLanguageFeatures.js';
 import { checkMarkdown, checkRange, text } from './mainThreadLanguageFeaturesCompletions.js';
 import { checkTextEdits } from './mainThreadLanguageFeaturesEdits.js';
+import { canOpenInEditor } from '../../services/textmodelResolver/browser/editorTextModelResolver.js';
 
 /*
  * The providers one reads and moves around a document with, on the workbench side: Monaco providers
@@ -1171,7 +1172,7 @@ export class EditorOpenerContribution extends Disposable {
     this._register({ dispose: () => { disposed = true; } });
     const opener = createEditorOpener({
       openEditor: async (resource, selection) => !!await editors.openEditor({ resource, options: { selection } }),
-      canOpen: resource => files.hasProvider(resource) || !!models.getModel(resource),
+      canOpen: resource => canOpenInEditor(files, models, resource),
       warn: message => notifications.warn(message),
     });
     void loaded.promise.then(monaco => {

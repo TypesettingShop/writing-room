@@ -50,6 +50,11 @@ module.exports.activate = context => {
         return fix;
       }),
   }));
+  // What Monaco's own JSON worker found, which only Monaco has, as the context gives it.
+  context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ pattern: '**/broken.json' }, {
+    provideCodeActions: (_document, _range, { diagnostics }) => diagnostics
+      .map(item => new vscode.CodeAction(`Seen in context: ${item.message}`, vscode.CodeActionKind.QuickFix)),
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('diagnosticsFixture.clear', () => collection.clear()));
   context.subscriptions.push(vscode.commands.registerCommand('diagnosticsFixture.report', () => {
     const all = vscode.languages.getDiagnostics(document);

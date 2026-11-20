@@ -547,6 +547,18 @@ module.exports.activate = context => {
     lensGeneration++;
     lensesChanged.fire();
   }));
+  // Which documents of defs.lft the extension host saw open and close: a peek of the file opens one.
+  const documentEvents = [];
+  const defs = workspaceFile('defs.lft').toString();
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => {
+    if (document.uri.toString() === defs) documentEvents.push('open');
+  }));
+  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => {
+    if (document.uri.toString() === defs) documentEvents.push('close');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportDocuments', () =>
+    vscode.window.showInformationMessage('Documents: defs.lft ' + documentEvents.join(' ') + '; open now '
+      + vscode.workspace.textDocuments.some(document => document.uri.toString() === defs))));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportSymbols', reportSymbols));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportWorkspaceSymbols', reportWorkspaceSymbols));
   context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.slowSymbols', () => { symbolMode = 'slow'; }));

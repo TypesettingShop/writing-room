@@ -1,6 +1,7 @@
 import '../../../../editor/browser/services/modelService.js';
 import '../../../../editor/browser/services/codeEditorService.js';
 import '../../../services/textmodelResolver/common/textModelResolverService.js';
+import '../../../services/textmodelResolver/browser/editorTextModelResolver.js';
 import '../../../services/untitled/common/untitledTextEditorHandler.js';
 import '../../../services/editor/browser/editorResolverService.js';
 import '../../../services/editor/browser/editorService.js';

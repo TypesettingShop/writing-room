@@ -60,6 +60,11 @@
         "category": "Language Features"
       },
       {
+        "command": "languageFeaturesFixture.reportDocuments",
+        "title": "Report Documents",
+        "category": "Language Features"
+      },
+      {
         "command": "languageFeaturesFixture.reportSymbols",
         "title": "Report Symbols",
         "category": "Language Features"

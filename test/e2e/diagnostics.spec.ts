@@ -197,3 +197,21 @@ test('a quick fix gets the extension\'s own diagnostic, with the fields it put o
   await actionMenu(page).getByRole('option', { name: /^Apply the fix of FX9/ }).click();
   await expectEditorText(group, 'the word');
 });
+
+test('a code action provider gets the markers of Monaco\'s own JSON worker in its context', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openWithDiagnosticsFixtures(page);
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'broken.json', 'oops');
+  // Wakes the fixture, whose provider takes the file.
+  await runCommand(page, 'Clear Fixture Diagnostics');
+  await treeItem(page, 'broken.json').dblclick();
+  const group = groups(page).first();
+  await expectEditorText(group, 'oops');
+  await expect(group.locator('.squiggly-error')).toHaveCount(1, { timeout: 20_000 });
+  await group.locator('.monaco-editor .view-lines').first().click();
+  await page.keyboard.press('ControlOrMeta+Home');
+  // The marker lives in Monaco alone (owner `json`), not in the workbench's marker service.
+  await openActionMenu(page);
+  await expect.poll(() => actionNames(page)).toEqual([expect.stringMatching(/^Seen in context: .+, Quick Fix$/)]);
+});
