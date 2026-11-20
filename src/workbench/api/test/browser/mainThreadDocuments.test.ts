@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import type { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import type { ILanguageService } from '../../../../editor/common/languages/language.js';
@@ -36,6 +37,8 @@ interface BridgeServices {
   readonly editors?: ICodeEditorService;
   readonly untitled?: IUntitledTextEditorService;
   readonly editorService?: IEditorService;
+  readonly files?: Pick<ITextFileService, 'canHandleResource' | 'save'>;
+  readonly workspace?: Pick<IWorkspaceContextService, 'getWorkspaceFolder'>;
 }
 
 function bridge(models: ITextModel[], proxy: Partial<ExtHostDocumentsShape>, dirty = () => false, services: BridgeServices = {}) {
@@ -49,9 +52,11 @@ function bridge(models: ITextModel[], proxy: Partial<ExtHostDocumentsShape>, dir
   } as unknown as IModelService,
   services.editors ?? {} as ICodeEditorService,
   {} as ITextModelService,
-  { onDidChangeDirty: Event.None, onDidSave: Event.None, onWillSave: willSave.event, isDirty: dirty } as unknown as ITextFileService,
+  {
+    onDidChangeDirty: Event.None, onDidSave: Event.None, onWillSave: willSave.event, isDirty: dirty, ...services.files,
+  } as unknown as ITextFileService,
   {} as IFileService,
-  {} as IWorkspaceContextService,
+  (services.workspace ?? {}) as IWorkspaceContextService,
   services.untitled ?? {} as IUntitledTextEditorService,
   {} as ILanguageService,
   services.editorService ?? {} as IEditorService);
@@ -94,15 +99,18 @@ test('will-save edits require the pending save and a current document version', 
   const tracked = model('save', 4);
   let continueSaving!: () => void;
   const received = vi.fn(() => new Promise<void>(resolve => { continueSaving = resolve; }));
+  const save = vi.fn();
   const { service, willSave } = bridge([tracked.value], {
     $acceptDocumentDelta: async () => {},
     $participateInSave: received,
-  });
+  }, () => true, { files: { canHandleResource: () => true, save } });
   try {
     await service.$startDocumentSync();
     const promises: Promise<unknown>[] = [];
     willSave.fire({ resource: tracked.value.uri as URI, reason: 'explicit', waitUntil: value => promises.push(value) });
     await Promise.resolve();
+    expect(await service.$saveDocument('save')).toBe(false);
+    expect(save).not.toHaveBeenCalled();
     const [, id] = received.mock.calls[0] as unknown as [string, number];
     const edit = {
       operations: [{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: 'prefix ' }],
@@ -172,6 +180,108 @@ test('releasing an opened untitled document keeps it while a tab still shows it'
       willSave.dispose();
       untitled.content.dispose();
     }
+  }
+});
+
+test('saves an untitled document through one open editor, rejecting cancellation, failure and disposed inputs', async () => {
+  const tracked = model('untitled', 4);
+  const editor = { isDisposed: vi.fn(() => false) };
+  const primary = { groupId: 1, editor };
+  const findEditors = vi.fn(() => [primary, { groupId: 2, editor }]);
+  const saveEditor = vi.fn(async () => true);
+  const saveFile = vi.fn(async () => URI.parse('vscode-vfs://writing-room/workspace/saved.txt'));
+  const { service, willSave } = bridge([tracked.value], { $acceptDocumentDelta: async () => {} }, () => true, {
+    editorService: { findEditors, save: saveEditor } as unknown as IEditorService,
+    files: { canHandleResource: () => true, save: saveFile },
+  });
+  try {
+    await service.$startDocumentSync();
+    expect(await service.$saveDocument('untitled')).toBe(true);
+    expect(findEditors).toHaveBeenCalledExactlyOnceWith(tracked.value.uri);
+    expect(saveEditor).toHaveBeenCalledExactlyOnceWith(primary, { reason: 'explicit' });
+
+    saveEditor.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('Write failed'));
+    expect(await service.$saveDocument('untitled')).toBe(false);
+    expect(await service.$saveDocument('untitled')).toBe(false);
+    expect(saveEditor).toHaveBeenCalledTimes(3);
+
+    editor.isDisposed.mockReturnValue(true);
+    expect(await service.$saveDocument('untitled')).toBe(false);
+    expect(saveEditor).toHaveBeenCalledTimes(3);
+    expect(saveFile).not.toHaveBeenCalled();
+  } finally {
+    service.dispose();
+    willSave.dispose();
+    tracked.content.dispose();
+  }
+});
+
+test('disposes an untitled document initially opened without a tab only after a successful write', async () => {
+  const tracked = model('untitled', 4);
+  let tabShown = false;
+  const dispose = vi.fn(() => { tabShown = false; });
+  const untitled = { dispose, textEditorModel: tracked.value };
+  const findEditors = vi.fn(() => tabShown ? [{}] : []);
+  const save = vi.fn<() => Promise<URI | undefined>>();
+  const { service, willSave } = bridge([tracked.value], { $acceptDocumentDelta: async () => {} }, () => true, {
+    untitled: { get: () => untitled } as unknown as IUntitledTextEditorService,
+    editorService: { findEditors } as unknown as IEditorService,
+    files: { canHandleResource: () => true, save },
+  });
+  try {
+    await service.$startDocumentSync();
+    save.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('Write failed'));
+    expect(await service.$saveDocument('untitled')).toBe(false);
+    expect(await service.$saveDocument('untitled')).toBe(false);
+    expect(dispose).not.toHaveBeenCalled();
+
+    save.mockImplementationOnce(async () => {
+      tabShown = true;
+      return URI.parse('vscode-vfs://writing-room/workspace/saved.txt');
+    });
+    expect(await service.$saveDocument('untitled')).toBe(true);
+    expect(save).toHaveBeenLastCalledWith(tracked.value.uri, { reason: 'explicit' });
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(tabShown).toBe(false);
+  } finally {
+    service.dispose();
+    willSave.dispose();
+    tracked.content.dispose();
+  }
+});
+
+test('saves in-workspace files through the file service and preserves the document guards', async () => {
+  const file = model('file', 4, URI.parse('vscode-vfs://writing-room/workspace/file.txt'));
+  const outside = model('outside', 4, URI.parse('vscode-vfs://writing-room/other/file.txt'));
+  const workspace = URI.parse('vscode-vfs://writing-room/workspace');
+  const save = vi.fn(async () => file.value.uri as URI);
+  const editorService = { findEditors: vi.fn(), save: vi.fn() };
+  const { service, willSave } = bridge([file.value, outside.value], { $acceptDocumentDelta: async () => {} }, () => true, {
+    files: { canHandleResource: () => true, save },
+    workspace: {
+      getWorkspaceFolder: uri => uri.path.startsWith('/workspace/')
+        ? { uri: workspace, name: 'workspace', index: 0, toResource: path => joinPath(workspace, path) } : null,
+    },
+    editorService: editorService as unknown as IEditorService,
+  });
+  try {
+    expect(await service.$saveDocument('file')).toBe(false);
+    await service.$startDocumentSync();
+    expect(await service.$saveDocument('unknown')).toBe(false);
+    expect(await service.$saveDocument('outside')).toBe(false);
+    vi.spyOn(service, 'isReadOnly').mockReturnValueOnce(true);
+    expect(await service.$saveDocument('file')).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+
+    expect(await service.$saveDocument('file')).toBe(true);
+    expect(save).toHaveBeenCalledExactlyOnceWith(file.value.uri, { reason: 'explicit' });
+    expect(editorService.findEditors).not.toHaveBeenCalled();
+    expect(editorService.save).not.toHaveBeenCalled();
+  } finally {
+    service.dispose();
+    willSave.dispose();
+    file.content.dispose();
+    outside.content.dispose();
   }
 });
 

@@ -378,7 +378,22 @@ export class MainThreadDocuments extends Disposable implements MainThreadDocumen
       return false;
     }
     try {
-      return !!await this.files.save(entry.uri, { reason: 'explicit' });
+      const options = { reason: 'explicit' } as const;
+      if (entry.uri.scheme !== Schemas.untitled) {
+        return !!await this.files.save(entry.uri, options);
+      }
+      const [opened] = this.editorService.findEditors(entry.uri);
+      if (opened) {
+        // Saving one input replaces it in every group. The editor service skips disposed inputs.
+        return !opened.editor.isDisposed() && await this.editorService.save(opened, options);
+      }
+      const untitled = this.untitled.get(entry.uri);
+      if (!await this.files.save(entry.uri, options)) {
+        return false;
+      }
+      // Dispose the original even if a tab opened while saving. An untitled URI can be reused.
+      untitled?.dispose();
+      return true;
     } catch {
       return false;
     }

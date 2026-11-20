@@ -15,7 +15,9 @@
     "onCommand:documents.checkTabs",
     "onCommand:documents.checkResource",
     "onCommand:documents.wrongLanguage",
-    "onCommand:documents.checkReferences"
+    "onCommand:documents.checkReferences",
+    "onCommand:documents.saveShownUntitled",
+    "onCommand:documents.saveHiddenUntitled"
   ],
   "contributes": {
     "commands": [
@@ -50,6 +52,14 @@
       {
         "command": "documents.checkReferences",
         "title": "Check Reference Command"
+      },
+      {
+        "command": "documents.saveShownUntitled",
+        "title": "Save Shown Untitled Fixture"
+      },
+      {
+        "command": "documents.saveHiddenUntitled",
+        "title": "Save Hidden Untitled Fixture"
       }
     ],
     "submenus": [
