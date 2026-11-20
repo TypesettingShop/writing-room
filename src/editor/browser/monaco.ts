@@ -24,11 +24,16 @@ interface StandaloneKeybindings {
 // Monaco erases ResultKind in the published JavaScript.
 const monacoMoreChordsNeeded = 1;
 
-let dispatchChordPrefix: ((prefix: KeyCodeChord, continuation: KeyboardEvent, target: HTMLElement) => boolean) | undefined;
+let dispatchChordPrefix: ((prefix: KeyCodeChord, continuation: KeyboardEvent, target: HTMLElement) => boolean | undefined) | undefined;
 
-/** Replays a workbench prefix so Monaco's editor listener can dispatch the actual continuation. */
-export function forwardMonacoChordPrefix(prefix: KeyCodeChord, continuation: KeyboardEvent, target: HTMLElement): boolean {
-  return dispatchChordPrefix?.(prefix, continuation, target) ?? false;
+/**
+ * Lets Monaco finish a workbench prefix with the actual continuation, at once, so Monaco's chord ends with this
+ * event. `undefined` when Monaco does not take it (not loaded yet, in a chord of its own, a continuation it
+ * cannot read, or no chord for the prefix there); otherwise whether Monaco wants the continuation's default
+ * action prevented.
+ */
+export function forwardMonacoChordPrefix(prefix: KeyCodeChord, continuation: KeyboardEvent, target: HTMLElement): boolean | undefined {
+  return dispatchChordPrefix?.(prefix, continuation, target);
 }
 
 /**
@@ -85,11 +90,16 @@ async function load(): Promise<MonacoNamespace> {
     // Monaco leaves its chord pending when it gets a key it cannot dispatch.
     const key = new StandardKeyboardEvent(continuation);
     if (keybindings.inChordMode || keybindings.resolveKeyboardEvent(key).getDispatchChords()[0] == null) {
-      return false;
+      return undefined;
     }
     // The prefix uses the shared KeyCode values; the real continuation uses Monaco's layout and context.
-    return keybindings.softDispatch(prefix, target).kind === monacoMoreChordsNeeded
-      && keybindings.dispatchEvent(prefix, target);
+    if (keybindings.softDispatch(prefix, target).kind !== monacoMoreChordsNeeded || !keybindings.dispatchEvent(prefix, target)) {
+      return undefined;
+    }
+    // Resolved here rather than at the editor's own listener: a widget on the way there (a find toggle on
+    // Space, the multi-line find input on an arrow) would act on the key and could stop it, leaving the chord
+    // pending to eat the next key.
+    return keybindings.dispatchEvent(key, target);
   };
   return monaco;
 }

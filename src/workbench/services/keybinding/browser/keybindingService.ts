@@ -78,13 +78,16 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
       if (result === 'unhandled') {
         return;
       }
-      // Replay only for a bubbling event on a registered editor's path.
+      // Monaco may finish an unmatched chord for a bubbling event on a registered editor's path, and then
+      // decides the default action. The key reaches nothing else either way.
+      let preventDefault = true;
       if (result !== 'handled' && event.bubbles && target instanceof HTMLElement
-        && editors.listCodeEditors().some(editor => path.includes(editor.getContainerDomNode()))
-        && forwardMonacoChordPrefix(result.unmatchedPrefix, event, target)) {
-        return;
+        && editors.listCodeEditors().some(editor => path.includes(editor.getContainerDomNode()))) {
+        preventDefault = forwardMonacoChordPrefix(result.unmatchedPrefix, event, target) ?? true;
       }
-      event.preventDefault();
+      if (preventDefault) {
+        event.preventDefault();
+      }
       event.stopPropagation();
     };
     inputFocus.set(isTextInput(activeTarget()));

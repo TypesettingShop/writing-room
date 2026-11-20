@@ -140,7 +140,7 @@ function registerEditorContainer(): void {
   target.append(input);
 }
 
-test('forwards an unmatched chord with its original prefix inside a registered editor', () => {
+test('lets Monaco finish an unmatched chord with its original prefix inside a registered editor', () => {
   bind('chord', 'ctrl+shift+k ctrl+s');
   registerEditorContainer();
   const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(true);
@@ -149,18 +149,22 @@ test('forwards an unmatched chord with its original prefix inside a registered e
   const modifiers = { ctrlKey: true, shiftKey: true };
 
   expect(press(input, 'KeyK', modifiers).defaultPrevented).toBe(true);
-  expect(received).not.toHaveBeenCalled();
   const second = press(input, 'KeyX', { ctrlKey: true });
-  expect(second.defaultPrevented).toBe(false);
-  expect(received).toHaveBeenCalledExactlyOnceWith(second);
+  expect(second.defaultPrevented).toBe(true);
   expect(forward).toHaveBeenCalledExactlyOnceWith(parseKeybinding('ctrl+shift+k')!.chords[0], second, input);
+
+  // A Monaco command that keeps the default action still keeps the key from the editor's widgets.
+  forward.mockReturnValue(false);
+  press(input, 'KeyK', modifiers);
+  expect(press(input, 'KeyX', { ctrlKey: true }).defaultPrevented).toBe(false);
+  expect(received).not.toHaveBeenCalled();
   expect(execute).not.toHaveBeenCalled();
 });
 
 test('keeps a mismatched continuation swallowed when Monaco declines it or the event cannot bubble there', () => {
   bind('chord', 'ctrl+k ctrl+s');
   registerEditorContainer();
-  const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(false);
+  const forward = vi.spyOn(monaco, 'forwardMonacoChordPrefix').mockReturnValue(undefined);
   const received = vi.fn();
   input.addEventListener('keydown', received);
   const ctrl = { ctrlKey: true };

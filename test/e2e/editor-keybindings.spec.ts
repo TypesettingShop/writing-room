@@ -32,9 +32,12 @@ test('uses the workbench chord for language mode and Monaco chords for comments'
   await pasteText(page, 'let count = 0;');
   await expect.poll(() => editorText(page)).toBe('let count = 0;');
 
-  // Monaco loads the language's comment configuration on demand.
+  // Monaco loads the language's comment configuration on demand. The chord adds a comment each time, so it is
+  // pressed again only while the text, rendered since the last press, is still plain.
   await expect.poll(async () => {
-    await chord(page, 'ControlOrMeta+c');
+    if (await editorText(page) === 'let count = 0;') {
+      await chord(page, 'ControlOrMeta+c');
+    }
     return editorText(page);
   }, { intervals: [500] }).toBe('// let count = 0;');
   await chord(page, 'ControlOrMeta+u');
@@ -107,6 +110,22 @@ test('does not cut text in the find field or swallow the next letter', async ({ 
   await expect(find).toHaveValue('find me');
   await page.keyboard.press('z');
   await expect(find).toHaveValue('z');
+});
+
+test('does not toggle a find option or leave a Monaco chord for the next letter', async ({ appPage: page }) => {
+  await newUntitled(page);
+  await page.keyboard.press('ControlOrMeta+f');
+  await expect(activeGroup(page).getByRole('textbox', { name: /^Find\b/ })).toBeFocused();
+  const matchCase = activeGroup(page).getByRole('checkbox', { name: /^Match Case\b/ });
+  await matchCase.focus();
+  await expect(matchCase).toHaveAttribute('aria-checked', 'false');
+
+  // Space is a toggle's own key; as a chord continuation it reaches neither the toggle nor a later key.
+  await chord(page, 'Space');
+  await expect(matchCase).toHaveAttribute('aria-checked', 'false');
+  await activeEditor(page).focus();
+  await page.keyboard.type('ab');
+  await expect.poll(() => editorText(page)).toBe('ab');
 });
 
 test('does not start a Monaco chord for a continuation Monaco cannot decode', async ({ appPage: page }) => {

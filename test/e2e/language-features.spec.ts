@@ -271,8 +271,8 @@ test.describe('code actions', () => {
     await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await page.keyboard.press('ControlOrMeta+.');
-    // Give an unexpected menu time to appear. Provider removal has already been confirmed.
-    await page.waitForTimeout(500);
+    // Provider removal has already been confirmed; the wait gives an unexpected menu time to appear, as before.
+    await page.waitForTimeout(1500);
     await expect(actionMenu(page)).toBeHidden();
     await runCommand(page, 'Language Features: Register Providers');
     await activeEditor(page).focus();
