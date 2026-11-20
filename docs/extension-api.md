@@ -22,16 +22,16 @@ Writing Room v0.2.0은 VS Code와 같은 이름과 시그니처로 웹 확장 AP
 
 ### 네임스페이스별 지원 범위
 
-선언 수는 적합성 검사(`src/vscode-dts/test/apiConformance.test.ts`)가 내는 출력이다. 검사는 `src/vscode-dts/*.d.ts`를 upstream `vscode.d.ts`(`test/fixtures/vscode-api/vscode.d.ts`, 위 커밋의 원문)와 대조하고, 선언이 있는 모든 키가 런타임에 있고 런타임의 모든 키가 선언돼 있는지도 본다. 숫자는 이 저장소의 선언 수와 upstream의 선언 수다. 최상위 줄은 네임스페이스 이름도 하나로 센다.
+선언 수는 적합성 검사(`src/vscode-dts/test/apiConformance.test.ts`)가 내는 출력이다. 검사는 `src/vscode-dts/*.d.ts`를 upstream `vscode.d.ts`(`test/fixtures/vscode-api/vscode.d.ts`, 위 커밋의 원문)와 대조하고, 선언이 있는 모든 키가 런타임에 있고 런타임의 모든 키가 선언돼 있는지도 본다. 숫자는 이 저장소의 선언 수와 upstream의 선언 수다. 최상위 줄은 네임스페이스 이름도 하나로 센다. 이 저장소의 수에는 upstream에 없는 제안 API 선언도 들어 있다: 최상위 335에 여섯(`ExternalUriOpener` 계열 넷, `MultiDocumentHighlight` 계열 둘), `window` 33에 `registerExternalUriOpener` 하나, `languages` 40에 `registerMultiDocumentHighlightProvider` 하나다. 그래서 upstream 선언 가운데 갖춘 수는 최상위 329, `window` 32, `languages` 39다.
 
 | 범위 | 선언 / upstream | 지원하는 것 | 지원하지 않는 것 | 자세히 |
 | --- | --- | --- | --- | --- |
-| 최상위 선언 | 335 / 531 | 공용 값과 타입, 문서·언어·Webview·파일·설정·테마 영역의 클래스, 열거형, 인터페이스 | 노트북, 터미널, 디버그, 소스 제어, 댓글, 테스트, 인증, 채팅, 언어 모델의 선언 | 아래 표 |
+| 최상위 선언 | 335 / 531 | 공용 값과 타입, 문서·언어·Webview·파일·설정·테마 영역의 클래스, 열거형, 인터페이스 | 노트북, 터미널, 디버그, 소스 제어, 댓글, 테스트, 인증, 채팅, 언어 모델과 MCP 서버 정의의 선언. 타임라인, 파일 장식, `UriHandler`, `WindowState`, 언어 상태 항목, 퀵 픽 항목 버튼(`QuickPickItemButtonEvent`, `QuickInputButtonLocation`) | 아래 표 |
 | `workspace` | 35 / 47 | 문서 열기와 이벤트, `applyEdit`, `fs`, 파일 작업 이벤트, 감시, `findFiles`, `workspaceFolders`, `getConfiguration`, `registerFileSystemProvider`, `registerTextDocumentContentProvider` | `rootPath`, `save`, `saveAs`, `saveAll`, 노트북 직렬화와 열기, `registerTaskProvider`, 타임라인 제공자, `decode`, `encode` | [문서와 에디터](extension-api-documents.md), [파일 시스템](extension-api-file-system.md), [설정](extension-api-configuration.md) |
 | `window` | 33 / 57 | 텍스트 에디터와 이벤트, 장식, `showTextDocument`, `tabGroups`, Webview와 Custom Editor, QuickPick과 InputBox, OutputChannel, 메시지, `withProgress`, 트리 뷰, 상태 표시줄, 열기·저장 대화상자, 활성 색 테마 | 노트북 에디터, 터미널, 창 상태, `showWorkspaceFolderPick`, `registerUriHandler`, 파일 장식 제공자, `withScmProgress` | [창 UI](extension-api-window-ui.md), [테마와 뷰](extension-api-theming-and-views.md), [Webview](extension-api-webview.md), [Custom Editor](extension-api-custom-editors.md) |
-| `languages` | 40 / 40 | 완성, 호버, 서식, 코드 액션, 이름 바꾸기, 문서 기호, 링크, 정의와 참조, 접기, 진단 컬렉션, 워크스페이스 기호 등 제공자 등록 전부, `match`, `setLanguageConfiguration`, 진단 읽기 | `createLanguageStatusItem`. 제안 API `registerMultiDocumentHighlightProvider`는 받기만 한다(upstream `vscode.d.ts`에 없는 선언이어서 40을 채운다) | [언어 기능](extension-api-language-features.md), [진단과 Problems](extension-api-diagnostics.md) |
+| `languages` | 40 / 40 | 완성, 호버, 서식, 코드 액션, 이름 바꾸기, 문서 기호, 링크, 정의와 참조, 접기, 진단 컬렉션, 워크스페이스 기호 등 제공자 등록(아래 받기만 하는 아홉은 빼고), `match`, `setLanguageConfiguration`, 진단 읽기 | `createLanguageStatusItem`. 호출 계층, 타입 계층, 인라인 완성 등 제공자 아홉은 [받기만 한다](#받기만-하는-api). 그 가운데 제안 API `registerMultiDocumentHighlightProvider`는 upstream `vscode.d.ts`에 없는 선언이어서 40을 채운다 | [언어 기능](extension-api-language-features.md), [진단과 Problems](extension-api-diagnostics.md) |
 | `commands` | 2 / 4 | `registerCommand`, `executeCommand`. 내장 커맨드 `vscode.open`, `vscode.openWith`, `vscode.execute*Provider` 열한 가지 등 | `registerTextEditorCommand`, `getCommands` | 이 페이지 |
-| `env` | 17 / 21 | `appName`, `language`, `clipboard`, `openExternal`, `asExternalUri`, `machineId`, `sessionId`, `uiKind`, `logLevel`, 텔레메트리 로거 | `appRoot`, `isNewAppInstall`, `isAppPortable`, `onDidChangeShell` | [확장 런타임](extension-api-runtime.md) |
+| `env` | 17 / 21 | `appName`, `language`, `clipboard`, `openExternal`, `asExternalUri`, `machineId`, `sessionId`, `uiKind`, `logLevel` | `appRoot`, `isNewAppInstall`, `isAppPortable`, `onDidChangeShell`. `createTelemetryLogger`는 [받기만 한다](#받기만-하는-api) | [확장 런타임](extension-api-runtime.md) |
 | `extensions` | 3 / 3 | `all`, `getExtension`, `onDidChange` | | [확장 런타임](extension-api-runtime.md) |
 | `l10n` | 3 / 3 | `t`, `bundle`, `uri` | | [확장 런타임](extension-api-runtime.md) |
 | `tasks` | 8 / 8 | 모두 받기만 한다 | 실행하지 않는다 | 아래 받기만 하는 API |
@@ -86,14 +86,14 @@ Writing Room v0.2.0은 VS Code와 같은 이름과 시그니처로 웹 확장 AP
 
 ### 인수한 확장
 
-Open VSX의 실제 웹 확장을 수정 없이 설치해 개발 서버와 프리뷰 빌드 양쪽에서 확인했다. 고정한 패키지의 크기와 sha256은 `test/fixtures/real-extensions/pins.json`에 있고 다음과 같다. 모든 확장은 MIT 라이선스다. 설치 화면, 새로고침 뒤 복원과 제거까지 거쳐 허용한 콘솔 메시지 밖의 오류가 없는 것을 통과의 조건으로 삼았다.
+Open VSX의 실제 웹 확장을 수정 없이 설치해 개발 서버와 프리뷰 빌드 양쪽에서 확인했다. 고정한 패키지의 크기와 sha256은 `test/fixtures/real-extensions/pins.json`에 있고, sha256은 다음과 같다. 모든 확장은 MIT 라이선스다. 확장마다 갤러리의 설치 화면을 거쳐 "통과한 단" 칸에 적은 동작(새로고침 뒤 복원과 제거는 칸에 적은 확장만)을 하는 동안 허용한 콘솔 메시지 밖의 오류가 없는 것을 통과의 조건으로 삼았다.
 
 | 단 | id | 버전 | 라이선스 | sha256 | 통과한 단 |
 | --- | --- | --- | --- | --- | --- |
 | 주 1 | `vscode.markdown` | 1.95.3 | MIT | `53591b889e8941db812f263d8e5eaa34ec83718e399ecd7a1e178410bd3877a9` | 언어 모드, TextMate 문법, 언어 구성, 스니펫, 새로고침 뒤 유지와 제거 (`test/e2e/real-markdown-basics.spec.ts`) |
 | 주 2 | `DavidAnson.vscode-markdownlint` | 0.62.1 | MIT | `b6baf90037c903aa21b9c525972910561a903b82e12fe8d67220740ec15b1aa0` | 진단과 Problems, 호버, 빠른 수정, 범위 서식, 설정과 워크스페이스의 설정 파일, Output 채널, 커맨드, 새로고침과 제거 (`test/e2e/real-markdownlint.spec.ts`) |
 | 주 3 | `vscode.markdown-language-features` | 1.95.3 | MIT | `d2ba7aa2c1265e349862aa542a35daa45f81f2efbec8b51184d672999204d09e` | 미리보기(옆과 제자리), 포워딩 주소의 미리보기, Reopen With, 언어 서버 열세 가지 기능과 제거 (`test/e2e/real-markdown-preview.spec.ts`) |
-| 바닥 | `GitHub.github-vscode-theme` | 6.3.5 | MIT | `a85236a58ad490b1600ec5a0fd0cea7eec56fb9d33660a1ac82c6da639ad3af4` | 색 테마 아홉 개를 기여하고 고른 테마를 적용 (`real-markdown-basics.spec.ts`) |
+| 바닥 | `GitHub.github-vscode-theme` | 6.3.5 | MIT | `a85236a58ad490b1600ec5a0fd0cea7eec56fb9d33660a1ac82c6da639ad3af4` | GitHub Dark Default와 GitHub Light Default를 골라 워크벤치·에디터·토큰 색에 적용, 새로고침 뒤 유지와 제거 (`real-markdown-basics.spec.ts`) |
 | 바닥 | `Tyriar.sort-lines` | 1.12.0 | MIT | `feecf004b40c9a9e73ba81347d61b69bb231f24df72d01b6b9a17435542deec9` | 선택한 줄 정렬: 키와 에디터 컨텍스트 메뉴, 제거 (`real-markdownlint.spec.ts`) |
 | 바닥 | `vscode.simple-browser` | 1.95.3 | MIT | `9c3694e2707ce18863d49b7447955e36f9faf9c98ca8035170795d08fa9844cb` | WebviewPanel과 새로고침 뒤 복원 (`real-markdown-preview.spec.ts`) |
 

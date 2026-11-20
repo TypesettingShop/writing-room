@@ -11,4 +11,4 @@ npm run dev
 - `npm run typecheck`와 `npm test`는 타입과 단위 테스트를 확인한다.
 - `npm run test:e2e -- --workers=2`는 개발 서버에서 Chromium 테스트를 실행한다. `E2E_TARGET=preview`를 앞에 붙이면 새 배포 빌드를 검사한다.
 
-설치 요구 사항, 사용법, VS Code 조사 자료는 [문서 홈](docs/README.md)에 있다. 확장 API의 지원 범위는 [호환 표](docs/extension-api.md#호환-표)에, coder 같은 포워딩 주소에서 Webview까지 쓰는 법은 [시작하기](docs/getting-started.md#포워딩-주소에서-실행하기)에 있다. Monaco와 Codicons의 라이선스는 [ThirdPartyNotices.txt](ThirdPartyNotices.txt)에 있으며 빌드에도 포함된다.
+설치 요구 사항, 사용법, VS Code 조사 자료는 [문서 홈](docs/README.md)에 있다. 확장 API의 지원 범위는 [호환 표](docs/extension-api.md#호환-표)에, coder 같은 포워딩 주소에서 Webview까지 쓰는 법은 [시작하기](docs/getting-started.md#포워딩-주소에서-실행하기)에 있다. Monaco, Codicons, TextMate 문법 엔진(`vscode-textmate`, `vscode-oniguruma`)의 라이선스는 [ThirdPartyNotices.txt](ThirdPartyNotices.txt)에 있으며 빌드에도 포함된다.

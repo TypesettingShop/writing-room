@@ -28,11 +28,11 @@ npm run dev
 
 브라우저는 **Ctrl+N**, **Ctrl+W**, **Ctrl+T**와 macOS의 대응 키를 자체 창이나 탭에 사용할 수 있다. 워크벤치의 에디터를 닫으려면 탭의 닫기 버튼이나 팔레트의 **View: Close All Editors**를 사용한다.
 
-**Go to Symbol in Workspace**는 확장이 제공한 워크스페이스 기호를 검색한다. 키는 **Ctrl+T**(macOS에서는 **Cmd+T**)이고, 퀵 인풋에 `#`를 입력해도 열린다. 브라우저 탭이 이 키를 가져가면 팔레트에서 **Go to Symbol in Workspace...**를 실행한다. 팔레트는 `>` 없이 커맨드만 보여 주는 화면으로 따로 열린다. 이 화면은 기호를 제공하는 확장이 활성화된 뒤에 결과를 낸다. 자세한 동작은 [언어 기능](extension-api-language-features.md#워크스페이스-기호-go-to-symbol-in-workspace)에 있다.
+**Go to Symbol in Workspace**는 확장이 제공한 워크스페이스 기호를 검색한다. 키는 **Ctrl+T**(macOS에서는 **Cmd+T**)이다. 검색 화면은 입력이 `#`로 시작한 채 열리고, `#` 뒤에 기호 이름을 입력한다. 커맨드 팔레트에 `#`를 입력해서는 열리지 않는다. 브라우저 탭이 이 키를 가져가면 팔레트에서 **Go to Symbol in Workspace...**를 실행한다. 팔레트는 `>` 없이 커맨드만 보여 주는 화면으로 따로 열린다. 이 화면은 기호를 제공하는 확장이 활성화된 뒤에 결과를 낸다. 자세한 동작은 [언어 기능](extension-api-language-features.md#워크스페이스-기호-go-to-symbol-in-workspace)에 있다.
 
 ## 파일 다루기
 
-워크스페이스는 브라우저 저장소(IndexedDB)에 있는 폴더 하나(`vscode-vfs://writing-room/workspace`)다. 처음에는 비어 있다. **File → New File...**로 파일을 만들고 Explorer에서 폴더와 파일을 만들고 이름을 바꾸고 지운다. 파일을 올리고 내려받을 수도 있다. **Ctrl+S**로 저장하고 **File → Save As...**로 다른 이름으로 저장한다. 제목 없는 탭과 고친 파일의 탭은 닫기 전에 **Save**, **Don't Save**, **Cancel**을 묻는다. 폴더 열기, 다중 루트, 로컬 디스크 연결은 없다. 같은 사이트 주소의 같은 브라우저 프로필에서만 파일이 보이며 브라우저가 사이트 데이터를 지우면 파일도 사라진다. 자세한 동작은 [파일 편집과 Explorer](files-and-explorer.md)에 있다.
+워크스페이스는 브라우저 저장소(IndexedDB)에 있는 폴더 하나(`vscode-vfs://writing-room/workspace`)다. 처음에는 비어 있다. **File → New File...**로 파일을 만들고 Explorer에서 폴더와 파일을 만들고 이름을 바꾸고 지운다. 파일을 올리고 내려받을 수도 있다. **Ctrl+S**로 저장하고 **File → Save As...**로 다른 이름으로 저장한다. 텍스트가 있는 제목 없는 탭과 고친 파일의 탭은 닫기 전에 **Save**, **Don't Save**, **Cancel**을 묻는다. 폴더 열기, 다중 루트, 로컬 디스크 연결은 없다. 같은 사이트 주소의 같은 브라우저 프로필에서만 파일이 보이며 브라우저가 사이트 데이터를 지우면 파일도 사라진다. 자세한 동작은 [파일 편집과 Explorer](files-and-explorer.md)에 있다.
 
 ## 사용자 설정 편집하기
 
@@ -41,7 +41,7 @@ npm run dev
 ## 확장 추가하기
 
 - **Open VSX에서 찾기**: 액티비티 바의 **Extensions**(Ctrl+Shift+X, macOS에서는 Cmd+Shift+X)에서 **Search Open VSX**에 이름을 입력하고 **Install**을 선택한다. 내려받은 뒤 확인 화면이 식별자, 버전, 라이선스, 크기, SHA-256, 서명 상태를 보여 준다. Microsoft 마켓플레이스는 지원하지 않는다.
-- **VSIX 파일**: 팔레트의 **Install from VSIX...**로 `.vsix`를 고르거나 **Extensions**의 검색 영역에 끌어다 놓는다. 팔레트의 **Install Extension from Location...**에 `.vsix`로 끝나는 주소를 입력해도 된다. VSIX는 크기 한도와 SHA-256을 검사하고 확인 화면을 거친다.
+- **VSIX 파일**: 팔레트의 **Install from VSIX...**로 `.vsix`를 고르거나 **Extensions**의 검색 영역에 끌어다 놓는다. 팔레트의 **Install Extension from Location...**에 `.vsix`로 끝나는 주소를 입력해도 된다. VSIX는 크기 한도와 내용을 검사하고, 받은 바이트의 SHA-256을 확인 화면에 보인다. 비교할 갤러리 값과 서명이 없어 아래 「서명의 뜻」의 확인은 하지 않는다.
 - **폴더 URL**: **Install Extension from Location...**에 `package.json`을 제공하는 폴더 주소를 입력하고, 표시된 출판자·버전·오리진을 확인한 뒤 설치 항목을 선택한다. 원격 서버는 HTTPS와 CORS를 지원해야 하며 로컬 개발용 루프백 주소에는 HTTP를 쓸 수 있다.
 - **내장 확장**: 매니페스트 `package.json`과 필요한 웹 진입 파일을 `extensions/` 아래의 한 폴더에 둔다. 개발 서버를 다시 시작하거나 프리뷰 빌드를 새로 만든다. `extensions/hello-world/`를 예제로 사용할 수 있다.
 - **제거**: **Extensions**의 **Installed**에서 **Uninstall**을 선택하거나 팔레트의 **Uninstall Extension...**에서 해당 확장을 고른다.
@@ -51,9 +51,11 @@ npm run dev
 
 Open VSX에서 받은 패키지는 설치할 때 화면에 표시된 Open VSX에서 공개 키를 받아 Ed25519 서명을 확인한다. 서명은 전송 경로나 CDN에서 패키지가 바뀌지 않았음을 확인한다. 갤러리 자체가 침해되면 막지 못한다. 이 확인에는 규칙이 셋 있다.
 
-- SHA-256은 어느 경우에나 확인한다. 설치할 바이트에서 계산한 값이 갤러리가 준 값과 다르면 설치하지 않는다.
+- SHA-256은 서명과 관계없이 늘 확인한다. 설치할 바이트에서 계산한 값이 갤러리가 준 값과 다르면 설치하지 않는다.
 - 서명이 있는데 검증에 실패하면 설치하지 않는다.
-- 서명이 없는 패키지는 경고(**This package has no signature**)를 보이고 확인을 받은 뒤 설치한다. 브라우저가 Ed25519를 지원하지 않아 서명을 확인하지 못한 패키지도 경고(**This browser could not verify the Ed25519 signature**)와 확인을 거친다. 두 경고의 기본 선택은 **Cancel**이다. VSIX 파일과 URL로 설치하는 패키지는 서명이 없는 것으로 다룬다.
+- 서명이 없는 패키지는 경고(**This package has no signature**)를 보이고 확인을 받은 뒤 설치한다. 브라우저가 Ed25519를 지원하지 않아 서명을 확인하지 못한 패키지도 경고(**This browser could not verify the Ed25519 signature**)와 확인을 거친다. 두 경고의 기본 선택은 **Cancel**이다.
+
+VSIX 파일과 `.vsix` 주소로 설치하는 패키지에는 이 규칙이 적용되지 않는다. 서명을 확인하지 않으므로 확인 화면의 서명 상태는 늘 `unsigned`이지만 위 경고는 보이지 않고, 같은 확인 화면(기본 선택 **Cancel**)을 거친다. SHA-256은 비교할 값이 없어 계산해 보여 주기만 한다.
 
 설치 한도와 확인 화면의 선택지는 [확장 설치](extension-installation.md)에 있다.
 
@@ -87,7 +89,7 @@ coder처럼 포트를 포워딩하는 환경에서 앱을 열 때 확장의 Webv
 
 같은 브라우저 프로필에서 같은 사이트 주소를 열면 파트 크기·표시 여부, 뷰 컨테이너의 위치·선택, 에디터 그룹과 탭, 저장한 사용자 설정, 설치한 확장을 복원한다. 열린 설정 탭은 편집 중인 초안도 복원하며, 설정 적용은 저장할 때 일어난다. 제목 없는 문서의 텍스트는 최근 사용 순으로 합계 UTF-16 코드 유닛 1,000,000개까지 저장한다. 이 한도로 제외될 텍스트가 있으면 페이지를 떠날 때 브라우저가 확인을 요청한다. 복원한 에디터는 문서 맨 위에서 열린다. 파일을 고치다가 저장하지 않고 새로고침하면 파일의 초안도 복원한다. 탭 목록에서 빠진 파일의 초안도 시작할 때 열 수 있다. 초안은 페이지 세션별로 저장한다. 열려 있는 세션의 초안은 그 탭에 남고, 종료된 세션의 초안은 새로 시작한 탭에서 복구한다. 같은 파일을 다른 탭이 저장했다면 덮어쓰기 전에 묻는다. 찾는 경로는 [초안 백업과 새로고침](files-and-explorer.md#초안-백업과-새로고침)에 있다.
 
-v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹 확장에 집중한다. 터미널, 디버그, 노트북, 설정 UI, 로컬 디스크 연결은 범위 밖이다. 색 테마는 확장이 기여하며 팔레트의 **Preferences: Color Theme**에서 고른다.
+v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹 확장에 집중한다. 터미널, 디버그, 노트북, 설정 UI, 로컬 디스크 연결은 범위 밖이다. 색 테마는 내장 테마 **Writing Room Dark**(기본)와 **Writing Room Light**, 확장이 기여한 테마 가운데에서 팔레트의 **Preferences: Color Theme**으로 고른다.
 
 ## 검증하기
 
@@ -98,4 +100,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6
+Decided in: wr-cla6, wr-jbmd

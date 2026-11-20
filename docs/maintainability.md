@@ -154,8 +154,8 @@ v0.2.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 - 스토리지: 버전 표식 없이 접두 키가 남은 오리진의 처리(wr-a5aw), 쓰기 오류 뒤 메모리 모드 전환 범위(wr-vthy), 뒤로/앞으로 캐시 복귀 때 다른 탭의 스토리지 변경 반영 확인(wr-jg40).
 - 에디터: Welcome 시작 판단이 워크벤치 기여가 아니라 워크벤치 본체에 있다(wr-pz63). 여러 그룹에 열린 같은 입력을 그룹마다 직렬화한다(wr-67xb).
 - 뷰 컨테이너: 여러 브라우저 탭에서 위치와 순서를 저장할 때 다른 탭의 변경을 보존하는 일(wr-44tg), 패널 복합 파트 서비스의 구독 수명 관리(wr-4449).
-- 파일과 Explorer: Explorer 트리와 확장 트리 뷰가 통합되지 않아 키보드 처리, 행 그리기, 컨텍스트 메뉴가 겹친다. Explorer 뷰 본문이 기여가 채우는 인스턴스화 서비스를 기다린다(wr-jrhv.02j, [files-and-explorer.md](files-and-explorer.md#기술-부채)).
-- 확장: 확장 호스트 재시작의 비동기 비활성화와 종료 단계 정리(wr-gl87), Worker 오류 귀속에서 변조 가능한 스택과 재사용한 진입 URL을 구별하는 일(wr-fy2l).
+- 파일과 Explorer: Explorer 트리와 확장 트리 뷰가 통합되지 않아 키보드 처리, 행 그리기, 컨텍스트 메뉴가 겹친다([files-and-explorer.md](files-and-explorer.md#기술-부채)). Explorer, Extensions, Problems 뷰 본문이 기여가 채우는 인스턴스화 서비스를 각자 기다린다(wr-wttg).
+- 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 오류와 로그에 설치 세대 키 대신 확장의 공개 식별자를 쓰는 일의 남은 범위(wr-m57b), 확장 호스트 재시작의 비동기 비활성화와 종료 단계 정리(wr-gl87), Worker 오류 귀속에서 변조 가능한 스택과 재사용한 진입 URL을 구별하는 일(wr-fy2l).
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
 Decided in: wr-510x, wr-efqx, wr-jbmd
