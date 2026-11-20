@@ -24,16 +24,16 @@ Custom Editor는 파일을 확장의 Webview로 연다. 확장은 어떤 파일 
 | `selector[].filenamePattern` | 파일 이름에 대는 glob(대소문자 무시). `/`가 들어 있으면 `스킴:경로` 전체에 댄다(예: `**/notes/*.md`). `*.{jpg,png}`처럼 대안을 쓸 수 있다 |
 | `priority` | `default`(생략 시)는 맞는 파일을 기본으로 연다. `option`은 고를 때만 연다. `builtin`은 `default`로 다룬다 |
 
-- 에디터마다 활성화 이벤트 `onCustomEditor:<viewType>`이 암묵적으로 더해진다. 매니페스트에 적지 않아도 그 에디터로 파일을 열 때 확장이 깨어난다.
+- 에디터마다 활성화 이벤트 `onCustomEditor:<viewType>`이 자동으로 추가된다. 매니페스트에 명시하지 않아도 해당 에디터로 파일을 열 때 확장이 활성화된다.
 - 확장을 제거하면 그 에디터는 목록에서 빠지고, 열려 있던 탭은 같은 자리의 텍스트 에디터로 바뀐다.
 
 ## 어떤 에디터로 열리는가
 
 파일을 열 때(Explorer, `vscode.open`, 링크) 에디터는 이 순서로 정해진다.
 
-1. 설정 `workbench.editorAssociations`(glob에서 에디터 id로)에 맞는 항목이 있으면 그 에디터. 더 긴 패턴이 이긴다. 모르는 id는 건너뛴다. `default`는 텍스트 에디터다.
-2. `default` 우선순위의 Custom Editor가 **하나만** 맞으면 그것.
-3. 그 밖에는 텍스트 에디터. `default` Custom Editor가 둘 이상 맞을 때도 텍스트 에디터다.
+1. 설정 `workbench.editorAssociations`(glob 패턴에서 에디터 id로의 매핑)에 일치하는 항목이 있으면 해당 에디터로 연다. 더 긴 패턴이 우선한다. 알 수 없는 id는 건너뛴다. `default`는 텍스트 에디터다.
+2. `default` 우선순위의 Custom Editor 중 **하나만** 일치하면 해당 에디터로 연다.
+3. 그 외에는 텍스트 에디터로 연다. `default` Custom Editor가 둘 이상 일치할 때도 텍스트 에디터로 연다.
 
 ```json
 "workbench.editorAssociations": {
@@ -71,7 +71,7 @@ vscode.window.registerCustomEditorProvider('example.preview', {
 - 고칠 때는 `workspace.applyEdit`을 쓴다. 같은 파일을 연 텍스트 에디터에 바로 보이고, 텍스트 에디터의 실행 취소로 되돌릴 수 있다.
 - 탭의 점, `Ctrl+S`(macOS `Cmd+S`), 다른 이름으로 저장, 닫기 전 확인이 텍스트 에디터와 같다. 같은 파일을 보이는 다른 에디터가 남아 있으면 닫을 때 묻지 않는다(글은 그 에디터에 남는다).
 - 초안도 텍스트 에디터와 같다. 텍스트 에디터 없이 Custom Editor로만 고친 파일도 새로고침 뒤 초안이 돌아오고, 뒤에 있는 탭도 시작할 때 초안을 읽어 점을 보인다([초안 백업과 새로고침](files-and-explorer.md#초안-백업과-새로고침), wr-dbo2).
-- Custom Editor가 열려 있는 동안 문서는 열려 있다. 텍스트 에디터를 닫아도 `onDidCloseTextDocument`가 나지 않고, 둘 다 닫히면 난다.
+- Custom Editor가 열려 있는 동안 문서는 열린 상태로 유지된다. 같은 문서의 텍스트 에디터를 닫더라도 `onDidCloseTextDocument` 이벤트는 발생하지 않으며, 둘 다 닫힐 때 발생한다.
 - Custom Editor가 활성일 때 `window.activeTextEditor`는 `undefined`이고 `window.tabGroups`에는 `TabInputCustom`으로 나온다.
 - 제목 없는 문서(`untitled:`)도 열 수 있다. 저장은 다른 이름으로 저장이다.
 

@@ -1,7 +1,7 @@
 # 확장 API 런타임
 
-웹 확장의 상태, 활성화, 지역화와 Worker 동작을 설명한다. 선언은
-[`vscode.runtime.d.ts`](../src/vscode-dts/vscode.runtime.d.ts)에 있다.
+웹 확장의 상태, 활성화, 지역화와 Worker 동작을 설명한다. 관련 선언은
+[`vscode.runtime.d.ts`](../src/vscode-dts/vscode.runtime.d.ts)에 정의되어 있다.
 
 ## 상태와 경로
 

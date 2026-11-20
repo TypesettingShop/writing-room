@@ -5,13 +5,13 @@
 ## 문서를 열어 읽기
 
 - `workspace.openTextDocument(uri)`는 URI의 텍스트 모델을 열고 `TextDocument`를 반환한다. `workspace.openTextDocument({ language, content })`는 제목 없는 문서를 만든다. 탭에 표시하려면 `window.showTextDocument(document)`를 호출한다.
-- `workspace.textDocuments`에는 확장에 공개되는 모델이 들어 있다. 같은 URI를 다시 열거나 창을 분할해도 문서 객체를 공유한다. 문서 열림은 에디터 표시보다 먼저 전달된다. `languages.setTextDocumentLanguage`로 언어를 바꾸면 같은 문서의 닫힘 이벤트에 이어 열림 이벤트가 난다.
+- `workspace.textDocuments`에는 확장에 공개되는 모델이 포함된다. 동일한 URI를 다시 열거나 창을 분할하더라도 문서 객체를 공유한다. 문서 열림 이벤트는 에디터 표시보다 먼저 전달된다. `languages.setTextDocumentLanguage`로 언어를 변경하면 동일 문서의 닫힘 이벤트에 이어 열림 이벤트가 발생한다.
 - `getText`, `lineAt`, `offsetAt`, `positionAt`은 Worker의 문서 미러에서 읽는다. 줄, 열과 오프셋은 0부터 세며 열과 오프셋은 UTF-16 코드 유닛 기준이다. 내용 변경 이벤트에는 변경 범위, 바뀐 텍스트, 버전과 실행 취소·다시 실행 사유가 전달된다. dirty만 바뀌면 변경 목록은 비어 있다.
 - `workspace.registerTextDocumentContentProvider`는 자체 스킴의 가상 문서를 제공한다. 내용이 바뀌면 제공자의 `onDidChange`에 해당 URI를 전달한다. 가상 문서의 `save()`는 `false`를 반환한다.
 
 ## 에디터에서 읽고 쓰기
 
-- `window.activeTextEditor`는 활성 그룹의 텍스트 에디터다. Explorer나 `vscode.open`으로 연 작업 폴더 파일의 에디터도 제목 없는 문서의 에디터와 똑같이 든다. 다른 종류의 탭이 활성화되거나 파일이 오류 페인(바이너리, 20 MB 초과, 없는 파일)에 있으면 `undefined`다. `visibleTextEditors`에는 현재 표시하는 분할 에디터도 들어 있다. 선택, 옵션, 표시 범위와 뷰 열은 각 에디터의 이벤트를 구독한다.
+- `window.activeTextEditor`는 활성 그룹의 텍스트 에디터를 가리킨다. Explorer나 `vscode.open`으로 연 작업 폴더 파일의 에디터도 제목 없는 문서의 에디터와 동일하게 포함된다. 다른 종류의 탭이 활성화되거나 파일이 오류 페인(바이너리, 20 MB 초과, 미존재 파일)에 있으면 `undefined`가 된다. `visibleTextEditors`에는 현재 표시 중인 분할 에디터도 포함된다. 선택, 옵션, 표시 범위와 뷰 열은 각 에디터의 이벤트를 구독한다.
 - `window.showTextDocument(document, { viewColumn: ViewColumn.Beside, preserveFocus: true, selection })`는 옆 그룹에서 범위를 표시하고 현재 포커스를 유지한다. `revealRange`는 현재 에디터의 스크롤을 조정한다.
 - `TextEditor.edit`의 콜백 안에서 편집을 모은다. 범위가 겹치면 약속을 거부한다. 그사이에 문서 버전이 바뀌면 `false`를 반환하므로 최신 문서로 편집을 다시 계산할 수 있다. `insertSnippet`은 지정한 위치나 현재 선택 영역에서 Monaco 스니펫 세션을 시작한다.
 - `window.createTextEditorDecorationType(options)`로 장식 종류를 만들고 `editor.setDecorations(type, ranges)`로 해당 에디터에 적용한다. 빈 배열로 범위를 비우거나 타입을 해제해 모든 에디터에서 제거한다. 테마 색은 현재 테마에서 구하고 호버의 마크다운은 신뢰하지 않는 텍스트로 처리한다.

@@ -15,7 +15,7 @@
 | 사용자 | `settings.json`의 키 |
 | 언어별 사용자 | `settings.json`의 언어 구역. `"[markdown][plaintext]": { ... }`처럼 여러 언어를 한 구역에 적을 수 있고, 같은 언어가 여러 구역에 있으면 뒤의 구역이 이기지만, 언어 하나만 적은 구역(`"[markdown]"`)은 위치와 상관없이 여러 언어를 적은 구역을 이긴다(VS Code와 같다. 확장의 언어별 쓰기는 이 구역에 들어간다) |
 
-언어를 정해 읽으면 그 언어의 값이 모든 언어의 값을 이기고, 같은 종류 안에서는 사용자가 기본을 이긴다. 우선순위는 언어별 사용자, 언어별 기본, 사용자, 기본 순이다. 그래서 확장이 `[markdown]`에 준 `editor.wordWrap: "on"`은 사용자가 모든 언어에 쓴 `"editor.wordWrap": "off"`를 markdown 문서에서 이긴다. 사용자가 markdown에서도 끄려면 `"[markdown]": { "editor.wordWrap": "off" }`를 쓴다. VS Code와 같다.
+특정 언어를 지정해 설정을 조회하면 해당 언어에 적용된 값이 전체 언어 설정보다 우선하며, 동일 범주 내에서는 사용자 설정이 기본값보다 우선한다. 우선순위는 언어별 사용자, 언어별 기본값, 사용자, 기본값 순이다. 따라서 확장이 `[markdown]`에 지정한 `editor.wordWrap: "on"` 설정은 사용자가 전체 언어에 지정한 `"editor.wordWrap": "off"`보다 markdown 문서에서 우선한다. 사용자가 markdown 문서에서도 이를 비활성화하려면 `"[markdown]": { "editor.wordWrap": "off" }`를 사용한다. 이는 VS Code와 동일하다.
 
 텍스트 에디터는 보이는 모델의 언어로 `editor.*` 옵션과 탭 크기를 읽는다. 같은 칸이 다른 언어의 모델을 보이거나 모델의 언어가 바뀌면 다시 읽는다. 언어 구역에 쓸 수 있는 워크벤치 설정은 `editor.fontSize`, `editor.tabSize`, `editor.wordWrap`, `editor.lineNumbers`, `editor.minimap.enabled`, `editor.quickSuggestions`다.
 
@@ -23,17 +23,17 @@
 
 설정 서비스는 값을 얕게 검사한다: 타입(하나 또는 `["boolean", "integer"]` 같은 목록), `enum`, 수의 `minimum`과 `maximum`. 맞지 않는 사용자 값은 없는 것으로 보고 다음 층이 보인다. `items`, `properties`, `pattern` 같은 나머지 스키마는 `settings.json` 편집기의 진단만 본다.
 
-`settings.json`의 구문이 깨지면 마지막으로 유효했던 값을 계속 쓴다. 아무도 등록하지 않은 키는 원문에 그대로 남고, 나중에 그 키가 등록되면 값이 살아난다. 확장을 제거하면 그 확장이 등록한 키와 기본값이 빠지고 읽기는 `undefined`가 되며, 사용자가 써 둔 값은 원문에 남는다.
+`settings.json`의 구문 오류가 발생하면 마지막으로 유효했던 값을 계속 사용한다. 등록되지 않은 키는 원본 파일에 그대로 보존되며, 이후 해당 키가 등록되면 설정값이 다시 적용된다. 확장을 제거하면 해당 확장이 등록한 키와 기본값이 제거되어 조회 시 `undefined`가 반환되지만, 사용자가 입력해 둔 값은 원본 파일에 유지된다.
 
 ## `contributes.configuration`과 `contributes.configurationDefaults`
 
 `configuration`은 객체 하나나 객체 배열이다. 각 마디는 `title`, `order`, `properties`를 갖는다. 속성은 `type`(`string`, `number`, `integer`, `boolean`, `array`, `object`, `null` 또는 그 목록), `default`, `description`, `markdownDescription`, `enum`, `enumDescriptions`, `markdownEnumDescriptions`, `minimum`, `maximum`, `pattern`, `items`, `properties`, `additionalProperties`, `scope`, `deprecationMessage`, `order`를 받는다. `default`가 없으면 첫 타입의 기본(`""`, `0`, `false`, `[]`, `{}`, `null`)이다.
 
-- 다른 확장이나 워크벤치가 이미 등록한 키는 건너뛰고, 확장의 메시지에 `Cannot register '<키>'. This property is already registered by '<먼저 등록한 쪽>'.`을 남긴다. 먼저 등록한 쪽이 이긴다. 내장 확장이 먼저, 그다음 설치 순이다.
+- 다른 확장이나 워크벤치가 이미 등록한 키는 등록을 건너뛰고, 확장의 메시지에 `Cannot register '<키>'. This property is already registered by '<먼저 등록한 쪽>'.`을 남긴다. 먼저 등록된 설정이 우선한다. 내장 확장이 우선하며 그다음 설치 순서에 따른다.
 - 키에 `__proto__`, `prototype`, `constructor` 조각이 있으면 그 속성만 건너뛰고 경고한다. `default`가 자기 스키마의 타입, `enum`, `minimum`과 `maximum`에 맞지 않아도(`type: "string"`, `default: null`) VS Code처럼 경고 없이 그 값을 기본으로 등록한다. 그 선언된 기본값과 같은 값은 사용자 값, 언어 구역 값, `configurationDefaults`, `update`에서도 받아들인다. 키가 `[언어]` 꼴이면 언어 구역은 `configurationDefaults`로 기여하라는 경고와 함께 건너뛴다. 나머지 속성은 등록된다. 마디 자체의 모양이 틀리면(`title`이 문자열이 아니거나 `properties`가 객체가 아니면) 그 마디만 오류로 건너뛴다.
 - 메시지는 확장의 상태와 개발자 콘솔에 `contributes.configuration.properties.<키>` 경로로 남는다.
 
-`configurationDefaults`는 일반 키나 언어 구역의 기본값을 바꾼다. 등록된 속성의 타입에 맞지 않는 값은 건너뛰고 경고한다. 아직 등록되지 않은 키의 기본값은 그 키가 등록될 때 적용된다. 여러 확장이 같은 키를 바꾸면 나중에 등록한 쪽이 이긴다.
+`configurationDefaults`는 일반 키나 언어별 구역의 기본값을 변경한다. 등록된 속성의 타입에 맞지 않는 값은 적용을 건너뛰고 경고를 남긴다. 아직 등록되지 않은 키의 기본값은 해당 키가 등록될 때 적용된다. 여러 확장이 동일한 키를 변경하는 경우에는 나중에 등록한 설정이 우선한다.
 
 `settings.json` 편집기의 자동 완성과 진단은 등록된 속성에서 만든 스키마를 쓴다. 언어 구역 안의 키도 안다. 확장을 설치하거나 제거하면 스키마를 다시 만든다. 매니페스트 문자열의 `%키%`는 지역화가 풀기 전에는 원문 그대로 보인다.
 
@@ -65,7 +65,7 @@ await vscode.workspace.getConfiguration('markdown.preview').update('fontSize', 1
 - 설정 대상은 사용자 설정 하나다. `update`의 대상이 없으면 사용자 설정에 쓴다. VS Code는 대상이 없으면 워크스페이스에 쓰고, 워크스페이스가 없으면 오류다 — 이 릴리스에는 워크스페이스 설정이 없다 (wr-jbmd, wr-k5o0.ze2).
 - 아무도 등록하지 않은 키는 읽을 수 없다(`undefined`). 원문에는 남는다. VS Code는 등록되지 않은 키의 사용자 값도 돌려준다 — v0.1.0의 "등록된 설정만 적용한다"를 지킨다 (wr-k5o0.242).
 - 타입이나 `enum`, 범위에 맞지 않는 사용자 값은 기본값으로 물러서고, 그런 값의 `update`는 거부한다. VS Code는 값을 그대로 쓰고 편집기 진단으로만 알린다 — v0.1.0의 검증 규칙을 유지한다 (wr-k5o0.242).
-- 객체 값은 층 사이에서 합치지 않는다. 사용자의 객체가 기본 객체를 통째로 이긴다. VS Code는 객체 값을 층마다 깊이 합친다 — 확장이 읽는 값이 원문과 같게 하려고 플래너가 정했다 (wr-k5o0.242).
+- 객체 값은 설정 계층 간에 병합하지 않는다. 사용자 설정 객체가 기본 객체 전체를 완전히 대체하여 우선한다. VS Code는 객체 값을 층마다 깊이 합친다 — 확장이 읽는 값이 원문과 같게 하려고 플래너가 정했다 (wr-k5o0.242).
 - 언어 구역은 등록된 모든 키를 받는다. `settings.json` 스키마도 언어 구역에 모든 속성을 둔다. VS Code의 스키마는 `scope`가 `language-overridable`인 속성만 언어 구역에 둔다 — 읽기 규칙과 스키마를 하나로 맞췄다 (wr-k5o0.xqs).
 - `get`과 구역 속성이 돌려주는 객체와 배열은 깊이 얼린 복제본이다. VS Code는 고칠 수 있는 사본(쓰면 복제하는 프록시)을 돌려주므로, 읽은 객체를 고쳐 쓰는 확장은 엄격 모드에서 `TypeError`를 만난다 — 확장이 고쳐도 사본이 바뀌지 않게 했다 (wr-k5o0.ze2).
 - 이름 없이 `getConfiguration()`으로 읽은 전체 값에는 `[언어]` 구역이 속성으로 들어 있지 않다. 언어 값은 언어 범위로 읽는다 (wr-k5o0.ze2).

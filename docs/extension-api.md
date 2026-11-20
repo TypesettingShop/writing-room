@@ -1,6 +1,6 @@
 # Writing Room 확장 API
 
-Writing Room v0.2.0은 VS Code와 같은 이름과 시그니처로 웹 확장 API의 부분집합을 제공한다. 기준은 고정 커밋 `41004e061e582855eb1e99b6a6e5d52994f661be`(패키지 버전 1.148.0)의 `vscode.d.ts`이고 `vscode.version`은 `1.148.0`을 보고한다. 선언한 심볼은 upstream과 이름, 매개변수, 반환 타입이 같고, 선언하지 않은 것은 지원하지 않는 것이다. 이 페이지는 색인이다. 지원 범위의 표, 받기만 하는 API, 지원하지 않는 것, 실제 확장으로 확인한 결과를 모으고 세부는 영역 페이지에 둔다. 처음 쓰는 사람은 [시작하기](getting-started.md)를 먼저 읽는다.
+Writing Room v0.2.0은 VS Code와 동일한 명칭 및 시그니처로 웹 확장 API의 부분 집합을 제공한다. 기준은 고정 커밋 `41004e061e582855eb1e99b6a6e5d52994f661be`(패키지 버전 1.148.0)의 `vscode.d.ts`이고 `vscode.version`은 `1.148.0`을 보고한다. 선언된 심볼은 upstream과 이름, 매개변수, 반환 타입이 일치하며, 선언되지 않은 심볼은 지원 대상에서 제외된다. 이 문서는 확장 API의 색인 문서다. 지원 범위의 표, 받기만 하는 API, 지원하지 않는 것, 실제 확장으로 확인한 결과를 모으고 세부는 영역 페이지에 둔다. 처음 사용하는 경우 [시작하기](getting-started.md)를 먼저 참조한다.
 
 ## 영역별 문서
 
@@ -36,7 +36,7 @@ Writing Room v0.2.0은 VS Code와 같은 이름과 시그니처로 웹 확장 AP
 | `l10n` | 3 / 3 | `t`, `bundle`, `uri` | | [확장 런타임](extension-api-runtime.md) |
 | `tasks` | 8 / 8 | 모두 받기만 한다 | 실행하지 않는다 | 아래 받기만 하는 API |
 
-표의 수는 검사 출력에서 가져온 것이다. 검사가 예외로 허용한 선언은 27건이다(`src/vscode-dts/test/apiDeviations.json`). 모두 upstream `vscode.d.ts`에는 없는 제안 API이며 항목마다 이슈 id와 까닭이 있다. `externalUriOpener`(wr-jbmd.g2y) 18건은 vscode.simple-browser가 활성화에서 부르고, `registerMultiDocumentHighlightProvider`와 그 클래스(wr-c9d8.kxn) 9건은 받기만 한다.
+표에 기재된 수치는 적합성 검사 출력 결과를 반영한 것이다. 적합성 검사에서 예외로 허용한 선언은 총 27건이다(`src/vscode-dts/test/apiDeviations.json`). 이는 모두 upstream `vscode.d.ts`에 포함되지 않은 제안 API로, 항목별로 사유와 이슈 id가 기록되어 있다. `externalUriOpener`(wr-jbmd.g2y) 18건은 vscode.simple-browser가 활성화에서 부르고, `registerMultiDocumentHighlightProvider`와 그 클래스(wr-c9d8.kxn) 9건은 받기만 한다.
 
 ### 받기만 하는 API
 

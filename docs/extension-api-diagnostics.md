@@ -4,11 +4,11 @@
 
 ## 한눈에
 
-확장이 `vscode.languages.createDiagnosticCollection`으로 컬렉션을 만들고 리소스마다 진단을 넣으면, 확장 호스트가 진단을 마커로 바꿔 메인 스레드로 보낸다. 메인 스레드는 값을 검사해 마커 서비스(`IMarkerService`)에 넣고, 마커 서비스의 변경이 세 곳에 나타난다.
+확장이 `vscode.languages.createDiagnosticCollection`을 호출해 컬렉션을 생성하고 리소스별로 진단 정보를 설정하면, 확장 호스트가 이를 마커 데이터로 변환하여 메인 스레드로 전달한다. 메인 스레드는 데이터를 검증한 후 마커 서비스(`IMarkerService`)에 등록하며, 변경된 마커 정보는 다음 세 영역에 반영된다.
 
-- 에디터: 그 리소스의 텍스트 모델에 물결줄과 호버. 모델이 나중에 생겨도 생길 때 그린다.
-- Problems 뷰: 리소스별 목록. 행을 누르면 그 자리로 간다.
-- 상태 표시줄 왼쪽: 오류 수와 경고 수.
+- 에디터: 해당 리소스의 텍스트 모델에 물결선 밑줄과 호버 툴팁 표시. 모델이 나중에 생겨도 생길 때 그린다.
+- Problems 뷰: 리소스별 진단 목록 표시. 행을 누르면 그 자리로 간다.
+- 상태 표시줄 왼쪽: 오류 및 경고 개수 카운트 표시.
 
 ```js
 const collection = vscode.languages.createDiagnosticCollection('markdownlint');
