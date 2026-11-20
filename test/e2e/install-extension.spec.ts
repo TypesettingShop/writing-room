@@ -21,6 +21,7 @@ async function prepareInstall(page: Page, path: string): Promise<void> {
 async function install(page: Page, path: string): Promise<void> {
   await prepareInstall(page, path);
   await page.getByRole('option', { name: /Install Remote Fixture/ }).click();
+  await expect(page.getByRole('button', { name: 'Remote Fixture', exact: true })).toBeVisible();
 }
 
 test('confirms the source, restores its snapshot without requests and removes live contributions', async ({ page }) => {
@@ -147,4 +148,34 @@ test('uninstall clears the moved extension view placement and preserves other pl
 
   await install(page, 'remote');
   await expect(activity.getByRole('button', { name: 'Remote Fixture' })).toBeVisible();
+});
+
+test('waits for the installed list lock and saves the folder record before exposing its commands', async ({ page }) => {
+  await page.goto('/');
+  await prepareInstall(page, 'remote');
+  const choice = page.getByRole('option', { name: /Install Remote Fixture/ });
+  await expect(choice).toBeVisible();
+
+  const lockName = 'writing-room:extensions.user';
+  await page.evaluate(name => new Promise<void>((ready, reject) => {
+    void navigator.locks.request(name, () => new Promise<void>(release => {
+      document.addEventListener('release-install-test-lock', () => release(), { once: true });
+      ready();
+    })).catch(reject);
+  }), lockName);
+  const container = page.getByRole('button', { name: 'Remote Fixture', exact: true });
+  try {
+    await choice.click();
+    await expect.poll(() => page.evaluate(async name =>
+      (await navigator.locks.query()).pending?.some(lock => lock.name === name), lockName)).toBe(true);
+    await expect(container).toHaveCount(0);
+    expect(await installed(page)).toBeNull();
+  } finally {
+    await page.evaluate(() => { document.dispatchEvent(new Event('release-install-test-lock')); });
+  }
+
+  await expect(container).toBeVisible();
+  expect(await installed(page)).toContain('writing-room-tests.remote');
+  await runCommand(page, 'Run Remote Fixture', /Run Remote Fixture/);
+  await expect(page.getByText('Cross-origin extension ran.')).toBeVisible();
 });
