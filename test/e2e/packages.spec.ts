@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { fixtureOrigin, installedKey, prepareLocationInstall, runCommand, savedIdentifiers, savedRecords } from './packages.helpers.js';
+import type { Page } from '@playwright/test';
+import {
+  blockStorage, enterLocation, fixtureOrigin, installedKey, packageFolders, prepareLocationInstall, runCommand, savedIdentifiers,
+  savedRecords, sessionOnlyNotice, watchExtensionFailures,
+} from './packages.helpers.js';
 
 test('two tabs that install different extensions at once both keep their records', async ({ context }) => {
   const first = await context.newPage();
@@ -49,4 +53,92 @@ test('a folder URL install saved by v0.1.0 survives the schema 2 migration and s
   })]);
   await runCommand(page, 'Run Remote Fixture', /Run Remote Fixture/);
   await expect(page.getByText('Cross-origin extension ran.')).toBeVisible();
+});
+
+const activityBar = (page: Page) => page.locator('[id="workbench.parts.activitybar"]');
+const remoteChoice = (page: Page) => page.getByRole('option', { name: /^Install Remote Fixture/ });
+const vsixChoice = (page: Page) => page.getByRole('option', { name: /^Install VSIX Fixture .*writing-room-tests\.vsix-sample/ });
+
+async function uninstall(page: Page, name: RegExp): Promise<void> {
+  await runCommand(page, 'Uninstall Extension', /^Uninstall Extension/);
+  await page.getByRole('option', { name }).click();
+}
+
+test('in a window that blocks site data, extensions run, install and uninstall for the session only', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await blockStorage(page);
+  await page.goto('/');
+
+  // The built-in extension activates although the machine id lock is denied.
+  await runCommand(page, 'Hello World: Say Hello', /Hello World: Say Hello/);
+  await expect(page.getByRole('status').filter({ hasText: 'Hello from the extension host!' })).toBeVisible();
+
+  await prepareLocationInstall(page, 'remote');
+  await expect(remoteChoice(page)).toContainText(sessionOnlyNotice);
+  await remoteChoice(page).click();
+  const remote = activityBar(page).getByRole('button', { name: 'Remote Fixture' });
+  await expect(remote).toBeVisible();
+  await runCommand(page, 'Run Remote Fixture', /Run Remote Fixture/);
+  await expect(page.getByText('Cross-origin extension ran.')).toBeVisible();
+
+  await enterLocation(page, fixtureOrigin + '/vsix/sample.vsix');
+  await expect(vsixChoice(page)).toContainText(sessionOnlyNotice);
+  await vsixChoice(page).click();
+  const vsix = activityBar(page).getByRole('button', { name: 'VSIX Fixture' });
+  await expect(vsix).toBeVisible();
+  await runCommand(page, 'Run VSIX Fixture', /Run VSIX Fixture/);
+  await expect(page.getByText('VSIX extension ran.')).toBeVisible();
+
+  await uninstall(page, /Remote Fixture.*writing-room-tests\.remote/);
+  await expect(remote).toHaveCount(0);
+  await uninstall(page, /VSIX Fixture.*writing-room-tests\.vsix-sample/);
+  await expect(vsix).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Could not uninstall extension' })).toHaveCount(0);
+
+  // What was removed installs again in the same session.
+  await prepareLocationInstall(page, 'remote');
+  await remoteChoice(page).click();
+  await expect(remote).toBeVisible();
+  await enterLocation(page, fixtureOrigin + '/vsix/sample.vsix');
+  await vsixChoice(page).click();
+  await expect(vsix).toBeVisible();
+  await runCommand(page, 'Run VSIX Fixture', /Run VSIX Fixture/);
+  await expect(page.getByText('VSIX extension ran.').first()).toBeVisible();
+
+  await page.reload();
+  await expect(activityBar(page).getByRole('button', { name: 'Hello World' })).toBeVisible();
+  await expect(remote).toHaveCount(0);
+  await expect(vsix).toHaveCount(0);
+  await runCommand(page, 'Hello World: Say Hello', /Hello World: Say Hello/);
+  await expect(page.getByRole('status').filter({ hasText: 'Hello from the extension host!' })).toBeVisible();
+  expect(failures).toEqual([]);
+});
+
+test('in a tab whose storage alone fell back, a folder URL installs for the session and a package is refused first', async ({ page }) => {
+  const failures = watchExtensionFailures(page);
+  await blockStorage(page, { storageOnly: true });
+  await page.goto('/');
+
+  await prepareLocationInstall(page, 'remote');
+  await expect(remoteChoice(page)).toContainText(sessionOnlyNotice);
+  await remoteChoice(page).click();
+  await expect(activityBar(page).getByRole('button', { name: 'Remote Fixture' })).toBeVisible();
+
+  await enterLocation(page, fixtureOrigin + '/vsix/sample.vsix');
+  await expect(page.getByRole('combobox', { name: 'Could not install extension' })).toBeVisible();
+  await expect(page.getByRole('option', { name: /^OK / })).toContainText('Reload the page and try again.');
+  await expect(vsixChoice(page)).toHaveCount(0);
+  expect(await packageFolders(page)).toEqual([]);
+  expect(failures.filter(failure => failure.startsWith('pageerror'))).toEqual([]);
+});
+
+test('a window that keeps storage shows no session notice in either confirmation', async ({ page }) => {
+  await page.goto('/');
+  await prepareLocationInstall(page, 'remote');
+  await expect(remoteChoice(page)).toContainText(fixtureOrigin);
+  await expect(remoteChoice(page)).not.toContainText(sessionOnlyNotice);
+  await page.getByRole('option', { name: 'Cancel' }).click();
+  await enterLocation(page, fixtureOrigin + '/vsix/sample.vsix');
+  await expect(vsixChoice(page)).toContainText('Source: ' + fixtureOrigin + '/vsix/sample.vsix');
+  await expect(vsixChoice(page)).not.toContainText(sessionOnlyNotice);
 });

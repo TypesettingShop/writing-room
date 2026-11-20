@@ -11,12 +11,15 @@ import { BrowserFileDatabase, IndexedDBFileSystemProvider } from '../../../../..
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../../platform/files/common/files.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
-import { InMemoryStorageService, StorageScope } from '../../../../../platform/storage/common/storage.js';
+import { InMemoryStorageDatabase } from '../../../../../base/parts/storage/common/storage.js';
+import type { IStorageUpdate } from '../../../../../base/parts/storage/common/storage.js';
+import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
 import { extensionPackageCleanupAge, ExtensionPackageStore, extensionPackagesRoot, readPackageIcon } from '../../browser/extensionPackageStore.js';
 import { userExtensionsKey, WebExtensionsScannerService } from '../../browser/webExtensionsScannerService.js';
 import {
-  ExtensionManagementService, isPackageUrl, localizedDisplayName, normalizePackageUrl, sha256Hex, usesNlsPlaceholders,
+  ExtensionManagementService, isPackageUrl, localizedDisplayName, normalizePackageUrl, sessionListPackageError, sha256Hex,
+  usesNlsPlaceholders,
 } from '../../common/extensionManagementService.js';
 import type { PackageInstallConfirmation } from '../../common/extensionManagementService.js';
 
@@ -26,11 +29,10 @@ const source = { kind: 'vsix', label: 'sample.vsix' } as const;
 
 afterEach(() => vi.restoreAllMocks());
 
-function setup(provider = new InMemoryFileSystemProvider(), request: typeof fetch = fetch) {
+function setup(provider = new InMemoryFileSystemProvider(), request: typeof fetch = fetch, storage = new InMemoryStorageService()) {
   let time = Date.now();
   const files = new FileService();
   files.registerProvider(Schemas.vscodeUserData, provider);
-  const storage = new InMemoryStorageService();
   const scanner = new WebExtensionsScannerService(null, storage);
   const packages = new ExtensionPackageStore(() => time, files);
   const extensions: IExtensionDescription[] = [];
@@ -534,4 +536,122 @@ test('a package reinstall waits for queued removal before deciding which version
   await expect(reinstall).resolves.toMatchObject({ location });
   expect(reinstallConfirm).toHaveBeenCalledWith(expect.objectContaining({ existing: undefined }));
   expect(records()).toEqual([expect.objectContaining({ identifier: 'tester.sample' })]);
+});
+
+/** A storage backend that cannot be opened, or that starts failing writes, putting the storage in memory mode. */
+class FallibleDatabase extends InMemoryStorageDatabase {
+  failWrite = false;
+
+  constructor(private readonly failOpen = false) {
+    super();
+  }
+
+  override getItems(): Map<string, string> {
+    if (this.failOpen) {
+      throw new Error('access denied');
+    }
+    return super.getItems();
+  }
+
+  override updateItems(update: IStorageUpdate): void {
+    if (this.failWrite) {
+      throw new Error('quota exceeded');
+    }
+    super.updateItems(update);
+  }
+}
+
+/** Session-only files: the user data database cannot be opened. */
+function sessionFiles() {
+  return new IndexedDBFileSystemProvider(new BrowserFileDatabase(() => Promise.reject(new Error('blocked')), () => {}), Schemas.vscodeUserData);
+}
+
+/** Makes the workbench storage fall back to memory, as a failed background write does. */
+function fallBack(storage: InMemoryStorageService, database: FallibleDatabase): void {
+  database.failWrite = true;
+  storage.store('unrelated', 'value', StorageScope.PROFILE, StorageTarget.USER);
+  void storage.flush();
+  expect(storage.usesMemory).toBe(true);
+}
+
+test('in a window that blocks storage, a package installs, runs and uninstalls for the session', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(new FallibleDatabase(true));
+  const { service, confirm, confirmations, folders, records, active } = setup(sessionFiles() as never, fetch, storage);
+  const immediate = vi.spyOn(storage, 'storeImmediately');
+
+  await expect(service.installPackage(createVsix(), source, confirm)).resolves.toMatchObject({ location });
+  expect(confirmations[0].persistent).toBe(false);
+  expect(await folders()).toEqual(['tester.sample-1.0.0']);
+  expect(records()).toEqual([expect.objectContaining({ location })]);
+  expect(active.extensions.map(extension => extension.location)).toEqual([location]);
+
+  await expect(service.uninstall('tester.sample')).resolves.toBe(true);
+  expect(records()).toEqual([]);
+  expect(await folders()).toEqual([]);
+  expect(active.extensions).toEqual([]);
+
+  await expect(service.installPackage(createVsix(), source, confirm)).resolves.toMatchObject({ location });
+  expect(await folders()).toEqual(['tester.sample-1.0.0']);
+  expect(immediate).not.toHaveBeenCalled();
+});
+
+test('refuses a package before the confirmation when only the installed list is session-only', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const storage = new InMemoryStorageService(new FallibleDatabase(true));
+  const { service, confirm, folders, records, active } = setup(undefined, fetch, storage);
+  await expect(service.installPackage(createVsix(), source, confirm)).rejects.toThrow(sessionListPackageError);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(await folders()).toEqual([]);
+  expect(records()).toEqual([]);
+  expect(active.addExtension).not.toHaveBeenCalled();
+});
+
+test('refuses to move the package into persistent files when the storage falls back after the confirmation', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const database = new FallibleDatabase();
+  const storage = new InMemoryStorageService(database);
+  const { service, folders, records, active } = setup(undefined, fetch, storage);
+  const confirm = vi.fn(async (confirmation: PackageInstallConfirmation) => {
+    expect(confirmation.persistent).toBe(true);
+    fallBack(storage, database);
+    return true;
+  });
+  await expect(service.installPackage(createVsix(), source, confirm)).rejects.toThrow(sessionListPackageError);
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(await folders()).toEqual([]);
+  expect(records()).toEqual([]);
+  expect(active.addExtension).not.toHaveBeenCalled();
+});
+
+test('an uninstall after the storage fell back keeps the persistent package folder', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const database = new FallibleDatabase();
+  const storage = new InMemoryStorageService(database);
+  const { service, confirm, folders, records, active } = setup(undefined, fetch, storage);
+  await service.installPackage(createVsix(), source, confirm);
+  fallBack(storage, database);
+
+  await expect(service.uninstall('tester.sample')).resolves.toBe(true);
+  expect(records()).toEqual([]);
+  expect(active.extensions).toEqual([]);
+  expect(await folders()).toEqual(['tester.sample-1.0.0']);
+  expect(database.getItems().get(`${StorageScope.PROFILE}:${userExtensionsKey}`)).toContain(location);
+});
+
+test('refuses the record when the storage falls back while the package folder moves', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const database = new FallibleDatabase();
+  const storage = new InMemoryStorageService(database);
+  const { service, confirm, packages, records, active } = setup(undefined, fetch, storage);
+  const commit = packages.commit.bind(packages);
+  vi.spyOn(packages, 'commit').mockImplementation(async (staged, overwrite) => {
+    const committed = await commit(staged, overwrite);
+    fallBack(storage, database);
+    return committed;
+  });
+  await expect(service.installPackage(createVsix(), source, confirm)).rejects.toThrow(sessionListPackageError);
+  expect(records()).toEqual([]);
+  expect(active.addExtension).not.toHaveBeenCalled();
+  expect(database.getItems().get(`${StorageScope.PROFILE}:${userExtensionsKey}`)).toBeUndefined();
 });

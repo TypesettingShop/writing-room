@@ -35,7 +35,9 @@
 `vscode.version` 기본값은 `1.148.0`이다. `vscode.env`는 앱 이름
 `Writing Room`, 호스트 `web`, `UIKind.Web`, URI 스킴 `writing-room`
 및 현재 확장 언어를 보고한다. `machineId`는 프로필에 저장한 무작위 ID며
-`sessionId`는 페이지를 열 때마다 바뀐다.
+`sessionId`는 페이지를 열 때마다 바뀐다. 브라우저가 저장소나 Web Locks를 막은
+창, 또는 스토리지가 메모리로 물러선 탭에서는 `machineId`를 저장하지 않고 그
+페이지 동안만 같은 값을 쓴다. 그래도 확장의 활성화는 막지 않는다.
 
 `env.clipboard`는 브라우저의 읽기와 쓰기 권한을 따른다. `env.openExternal`은
 HTTP, HTTPS, mailto 주소 전체를 확인 대화상자에 보이고 승인 뒤 연다.
