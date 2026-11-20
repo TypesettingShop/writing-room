@@ -20,7 +20,24 @@ export const MainThreadStorageProxy = createProxyIdentifier<MainThreadStorageSha
 export const ExtHostStorageProxy = createProxyIdentifier<ExtHostStorageShape>('ExtHostStorage');
 
 
+/** The most one extension host log line takes, in UTF-16 code units with its line feed. */
 export const EXTENSION_HOST_LOG_LINE_LIMIT = 64 * 1024;
+
+/**
+ * Keeps a line within the limit as it is. A longer line is cut to fit with its line feed, without splitting a
+ * surrogate pair, so the next line still starts on a line of its own.
+ */
+export function boundExtensionHostLogLine(line: string): string {
+  if (line.length <= EXTENSION_HOST_LOG_LINE_LIMIT) {
+    return line;
+  }
+  let end = EXTENSION_HOST_LOG_LINE_LIMIT - 1;
+  const last = line.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) {
+    end--;
+  }
+  return line.slice(0, end) + '\n';
+}
 
 export interface MainThreadRuntimeShape {
   $logExtensionHost(line: string): Promise<void>;

@@ -190,7 +190,7 @@ test('lets a subscription use the API while an uninstalled extension disposes it
       await logChannel.click();
       await expect(output.log).not.toContainText('Subscription disposal failed');
     }
-    expect(disposals).toEqual([expect.stringMatching(/^Runtime cleanup disposed after reading \d+ workspace folders$/)]);
+    await expect.poll(() => disposals).toEqual([expect.stringMatching(/^Runtime cleanup disposed after reading \d+ workspace folders$/)]);
     expect(errors.errors).toEqual([]);
   } finally {
     errors.stop();

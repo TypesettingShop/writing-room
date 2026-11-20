@@ -324,7 +324,7 @@ test('stops waiting for deactivation after five seconds and releases its API', a
 
 /** A host whose `cleanup` extension reads the API in a subscription's dispose callback (wr-eycu.u4t). */
 function cleanupHost(options: {
-  failActivation?: boolean; failDisposal?: boolean; failDeactivation?: boolean; rejectLog?: boolean;
+  failActivation?: boolean; failDisposal?: boolean; failDeactivation?: 'throw' | 'reject'; rejectLog?: boolean;
 } = {}) {
   const channel = new MessageChannel();
   const main = new RPCProtocol(channel.port1);
@@ -385,7 +385,10 @@ function cleanupHost(options: {
       }
     },
     deactivate() {
-      if (extension.id === 'cleanup' && options.failDeactivation) {
+      if (extension.id === 'cleanup' && options.failDeactivation === 'reject') {
+        return Promise.reject(new Error('fixture deactivation'));
+      }
+      if (extension.id === 'cleanup' && options.failDeactivation === 'throw') {
         throw new Error('fixture deactivation');
       }
     },
@@ -474,7 +477,7 @@ test('keeps the API live while a failed activation disposes its subscriptions', 
 });
 
 test('logs removal failures before inactive and completes the remaining disposal even when the receiver rejects', async () => {
-  const host = cleanupHost({ failDisposal: true, failDeactivation: true, rejectLog: true });
+  const host = cleanupHost({ failDisposal: true, failDeactivation: 'throw', rejectLog: true });
   try {
     await host.start();
     await host.host.$deltaExtensions([], ['cleanup']);
@@ -505,6 +508,21 @@ test.each(['failed activation', 'host shutdown'] as const)('logs disposal failur
     ]));
     expect(host.steps).toContain('second:disposed');
     expect(host.errors.mock.calls.filter(([message]) => String(message).includes('Subscription disposal failed'))).toEqual([]);
+  } finally {
+    host.dispose();
+  }
+});
+
+// Only the host side: the workbench stops its RPC before it sends Terminate, so a restart drops these lines (wr-54me.3ou).
+test.each(['throw', 'reject'] as const)('logs a deactivation failure (%s) while the host shuts down', async failDeactivation => {
+  const host = cleanupHost({ failDeactivation });
+  try {
+    await host.start();
+    host.service.dispose();
+    await vi.waitFor(() => expect(host.logs).toEqual([
+      expect.stringContaining('[error] [cleanup] Deactivation failed: Error: fixture deactivation'),
+    ]));
+    expect(host.errors).not.toHaveBeenCalled();
   } finally {
     host.dispose();
   }
