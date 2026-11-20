@@ -3,6 +3,9 @@ import {
   problemsStatus, problemsTree, runCommand, settingsEditor, settingsTab,
 } from './diagnostics.helpers.js';
 import { expect, renderedText, test } from './fixtures.js';
+import { treeItem } from './explorer.helpers.js';
+import { expectEditorText, groups, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
+import { actionMenu, actionNames, openActionMenu } from './language-features.helpers.js';
 
 const squiggles = (page: import('@playwright/test').Page, kind: 'error' | 'warning' | 'info') =>
   settingsEditor(page).locator('.squiggly-' + kind);
@@ -174,4 +177,23 @@ test('a Problems tab that was active at reload shows the diagnostics set afterwa
   await expect(part(page, 'panel').getByText('No problems have been detected in the workspace.')).toBeVisible();
   await runCommand(page, 'Set Fixture Diagnostics');
   await expect(part(page, 'panel').getByRole('treeitem')).toHaveCount(5);
+});
+
+test('a quick fix gets the extension\'s own diagnostic, with the fields it put on it, and applies', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openWithDiagnosticsFixtures(page);
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'lint.txt', 'teh word');
+  await runCommand(page, 'Set Fixture Diagnostic With Fix');
+  await expect(problemsStatus(page, '0 errors, 1 warning')).toBeVisible({ timeout: 20_000 });
+  await treeItem(page, 'lint.txt').dblclick();
+  const group = groups(page).first();
+  await expectEditorText(group, 'teh word');
+  await group.locator('.monaco-editor .view-lines').first().click();
+  await page.keyboard.press('ControlOrMeta+Home');
+  // The provider offers the fix only from the field on its diagnostic, which a copy made from the marker lacks.
+  await openActionMenu(page);
+  await expect.poll(() => actionNames(page)).toContain('Apply the fix of FX9, Quick Fix');
+  await actionMenu(page).getByRole('option', { name: /^Apply the fix of FX9/ }).click();
+  await expectEditorText(group, 'the word');
 });

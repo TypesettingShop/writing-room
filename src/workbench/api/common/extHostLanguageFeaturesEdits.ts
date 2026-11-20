@@ -8,7 +8,7 @@ import type {
   FormattingOptionsDto, RenameLocationDto, RenameResultDto,
 } from './extHost.protocol.languageFeatures.js';
 import { CodeActionKind } from './extHostCommonTypes.js';
-import { fromMarkerData, toMarkerData } from './extHostDiagnosticTypes.js';
+import { toMarkerData } from './extHostDiagnosticTypes.js';
 import { Selection } from './extHostEditorTypes.js';
 import { isCommand, isRange, selectorToDto, textEditsToDto, workspaceEditToOperations } from './extHostLanguageConverters.js';
 import type { ExtHostLanguageFeatures, LanguageFeatureGroup } from './extHostLanguageFeatures.js';
@@ -52,7 +52,7 @@ export class RenameAdapter {
 
 /** Strings a provider gives as trigger characters; more are dropped. */
 const MAX_TRIGGER_CHARACTERS = 64;
-/** Markers handed to a code action provider, and actions of one list kept; more are dropped (as in VS Code). */
+/** Diagnostics handed to a code action provider, and actions of one list kept; more are dropped (as in VS Code). */
 const MAX_DIAGNOSTICS = 1000;
 const MAX_CODE_ACTIONS = 1000;
 /** Ranges of one ranges formatting request. */
@@ -124,14 +124,17 @@ function triggerCharacters(values: readonly unknown[]): string[] {
   return values.filter((value): value is string => typeof value === 'string' && value.length > 0).slice(0, MAX_TRIGGER_CHARACTERS);
 }
 
-/** The diagnostics of a code action context: the markers Monaco gave, with every field as it was. */
-function contextDiagnostics(markers: readonly MarkerDataDto[] | undefined): vscode.Diagnostic[] {
+/**
+ * The diagnostics of a code action context, as VS Code's code action adapter takes them: those of the
+ * document whose range meets `range` (a cursor that touches one counts), the very objects the
+ * extension host holds, so what an extension put on its diagnostic is there. Monaco's markers are not
+ * used.
+ */
+function contextDiagnostics(all: readonly vscode.Diagnostic[], range: vscode.Range): vscode.Diagnostic[] {
   const diagnostics: vscode.Diagnostic[] = [];
-  for (const marker of Array.isArray(markers) ? markers.slice(0, MAX_DIAGNOSTICS) : []) {
-    try {
-      diagnostics.push(fromMarkerData(marker));
-    } catch {
-      // A marker without a message or range is no diagnostic.
+  for (const diagnostic of all) {
+    if (range.intersection(diagnostic.range) && diagnostics.push(diagnostic) >= MAX_DIAGNOSTICS) {
+      break;
     }
   }
   return diagnostics;
@@ -320,7 +323,7 @@ export class ExtHostEdits implements ExtHostEditsShape, LanguageFeatureGroup {
       const version = document.version;
       const only = typeof context?.only === 'string' && context.only ? CodeActionKind.Empty.append(context.only) : undefined;
       const value = await adapter.provider.provideCodeActions(document, range, {
-        diagnostics: contextDiagnostics(context?.markers),
+        diagnostics: contextDiagnostics(this.features.diagnostics(document.uri), range),
         only,
         triggerKind: context?.trigger === CodeActionTriggerKind.Automatic ? CodeActionTriggerKind.Automatic : CodeActionTriggerKind.Invoke,
       }, token as vscode.CancellationToken);
