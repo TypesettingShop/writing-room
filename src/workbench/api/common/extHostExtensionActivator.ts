@@ -319,7 +319,7 @@ export class ExtensionsActivator {
           }),
         ]);
       } catch (error) {
-        extension.access?.logError?.('Deactivation failed:', error);
+        this.logError(extension, 'Deactivation failed:', error);
       } finally {
         clearTimeout(deadline);
       }
@@ -351,11 +351,20 @@ export class ExtensionsActivator {
     this.release(key);
   }
 
+  private logError(extension: Activation, message: string, error: unknown): void {
+    const logError = extension.access?.logError;
+    if (logError) {
+      logError(message, error);
+    } else {
+      console.error(`[${extension.description.id}] ${message}`, error);
+    }
+  }
+
   private disposeSubscriptions(extension: Activation): void {
     try {
       dispose(extension.subscriptions.splice(0));
     } catch (error) {
-      extension.access?.logError?.('Subscription disposal failed:', error);
+      this.logError(extension, 'Subscription disposal failed:', error);
     }
   }
 
@@ -365,9 +374,9 @@ export class ExtensionsActivator {
       if (extension.state === 'active') {
         try {
           void Promise.resolve(extension.module?.deactivate?.())
-            .catch(error => extension.access?.logError?.('Deactivation failed:', error));
+            .catch(error => this.logError(extension, 'Deactivation failed:', error));
         } catch (error) {
-          extension.access?.logError?.('Deactivation failed:', error);
+          this.logError(extension, 'Deactivation failed:', error);
         }
       }
       this.removing.add(extension);

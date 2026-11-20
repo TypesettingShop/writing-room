@@ -22,7 +22,7 @@ test('attributes a host API error to the first exact extension frame in the stac
   expect(findExtensionErrorOwner(errorWithFrames('    at async ' + first + ':5:1'), owners)).toBe('test.first');
 });
 
-test('uses an evaluated entry retained from a removed installation', () => {
+test('matches the virtual package URL of a recorded extension entry', () => {
   const error = errorWithFrames('    at fn (' + removed + ':50:12)');
   expect(findExtensionErrorOwner(error, owners)).toBe('test.removed');
 });

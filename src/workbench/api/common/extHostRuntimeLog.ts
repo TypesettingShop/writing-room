@@ -1,3 +1,4 @@
+import type { RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
 import { boundExtensionHostLogLine } from './extHost.protocol.runtime.js';
 import type { MainThreadRuntimeShape } from './extHost.protocol.runtime.js';
 import { formatLogArguments, logTimestamp } from './extHostOutput.js';
@@ -5,6 +6,11 @@ import { formatLogArguments, logTimestamp } from './extHostOutput.js';
 // Extension code shares this realm and can replace the globals.
 const NativeError = Error;
 const NativeAggregateError = AggregateError;
+const hostsWithStoppedLogDelivery = new WeakSet<RPCProtocol>();
+
+export function stopExtensionHostLogDelivery(rpc: RPCProtocol): void {
+  hostsWithStoppedLogDelivery.add(rpc);
+}
 
 function formatError(error: unknown, depth = 0): string {
   try {
@@ -24,8 +30,14 @@ function formatError(error: unknown, depth = 0): string {
 }
 
 export function logExtensionHostError(
-  main: MainThreadRuntimeShape, extensionId: string, message: string, error: unknown,
+  rpc: RPCProtocol, main: MainThreadRuntimeShape, extensionId: string, message: string, error: unknown,
 ): void {
-  const line = logTimestamp() + ' [error] [' + extensionId + '] ' + message + ' ' + formatError(error);
-  void main.$logExtensionHost(boundExtensionHostLogLine(line + '\n')).catch(() => {});
+  const messageWithStack = logTimestamp() + ' [error] [' + extensionId + '] ' + message + ' ' + formatError(error);
+  const line = boundExtensionHostLogLine(messageWithStack + '\n');
+  const reportToConsole = () => console.error(line.slice(0, -1));
+  if (hostsWithStoppedLogDelivery.has(rpc)) {
+    reportToConsole();
+  } else {
+    void main.$logExtensionHost(line).catch(reportToConsole);
+  }
 }

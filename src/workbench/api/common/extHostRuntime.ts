@@ -59,7 +59,7 @@ extHostApiRegistry.register('runtime', ({ rpc, isLive }) => {
         return {};
       }
       const { id, key, runtime } = extension;
-      access.logError = (message, error) => logExtensionHostError(main, id, message, error);
+      access.logError = (message, error) => logExtensionHostError(rpc, main, id, message, error);
       const checkLive = () => {
         if (!isLive(key)) {
           throw new Error(`Extension '${id}' is no longer active.`);

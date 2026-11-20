@@ -482,7 +482,10 @@ test('logs removal failures before inactive and completes the remaining disposal
     await host.start();
     await host.host.$deltaExtensions([], ['cleanup']);
     await host.removed;
-    expect(host.errors).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(host.errors.mock.calls).toEqual([
+      [expect.stringContaining('[cleanup] Deactivation failed: Error: fixture deactivation')],
+      [expect.stringContaining('[cleanup] Subscription disposal failed: Error: fixture disposal')],
+    ]));
     expect(host.logs).toEqual([
       expect.stringMatching(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} \[error\] \[cleanup\] Deactivation failed: Error: fixture deactivation/),
       expect.stringContaining('[error] [cleanup] Subscription disposal failed: Error: fixture disposal'),
@@ -513,7 +516,7 @@ test.each(['failed activation', 'host shutdown'] as const)('logs disposal failur
   }
 });
 
-// Only the host side: the workbench stops its RPC before it sends Terminate, so a restart drops these lines (wr-54me.3ou).
+// Only the host side with working RPC. The browser test covers a restart after the workbench stops receiving RPC.
 test.each(['throw', 'reject'] as const)('logs a deactivation failure (%s) while the host shuts down', async failDeactivation => {
   const host = cleanupHost({ failDeactivation });
   try {

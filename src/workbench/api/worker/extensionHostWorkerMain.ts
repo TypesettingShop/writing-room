@@ -3,12 +3,13 @@ import type { HostControlMessage } from '../../services/extensions/common/extens
 import { readPortMessageData, RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
 import { ExtHostExtensionService } from '../common/extHostExtensionService.js';
 import { MainThreadRuntimeProxy } from '../common/extHost.protocol.runtime.js';
-import { logExtensionHostError } from '../common/extHostRuntimeLog.js';
+import { logExtensionHostError, stopExtensionHostLogDelivery } from '../common/extHostRuntimeLog.js';
 import { extHostApiRegistry } from '../common/extHostApiRegistry.js';
 import { ExtensionGlobals } from './extHostGlobals.js';
 
 const scope = globalThis as unknown as DedicatedWorkerGlobalScope;
 const close = scope.close.bind(scope);
+const enqueueMicrotask = scope.queueMicrotask.bind(scope);
 const listen = scope.addEventListener.bind(scope);
 const logError = console.error.bind(console);
 const errorWithStackLimit = Error as ErrorConstructor & { stackTraceLimit?: number };
@@ -52,7 +53,7 @@ listen('message', ({ data, ports }) => {
         const reportError = (message: string, error: unknown) => {
           const id = globals.extensionForError(error);
           if (id) {
-            logExtensionHostError(main, id, message, error);
+            logExtensionHostError(rpc, main, id, message, error);
           } else {
             logError(message, error);
           }
@@ -70,12 +71,17 @@ listen('message', ({ data, ports }) => {
     } else if (data.kind === ExtensionHostMessage.Ping) {
       send({ kind: ExtensionHostMessage.Pong, sequence: data.sequence });
     } else if (data.kind === ExtensionHostMessage.Terminate) {
+      // The workbench has stopped accepting RPC by the time it handles the cleanup messages.
+      stopExtensionHostLogDelivery(rpc);
       try {
         service?.dispose();
-        send({ kind: ExtensionHostMessage.Terminated });
+        // An already rejected deactivate promise gets to report before the workbench terminates this Worker.
+        enqueueMicrotask(() => send({ kind: ExtensionHostMessage.Terminated }));
       } finally {
-        rpc.dispose();
-        close();
+        enqueueMicrotask(() => {
+          rpc.dispose();
+          close();
+        });
       }
     }
   });

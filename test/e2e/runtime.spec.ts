@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { diagnostics, openSettings, settingsKey } from './configuration.helpers.js';
 import { collectPageErrors } from './fixtures.js';
-import { outputView } from './window-ui.helpers.js';
+import { dismissAllToasts, outputView } from './window-ui.helpers.js';
 
 async function openCommandPalette(page: Page) {
   await page.keyboard.press('F1');
@@ -197,7 +197,7 @@ test('lets a subscription use the API while an uninstalled extension disposes it
   }
 });
 
-test('keeps deactivation and subscription errors in the host log over uninstall and host restart', async ({ page }) => {
+async function seedCleanupErrors(page: Page) {
   await seedInstalledExtensions(page, [{
     location: extensionFixtureLocation('runtime') + 'cleanup-errors/',
     manifest: {
@@ -205,6 +205,10 @@ test('keeps deactivation and subscription errors in the host log over uninstall 
       contributes: { commands: [{ command: 'runtime.cleanupErrors.ping', title: 'Ping Runtime Cleanup Errors' }] },
     },
   }]);
+}
+
+test('keeps deactivation and subscription errors in the host log over uninstall and host restart', async ({ page }) => {
+  await seedCleanupErrors(page);
   await page.goto('/');
   const errors = collectPageErrors(page);
   try {
@@ -235,6 +239,29 @@ test('keeps deactivation and subscription errors in the host log over uninstall 
     await closed;
     await expect(output.log).toContainText('[test.runtime-cleanup-errors] Subscription disposal failed:');
     expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
+});
+
+test('reports cleanup errors to the Worker console when restarting the active host', async ({ page }) => {
+  await seedCleanupErrors(page);
+  await page.goto('/');
+  const errors = collectPageErrors(page);
+  try {
+    await runRuntimeCommand(page, 'Ping Runtime Cleanup Errors');
+    await expect(page.getByText('Runtime cleanup error fixture is active')).toBeVisible();
+    await dismissAllToasts(page);
+    const closed = page.workers()[0].waitForEvent('close');
+    await runRuntimeCommand(page, 'Restart Extension Host');
+    await closed;
+
+    await expect.poll(() => errors.errors.map(error => error.split('\n')[0])).toEqual([
+      expect.stringContaining('[test.runtime-cleanup-errors] Subscription disposal failed: Error: illegal state - object is disposed'),
+      expect.stringContaining('[test.runtime-cleanup-errors] Deactivation failed: Error: Fixture deactivate failure'),
+    ]);
+    const output = await openRuntimeOutput(page);
+    await expect(workerLogChannel(output)).toHaveCount(0);
   } finally {
     errors.stop();
   }

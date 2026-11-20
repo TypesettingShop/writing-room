@@ -8,6 +8,6 @@ exports.activate = context => {
     { dispose: () => console.log('Runtime cleanup error fixture disposed its last subscription') });
 };
 
-exports.deactivate = () => {
+exports.deactivate = async () => {
   throw new Error('Fixture deactivate failure');
 };

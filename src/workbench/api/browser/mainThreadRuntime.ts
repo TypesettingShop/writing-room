@@ -66,13 +66,15 @@ export async function resolveMachineId(storage: IStorageService, lock: MachineId
   }
 }
 
+const extensionHostLogChannelId = 'workerexthost';
+
 export function appendExtensionHostLog(output: () => IOutputService, line: unknown): void {
   if (typeof line !== 'string' || !line.length) {
     return;
   }
   const service = output();
-  const channel = service.getChannel('workerexthost')
-    ?? service.registerChannel({ id: 'workerexthost', label: 'Extension Host (Worker)' });
+  const channel = service.getChannel(extensionHostLogChannelId)
+    ?? service.registerChannel({ id: extensionHostLogChannelId, label: 'Extension Host (Worker)' });
   channel.append(boundExtensionHostLogLine(line));
 }
 
