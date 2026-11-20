@@ -522,20 +522,32 @@ export class MainThreadNavigation implements MainThreadNavigationShape, IDisposa
    * contributes; a `#L12,5` fragment of a resource is the selection of the editor that opens.
    */
   private async followLink(ref: unknown): Promise<void> {
-    const entry = isIndex(ref) ? this.targets.get(ref) : undefined;
+    if (!isIndex(ref)) {
+      return;
+    }
+    const entry = this.targets.get(ref);
     const extension = entry && this.seam.extension(entry.handle);
     if (!entry || !extension) {
+      return;
+    }
+    const scheme = entry.target.scheme.toLowerCase();
+    if (EXTERNAL_SCHEMES.has(scheme)) {
+      // Monaco follows on mouseup. Let the gesture's following click finish before showing Quick Pick.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      if (this.targets.get(ref) === entry && this.seam.extension(entry.handle) === extension) {
+        await this.seam.openLink(entry.target, {});
+      }
       return;
     }
     const contributed = (extension.manifest.contributes as { commands?: unknown } | undefined)?.commands;
     const allowCommands = (Array.isArray(contributed) ? contributed : [contributed])
       .map(command => (command as { command?: unknown } | undefined)?.command)
       .filter((command): command is string => typeof command === 'string' && command.length > 0);
-    const scheme = entry.target.scheme.toLowerCase();
-    const external = EXTERNAL_SCHEMES.has(scheme) || scheme === 'command';
-    const { target, selection } = external ? { target: entry.target, selection: undefined } : fragmentSelection(entry.target);
+    const { target, selection } = scheme === 'command'
+      ? { target: entry.target, selection: undefined }
+      : fragmentSelection(entry.target);
     const opened = await this.seam.openLink(target, { allowCommands, selection });
-    if (!opened && !EXTERNAL_SCHEMES.has(scheme)) {
+    if (!opened) {
       this.seam.warn(scheme === 'command'
         ? `The link's command '${target.path}' is not one its extension contributes.`
         : `The link's target '${target.toString(true)}' could not be opened.`);
