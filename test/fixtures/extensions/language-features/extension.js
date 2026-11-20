@@ -166,6 +166,8 @@ function lint(document) {
   diagnostics.set(document.uri, found);
 }
 
+const slowActionDocuments = new WeakSet();
+
 /**
  * Quick fixes for the fixture's own diagnostics, found by source and code in the context: a preferred
  * fix listed second (Monaco shows it first), and one whose edit is computed when picked, after the
@@ -173,7 +175,30 @@ function lint(document) {
  * a disabled refactoring and a disabled organize imports.
  */
 const codeActionProvider = {
-  provideCodeActions(document, range, context) {
+  async provideCodeActions(document, range, context, token) {
+    // Only the first manual request stalls, so the replacement can open its menu.
+    if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke
+      && document.getText().includes('slowaction') && !slowActionDocuments.has(document)) {
+      if (token.isCancellationRequested) {
+        return [];
+      }
+      slowActionDocuments.add(document);
+      void vscode.window.showInformationMessage('Slow code action started');
+      await new Promise(resolve => {
+        const timer = setTimeout(() => {
+          cancellation.dispose();
+          resolve();
+        }, 1250);
+        const cancellation = token.onCancellationRequested(() => {
+          clearTimeout(timer);
+          cancellation.dispose();
+          resolve();
+        });
+      });
+      if (token.isCancellationRequested) {
+        return [];
+      }
+    }
     // Automatic light-bulb queries must not overwrite the kind of an explicit invocation.
     if (context.triggerKind === vscode.CodeActionTriggerKind.Invoke) {
       editReport.only = context.only?.value ?? 'none';
