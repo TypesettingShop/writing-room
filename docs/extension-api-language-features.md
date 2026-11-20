@@ -33,6 +33,7 @@ context.subscriptions.push(vscode.languages.registerHoverProvider({ language: 'm
 - 호출은 URI, 위치나 범위, 옵션만 싣는다. 문서 전체를 다시 보내지 않는다. 50 MiB를 넘어 동기화하지 않은 모델에는 제공자를 부르지 않는다.
 - 좌표: API는 0 기반, Monaco는 1 기반이다. 변환은 `extHostTypeConverters.ts`(`rangeToEditor`, `rangeFromEditor`)에서 한다. 접기의 줄 번호도 같다.
 - Monaco가 토큰을 취소하면 취소가 RPC를 건너 제공자의 토큰에 닿는다. 취소되면 확장 호스트는 제공자를 기다리지 않고 대체값으로 답하고, 취소 뒤에 온 결과는 캐시에 남기지 않는다.
+- 수동 코드 액션의 응답을 처리한 뒤 현재 위치의 전구를 갱신한다. 수동 요청을 시작한 뒤 5초 동안 자동 상태보다 수동 상태를 우선한다. 이 시간이 지나도록 자동 요청을 보류했다면 현재 위치에서 다시 요청하여 Monaco 기본 순서로 상태를 바꾼다. 새 수동 요청, 제공자 등록 변경, 편집기 닫기는 진행 중인 요청을 바로 취소한다. 자동 요청이 물을 범위가 없을 때도 Monaco가 빈 상태를 바로 넣어 진행 중인 수동 요청이 취소된다. 전구 설정은 Monaco 기본값 `onCode`이고 설정으로 바꿀 수 없으므로, 커서가 빈 줄에 있거나 양옆이 공백일 때(줄의 처음과 끝에서는 있는 쪽 한 글자만 본다. 들여쓴 줄의 첫 칸이 그렇다)다.
 - 한 제공자가 던지면 확장의 공개 식별자와 함께 로그하고 대체값을 준다. 다른 제공자의 결과는 그대로 나온다.
 - 결과 캐시(완성 목록, 코드 액션 목록, 코드 렌즈와 링크, 인레이 힌트, 워크스페이스 기호의 답)는 확장 호스트에 id로 남고, Monaco가 목록을 버리면(위젯이 닫히거나 다시 묻는다) 풀린다. 결과의 커맨드는 확장 호스트에 남고 참조 번호만 건너간다. 메인은 호스트마다 Monaco 커맨드 하나로 그 참조를 실행한다.
 - 등록은 `Disposable`, 확장의 제거, 호스트의 종료에서 풀린다. Monaco 등록 수와 캐시가 원래대로 돌아간다.
@@ -88,6 +89,7 @@ Monaco 독립 실행형에 화면이 없는 제공자다. 등록은 받아 `Disp
 
 ## Deviations from VS Code
 
+- VS Code는 자동 상태로의 교체를 500ms 미루고 그때 진행 중인 수동 코드 액션도 취소한다. Writing Room은 요청을 시작한 뒤 5초까지 수동 응답을 우선하고, 응답을 처리한 뒤 현재 위치의 전구를 다시 조회한다. 제공자가 끝내 응답하지 않아도 전구를 갱신할 수 있도록 5초 뒤에는 자동 요청이 Monaco 기본 순서로 들어가 수동 요청을 취소할 수 있다 (wr-v2p8.i95).
 - 의미 토큰은 등록과 토큰을 받지만 테마가 의미 토큰 색을 주지 않아 화면에는 보이지 않는다 (wr-c9d8.rj2).
 - `vscode.executeDocumentSymbolProvider`의 결과는 `DocumentSymbol`의 하위 클래스(`location`, `containerName`이 더 있다)다. VS Code는 `SymbolInformation`의 하위 클래스를 준다 (wr-c9d8.rj2).
 - API 커맨드에 열리지 않은 문서의 URI를 주면 문서를 열지 않고 빈 결과를 준다. VS Code는 문서를 연다 (wr-c9d8.rj2).
@@ -97,4 +99,4 @@ Monaco 독립 실행형에 화면이 없는 제공자다. 등록은 받아 `Disp
 - 받기만 하는 제공자 아홉은 불리지 않는다(위 표) (wr-c9d8.kxn).
 - 저장할 때 서식과 코드 액션, 리팩터링 미리 보기, 붙여넣기 서식이 없다 (wr-c9d8.08x).
 
-Decided in: wr-efqx.n9k, wr-c9d8, wr-c9d8.7u8, wr-c9d8.w6j, wr-c9d8.08x, wr-c9d8.rj2, wr-c9d8.qq0, wr-c9d8.kxn, wr-ykn8
+Decided in: wr-efqx.n9k, wr-c9d8, wr-c9d8.7u8, wr-c9d8.w6j, wr-c9d8.08x, wr-c9d8.rj2, wr-c9d8.qq0, wr-c9d8.kxn, wr-ykn8, wr-v2p8
