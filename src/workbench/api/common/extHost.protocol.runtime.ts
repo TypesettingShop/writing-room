@@ -20,7 +20,10 @@ export const MainThreadStorageProxy = createProxyIdentifier<MainThreadStorageSha
 export const ExtHostStorageProxy = createProxyIdentifier<ExtHostStorageShape>('ExtHostStorage');
 
 
+export const EXTENSION_HOST_LOG_LINE_LIMIT = 64 * 1024;
+
 export interface MainThreadRuntimeShape {
+  $logExtensionHost(line: string): Promise<void>;
   $asBrowserUri(key: string, value: string, forWorker: boolean): Promise<string>;
   $getLocalization(key: string): Promise<{ json: string; uri: string } | undefined>;
   $getEnvironment(key: string): Promise<{ machineId: string; sessionId: string }>;

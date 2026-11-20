@@ -3,6 +3,8 @@ import { expect, test, vi } from 'vitest';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
 import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js';
 import { ExtHostContext, MainContext } from '../../common/extHost.protocol.js';
+import { MainThreadRuntimeProxy } from '../../common/extHost.protocol.runtime.js';
+import type { MainThreadRuntimeShape } from '../../common/extHost.protocol.runtime.js';
 import { ExtHostExtensionService } from '../../common/extHostExtensionService.js';
 
 function deferred() {
@@ -321,7 +323,9 @@ test('stops waiting for deactivation after five seconds and releases its API', a
 });
 
 /** A host whose `cleanup` extension reads the API in a subscription's dispose callback (wr-eycu.u4t). */
-function cleanupHost(options: { failActivation?: boolean } = {}) {
+function cleanupHost(options: {
+  failActivation?: boolean; failDisposal?: boolean; failDeactivation?: boolean; rejectLog?: boolean;
+} = {}) {
   const channel = new MessageChannel();
   const main = new RPCProtocol(channel.port1);
   const worker = new RPCProtocol(channel.port2);
@@ -330,6 +334,16 @@ function cleanupHost(options: { failActivation?: boolean } = {}) {
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
   let cleanupApi!: typeof import('vscode');
   let observerApi!: typeof import('vscode');
+  const logs: string[] = [];
+  main.set(MainThreadRuntimeProxy, {
+    async $logExtensionHost(line: string) {
+      logs.push(line);
+      steps.push('log');
+      if (options.rejectLog) {
+        throw new Error('Log receiver is unavailable');
+      }
+    },
+  } as MainThreadRuntimeShape);
   main.set(MainContext.MainThreadExtensionService, {
     async $setActivationStatus(key, status) {
       steps.push(key + ':' + status.state);
@@ -361,16 +375,24 @@ function cleanupHost(options: { failActivation?: boolean } = {}) {
           }
           api.commands.registerCommand('late-in-dispose', () => {});
           steps.push('first:disposed');
+          if (options.failDisposal) {
+            throw new Error('fixture disposal');
+          }
         },
       }, { dispose: () => steps.push('second:disposed') });
       if (options.failActivation) {
         throw new Error('expected failure');
       }
     },
+    deactivate() {
+      if (extension.id === 'cleanup' && options.failDeactivation) {
+        throw new Error('fixture deactivation');
+      }
+    },
   }));
   const host = main.getProxy(ExtHostContext.ExtHostExtensionService);
   return {
-    steps, removed: removed.promise, errors, host, service,
+    steps, removed: removed.promise, errors, logs, host, service,
     get api() { return cleanupApi; },
     async start() {
       // The closing host disposes in this order, so the observer is still live during the cleanup.
@@ -409,6 +431,7 @@ test('keeps the API live while a removed extension disposes its subscriptions, t
     await host.host.$deltaExtensions([], ['cleanup']);
     await host.removed;
     expect(host.errors).not.toHaveBeenCalled();
+    expect(host.logs).toEqual([]);
     expect(split(host.steps)).toEqual([
       cleanupSteps, ['late-in-dispose:registered', 'late-in-dispose:unregistered', 'cleanup:inactive'],
     ]);
@@ -425,6 +448,7 @@ test('keeps the API live while a closing host disposes the subscriptions', async
     host.service.dispose();
     await vi.waitFor(() => expect(host.steps).toContain('late-in-dispose:unregistered'));
     expect(host.errors).not.toHaveBeenCalled();
+    expect(host.logs).toEqual([]);
     expect(split(host.steps)).toEqual([cleanupSteps, ['late-in-dispose:registered', 'late-in-dispose:unregistered']]);
     expect(() => host.api.workspace.workspaceFolders).toThrow("Extension 'cleanup' is no longer active.");
   } finally {
@@ -442,7 +466,45 @@ test('keeps the API live while a failed activation disposes its subscriptions', 
     ]]);
     expect(host.errors).toHaveBeenCalledWith(expect.stringContaining('Could not activate cleanup'));
     expect(host.errors.mock.calls.filter(([message]) => String(message).includes('Subscription disposal failed'))).toEqual([]);
+    expect(host.logs).toEqual([]);
     expect(() => host.api.workspace.workspaceFolders).toThrow("Extension 'cleanup' is no longer active.");
+  } finally {
+    host.dispose();
+  }
+});
+
+test('logs removal failures before inactive and completes the remaining disposal even when the receiver rejects', async () => {
+  const host = cleanupHost({ failDisposal: true, failDeactivation: true, rejectLog: true });
+  try {
+    await host.start();
+    await host.host.$deltaExtensions([], ['cleanup']);
+    await host.removed;
+    expect(host.errors).not.toHaveBeenCalled();
+    expect(host.logs).toEqual([
+      expect.stringMatching(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} \[error\] \[cleanup\] Deactivation failed: Error: fixture deactivation/),
+      expect.stringContaining('[error] [cleanup] Subscription disposal failed: Error: fixture disposal'),
+    ]);
+    expect(split(host.steps)).toEqual([
+      cleanupSteps, ['log', 'late-in-dispose:registered', 'log', 'late-in-dispose:unregistered', 'cleanup:inactive'],
+    ]);
+  } finally {
+    host.dispose();
+  }
+});
+
+test.each(['failed activation', 'host shutdown'] as const)('logs disposal failures during %s', async path => {
+  const failActivation = path === 'failed activation';
+  const host = cleanupHost({ failActivation, failDisposal: true });
+  try {
+    await host.start();
+    if (!failActivation) {
+      host.service.dispose();
+    }
+    await vi.waitFor(() => expect(host.logs).toEqual([
+      expect.stringContaining('[cleanup] Subscription disposal failed: Error: fixture disposal'),
+    ]));
+    expect(host.steps).toContain('second:disposed');
+    expect(host.errors.mock.calls.filter(([message]) => String(message).includes('Subscription disposal failed'))).toEqual([]);
   } finally {
     host.dispose();
   }

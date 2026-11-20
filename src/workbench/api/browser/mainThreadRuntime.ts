@@ -6,7 +6,8 @@ import { loadExtensionBundle } from '../../services/extensions/browser/extension
 import { URI } from '../../../base/common/uri.js';
 import { EXTERNAL_SCHEMES, IOpenerService } from '../../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
-import { ExtHostStorageProxy, MainThreadRuntimeProxy, MainThreadStorageProxy } from '../common/extHost.protocol.runtime.js';
+import { IOutputService } from '../../services/output/common/output.js';
+import { EXTENSION_HOST_LOG_LINE_LIMIT, ExtHostStorageProxy, MainThreadRuntimeProxy, MainThreadStorageProxy } from '../common/extHost.protocol.runtime.js';
 import { IExtensionStorage, MainThreadStorage } from './mainThreadStorage.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 
@@ -65,6 +66,16 @@ export async function resolveMachineId(storage: IStorageService, lock: MachineId
   }
 }
 
+export function appendExtensionHostLog(output: () => IOutputService, line: unknown): void {
+  if (typeof line !== 'string' || !line.length) {
+    return;
+  }
+  const service = output();
+  const channel = service.getChannel('workerexthost')
+    ?? service.registerChannel({ id: 'workerexthost', label: 'Extension Host (Worker)' });
+  channel.append(line.slice(0, EXTENSION_HOST_LOG_LINE_LIMIT));
+}
+
 mainThreadCustomers.register('runtime', ({ rpc, instantiation, getExtension }) => {
   const state = instantiation.invokeFunction(accessor => accessor.get(IExtensionStorage));
   const storage = new MainThreadStorage(state, getExtension, rpc.getProxy(ExtHostStorageProxy),
@@ -81,6 +92,9 @@ mainThreadCustomers.register('runtime', ({ rpc, instantiation, getExtension }) =
     }
   };
   rpc.set(MainThreadRuntimeProxy, {
+    async $logExtensionHost(line) {
+      appendExtensionHostLog(() => instantiation.invokeFunction(accessor => accessor.get(IOutputService)), line);
+    },
     async $asBrowserUri(key, value, forWorker) {
       check(key);
       if (typeof forWorker !== 'boolean') {

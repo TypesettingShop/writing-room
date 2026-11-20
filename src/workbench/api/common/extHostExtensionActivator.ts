@@ -24,6 +24,7 @@ class Activation {
   });
   readonly subscriptions: vscode.ExtensionContext['subscriptions'] = [];
   readonly context: BaseExtensionContext;
+  access?: ExtensionActivationAccess;
   module?: IExtensionModule;
   exports?: unknown;
   readonly commands = new Set<string>();
@@ -47,6 +48,7 @@ export interface ExtensionActivationAccess {
   readonly getExtension: (id: string) => vscode.Extension<unknown> | undefined;
   readonly onDidChange: vscode.Event<void>;
   prepare?: () => Promise<void>;
+  logError?: (message: string, error: unknown) => void;
 }
 
 export const extensionActivation = new WeakMap<HostExtensionDescription, ExtensionActivationAccess>();
@@ -259,7 +261,7 @@ export class ExtensionsActivator {
         await this.activateDependencies(extension);
         abort.signal.throwIfAborted();
         if (description.entry) {
-          const access = this.catalog(extension);
+          const access = extension.access = this.catalog(extension);
           extensionActivation.set(description, access);
           const { api, context } = this.createApi(description, () => {
             if (!this.isLive(description.key)) {
@@ -317,7 +319,7 @@ export class ExtensionsActivator {
           }),
         ]);
       } catch (error) {
-        console.error(`[${id}] Deactivation failed:`, error);
+        extension.access?.logError?.('Deactivation failed:', error);
       } finally {
         clearTimeout(deadline);
       }
@@ -353,7 +355,7 @@ export class ExtensionsActivator {
     try {
       dispose(extension.subscriptions.splice(0));
     } catch (error) {
-      console.error(`[${extension.description.id}] Subscription disposal failed:`, error);
+      extension.access?.logError?.('Subscription disposal failed:', error);
     }
   }
 
@@ -362,9 +364,10 @@ export class ExtensionsActivator {
       extension.abort.abort();
       if (extension.state === 'active') {
         try {
-          void Promise.resolve(extension.module?.deactivate?.()).catch(() => {});
-        } catch {
-          // The host is closing and releases every extension below.
+          void Promise.resolve(extension.module?.deactivate?.())
+            .catch(error => extension.access?.logError?.('Deactivation failed:', error));
+        } catch (error) {
+          extension.access?.logError?.('Deactivation failed:', error);
         }
       }
       this.removing.add(extension);
