@@ -100,8 +100,10 @@ test.describe('language registry and language mode', () => {
     await activeEditor(page).focus();
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press(blockCommentKey);
-    await page.waitForTimeout(300);
-    expect(await editorText(page)).toBe('alpha');
+    // The editor handles keys in order, so the typed text shows the toggle's result: a comment that still applied
+    // keeps its delimiters around `x`, and a key that missed the editor leaves `alpha`.
+    await page.keyboard.type('x');
+    await expect.poll(() => editorText(page)).toBe('x');
   });
 
   test('never reads a configuration path that leaves the extension folder', async ({ page }) => {
