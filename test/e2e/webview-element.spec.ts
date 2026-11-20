@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { collectPageErrors } from './fixtures.js';
 import { bundleWebviewHarness, openWebviewHarness } from './webview-harness.helpers.js';
 
 let harnessCode: string;
@@ -132,4 +133,38 @@ test('renders with scripts disabled and shows same-origin configuration errors',
   await openWebviewHarness(page, '/?template=' + encodeURIComponent(appOrigin), harnessCode);
   await expect(page.locator('.webview-element').getByRole('status')).toContainText('separate origin');
   await expect(page.locator('iframe')).toHaveCount(0);
+});
+
+test('renders and rerenders content whose base is a Webview resource without a shell console error', async ({ page }) => {
+  // The real Markdown preview writes <base href="${asWebviewUri(document)}"> (wr-eycu.5b8).
+  const root = 'http://127.0.0.1:' + process.env.E2E_EXTENSIONS_PORT + '/webview';
+  await openWebviewHarness(page, '/', harnessCode);
+  const errors = collectPageErrors(page);
+  try {
+    const base = await page.evaluate(root => {
+      const harness = (window as any).harness;
+      const base = harness.asWebviewUri(root + '/page.html');
+      const render = (label: string) => harness.set('<!doctype html><html><head><base href="' + base + '"></head>'
+        + '<body><img alt="Relative icon" src="icon-dark.png"><p>' + label + '</p></body></html>', true, root);
+      (window as any).renderWithBase = render;
+      render('First render');
+      return base;
+    }, root);
+    expect(new URL(base).origin).toBe(new URL((await page.locator('iframe[title="Webview"]').getAttribute('src'))!).origin);
+
+    const content = page.frameLocator('iframe[title="Webview"]').frameLocator('iframe[title="Webview content"]');
+    for (const label of ['First render', 'Second render']) {
+      if (label !== 'First render') {
+        await page.evaluate(label => (window as any).renderWithBase(label), label);
+      }
+      await expect(content.getByText(label)).toBeVisible();
+      expect(await content.locator('body').evaluate(body => body.ownerDocument.baseURI)).toBe(base);
+      const image = content.getByRole('img', { name: 'Relative icon' });
+      await expect.poll(() => image.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBeGreaterThan(0);
+      expect(await image.evaluate((image: HTMLImageElement) => image.currentSrc)).toBe(new URL('icon-dark.png', base).href);
+    }
+    expect(errors.errors).toEqual([]);
+  } finally {
+    errors.stop();
+  }
 });
