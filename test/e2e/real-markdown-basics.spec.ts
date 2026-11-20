@@ -1,41 +1,18 @@
 // Acceptance of the master epic (wr-jbmd.eke): two real Open VSX packages with no code, `vscode.markdown` 1.95.3 and
 // `GitHub.github-vscode-theme` 6.3.5, installed unchanged from the Extensions view out of the fixture gallery
 // (test/fixtures/routes/openvsx.mjs serves the pinned, signed cache), then used, kept over a reload and removed.
-import type { Page, Route } from '@playwright/test';
-import { readPins } from '../../scripts/lib/real-extensions.mjs';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
 import { treeItem } from './explorer.helpers.js';
 import { waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { activeGroup, editorText, languageStatus, pasteText, toggleBlockCommentUntil } from './language-basics.helpers.js';
-import { fixtureOrigin, packageFolders, savedRecords } from './packages.helpers.js';
-import { requireRealExtensions } from './real-extensions.helpers.js';
+import { packageFolders, savedRecords } from './packages.helpers.js';
+import {
+  installedExtensions, installFromGallery, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
+} from './real-extensions.helpers.js';
 import { chooseTheme, colorVariable, editorBackground, openThemePicker, persistedSettings, rgb } from './themes.helpers.js';
 
 test.use({ viewport: { width: 1280, height: 800 } });
-
-const registry = 'https://open-vsx.org';
-const cdn = 'https://openvsx.eclipsecontent.org';
-const fixtureService = fixtureOrigin + '/openvsx';
-const fixtureContent = 'http://localhost:' + process.env.E2E_EXTENSIONS_PORT + '/openvsx-content';
-
-/**
- * Answers the product's Open VSX requests from the fixture gallery. The fixture names its own origin in the URLs it
- * returns; they are put back on open-vsx.org, so the product's default gallery and its host checks are the ones in use.
- * The redirect to the second host is followed here: browser routing intercepts only the first hop.
- */
-async function answerFromFixtureGallery(route: Route): Promise<void> {
-  const url = new URL(route.request().url());
-  const target = url.origin === cdn ? fixtureContent + url.pathname.replace(/^\/openvsx-content/, '') : fixtureService + url.pathname;
-  const response = await route.fetch({ url: target + url.search, maxRedirects: 0 });
-  const location = response.headers()['location'];
-  if (response.status() === 302 && location) {
-    await route.fulfill({ response: await route.fetch({ url: location }) });
-  } else if ((response.headers()['content-type'] ?? '').startsWith('application/json')) {
-    await route.fulfill({ response, body: (await response.text()).replaceAll(fixtureService, registry) });
-  } else {
-    await route.fulfill({ response });
-  }
-}
 
 /**
  * The messages logged under the two extensions' own ids (`[vscode.markdown] …`, `[github.github-vscode-theme] …`),
@@ -50,10 +27,6 @@ const allowedMessages = [
 ];
 
 const tab = (page: Page, name: string) => page.getByRole('tab', { name, exact: true });
-const search = (page: Page) => page.getByRole('searchbox', { name: 'Search Open VSX' });
-const results = (page: Page) => page.getByRole('list', { name: 'Open VSX search results' });
-const installed = (page: Page) => page.getByRole('list', { name: 'Installed extensions' });
-const uninstallButton = (page: Page, name: RegExp) => installed(page).getByRole('button', { name });
 const suggestions = (page: Page) => activeGroup(page).locator('.suggest-widget');
 const boldSnippet = (page: Page) => suggestions(page).getByRole('option').filter({ hasText: 'Insert bold text' });
 const markdownName = /^Uninstall Markdown Language Basics/;
@@ -112,33 +85,11 @@ async function expectBoldSnippetRows(page: Page, rows: number): Promise<void> {
   await expect(boldSnippet(page)).toHaveCount(rows);
 }
 
-async function openExtensions(page: Page): Promise<void> {
-  await page.keyboard.press('ControlOrMeta+Shift+x');
-  await expect(search(page)).toBeFocused();
-}
-
-/** Searches the gallery, installs the row that has `rowText`, and returns the confirmation's text before accepting it. */
-async function installFromGallery(page: Page, query: string, rowText: string, installedName: RegExp): Promise<string> {
-  await openExtensions(page);
-  await search(page).fill(query);
-  await results(page).getByRole('listitem').filter({ hasText: rowText }).getByRole('button', { name: /^Install / }).click();
-  const confirmation = page.getByRole('option', { name: /^Install / });
-  await expect(confirmation).toBeVisible();
-  const text = await confirmation.innerText();
-  await confirmation.click();
-  await expect(uninstallButton(page, installedName)).toBeVisible();
-  return text;
-}
-
 test('installs vscode.markdown and the GitHub theme from the gallery, uses them, keeps them over a reload and removes them', async ({ page }) => {
   requireRealExtensions();
   test.setTimeout(180_000);
-  const pins = await readPins();
-  const markdownPin = pins.extensions.find(pin => pin.id === 'vscode.markdown');
-  const themePin = pins.extensions.find(pin => pin.id === 'GitHub.github-vscode-theme');
-  if (!markdownPin || !themePin) {
-    throw new Error('pins.json has no vscode.markdown or GitHub.github-vscode-theme release.');
-  }
+  const markdownPin = await realPin('vscode.markdown');
+  const themePin = await realPin('GitHub.github-vscode-theme');
   const messages: string[] = [];
   page.on('console', message => {
     if (/^\[(vscode\.markdown|github\.github-vscode-theme)\]/i.test(message.text())) {
@@ -151,7 +102,7 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
       wasm.push(response.status());
     }
   });
-  await page.route(url => url.origin === registry || url.origin === cdn, answerFromFixtureGallery);
+  await routeFixtureGallery(page);
 
   // v0.1.0's default theme: the TextMate grammar draws text in editor.foreground, Monaco's built-in tokenizer in vs-dark's.
   const textMateText = rgb('#d7dfec');
@@ -189,7 +140,7 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
     expect(confirmation).toContain('Source: open-vsx.org');
     expect(confirmation).toContain('SHA-256: ' + markdownPin.vsix.sha256);
     expect(confirmation).toContain(`Signature: verified (${markdownPin.publicKey})`);
-    await expect(installed(page).getByRole('listitem').filter({ hasText: 'vscode.markdown · 1.95.3 · Open VSX' })).toBeVisible();
+    await expect(installedExtensions(page).getByRole('listitem').filter({ hasText: 'vscode.markdown · 1.95.3 · Open VSX' })).toBeVisible();
     expect(await savedRecords(page)).toEqual([expect.objectContaining({
       identifier: 'vscode.markdown', version: '1.95.3', source: 'gallery', signature: 'verified', packageSha256: markdownPin.vsix.sha256,
     })]);
