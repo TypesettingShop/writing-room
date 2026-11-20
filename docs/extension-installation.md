@@ -88,6 +88,7 @@ SHA-256은 언제나 실제로 설치할 VSIX 바이트에서 계산하고 갤�
 
 - 확인 화면이 알리는 문구는 "Browser storage is unavailable: the extension stays for this session only."다. 폴더 URL 설치의 확인 항목도 같은 문구를 출처 뒤에 보인다. 정상 창의 확인 화면에는 없다.
 - 목록이 세션에만 있는 탭의 패키지 설치는 "Workbench storage is unavailable in this tab, so a package cannot be kept here. Reload the page and try again."으로 끝난다. 확인 화면을 띄우기 전에 정하고, 확인한 뒤 폴더를 옮기기 직전에 그 탭이 메모리 모드가 되었어도 같은 오류로 끝나며 임시 폴더를 지운다. 폴더를 옮기는 동안 메모리 모드가 되어도 기록을 쓰기 전에 같은 오류로 끝나고, 옮긴 폴더는 다음 정상 시작의 정리가 기록과 대어 본다. 패키지 파일을 세션에만 둘 길이 없고, 영속 저장소에 풀면 이 탭이 볼 수 없는 기록의 폴더를 덮어쓰거나 주인 없는 폴더를 남기기 때문이다.
+- 세션 안내 없이 확인한 설치가 확정 직전에 세션에만 남을 상태가 되면 "Browser storage became unavailable after the confirmation, so the extension was not installed. Install it again to keep it for this session only."로 끝난다. 폴더 URL에서 목록이 물러선 경우와 패키지에서 파일이 물러선 경우에 적용한다. 거부된 설치의 등록, 목록 기록과 세션의 패키지 파일은 남지 않는다. 교체 설치였다면 기존 버전을 다시 등록한다. 이 탭에서 다시 시도하면 확인 화면에 세션 안내가 나온다.
 - 세션에만 있는 목록은 영속 저장소의 것을 지우는 근거가 되지 않는다. 제거, 버전 교체 뒤의 옛 폴더, 목록 쓰기 실패나 등록 실패 뒤의 되돌리기 모두 파일이 영속이면 패키지 폴더를 남긴다. 시작 정리는 메모리 모드에서 건너뛴다(콘솔에 건너뛴다는 경고가 남는다). 남은 폴더는 다음 정상 시작의 정리가 기록과 대어 본다.
 - 메모리 모드에서 제거한 확장은 그 탭의 다른 상태처럼 새로고침하면 저장된 목록에서 다시 돌아올 수 있다. 따로 알리지 않는다.
 
@@ -142,4 +143,4 @@ VSIX와 패키지 저장소도 이 계약을 따른다. 커맨드 아이콘은 �
 - `IStorageService.keys(scope)`는 해당 범위에서 이 탭이 캐시한 키의 사본을 돌려준다. VS Code는 `keys(scope, target?)`에 선택 인자로 저장 타깃을 받는다. Writing Room은 저장 타깃을 기록하지 않는다(wr-s9ew).
 - 메모리 모드에서 확장 상태를 그 탭에만 저장하는 동작은 VS Code와 같다. Writing Room의 이전 동작과 달라진 점은 쓰기 실패 뒤의 상태 수명이다. 이전에는 영속 공간이 다시 확보되면 새로고침 뒤에도 그 상태를 읽을 수 있었다. 이제 메모리 모드로 물러선 뒤에 쓴 값은 새로고침하면 사라진다(wr-s9ew).
 
-Decided in: wr-efqx.n9k, wr-efqx.x8c, wr-l3ch.285, wr-l3ch.amu, wr-l3ch.9fi, wr-jfx7, wr-uz4j, wr-s9ew
+Decided in: wr-efqx.n9k, wr-efqx.x8c, wr-l3ch.285, wr-l3ch.amu, wr-l3ch.9fi, wr-jfx7, wr-uz4j, wr-s9ew, wr-d16b

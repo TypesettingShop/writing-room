@@ -126,6 +126,9 @@ export interface LocationInstallConfirmation {
 export const sessionListPackageError = 'Workbench storage is unavailable in this tab, so a package cannot be kept here.'
   + ' Reload the page and try again.';
 
+export const installLifetimeChangedError = 'Browser storage became unavailable after the confirmation, so the extension was not installed.'
+  + ' Install it again to keep it for this session only.';
+
 export interface PackageInstallOptions {
   readonly signal?: AbortSignal;
   /** The display language whose `package.nls.<language>.json` is read besides `package.nls.json`. */
@@ -357,7 +360,8 @@ export class ExtensionManagementService {
     this.ensureAvailable(identifier, this.scanner.scanUserExtensions());
     const nls = usesNlsPlaceholders(manifest) ? await this.loadNls(location) : undefined;
     const description = toExtensionDescription({ identifier, location: location.href, manifest, nls });
-    if (!await confirm(description, { persistent: !this.scanner.sessionOnly })) {
+    const confirmedPersistent = !this.scanner.sessionOnly;
+    if (!await confirm(description, { persistent: confirmedPersistent })) {
       return undefined;
     }
     const record: StoredWebExtension = {
@@ -376,6 +380,9 @@ export class ExtensionManagementService {
           const installed = read();
           if (installed.some(entry => entry.identifier === identifier)) {
             throw new Error(`'${identifier}' is already installed. Uninstall it before replacing it.`);
+          }
+          if (confirmedPersistent && this.scanner.sessionOnly) {
+            throw new Error(installLifetimeChangedError);
           }
           await write([...installed, record]);
         });
@@ -495,7 +502,7 @@ export class ExtensionManagementService {
     await this.changes;
     const previous = this.scanner.scanUserExtensions().find(entry => entry.identifier === identifier);
     // Refused before the confirmation, so nobody accepts an install that cannot happen.
-    const persistent = await this.packageLifetime();
+    const persistent = this.packageLifetime(await this.packages.isPersistent());
     const confirmed = await confirm({
       identifier, manifest, displayName: localizedDisplayName(manifest, nls), source, size: bytes.byteLength, sha256, signature, engine,
       isWebExtension: gallery !== undefined || manifest.browser !== undefined,
@@ -512,23 +519,23 @@ export class ExtensionManagementService {
       packageSha256: sha256, signature, ...(nls ? { nls } : {}),
       ...(gallery ? { galleryUrl: gallery.release.download } : {}),
     };
-    return this.serialize(() => this.commitPackage(pkg, record, previous, preloaded, signal));
+    return this.serialize(() => this.commitPackage(pkg, record, previous, persistent, preloaded, signal));
   }
 
   /**
    * True when both the installed list and the package files persist, false when the install lasts for this
    * session. Throws when only the list is session-only, which leaves no way to keep the package files to it.
    */
-  private async packageLifetime(): Promise<boolean> {
-    const filesPersist = await this.packages.isPersistent();
-    if (this.scanner.sessionOnly && filesPersist) {
+  private packageLifetime(filesPersist: boolean): boolean {
+    const listSessionOnly = this.scanner.sessionOnly;
+    if (listSessionOnly && filesPersist) {
       throw new Error(sessionListPackageError);
     }
-    return filesPersist && !this.scanner.sessionOnly;
+    return filesPersist && !listSessionOnly;
   }
 
   private async commitPackage(
-    pkg: VsixPackage, record: StoredWebExtension, previous: StoredWebExtension | undefined,
+    pkg: VsixPackage, record: StoredWebExtension, previous: StoredWebExtension | undefined, confirmedPersistent: boolean,
     preloaded: ReadonlyMap<VsixFile, Uint8Array<ArrayBuffer>>, signal: AbortSignal | undefined,
   ): Promise<IExtensionDescription> {
     const { identifier, location } = record;
@@ -562,7 +569,10 @@ export class ExtensionManagementService {
         }
         // The storage can fall back to memory after the confirmation. A session-only list must not move a
         // package into persistent files, where it could replace a folder that a record this tab cannot see uses.
-        const persistent = await this.packageLifetime();
+        const persistent = this.packageLifetime(await this.packages.isPersistent());
+        if (confirmedPersistent && !persistent) {
+          throw new Error(installLifetimeChangedError);
+        }
         // Only `current` can name this identifier and version. A folder there that it does not use is left
         // over from an interrupted install or a failed removal, and is replaced rather than blocking the install.
         await this.packages.commit(staged, true);

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, expect, test, vi } from 'vitest';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Schemas } from '../../../../../base/common/network.js';
@@ -7,18 +8,19 @@ import { URI } from '../../../../../base/common/uri.js';
 import type { GalleryDownload, GalleryExtensionVersion } from '../../../../../platform/extensionManagement/common/extensionGalleryService.js';
 import { createVsix, sampleManifest } from '../../../../../platform/extensionManagement/test/common/vsixTestUtils.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
-import { BrowserFileDatabase, IndexedDBFileSystemProvider } from '../../../../../platform/files/browser/indexedDBFileSystemProvider.js';
+import { BrowserFileDatabase, FILE_DATABASE_NAME, FILE_DATABASE_VERSION, IndexedDBFileSystemProvider } from '../../../../../platform/files/browser/indexedDBFileSystemProvider.js';
 import { FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../../platform/files/common/files.js';
+import type { IFileSystemProvider } from '../../../../../platform/files/common/files.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { InMemoryStorageDatabase } from '../../../../../base/parts/storage/common/storage.js';
 import type { IStorageUpdate } from '../../../../../base/parts/storage/common/storage.js';
-import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { InMemoryStorageService, storageKey, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
 import { extensionPackageCleanupAge, ExtensionPackageStore, extensionPackagesRoot, readPackageIcon } from '../../browser/extensionPackageStore.js';
 import { userExtensionsKey, WebExtensionsScannerService } from '../../browser/webExtensionsScannerService.js';
 import {
-  ExtensionManagementService, isPackageUrl, localizedDisplayName, normalizePackageUrl, sessionListPackageError, sha256Hex,
+  ExtensionManagementService, installLifetimeChangedError, isPackageUrl, localizedDisplayName, normalizePackageUrl, sessionListPackageError, sha256Hex,
   usesNlsPlaceholders,
 } from '../../common/extensionManagementService.js';
 import type { PackageInstallConfirmation } from '../../common/extensionManagementService.js';
@@ -29,7 +31,7 @@ const source = { kind: 'vsix', label: 'sample.vsix' } as const;
 
 afterEach(() => vi.restoreAllMocks());
 
-function setup(provider = new InMemoryFileSystemProvider(), request: typeof fetch = fetch, storage = new InMemoryStorageService()) {
+function setup(provider: IFileSystemProvider = new InMemoryFileSystemProvider(), request: typeof fetch = fetch, storage = new InMemoryStorageService()) {
   let time = Date.now();
   const files = new FileService();
   files.registerProvider(Schemas.vscodeUserData, provider);
@@ -577,7 +579,7 @@ function fallBack(storage: InMemoryStorageService, database: FallibleDatabase): 
 test('in a window that blocks storage, a package installs, runs and uninstalls for the session', async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   const storage = new InMemoryStorageService(new FallibleDatabase(true));
-  const { service, confirm, confirmations, folders, records, active } = setup(sessionFiles() as never, fetch, storage);
+  const { service, confirm, confirmations, folders, records, active } = setup(sessionFiles(), fetch, storage);
   const immediate = vi.spyOn(storage, 'storeImmediately');
 
   await expect(service.installPackage(createVsix(), source, confirm)).resolves.toMatchObject({ location });
@@ -654,4 +656,82 @@ test('refuses the record when the storage falls back while the package folder mo
   expect(records()).toEqual([]);
   expect(active.addExtension).not.toHaveBeenCalled();
   expect(database.getItems().get(`${StorageScope.PROFILE}:${userExtensionsKey}`)).toBeUndefined();
+});
+
+test.each([false, true])('rejects an install after IndexedDB falls back (list also falls back: %s)', async listAlsoFallsBack => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const idb = new IDBFactory();
+  vi.stubGlobal('indexedDB', idb);
+  vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+  const filesDatabase = new BrowserFileDatabase();
+  const provider = new IndexedDBFileSystemProvider(filesDatabase, Schemas.vscodeUserData);
+  const database = new FallibleDatabase();
+  const storage = new InMemoryStorageService(database);
+  const { service, packages, folders, records, active } = setup(provider, fetch, storage);
+  const commit = vi.spyOn(packages, 'commit');
+  const discard = vi.spyOn(packages, 'discard');
+  const confirm = async (confirmation: PackageInstallConfirmation) => {
+    expect(confirmation.persistent).toBe(true);
+    await new Promise<void>((resolve, reject) => {
+      const request = idb.open(FILE_DATABASE_NAME, FILE_DATABASE_VERSION + 1);
+      request.onsuccess = () => {
+        request.result.close();
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('The first connection did not close after versionchange.'));
+    });
+    if (listAlsoFallsBack) {
+      fallBack(storage, database);
+    }
+    return true;
+  };
+
+  try {
+    await expect(service.installPackage(createVsix(), source, confirm)).rejects.toThrow(installLifetimeChangedError);
+    expect(provider.usesMemory).toBe(true);
+    expect(storage.usesMemory).toBe(listAlsoFallsBack);
+    expect(commit).not.toHaveBeenCalled();
+    expect(discard).toHaveBeenCalledOnce();
+    expect(await folders()).toEqual([]);
+    expect(records()).toEqual([]);
+    expect(database.getItems().get(storageKey(StorageScope.PROFILE, userExtensionsKey))).toBeUndefined();
+    expect(active.addExtension).not.toHaveBeenCalled();
+  } finally {
+    provider.dispose();
+    filesDatabase.dispose();
+    storage.dispose();
+    vi.unstubAllGlobals();
+  }
+});
+
+test.each(['1.0.0', '1.1.0'])('restores the previous registration when a confirmed package %s loses persistence', async version => {
+  const { service, confirm, storage, packages, files, records, folders, active } = setup();
+  const entry = URI.parse(location + 'dist/web.js');
+  const original = createVsix({ files: { 'dist/web.js': 'original bytes' } });
+  const replacement = createVsix({ manifest: { ...sampleManifest, version }, files: { 'dist/web.js': 'replacement bytes' } });
+  try {
+    const oldDescription = await service.installPackage(original, source, confirm);
+    const oldRecord = records()[0];
+    const savedList = storage.getPersisted(userExtensionsKey, StorageScope.PROFILE);
+    active.addExtension.mockClear();
+    const persistence = vi.spyOn(packages, 'isPersistent');
+    const confirmReplacement = async (confirmation: PackageInstallConfirmation) => {
+      expect(confirmation).toMatchObject({ persistent: true, existing: { version: '1.0.0' } });
+      persistence.mockResolvedValue(false);
+      return true;
+    };
+
+    await expect(service.installPackage(replacement, source, confirmReplacement)).rejects.toThrow(installLifetimeChangedError);
+    expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('tester.sample');
+    expect(active.addExtension).toHaveBeenCalledExactlyOnceWith(oldDescription);
+    expect(active.extensions).toEqual([oldDescription]);
+    expect(records()).toEqual([oldRecord]);
+    expect(storage.getPersisted(userExtensionsKey, StorageScope.PROFILE)).toBe(savedList);
+    expect(await folders()).toEqual(['tester.sample-1.0.0']);
+    expect(new TextDecoder().decode((await files.readFile(entry)).value)).toBe('original bytes');
+  } finally {
+    files.dispose();
+    storage.dispose();
+  }
 });

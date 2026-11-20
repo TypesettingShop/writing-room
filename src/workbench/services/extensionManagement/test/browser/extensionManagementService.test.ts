@@ -3,12 +3,12 @@ import { DeferredPromise } from '../../../../../base/common/async.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import type { IExtensionDescription } from '../../../../../platform/extensions/common/extensions.js';
 import { InMemoryStorageDatabase } from '../../../../../base/parts/storage/common/storage.js';
-import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { InMemoryStorageService, storageKey, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullExtensionService } from '../../../extensions/common/extensions.js';
 import { ExtensionPackageStore } from '../../browser/extensionPackageStore.js';
 import { userExtensionsKey, WebExtensionsScannerService } from '../../browser/webExtensionsScannerService.js';
-import { ExtensionManagementService, normalizeExtensionLocation } from '../../common/extensionManagementService.js';
+import { ExtensionManagementService, installLifetimeChangedError, normalizeExtensionLocation } from '../../common/extensionManagementService.js';
 
 const location = 'http://127.0.0.1:5000/ext/';
 const manifest = { name: 'fixture', publisher: 'Example', version: '1.0.0', browser: 'entry.js' };
@@ -230,4 +230,35 @@ test('tells the folder URL confirmation that a persistent list keeps the install
   const confirm = vi.fn(async () => false);
   await service.installFromLocation(location, confirm);
   expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: true });
+});
+
+test('rejects a confirmed persistent folder URL install if the list falls back and allows a session-only retry', async () => {
+  const database = new InMemoryStorageDatabase();
+  const storage = new InMemoryStorageService(database);
+  const { scanner, active, service } = setup(undefined, storage);
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    await expect(service.installFromLocation(location, async (_extension, lifetime) => {
+      expect(lifetime).toEqual({ persistent: true });
+      vi.spyOn(database, 'updateItems').mockImplementationOnce(() => { throw new Error('quota exceeded'); });
+      storage.store('unrelated', 'value', StorageScope.PROFILE, StorageTarget.USER);
+      await storage.flush();
+      expect(storage.usesMemory).toBe(true);
+      return true;
+    })).rejects.toThrow(installLifetimeChangedError);
+
+    expect(scanner.scanUserExtensions()).toEqual([]);
+    expect(database.getItems().get(storageKey(StorageScope.PROFILE, userExtensionsKey))).toBeUndefined();
+    expect(active.extensions).toEqual([]);
+    expect(active.removeExtension).toHaveBeenCalledExactlyOnceWith('example.fixture');
+
+    const retry = vi.fn(async () => true);
+    await expect(service.installFromLocation(location, retry)).resolves.toMatchObject({ location });
+    expect(retry).toHaveBeenCalledExactlyOnceWith(expect.anything(), { persistent: false });
+    expect(scanner.scanUserExtensions()).toEqual([expect.objectContaining({ identifier: 'example.fixture' })]);
+  } finally {
+    warning.mockRestore();
+    vi.restoreAllMocks();
+    storage.dispose();
+  }
 });
