@@ -98,3 +98,22 @@ export class SignatureHelp implements vscode.SignatureHelp {
   activeSignature = 0;
   activeParameter = 0;
 }
+
+// --- Formatting, code actions and rename (wr-c9d8.08x) -------------------------------------------
+
+export enum CodeActionTriggerKind { Invoke = 1, Automatic = 2 }
+
+export class CodeAction implements vscode.CodeAction {
+  title: string;
+  edit?: vscode.WorkspaceEdit;
+  diagnostics?: vscode.Diagnostic[];
+  command?: vscode.Command;
+  kind?: vscode.CodeActionKind;
+  isPreferred?: boolean;
+  disabled?: { readonly reason: string };
+
+  constructor(title: string, kind?: vscode.CodeActionKind) {
+    this.title = title;
+    this.kind = kind;
+  }
+}

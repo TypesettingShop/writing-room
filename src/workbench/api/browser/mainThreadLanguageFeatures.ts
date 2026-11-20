@@ -6,10 +6,12 @@ import type { IMonacoTextModel, MonacoNamespace } from '../../../editor/browser/
 import type { LanguageFilter, LanguageSelector } from '../../../editor/common/languageSelector.js';
 import { MODEL_SYNC_LIMIT } from '../../../editor/common/model.js';
 import { IModelService } from '../../../editor/common/services/model.js';
+import { INotificationService } from '../../../platform/notification/common/notification.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { waitForBuiltinLanguage } from '../../services/language/browser/monacoLanguages.js';
 import { mainThreadCustomers } from './mainThreadCustomers.js';
 import { createMainThreadCompletions } from './mainThreadLanguageFeaturesCompletions.js';
+import { createMainThreadEdits } from './mainThreadLanguageFeaturesEdits.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from '../common/extHost.protocol.languageFeatures.js';
 import type {
   CommandDto, ExtHostLanguageFeaturesShape, LanguageConfigurationDto, MainThreadLanguageFeaturesSeamShape, RegExpDto,
@@ -30,7 +32,7 @@ const MAX_SELECTOR_STRING = 1024;
 export type MainThreadLanguageFeatureGroupFactory = (seam: MainThreadLanguageFeatures) => object & Partial<IDisposable>;
 
 /** The workbench's feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [createMainThreadCompletions];
+const groupFactories: readonly MainThreadLanguageFeatureGroupFactory[] = [createMainThreadCompletions, createMainThreadEdits];
 
 function selectorString(value: unknown): string | undefined {
   if (value === undefined) {
@@ -173,6 +175,8 @@ export interface MainThreadLanguageFeaturesOptions {
   readonly monaco: () => Promise<MonacoNamespace>;
   /** Waits until Monaco has set up a built-in language; the default asks the package. */
   readonly waitForLanguage?: (monaco: MonacoNamespace, languageId: string) => Promise<void>;
+  /** Shows the user a warning (a code action that could not be applied); the default logs it. */
+  readonly warn?: (message: string) => void;
 }
 
 /** Monaco's `languages.Command`. */
@@ -244,6 +248,15 @@ export class MainThreadLanguageFeatures implements MainThreadLanguageFeaturesSea
         this.registrations.delete(handle);
       }
       throw error;
+    }
+  }
+
+  /** Tells the user something a feature could not do. */
+  warn(message: string): void {
+    if (this.options.warn) {
+      this.options.warn(message);
+    } else {
+      console.warn(message);
     }
   }
 
@@ -388,10 +401,11 @@ export function createMainThreadLanguageFeatures(
 }
 
 mainThreadCustomers.register('languageFeatures', ({ rpc, instantiation, getExtension }) => {
-  const models = instantiation.invokeFunction(accessor => accessor.get(IModelService));
+  const [models, notifications] = instantiation.invokeFunction(accessor => [accessor.get(IModelService), accessor.get(INotificationService)] as const);
   const monaco = whenMonacoLoaded(models);
   const features = createMainThreadLanguageFeatures(rpc.getProxy(ExtHostLanguageFeaturesProxy), getExtension, {
     monaco: () => monaco.promise,
+    warn: message => notifications.warn(message),
   });
   rpc.set(MainThreadLanguageFeaturesProxy, features.handlers as unknown as MainThreadLanguageFeaturesSeamShape);
   return {

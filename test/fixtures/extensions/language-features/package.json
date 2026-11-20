@@ -43,6 +43,11 @@
         "command": "languageFeaturesFixture.register",
         "title": "Register Providers",
         "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportEdits",
+        "title": "Report Edits",
+        "category": "Language Features"
       }
     ]
   }

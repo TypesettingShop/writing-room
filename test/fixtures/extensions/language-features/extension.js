@@ -106,12 +106,173 @@ const signatureHelpProvider = {
   },
 };
 
+// --- Formatting, code actions and rename -----------------------------------------------------------
+
+/** What the edit providers saw and did, for `languageFeaturesFixture.reportEdits`. */
+const editReport = { formatted: 0, ranges: [] };
+
+/** The document formatter: runs of spaces become one. A document holding `slowformat` answers late. */
+const documentFormatter = {
+  async provideDocumentFormattingEdits(document, options) {
+    const slow = document.getText().includes('slowformat');
+    if (slow) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    editReport.formatted++;
+    const edits = [];
+    for (let line = 0; line < document.lineCount; line++) {
+      const text = document.lineAt(line).text;
+      for (const match of text.matchAll(/ {2,}/g)) {
+        edits.push(vscode.TextEdit.replace(new vscode.Range(line, match.index, line, match.index + match[0].length), ' '));
+      }
+    }
+    editReport.options = options.tabSize + '/' + options.insertSpaces;
+    return edits;
+  },
+};
+
+/** The range formatter: `fmt` becomes `FMT` on the lines of the range. */
+const rangeFormatter = {
+  provideDocumentRangeFormattingEdits(document, range) {
+    editReport.ranges.push(range.start.line + '-' + range.end.line);
+    const edits = [];
+    for (let line = range.start.line; line <= range.end.line; line++) {
+      for (const match of document.lineAt(line).text.matchAll(/\bfmt\b/g)) {
+        edits.push(vscode.TextEdit.replace(new vscode.Range(line, match.index, line, match.index + 3), 'FMT'));
+      }
+    }
+    return edits;
+  },
+};
+
+const lintSource = 'fixture-lint';
+const lintRule = { value: 'FX1', target: vscode.Uri.parse('https://example.test/rules/FX1') };
+const diagnostics = vscode.languages.createDiagnosticCollection('language-features-fixture');
+
+/** Flags each `teh` of an `lftest` document. */
+function lint(document) {
+  if (document.languageId !== 'lftest') {
+    return;
+  }
+  const found = [];
+  for (let line = 0; line < document.lineCount; line++) {
+    for (const match of document.lineAt(line).text.matchAll(/\bteh\b/g)) {
+      const diagnostic = new vscode.Diagnostic(new vscode.Range(line, match.index, line, match.index + 3), 'Misspelled: teh', vscode.DiagnosticSeverity.Warning);
+      diagnostic.source = lintSource;
+      diagnostic.code = lintRule;
+      found.push(diagnostic);
+    }
+  }
+  diagnostics.set(document.uri, found);
+}
+
+/**
+ * Quick fixes for the fixture's own diagnostics, found by source and code in the context: a preferred
+ * fix listed second (Monaco shows it first), and one whose edit is computed when picked, after the
+ * document changed, so it must not apply nor run its command. When a kind is asked for, a source action,
+ * a disabled refactoring and a disabled organize imports.
+ */
+const codeActionProvider = {
+  provideCodeActions(document, range, context) {
+    editReport.only = context.only ? context.only.value : 'none';
+    const actions = [];
+    for (const diagnostic of context.diagnostics) {
+      if (diagnostic.source !== lintSource || typeof diagnostic.code !== 'object' || diagnostic.code.value !== 'FX1'
+        || diagnostic.code.target.toString() !== lintRule.target.toString()) {
+        continue;
+      }
+      const other = new vscode.CodeAction('Replace with ten', vscode.CodeActionKind.QuickFix);
+      other.diagnostics = [diagnostic];
+      other.edit = new vscode.WorkspaceEdit();
+      other.edit.replace(document.uri, diagnostic.range, 'ten');
+      const fix = new vscode.CodeAction('Fix typo: the', vscode.CodeActionKind.QuickFix);
+      fix.diagnostics = [diagnostic];
+      fix.isPreferred = true;
+      fix.edit = new vscode.WorkspaceEdit();
+      fix.edit.replace(document.uri, diagnostic.range, 'the');
+      fix.command = { command: 'languageFeaturesFixture.fixed', title: 'Fixed', arguments: [{ callback: () => 'kept' }] };
+      const stale = new vscode.CodeAction('Stale fix', vscode.CodeActionKind.QuickFix);
+      stale.diagnostics = [diagnostic];
+      stale.data = { uri: document.uri, range: diagnostic.range };
+      actions.push(other, fix, stale);
+    }
+    if (context.only) {
+      // Offered when a kind is asked for, whatever kind: Monaco shows only those of that kind.
+      const organize = new vscode.CodeAction('Organize fixture', vscode.CodeActionKind.Source.append('organizeFixture'));
+      organize.command = { command: 'languageFeaturesFixture.fixed', title: 'Organized' };
+      const extract = new vscode.CodeAction('Extract fixture block', vscode.CodeActionKind.RefactorExtract);
+      extract.disabled = { reason: 'Select a fixture block first' };
+      const imports = new vscode.CodeAction('Organize fixture imports', vscode.CodeActionKind.SourceOrganizeImports);
+      imports.disabled = { reason: 'Nothing to organize in the fixture' };
+      actions.push(organize, extract, imports);
+    }
+    return actions;
+  },
+  async resolveCodeAction(action) {
+    if (action.data) {
+      // The document changes before the edit is made: the edit was computed for the old version.
+      const before = new vscode.WorkspaceEdit();
+      before.insert(action.data.uri, new vscode.Position(0, 0), '#');
+      await vscode.workspace.applyEdit(before);
+      action.edit = new vscode.WorkspaceEdit();
+      action.edit.replace(action.data.uri, action.data.range, 'stale');
+      action.command = { command: 'languageFeaturesFixture.fixed', title: 'Stale' };
+    }
+    return action;
+  },
+};
+
+const renamedFile = vscode.Uri.parse('vscode-vfs://writing-room/workspace/renamed.lft');
+
+/** Renames a word in the document and in the workspace file `renamed.lft`; `locked` cannot be renamed. */
+const renameProvider = {
+  prepareRename(document, position) {
+    const range = document.getWordRangeAtPosition(position);
+    if (!range) {
+      throw new Error('Nothing to rename here');
+    }
+    const word = document.getText(range);
+    if (word === 'locked') {
+      throw new Error('The fixture cannot rename locked');
+    }
+    return { range, placeholder: word + 'Placeholder' };
+  },
+  async provideRenameEdits(document, position, newName) {
+    const word = document.getText(document.getWordRangeAtPosition(position));
+    const edit = new vscode.WorkspaceEdit();
+    const replaceAll = target => {
+      for (let line = 0; line < target.lineCount; line++) {
+        for (const match of target.lineAt(line).text.matchAll(new RegExp('\\b' + word + '\\b', 'g'))) {
+          edit.replace(target.uri, new vscode.Range(line, match.index, line, match.index + word.length), newName);
+        }
+      }
+    };
+    replaceAll(document);
+    if (document.uri.toString() !== renamedFile.toString()) {
+      try {
+        replaceAll(await vscode.workspace.openTextDocument(renamedFile));
+      } catch {
+        // No second file in this workspace.
+      }
+    }
+    return edit;
+  },
+};
+
 /** Registers every provider of the fixture; the disposables take them back. */
 const providers = () => [
   vscode.languages.registerCompletionItemProvider(selector, completionProvider, '.'),
   vscode.languages.registerHoverProvider(selector, hoverProvider),
   vscode.languages.registerHoverProvider(selector, secondHoverProvider),
   vscode.languages.registerSignatureHelpProvider(selector, signatureHelpProvider, { triggerCharacters: ['('], retriggerCharacters: [','] }),
+  vscode.languages.registerDocumentFormattingEditProvider(selector, documentFormatter),
+  vscode.languages.registerDocumentRangeFormattingEditProvider(selector, rangeFormatter),
+  vscode.languages.registerCodeActionsProvider(selector, codeActionProvider, {
+    providedCodeActionKinds: [
+      vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.Source, vscode.CodeActionKind.SourceOrganizeImports, vscode.CodeActionKind.RefactorExtract,
+    ],
+  }),
+  vscode.languages.registerRenameProvider(selector, renameProvider),
 ];
 
 module.exports.activate = context => {
@@ -137,6 +298,17 @@ module.exports.activate = context => {
     const counts = [...resolved].map(([label, count]) => label + '=' + count).join(', ');
     return vscode.window.showInformationMessage('Resolved: ' + counts + '; cache while open: ' + cacheWhileOpen
       + '; cache now: ' + cacheNow + '; hover commands: ' + hoverCommandRuns);
+  }));
+  context.subscriptions.push(diagnostics);
+  vscode.workspace.textDocuments.forEach(lint);
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(lint));
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => lint(event.document)));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.fixed', first =>
+    vscode.window.showInformationMessage('Fixed by command: ' + (typeof first?.callback === 'function' ? first.callback() : 'no argument'))));
+  context.subscriptions.push(vscode.commands.registerCommand('languageFeaturesFixture.reportEdits', async () => {
+    const cached = await vscode.commands.executeCommand('_workbench.languageFeatures.codeActionCacheSize');
+    return vscode.window.showInformationMessage('Edits: formatted ' + editReport.formatted + '; ranges ' + editReport.ranges.join(',')
+      + '; options ' + editReport.options + '; only ' + editReport.only + '; code actions cached ' + cached);
   }));
   // Not awaited: the message stays until it is dismissed, and activation must not wait for that.
   void vscode.window.showInformationMessage('Language features fixture activated');

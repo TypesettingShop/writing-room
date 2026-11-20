@@ -8,7 +8,8 @@ import { RPCProtocol } from '../../../services/extensions/common/rpcProtocol.js'
 import { createMainThreadLanguageFeatures } from '../../browser/mainThreadLanguageFeatures.js';
 import type { MainThreadLanguageFeatureGroupFactory } from '../../browser/mainThreadLanguageFeatures.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy } from '../../common/extHost.protocol.languageFeatures.js';
-import type { DocumentSnapshot } from '../../common/extHost.protocol.documents.js';
+import { MainThreadBulkEditsProxy } from '../../common/extHost.protocol.documents.js';
+import type { DocumentSnapshot, MainThreadBulkEditsShape, WorkspaceEditOperation } from '../../common/extHost.protocol.documents.js';
 import type { ExtHostCommands } from '../../common/extHostCommands.js';
 import { ExtHostDocuments } from '../../common/extHostDocuments.js';
 import { createLanguageFeaturesArea } from '../../common/extHostLanguageFeatures.js';
@@ -145,15 +146,31 @@ export async function createLanguageFeatureTestHost(options: LanguageFeatureTest
     },
   } as unknown as ExtHostCommands;
   const host = createLanguageFeaturesArea(worker, documents, commands, key => live.has(key), options.hostGroups);
+  /** The warnings the workbench showed the user. */
+  const warnings: string[] = [];
   const workbench = createMainThreadLanguageFeatures(main.getProxy(ExtHostLanguageFeaturesProxy),
     key => live.has(key) ? testExtensions[key] : undefined,
-    { monaco: options.monaco ?? (async () => fake.monaco), waitForLanguage: async () => {} }, options.mainGroups);
+    { monaco: options.monaco ?? (async () => fake.monaco), waitForLanguage: async () => {}, warn: message => warnings.push(message) }, options.mainGroups);
   main.set(MainThreadLanguageFeaturesProxy, workbench.handlers as never);
+  /**
+   * A bulk edit on the workbench side that records what the extension host asked it to apply and answers
+   * with `answer` (applied, by default).
+   */
+  const bulkEdits = {
+    calls: [] as { extension: string; operations: WorkspaceEditOperation[]; isRefactoring?: boolean }[],
+    answer: (_operations: WorkspaceEditOperation[]): boolean | Promise<boolean> => true,
+  };
+  main.set(MainThreadBulkEditsProxy, {
+    $applyWorkspaceEdit: async (extension, operations, isRefactoring) => {
+      bulkEdits.calls.push({ extension, operations, isRefactoring });
+      return bulkEdits.answer(operations);
+    },
+  } satisfies MainThreadBulkEditsShape);
   /** The `languages` functions the groups give one extension. */
   const api = (key: string) => Object.assign({}, ...host.groups.map(group => group.api(testExtensions[key]))) as typeof vscode.languages;
   const disposables: IDisposable[] = [];
   return {
-    ...fake, host, features: host.features, workbench, seam: workbench.seam, api, live, sent, documents, executed, main, worker,
+    ...fake, host, features: host.features, workbench, seam: workbench.seam, api, live, sent, documents, executed, main, worker, bulkEdits, warnings,
     document: (uri: URI) => documents.getByUri(uri as unknown as vscode.Uri)!,
     dispose: () => {
       for (const disposable of disposables) {

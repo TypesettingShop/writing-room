@@ -91,3 +91,42 @@ export const hoverWidget = (page: Page): Locator => activeGroup(page).locator('.
 /** Monaco's parameter hints of the active editor, and the parameter it marks as active. */
 export const parameterHints = (page: Page): Locator => activeGroup(page).locator('.parameter-hints-widget');
 export const activeParameter = (page: Page): Locator => parameterHints(page).locator('.signature .parameter.active');
+
+// --- Formatting, code actions and rename ---------------------------------------------------------
+
+/** Runs the fixture's report of its edit providers and gives its message. */
+export async function reportEdits(page: Page): Promise<string> {
+  await runCommand(page, 'Language Features: Report Edits');
+  const toast = message(page, /^Edits: /).last();
+  await expect(toast).toBeVisible({ timeout: 10_000 });
+  const text = (await toast.innerText()).split('\n').find(line => line.startsWith('Edits: '))!;
+  await page.getByRole('region', { name: text }).getByRole('button', { name: 'Dismiss message' }).click();
+  await activeEditor(page).focus();
+  return text;
+}
+
+/** Monaco's code action menu (quick fixes, refactorings, source actions). */
+export const actionMenu = (page: Page): Locator => page.getByRole('listbox', { name: 'Action Widget' });
+
+/** The labels of the code action menu's entries, in display order. */
+export const actionNames = (page: Page): Promise<string[]> =>
+  actionMenu(page).getByRole('option').evaluateAll(options => options.map(option => option.getAttribute('aria-label') ?? ''));
+
+/**
+ * Opens the code action menu with `key` (Ctrl+. for quick fixes) until it shows: the fixture's
+ * diagnostics and providers arrive a moment after the language does.
+ */
+export async function openActionMenu(page: Page, key = 'ControlOrMeta+.'): Promise<void> {
+  await expect.poll(async () => {
+    if (!await actionMenu(page).isVisible()) {
+      await page.keyboard.press(key);
+    }
+    return actionMenu(page).isVisible({ timeout: 1000 }).catch(() => false);
+  }, { timeout: 20_000, intervals: [500, 1000] }).toBe(true);
+}
+
+/** Monaco's rename input of the active editor. */
+export const renameInput = (page: Page): Locator => activeGroup(page).getByRole('textbox', { name: /^Rename input/ });
+
+/** An inline message of the active editor (Monaco's, where a provider's refusal shows). */
+export const editorMessage = (page: Page, text: string): Locator => activeGroup(page).locator('.monaco-editor-overlaymessage').filter({ hasText: text });

@@ -5,6 +5,8 @@ import { URI } from '../../../base/common/uri.js';
 import { score } from '../../../editor/common/languageSelector.js';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import type { RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
+import { MainThreadBulkEditsProxy } from './extHost.protocol.documents.js';
+import type { MainThreadBulkEditsShape } from './extHost.protocol.documents.js';
 import { ExtHostLanguageFeaturesProxy, MainThreadLanguageFeaturesProxy, mergeHandlers } from './extHost.protocol.languageFeatures.js';
 import type {
   CommandDto, ExtHostLanguageFeaturesSeamShape, LanguageSelectorDto, MainThreadLanguageFeaturesShape,
@@ -16,6 +18,7 @@ import { languageConfigurationToDto, selectorFromDto, selectorToDto } from './ex
 import { Disposable } from './extHostTypes.js';
 import { setLanguageWordPattern } from './extHostLanguageWordPatterns.js';
 import { createCompletionsGroup } from './extHostLanguageFeaturesCompletions.js';
+import { createEditsGroup } from './extHostLanguageFeaturesEdits.js';
 
 /*
  * The seam every language feature provider goes through.
@@ -48,7 +51,7 @@ export interface LanguageFeatureGroup {
 export type LanguageFeatureGroupFactory = (features: ExtHostLanguageFeatures) => LanguageFeatureGroup;
 
 /** The feature groups, in the order of their members. Each group file exports its factory. */
-const groupFactories: readonly LanguageFeatureGroupFactory[] = [createCompletionsGroup];
+const groupFactories: readonly LanguageFeatureGroupFactory[] = [createCompletionsGroup, createEditsGroup];
 
 export enum IndentAction { None = 0, Indent = 1, IndentOutdent = 2, Outdent = 3 }
 export enum SyntaxTokenType { Other = 0, Comment = 1, String = 2, RegEx = 3 }
@@ -78,6 +81,8 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
     private readonly documents: ExtHostDocuments,
     readonly commands: ExtHostCommands,
     private readonly isLive: (key: string) => boolean,
+    /** The bulk edit of the documents area: the one way a provider's workspace edit is applied. */
+    readonly bulkEdits: MainThreadBulkEditsShape,
   ) {}
 
   /** The registrations the host keeps, for tests that look for leaks. */
@@ -126,6 +131,12 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
   document(extension: HostExtensionDescription, uri: URI): vscode.TextDocument | undefined {
     const document = URI.isUri(uri) ? this.documents.getByUri(uri as unknown as vscode.Uri) : undefined;
     return document && !document.isClosed && this.documents.canRead(extension.key, document) ? document : undefined;
+  }
+
+  /** The version of the host's copy of a document, if it has one open. */
+  version(uri: URI): number | undefined {
+    const document = URI.isUri(uri) ? this.documents.getByUri(uri as unknown as vscode.Uri) : undefined;
+    return document && !document.isClosed ? document.version : undefined;
   }
 
   /**
@@ -255,7 +266,8 @@ export function createLanguageFeaturesArea(
   rpc: RPCProtocol, documents: ExtHostDocuments, commands: ExtHostCommands, isLive: (key: string) => boolean,
   factories: readonly LanguageFeatureGroupFactory[] = groupFactories,
 ) {
-  const features = new ExtHostLanguageFeatures(rpc.getProxy(MainThreadLanguageFeaturesProxy), documents, commands, isLive);
+  const features = new ExtHostLanguageFeatures(
+    rpc.getProxy(MainThreadLanguageFeaturesProxy), documents, commands, isLive, rpc.getProxy(MainThreadBulkEditsProxy));
   const groups = factories.map(factory => factory(features));
   rpc.set(ExtHostLanguageFeaturesProxy, mergeHandlers([features, ...groups]) as unknown as ExtHostLanguageFeaturesSeamShape);
   return { features, groups };

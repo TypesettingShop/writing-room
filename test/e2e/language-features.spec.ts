@@ -1,7 +1,9 @@
+import { readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { expect, test } from './fixtures.js';
 import {
-  activeEditor, activeParameter, editorText, expectSuggestDetails, hoverWidget, hoverWord, message, openFixtureEditor, openWithLanguageFeatures,
-  parameterHints, pasteText, reportCompletions, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
+  actionMenu, actionNames, activeEditor, activeParameter, editorMessage, editorText, expectSuggestDetails, hoverWidget, hoverWord, message,
+  openActionMenu, openFixtureEditor, openWithLanguageFeatures, parameterHints, pasteText, renameInput, reportCompletions, reportEdits, runCommand,
+  suggestion, suggestionNames, suggestList, triggerSuggest,
 } from './language-features.helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -151,5 +153,137 @@ test.describe('signature help', () => {
     await page.keyboard.type('a,');
     await expect(activeParameter(page)).toHaveText('second');
     await expect(parameterHints(page)).toContainText('The second.');
+  });
+});
+
+test.describe('formatting', () => {
+  test('formats the selected lines with the range formatter and the document with the document formatter', async ({ page }) => {
+    await pasteText(page, 'a  b\nfmt  fmt\nfmt c');
+    // Select the second line.
+    await page.keyboard.press('ControlOrMeta+Home');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Shift+End');
+    await page.keyboard.press('ControlOrMeta+k');
+    await page.keyboard.press('ControlOrMeta+f');
+    await expect.poll(() => editorText(page)).toBe('a  b\nFMT  FMT\nfmt c');
+    await page.keyboard.press('Control+Shift+i');
+    await expect.poll(() => editorText(page)).toBe('a b\nFMT FMT\nfmt c');
+    expect(await reportEdits(page)).toMatch(/^Edits: formatted 1; ranges 1-1; options 4\/true;/);
+  });
+
+  test('drops a slow formatter\'s edits when the text changed before they arrived', async ({ page }) => {
+    await pasteText(page, 'slowformat  x');
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.press('Control+Shift+i');
+    await page.keyboard.type('Z');
+    await page.waitForTimeout(2500);
+    expect(await reportEdits(page)).toMatch(/^Edits: formatted 1;/);
+    await expect.poll(() => editorText(page)).toBe('slowformat  xZ');
+  });
+});
+
+test.describe('code actions', () => {
+  /** Puts the cursor in `teh` of `fix teh word`. */
+  async function onTypo(page: import('@playwright/test').Page): Promise<void> {
+    await pasteText(page, 'fix teh word\nplain line');
+    await page.keyboard.press('ControlOrMeta+Home');
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+  }
+
+  test('lists the quick fixes for the fixture\'s own diagnostic, the preferred first; picking it edits, then runs its command', async ({ page }) => {
+    await onTypo(page);
+    await openActionMenu(page);
+    // Monaco adds the group's name.
+    await expect.poll(() => actionNames(page)).toEqual(['Fix typo: the, Quick Fix', 'Replace with ten, Quick Fix', 'Stale fix, Quick Fix']);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => editorText(page)).toBe('fix the word\nplain line');
+    await expect(message(page, 'Fixed by command: kept')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('an edit computed for an older version is refused and its command does not run', async ({ page }) => {
+    await onTypo(page);
+    await openActionMenu(page);
+    await actionMenu(page).getByRole('option', { name: 'Stale fix' }).click();
+    // The fixture changed the document before giving the edit: only its own change is there.
+    await expect.poll(() => editorText(page)).toBe('#fix teh word\nplain line');
+    await expect(message(page, 'The code action could not be applied')).toBeVisible({ timeout: 10_000 });
+    await page.waitForTimeout(500);
+    await expect(message(page, /^Fixed by command/)).toHaveCount(0);
+    expect(await editorText(page)).toBe('#fix teh word\nplain line');
+  });
+
+  test('a kind asked for shows only actions of that kind, and a disabled action shows its reason', async ({ page }) => {
+    await onTypo(page);
+    // Refactor...: the provider offers a source action and a quick fix too, which do not show.
+    await openActionMenu(page, 'ControlOrMeta+Shift+r');
+    await expect.poll(() => actionNames(page)).toEqual([expect.stringMatching(/^Extract fixture block, Extract, Disabled/)]);
+    await page.keyboard.press('Escape');
+    expect(await reportEdits(page)).toContain('only refactor;');
+    // Organize Imports applies the only action of its kind; a disabled one shows why instead.
+    await page.keyboard.press('Shift+Alt+o');
+    await expect(editorMessage(page, 'Nothing to organize in the fixture')).toBeVisible({ timeout: 10_000 });
+    expect(await editorText(page)).toBe('fix teh word\nplain line');
+  });
+
+  test('the extension host lets go of the actions once the light bulb has moved on', async ({ page }) => {
+    await onTypo(page);
+    await openActionMenu(page);
+    await page.keyboard.press('Escape');
+    await expect(actionMenu(page)).toBeHidden();
+    // To a line without diagnostics: the light bulb's actions there are none.
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(1500);
+    await expect.poll(() => reportEdits(page), { timeout: 15_000 }).toMatch(/code actions cached 0$/);
+  });
+
+  test('a provider that is taken away offers no actions, and offers them again when registered again', async ({ page }) => {
+    await onTypo(page);
+    await openActionMenu(page);
+    await page.keyboard.press('Escape');
+    await runCommand(page, 'Language Features: Unregister Providers');
+    await activeEditor(page).focus();
+    await page.keyboard.press('ControlOrMeta+.');
+    await page.waitForTimeout(1500);
+    await expect(actionMenu(page)).toBeHidden();
+    await runCommand(page, 'Language Features: Register Providers');
+    await activeEditor(page).focus();
+    await openActionMenu(page);
+    await expect.poll(() => actionNames(page)).toContain('Fix typo: the, Quick Fix');
+  });
+});
+
+test.describe('rename', () => {
+  test('starts from the provider\'s placeholder and renames in the editor and in a file that is not open', async ({ page }) => {
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, 'renamed.lft', 'oldName in a file\noldName again\n');
+    await activeEditor(page).focus();
+    await pasteText(page, 'call oldName here');
+    await page.keyboard.press('Home');
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+    await expect.poll(async () => {
+      if (!await renameInput(page).isVisible()) {
+        await page.keyboard.press('F2');
+      }
+      return renameInput(page).isVisible({ timeout: 1000 }).catch(() => false);
+    }, { timeout: 20_000, intervals: [500, 1000] }).toBe(true);
+    await expect(renameInput(page)).toHaveValue('oldNamePlaceholder');
+    await renameInput(page).fill('newName');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => editorText(page)).toBe('call newName here');
+    await expect.poll(() => readWorkspaceText(page, 'renamed.lft'), { timeout: 15_000 }).toBe('newName in a file\nnewName again\n');
+  });
+
+  test('shows the provider\'s refusal', async ({ page }) => {
+    await pasteText(page, 'locked');
+    await page.keyboard.press('Home');
+    await expect.poll(async () => {
+      await page.keyboard.press('F2');
+      return editorMessage(page, 'The fixture cannot rename locked').isVisible({ timeout: 1000 }).catch(() => false);
+    }, { timeout: 20_000, intervals: [500, 1000] }).toBe(true);
+    await expect(renameInput(page)).toBeHidden();
   });
 });

@@ -237,6 +237,72 @@ declare module 'vscode' {
     readonly retriggerCharacters: readonly string[];
   }
 
+  // Formatting, code actions and rename (wr-c9d8.08x).
+
+  export interface FormattingOptions {
+    tabSize: number;
+    insertSpaces: boolean;
+    [key: string]: boolean | number | string;
+  }
+
+  export interface DocumentFormattingEditProvider {
+    provideDocumentFormattingEdits(document: TextDocument, options: FormattingOptions, token: CancellationToken): ProviderResult<TextEdit[]>;
+  }
+
+  export interface DocumentRangeFormattingEditProvider {
+    provideDocumentRangeFormattingEdits(document: TextDocument, range: Range, options: FormattingOptions, token: CancellationToken): ProviderResult<TextEdit[]>;
+    provideDocumentRangesFormattingEdits?(document: TextDocument, ranges: Range[], options: FormattingOptions, token: CancellationToken): ProviderResult<TextEdit[]>;
+  }
+
+  export interface OnTypeFormattingEditProvider {
+    provideOnTypeFormattingEdits(document: TextDocument, position: Position, ch: string, options: FormattingOptions, token: CancellationToken): ProviderResult<TextEdit[]>;
+  }
+
+  export class CodeAction {
+    title: string;
+    edit?: WorkspaceEdit;
+    diagnostics?: Diagnostic[];
+    command?: Command;
+    kind?: CodeActionKind;
+    isPreferred?: boolean;
+    disabled?: {
+      readonly reason: string;
+    };
+    constructor(title: string, kind?: CodeActionKind);
+  }
+
+  export enum CodeActionTriggerKind {
+    Invoke = 1,
+    Automatic = 2
+  }
+
+  export interface CodeActionContext {
+    readonly triggerKind: CodeActionTriggerKind;
+    readonly diagnostics: readonly Diagnostic[];
+    readonly only: CodeActionKind | undefined;
+  }
+
+  export interface CodeActionProvider<T extends CodeAction = CodeAction> {
+    provideCodeActions(document: TextDocument, range: Range | Selection, context: CodeActionContext, token: CancellationToken): ProviderResult<Array<Command | T>>;
+    resolveCodeAction?(codeAction: T, token: CancellationToken): ProviderResult<T>;
+  }
+
+  export interface CodeActionProviderMetadata {
+    readonly providedCodeActionKinds?: readonly CodeActionKind[];
+    readonly documentation?: ReadonlyArray<{
+      readonly kind: CodeActionKind;
+      readonly command: Command;
+    }>;
+  }
+
+  export interface RenameProvider {
+    provideRenameEdits(document: TextDocument, position: Position, newName: string, token: CancellationToken): ProviderResult<WorkspaceEdit>;
+    prepareRename?(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<Range | {
+      range: Range;
+      placeholder: string;
+    }>;
+  }
+
   export namespace languages {
     export function match(selector: DocumentSelector, document: TextDocument): number;
     export function setLanguageConfiguration(language: string, configuration: LanguageConfiguration): Disposable;
@@ -244,5 +310,10 @@ declare module 'vscode' {
     export function registerHoverProvider(selector: DocumentSelector, provider: HoverProvider): Disposable;
     export function registerSignatureHelpProvider(selector: DocumentSelector, provider: SignatureHelpProvider, ...triggerCharacters: string[]): Disposable;
     export function registerSignatureHelpProvider(selector: DocumentSelector, provider: SignatureHelpProvider, metadata: SignatureHelpProviderMetadata): Disposable;
+    export function registerDocumentFormattingEditProvider(selector: DocumentSelector, provider: DocumentFormattingEditProvider): Disposable;
+    export function registerDocumentRangeFormattingEditProvider(selector: DocumentSelector, provider: DocumentRangeFormattingEditProvider): Disposable;
+    export function registerOnTypeFormattingEditProvider(selector: DocumentSelector, provider: OnTypeFormattingEditProvider, firstTriggerCharacter: string, ...moreTriggerCharacter: string[]): Disposable;
+    export function registerCodeActionsProvider(selector: DocumentSelector, provider: CodeActionProvider, metadata?: CodeActionProviderMetadata): Disposable;
+    export function registerRenameProvider(selector: DocumentSelector, provider: RenameProvider): Disposable;
   }
 }

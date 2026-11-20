@@ -5,8 +5,10 @@ import type {
   LanguageConfigurationDto, LanguageFilterDto, LanguageSelectorDto, MarkdownStringDto, OnEnterRuleDto, ParameterInformationDto,
   RegExpDto, RelativePatternDto, SignatureHelpDto, SignatureInformationDto,
 } from './extHost.protocol.languageFeatures.js';
+import { toModelRange } from './extHost.protocol.documents.js';
+import type { WorkspaceEditOperation } from './extHost.protocol.documents.js';
 import { MarkdownString } from './extHostCommonTypes.js';
-import { Range, SnippetString } from './extHostEditorTypes.js';
+import { Range, SnippetString, WorkspaceEdit } from './extHostEditorTypes.js';
 import { ParameterInformation, SignatureHelp, SignatureInformation } from './extHostLanguageFeatureTypes.js';
 import { markdownToDto, textEditToEditor } from './extHostTypeConverters.js';
 import type { EditorTextEdit } from './extHostTypeConverters.js';
@@ -291,4 +293,73 @@ export function signatureHelpFromDto(dto: SignatureHelpDto | undefined): vscode.
     return result;
   });
   return help;
+}
+
+// --- Formatting, code actions and rename (wr-c9d8.08x) -------------------------------------------
+
+/** Whether a provider's result is a plain `Command` rather than a `CodeAction` (VS Code tells them apart so). */
+export function isCommand(value: unknown): value is vscode.Command {
+  return !!value && typeof value === 'object'
+    && typeof (value as vscode.Command).command === 'string' && typeof (value as vscode.Command).title === 'string';
+}
+
+function resource(value: unknown): URI {
+  if (!URI.isUri(value)) {
+    throw new TypeError('A workspace edit entry needs a Uri.');
+  }
+  return value;
+}
+
+/**
+ * A workspace edit as the bulk edit takes it, in the edit's order. Every text operation carries
+ * `version(uri)`, the version of the document the edit was computed for: the bulk edit refuses the whole
+ * edit when a document is no longer at it. `undefined` (a file the extension host has no copy of) is
+ * not checked. A value that is not the API's `WorkspaceEdit` throws.
+ *
+ * The same conversion as `ExtHostBulkEdits.apply` (`workspace.applyEdit`), which stamps the version
+ * the extension host knows now; a provider's edit needs the version it was computed for instead.
+ * Keep the two in step.
+ */
+export async function workspaceEditToOperations(edit: vscode.WorkspaceEdit, version: (uri: URI) => number | undefined): Promise<WorkspaceEditOperation[]> {
+  if (!(edit instanceof WorkspaceEdit)) {
+    throw new TypeError('Expected a WorkspaceEdit.');
+  }
+  const operations: WorkspaceEditOperation[] = [];
+  for (const entry of edit.getOperations()) {
+    const uri = resource(entry.uri);
+    switch (entry.kind) {
+      case 'text': {
+        const { range, newText, newEol } = entry.edit;
+        operations.push({
+          kind: 'text', uri, version: version(uri),
+          edit: { operations: newEol === undefined ? [{ range: toModelRange(range), text: newText }] : [], eol: newEol },
+        });
+        break;
+      }
+      case 'snippet':
+        operations.push({
+          kind: 'text', uri, version: version(uri), snippet: true, keepWhitespace: entry.edit.keepWhitespace === true,
+          edit: { operations: [{ range: toModelRange(entry.edit.range), text: entry.edit.snippet.value }] },
+        });
+        break;
+      case 'create': {
+        const contents = entry.options?.contents;
+        operations.push({
+          kind: 'create', uri, overwrite: entry.options?.overwrite, ignoreIfExists: entry.options?.ignoreIfExists,
+          contents: contents && (contents instanceof Uint8Array ? contents : await contents.data()),
+        });
+        break;
+      }
+      case 'rename':
+        operations.push({
+          kind: 'rename', uri, target: resource(entry.newUri),
+          overwrite: entry.options?.overwrite, ignoreIfExists: entry.options?.ignoreIfExists,
+        });
+        break;
+      case 'delete':
+        operations.push({ kind: 'delete', uri, recursive: entry.options?.recursive, ignoreIfNotExists: entry.options?.ignoreIfNotExists });
+        break;
+    }
+  }
+  return operations;
 }

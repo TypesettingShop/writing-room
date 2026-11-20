@@ -1,6 +1,7 @@
 import type { URI } from '../../../base/common/uri.js';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
-import type { EditorPosition, EditorRange, EditorTextEdit } from './extHostTypeConverters.js';
+import type { MarkerDataDto } from './extHost.protocol.diagnostics.js';
+import type { EditorPosition, EditorRange, EditorSelection, EditorTextEdit } from './extHostTypeConverters.js';
 import { createProxyIdentifier } from '../../services/extensions/common/proxyIdentifier.js';
 
 /*
@@ -196,11 +197,95 @@ export interface ExtHostCompletionsShape {
   $provideSignatureHelp(handle: number, uri: URI, position: EditorPosition, context: SignatureHelpContextDto, token: CancellationToken): Promise<SignatureHelpDto | undefined>;
 }
 
+// --- Formatting, code actions and rename (wr-c9d8.08x) -------------------------------------------
+
+/** The editor's formatting options: Monaco's tab size and whether to insert spaces. */
+export interface FormattingOptionsDto {
+  readonly tabSize: number;
+  readonly insertSpaces: boolean;
+}
+
+/**
+ * Formatting edits and the document version the provider read. Monaco applies them itself; the
+ * workbench drops them when the model is no longer at that version.
+ */
+export interface FormattingEditsDto {
+  readonly version: number;
+  readonly edits: readonly EditorTextEdit[];
+}
+
+/** Monaco's code action context: the markers of the range, the kind asked for, the trigger (1 invoke, 2 auto). */
+export interface CodeActionContextDto {
+  readonly markers: readonly MarkerDataDto[];
+  readonly only?: string;
+  readonly trigger: number;
+}
+
+/**
+ * One action of a list. It carries no edit and no command: applying it asks the extension host
+ * (`$applyCodeAction`), which keeps the action under its list's `id` and `index`.
+ */
+export interface CodeActionDto {
+  readonly index: number;
+  readonly title: string;
+  readonly kind?: string;
+  readonly isPreferred?: boolean;
+  /** Why the action cannot be applied now; Monaco shows it in place of the title. */
+  readonly disabled?: string;
+  readonly diagnostics?: readonly MarkerDataDto[];
+}
+
+/** A list the extension host keeps under `id` until `$releaseCodeActions`. */
+export interface CodeActionListDto {
+  readonly id: number;
+  readonly actions: readonly CodeActionDto[];
+}
+
+export interface CodeActionProviderMetadataDto {
+  readonly providedCodeActionKinds?: readonly string[];
+  readonly documentation?: ReadonlyArray<{ readonly kind: string; readonly command: CommandDto }>;
+}
+
+/** Where a rename happens and the text the input starts with, or why the provider refused. */
+export type RenameLocationDto = { readonly range: EditorRange; readonly text: string } | { readonly rejectReason: string };
+
+/** What a rename did: the extension host applied the edit itself, or says why it did not. */
+export type RenameResultDto = { readonly applied: true } | { readonly rejectReason: string };
+
+export interface MainThreadEditsShape {
+  $registerDocumentFormattingSupport(extension: string, handle: number, selector: LanguageSelectorDto, displayName: string): Promise<void>;
+  $registerRangeFormattingSupport(extension: string, handle: number, selector: LanguageSelectorDto, displayName: string, supportsRanges: boolean): Promise<void>;
+  $registerOnTypeFormattingSupport(extension: string, handle: number, selector: LanguageSelectorDto, triggerCharacters: readonly string[]): Promise<void>;
+  $registerCodeActionSupport(extension: string, handle: number, selector: LanguageSelectorDto, metadata: CodeActionProviderMetadataDto): Promise<void>;
+  $registerRenameSupport(extension: string, handle: number, selector: LanguageSelectorDto, supportsResolveLocation: boolean): Promise<void>;
+}
+
+export interface ExtHostEditsShape {
+  $provideDocumentFormattingEdits(handle: number, uri: URI, options: FormattingOptionsDto, token: CancellationToken): Promise<FormattingEditsDto | undefined>;
+  $provideDocumentRangeFormattingEdits(handle: number, uri: URI, range: EditorRange, options: FormattingOptionsDto, token: CancellationToken): Promise<FormattingEditsDto | undefined>;
+  $provideDocumentRangesFormattingEdits(handle: number, uri: URI, ranges: readonly EditorRange[], options: FormattingOptionsDto, token: CancellationToken): Promise<FormattingEditsDto | undefined>;
+  $provideOnTypeFormattingEdits(handle: number, uri: URI, position: EditorPosition, character: string, options: FormattingOptionsDto, token: CancellationToken): Promise<FormattingEditsDto | undefined>;
+  $provideCodeActions(handle: number, uri: URI, rangeOrSelection: EditorRange | EditorSelection, context: CodeActionContextDto, token: CancellationToken): Promise<CodeActionListDto | undefined>;
+  /**
+   * Applies an action of a kept list: resolves it when it has no edit, applies its edit through the bulk
+   * edit at the version the provider read, then runs its command. `true` when it did, `false` when the
+   * edit was not applied (and the command not run), undefined when the list or the provider is gone.
+   */
+  $applyCodeAction(handle: number, id: number, index: number): Promise<boolean | undefined>;
+  /** Forgets a list. */
+  $releaseCodeActions(handle: number, id: number): Promise<void>;
+  /** How many code action lists the extension host keeps, for tests that look for leaks. */
+  $codeActionCacheSize(): Promise<number>;
+  $resolveRenameLocation(handle: number, uri: URI, position: EditorPosition, token: CancellationToken): Promise<RenameLocationDto | undefined>;
+  /** Computes the rename's edit and applies it through the bulk edit; undefined when the provider gave none. */
+  $provideRenameEdits(handle: number, uri: URI, position: EditorPosition, newName: string, token: CancellationToken): Promise<RenameResultDto | undefined>;
+}
+
 // --- The merged shapes ---------------------------------------------------------------------------
 
-export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape & MainThreadCompletionsShape;
+export type MainThreadLanguageFeaturesShape = MainThreadLanguageFeaturesSeamShape & MainThreadCompletionsShape & MainThreadEditsShape;
 
-export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape & ExtHostCompletionsShape;
+export type ExtHostLanguageFeaturesShape = ExtHostLanguageFeaturesSeamShape & ExtHostCompletionsShape & ExtHostEditsShape;
 
 /**
  * The `$` methods of every feature group, bound, under one object: each side answers under one RPC
