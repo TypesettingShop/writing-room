@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { BrowserLayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { DialogService } from '../../../../platform/dialogs/browser/dialogService.js';
-import { NotificationService } from '../../../browser/parts/notifications/notificationsToasts.js';
+import { NotificationService, toastAutoCloseDelay } from '../../../browser/parts/notifications/notificationsToasts.js';
 import { Severity } from '../../../../platform/notification/common/notification.js';
 import type { IStatusbarEntry, IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
 import type { HostExtensionDescription } from '../../../services/extensions/common/extensionHostProtocol.js';
@@ -93,6 +93,64 @@ test('a toast answers with the item object, shows its source and reads the messa
   expect(await dismissed).toBeUndefined();
 });
 
+test('automatic close resolves the extension response and calls prompt cancellation once', async () => {
+  vi.useFakeTimers();
+  const answer = hostMessages.showMessage('a', 'info', 'Plain information');
+  const onCancel = vi.fn();
+  const prompt = notifications.prompt(Severity.Info, 'No choices', [], { onCancel });
+  await vi.advanceTimersByTimeAsync(30);
+  expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['No choices', 'Plain information']);
+  await vi.advanceTimersByTimeAsync(toastAutoCloseDelay);
+  expect(await answer).toBeUndefined();
+  expect(toasts()).toEqual([]);
+  prompt.close();
+  expect(onCancel).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test('removing an extension settles its visible, displaced and never displayed toasts', async () => {
+  vi.useFakeTimers();
+  const answers = ['One', 'Two', 'Three', 'Four'].map(text => hostMessages.showMessage('a', 'info', text));
+  await vi.advanceTimersByTimeAsync(30);
+  expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['One', 'Two', 'Three']);
+  notifications.error('Urgent');
+  expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['One', 'Two', 'Urgent']);
+  messages.remove('a');
+  await vi.advanceTimersByTimeAsync(30);
+  expect(await Promise.all(answers)).toEqual([undefined, undefined, undefined, undefined]);
+  expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['Urgent']);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+function fillProgressQueue(): void {
+  for (let index = 0; index < 3; index++) {
+    notifications.error('Visible ' + index);
+  }
+  for (let index = 0; index < 10; index++) {
+    notifications.notify({ severity: Severity.Info, message: 'Task ' + index, source: 'Fixture A', progress: { infinite: true } });
+  }
+}
+
+test('a prompt closed as it arrives still calls its cancellation once', () => {
+  fillProgressQueue();
+  const dropped = vi.fn();
+  expect(notifications.prompt(Severity.Info, 'Dropped on arrival', [], { source: 'Fixture A', onCancel: dropped }).closed).toBe(true);
+  expect(dropped).toHaveBeenCalledTimes(1);
+  notifications.dispose();
+  const onCancel = vi.fn();
+  expect(notifications.prompt(Severity.Info, 'After dispose', [], { onCancel }).closed).toBe(true);
+  expect(onCancel).toHaveBeenCalledTimes(1);
+});
+
+test('an extension receives an answer when its information message is dropped on arrival', async () => {
+  fillProgressQueue();
+  vi.useFakeTimers();
+  const resolved = vi.fn();
+  void hostMessages.showMessage('a', 'info', 'Dropped on arrival').then(resolved, () => {});
+  await vi.advanceTimersByTimeAsync(30);
+  expect(resolved).toHaveBeenCalledExactlyOnceWith(undefined);
+});
+
 test('a modal message is a dialog whose Escape answers with the close item, or undefined', async () => {
   const keep = { title: 'Keep', isCloseAffordance: true };
   const remove = { title: 'Delete' };
@@ -124,7 +182,8 @@ test('a modal message is a dialog whose Escape answers with the close item, or u
 });
 
 test('three toasts show at once, the rest wait, and a flood drops its oldest waiting toasts', async () => {
-  const answers = Array.from({ length: 15 }, (_, index) => hostMessages.showMessage('a', 'info', 'Message ' + index, 'OK'));
+  const answers = Array.from({ length: 15 }, (_, index) =>
+    hostMessages.showMessage('a', 'info', 'Message ' + index, ...(index < 3 ? ['OK'] : [])));
   answers.forEach(answer => answer.catch(() => {}));
   await settle();
   expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['Message 0', 'Message 1', 'Message 2']);
@@ -262,11 +321,14 @@ test('status bar messages stack, and go after their timeout or promise', async (
 
 test('a waiting progress toast is never dropped by a flood from its source', () => {
   for (let index = 0; index < 3; index++) {
-    notifications.notify({ severity: Severity.Info, message: 'Visible ' + index, source: 'Flood' });
+    notifications.notify({ severity: Severity.Error, message: 'Visible ' + index, source: 'Flood' });
   }
   const progressToast = notifications.notify({ severity: Severity.Info, message: 'Working', source: 'Flood', progress: { infinite: true } });
   for (let index = 0; index < 60; index++) {
     notifications.notify({ severity: Severity.Info, message: 'Waiting ' + index, source: 'Flood' });
   }
   expect(progressToast.closed).toBe(false);
+  expect(toasts().map(toast => toast.getAttribute('aria-label'))).toEqual(['Visible 0', 'Visible 1', 'Visible 2']);
+  toasts()[0].querySelector<HTMLButtonElement>('[aria-label="Dismiss message"]')!.click();
+  expect(toasts().at(-1)?.getAttribute('aria-label')).toBe('Working');
 });

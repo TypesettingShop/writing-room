@@ -18,7 +18,9 @@
       { "command": "windowUi.export", "title": "Window UI: Export" },
       { "command": "windowUi.index", "title": "Window UI: Index" },
       { "command": "windowUi.status", "title": "Window UI: Status Message" },
-      { "command": "windowUi.flood", "title": "Window UI: Flood" }
+      { "command": "windowUi.flood", "title": "Window UI: Flood" },
+      { "command": "windowUi.toastSamples", "title": "Window UI: Show Toast Samples" },
+      { "command": "windowUi.error", "title": "Window UI: Show Error" }
     ]
   }
 }

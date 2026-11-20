@@ -106,6 +106,33 @@ test('keeps MIME names case insensitive and accepts existing resource identifier
   expect(ThemeIcon.Folder.id).toBe('folder');
 });
 
+test('keeps all initialized items per MIME type and replaces them together', () => {
+  const text = new DataTransferItem('text');
+  const first = new DataTransferItem('first');
+  const second = new DataTransferItem('second');
+  const replacement = new DataTransferItem('replacement');
+  const transfer = new DataTransfer([
+    ['Image/PNG', first],
+    ['text/plain', text],
+    ['image/png', second],
+  ]);
+
+  expect(transfer.get('IMAGE/png')).toBe(first);
+  expect(transfer.get('image/jpeg')).toBeUndefined();
+  expect([...transfer]).toEqual([['image/png', first], ['image/png', second], ['text/plain', text]]);
+  const visited: [string, vscode.DataTransferItem][] = [];
+  const context = { visited };
+  transfer.forEach(function (this: typeof context, item, mime, owner) {
+    expect(owner).toBe(transfer);
+    this.visited.push([mime, item]);
+  }, context);
+  expect(visited).toEqual([...transfer]);
+
+  transfer.set('IMAGE/PNG', replacement);
+  expect(transfer.get('image/png')).toBe(replacement);
+  expect([...transfer]).toEqual([['image/png', replacement], ['text/plain', text]]);
+});
+
 test('preserves the public Uri class across the RPC structured-clone boundary', async () => {
   expect(Uri).toBe(URI);
   const { port1, port2 } = new MessageChannel();
