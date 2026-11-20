@@ -87,6 +87,19 @@ export async function blockStorage(page: Page, { storageOnly = false } = {}): Pr
   }, storageOnly);
 }
 
+/** Fails localStorage writes from now on, leaving reads, IndexedDB and Web Locks available. */
+export async function failStorageWrites(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, key, value) {
+      if (this === window.localStorage) {
+        throw new DOMException('Test blocked localStorage writes.', 'QuotaExceededError');
+      }
+      setItem.call(this, key, value);
+    };
+  });
+}
+
 /** Collects the page errors and the console messages that say an extension did not activate. */
 export function watchExtensionFailures(page: Page): string[] {
   const failures: string[] = [];
@@ -98,4 +111,31 @@ export function watchExtensionFailures(page: Page): string[] {
     }
   });
   return failures;
+}
+
+async function expectStateToast(page: Page, message: string, name: string | RegExp = message): Promise<void> {
+  const toast = page.getByRole('region', { name, exact: true });
+  await expect(toast).toBeVisible({ timeout: 15_000 });
+  await expect(toast).toHaveAccessibleName(message);
+  await toast.getByRole('button', { name: 'Dismiss message' }).click();
+  await expect(toast).toHaveCount(0);
+}
+
+export async function installStateFixture(page: Page): Promise<void> {
+  await prepareLocationInstall(page, 'packages/state');
+  const install = page.getByRole('option', { name: /^Install State Storage Fixture/ });
+  await expect(install).toContainText(sessionOnlyNotice);
+  await install.click();
+  await expectStateToast(page, 'State Storage Fixture activated');
+  await expect(page.getByRole('combobox', { name: 'Could not install extension' })).toHaveCount(0);
+}
+
+export async function expectFixtureState(page: Page, state: 'initial' | 'changed'): Promise<void> {
+  await runCommand(page, 'Read State Storage Fixture', /^Read State Storage Fixture$/);
+  await expectStateToast(page, `State Storage Fixture read global ${state} and workspace ${state}`, /^State Storage Fixture read /);
+}
+
+export async function changeFixtureState(page: Page): Promise<void> {
+  await runCommand(page, 'Change State Storage Fixture', /^Change State Storage Fixture$/);
+  await expectStateToast(page, 'State Storage Fixture changed both values');
 }
