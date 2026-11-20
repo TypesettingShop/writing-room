@@ -4,3 +4,8 @@ export class CancellationError extends Error {
     this.name = 'Canceled';
   }
 }
+
+export function isCancellationError(error: unknown): boolean {
+  return error instanceof CancellationError
+    || (error instanceof Error && error.name === 'Canceled' && error.message === 'Canceled');
+}

@@ -4,6 +4,7 @@ import {
   actionMenu, actionNames, activeEditor, activeParameter, codeLens, editorMessage, editorText, expectSuggestDetails, followLink,
   hoverWidget, hoverWord, message, openActionMenu, openFixtureEditor, openQuickOutline, openWithLanguageFeatures, parameterHints, pasteText,
   renameInput, reportCompletions, reportEdits, reportSymbols, runCommand, suggestion, suggestionNames, suggestList, triggerSuggest,
+  unregisterFixtureProviders,
 } from './language-features.helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -111,7 +112,7 @@ test.describe('completions', () => {
   });
 
   test('a provider that is taken away offers nothing, and comes back when registered again', async ({ page }) => {
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await pasteText(page, 'fixture');
     await page.keyboard.press('End');
@@ -187,9 +188,10 @@ test.describe('formatting', () => {
 
 test.describe('code actions', () => {
   /** Puts the cursor in `teh` of `fix teh word`. */
-  async function onTypo(page: import('@playwright/test').Page): Promise<void> {
-    await pasteText(page, 'fix teh word\nplain line');
-    await expect.poll(() => editorText(page)).toBe('fix teh word\nplain line');
+  async function onTypo(page: import('@playwright/test').Page, lastLine = 'plain line'): Promise<void> {
+    const text = 'fix teh word\n' + lastLine;
+    await pasteText(page, text);
+    await expect.poll(() => editorText(page)).toBe(text);
     await page.keyboard.press('ControlOrMeta+Home');
     for (let i = 0; i < 5; i++) {
       await page.keyboard.press('ArrowRight');
@@ -231,6 +233,26 @@ test.describe('code actions', () => {
     expect(await editorText(page)).toBe('fix teh word\nplain line');
   });
 
+  test('a second quick fix request can cancel a pending request without a page error', async ({ page }) => {
+    await onTypo(page, 'slowaction');
+    await page.keyboard.press('ControlOrMeta+.');
+    await expect(message(page, 'Slow code action started')).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('ControlOrMeta+.');
+    await expect(actionMenu(page)).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => actionNames(page)).toContain('Fix typo: the, Quick Fix');
+  });
+
+  test('removing a provider cancels a pending quick fix request without a page error', async ({ page }) => {
+    await onTypo(page, 'slowaction');
+    await page.keyboard.press('ControlOrMeta+.');
+    await expect(message(page, 'Slow code action started')).toBeVisible({ timeout: 10_000 });
+    await runCommand(page, 'Language Features: Unregister Providers');
+    await activeEditor(page).focus();
+    // Wait past the pending provider's delay to catch a menu from a request that completed.
+    await page.waitForTimeout(1500);
+    await expect(actionMenu(page)).toBeHidden();
+  });
+
   test('the extension host lets go of the actions once the light bulb has moved on', async ({ page }) => {
     await onTypo(page);
     await openActionMenu(page);
@@ -246,9 +268,10 @@ test.describe('code actions', () => {
     await onTypo(page);
     await openActionMenu(page);
     await page.keyboard.press('Escape');
-    await runCommand(page, 'Language Features: Unregister Providers');
+    await unregisterFixtureProviders(page);
     await activeEditor(page).focus();
     await page.keyboard.press('ControlOrMeta+.');
+    // Provider removal has already been confirmed; the wait gives an unexpected menu time to appear, as before.
     await page.waitForTimeout(1500);
     await expect(actionMenu(page)).toBeHidden();
     await runCommand(page, 'Language Features: Register Providers');
