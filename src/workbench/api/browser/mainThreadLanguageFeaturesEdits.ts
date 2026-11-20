@@ -8,6 +8,7 @@ import { EditorContextKeys } from '../../../editor/common/editorContextKeys.js';
 import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
 import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
+import { IEditorService } from '../../services/editor/common/editorService.js';
 import type { MarkerDataDto } from '../common/extHost.protocol.diagnostics.js';
 import type {
   CodeActionDto, CodeActionListDto, CodeActionProviderMetadataDto, FormattingEditsDto, FormattingOptionsDto, MainThreadEditsShape,
@@ -15,6 +16,7 @@ import type {
 } from '../common/extHost.protocol.languageFeatures.js';
 import type { EditorPosition, EditorRange, EditorSelection } from '../common/extHostTypeConverters.js';
 import { sanitizeMarker } from './mainThreadDiagnostics.js';
+import { paneControl } from './mainThreadEditors.js';
 import { checkSelector, request } from './mainThreadLanguageFeatures.js';
 import type { MainThreadLanguageFeatures } from './mainThreadLanguageFeatures.js';
 import { checkRange } from './mainThreadLanguageFeaturesCompletions.js';
@@ -33,18 +35,25 @@ import { checkRange } from './mainThreadLanguageFeaturesCompletions.js';
  *   rename was refused.
  */
 
-// The workbench captures Ctrl+K for its own chords before Monaco can see it.
+// The workbench captures Ctrl+K for its own chords before Monaco can see it. This command also hides the
+// `editor.action.*` bridge of apiCommands.ts that extensions run, so it keeps that bridge's behavior: the
+// active pane's editor when no editor has focus, the caller's argument, and an error when there is none.
 const formatSelectionId = 'editor.action.formatSelection';
 KeybindingsRegistry.registerCommandAndKeybindingRule({
   id: formatSelectionId,
   weight: KeybindingWeight.EditorContrib,
   primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyMod.CtrlCmd | KeyCode.KeyF),
   when: ContextKeyExpr.and(EditorContextKeys.editorTextFocus.isEqualTo(true), EditorContextKeys.readOnly.toNegated()),
-  handler: async accessor => {
-    const action = accessor.get(ICodeEditorService).getFocusedCodeEditor()?.getAction(formatSelectionId);
-    if (action?.isSupported()) {
-      await action.run();
+  handler: async (accessor, ...args: unknown[]) => {
+    const focused = accessor.get(ICodeEditorService).getFocusedCodeEditor();
+    const pane = accessor.get(IEditorService).activeEditorPane;
+    const control = focused?.getModel() ? focused : paneControl(pane);
+    const action = control?.getModel() ? control.getAction(formatSelectionId) : null;
+    if (!action) {
+      throw new Error(`command '${formatSelectionId}' not found`);
     }
+    // Monaco's action does nothing when its precondition (a range formatter, a writable model) fails.
+    await action.run(args[0]);
   },
 });
 

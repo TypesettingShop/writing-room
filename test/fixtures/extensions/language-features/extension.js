@@ -389,7 +389,7 @@ async function reportSymbols() {
 
 // --- Workspace symbols -------------------------------------------------------------------------------
 
-/** How the second workspace symbol provider answers: 'slow' (late for one query), 'throw', or at once. */
+/** How the second workspace symbol provider answers: 'slow' (late for `stale`), 'throw' (fails for `alpha`), or at once. */
 let symbolMode = 'normal';
 const symbolReport = { asked: 0, cancelled: 0 };
 /** Whether `query`'s characters appear in `name` in order, ignoring case (as the Markdown language server does). */
@@ -427,7 +427,10 @@ const headingSymbolProvider = {
   },
 };
 
-/** A second provider: its rows are `query:<the query>`; in 'slow' mode the query `stale` answers late. */
+/**
+ * A second provider: its rows are `query:<the query>`; in 'slow' mode the query `stale` answers late, in
+ * 'throw' mode the query `alpha` throws (once per typed query, so a test can expect exactly one error).
+ */
 const echoSymbolProvider = {
   async provideWorkspaceSymbols(query, token) {
     symbolReport.asked++;

@@ -2,7 +2,10 @@
 import type * as vscode from 'vscode';
 import { afterEach, expect, test, vi } from 'vitest';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { checkTextEdits, createMainThreadEdits, toRenameEdits, toRenameLocation } from '../../browser/mainThreadLanguageFeaturesEdits.js';
 import { CodeActionKind } from '../../common/extHostCommonTypes.js';
 import { Diagnostic, DiagnosticSeverity, DiagnosticTag } from '../../common/extHostDiagnosticTypes.js';
@@ -130,6 +133,19 @@ test('formatting edits computed for another version than the one Monaco asked at
   // The extension host's copy is at version 3.
   await expect(format.provideDocumentFormattingEdits(model(2), options, token())).resolves.toBeUndefined();
   await expect(format.provideDocumentFormattingEdits(model(3), options, token())).resolves.toHaveLength(1);
+});
+
+test('Format Selection run as a command keeps the editor.action bridge: the active pane\'s editor, the caller\'s argument, an error without an editor', async () => {
+  const run = vi.fn(async () => undefined);
+  const control = { getModel: () => ({}), getAction: (id: string) => (id === 'editor.action.formatSelection' ? { run } : null) };
+  const accessor = (pane: unknown) => ({
+    get: (id: unknown) => (id === ICodeEditorService ? { getFocusedCodeEditor: () => null } : id === IEditorService ? { activeEditorPane: pane } : undefined),
+  }) as unknown as ServicesAccessor;
+  const handler = CommandsRegistry.getCommand('editor.action.formatSelection')!.handler;
+  // An extension runs it while focus is outside the editor (a tree view, a webview).
+  await handler(accessor({ getControl: () => control }), { reason: 'caller' });
+  expect(run).toHaveBeenCalledWith({ reason: 'caller' });
+  await expect(handler(accessor(undefined))).rejects.toThrow("command 'editor.action.formatSelection' not found");
 });
 
 test('formatting edits from the extension host are checked before Monaco applies them', () => {
