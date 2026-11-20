@@ -159,6 +159,61 @@ class SharedDatabase extends InMemoryStorageDatabase {
 
 const namespaced = (key: string) => `${scope}:${key}`;
 
+describe('cached keys', () => {
+  test('lists a detached snapshot per scope, including queued and immediate changes', () => {
+    const storage = disposables.add(new InMemoryStorageService());
+    const key = 'shared:part';
+    storage.store(key, 'profile', scope, target);
+    storage.store(key, 'application', StorageScope.APPLICATION, target);
+    storage.store('work', 'workspace', StorageScope.WORKSPACE, target);
+
+    const snapshot = storage.keys(scope);
+    expect(storage.keys(StorageScope.APPLICATION)).toEqual([key]);
+    expect(storage.keys(StorageScope.WORKSPACE)).toEqual(['work']);
+
+    storage.remove(key, scope);
+    expect(storage.keys(scope)).toEqual([]);
+    storage.storeImmediately('immediate', 'saved', scope, target);
+    expect(storage.keys(scope)).toEqual(['immediate']);
+    storage.storeImmediately('immediate', () => undefined, scope, target);
+    expect(storage.keys(scope)).toEqual([]);
+    expect(snapshot).toEqual([key]);
+    snapshot.push('caller');
+    expect(storage.keys(scope)).toEqual([]);
+  });
+
+  test.each([false, true])('only reads this tab’s cache (failed open: %s)', failOpen => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const database = new SharedDatabase();
+    database.failOpen = failOpen;
+    const write = vi.spyOn(database, 'updateItems');
+    const storage = disposables.add(new InMemoryStorageService(database));
+    const change = vi.fn();
+    storage.onDidChangeValue(scope, undefined, disposables)(change);
+
+    database.writeFromOtherTab(namespaced('elsewhere'), 'other tab');
+    expect(storage.keys(scope)).toEqual([]);
+    expect(database.opens).toBe(1);
+    expect(database.reads).toEqual([]);
+    expect(write).not.toHaveBeenCalled();
+    expect(change).not.toHaveBeenCalled();
+
+    if (failOpen) {
+      storage.store('local', 'session', scope, target);
+      expect(storage.keys(scope)).toEqual(['local']);
+      expect(database.opens).toBe(1);
+      expect(database.reads).toEqual([]);
+      expect(write).not.toHaveBeenCalled();
+    } else {
+      expect(storage.getPersisted('elsewhere', scope)).toBe('other tab');
+      expect(storage.keys(scope)).toEqual(['elsewhere']);
+    }
+    const cached = storage.keys(scope);
+    storage.dispose();
+    expect(storage.keys(scope)).toEqual(cached);
+  });
+});
+
 describe('memory mode and persisted reads', () => {
   test('a service whose backend opened is not in memory mode', () => {
     const storage = disposables.add(new InMemoryStorageService(new SharedDatabase()));

@@ -50,6 +50,12 @@ export interface IStorageService {
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue: T): T;
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue?: T): T | undefined;
 
+  /**
+   * Return a snapshot of this tab's cached keys for the given scope, without their scope prefixes.
+   * Use the `storeImmediately` snapshot for decisions that must see persisted values across tabs.
+   */
+  keys(scope: StorageScope): string[];
+
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void;
   /**
    * Commit an explicit text save. A transform receives the last persisted value and every persisted address;
@@ -158,6 +164,17 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
       }
     }
     return fallbackValue;
+  }
+
+  keys(scope: StorageScope): string[] {
+    const keys: string[] = [];
+    for (const namespacedKey of this.storage.keys()) {
+      const address = parseStorageKey(namespacedKey);
+      if (address?.scope === scope) {
+        keys.push(address.key);
+      }
+    }
+    return keys;
   }
 
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void {
