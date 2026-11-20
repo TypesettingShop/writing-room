@@ -1,7 +1,10 @@
 import { expect, test } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import type { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
-import { createEditorTextModelResolver } from '../../browser/editorTextModelResolver.js';
+import { editorTextModelResolver } from '../../../../../editor/browser/textModelServiceHook.js';
+import type { IModelService } from '../../../../../editor/common/services/model.js';
+import type { IFileService } from '../../../../../platform/files/common/files.js';
+import { createEditorTextModelResolver, EditorTextModelResolverContribution } from '../../browser/editorTextModelResolver.js';
 
 const file = 'vscode-vfs://writing-room/workspace/defs.lft';
 
@@ -55,4 +58,19 @@ test('a model the editor package does not have gives the reference back and reje
   const lent = createEditorTextModelResolver({ resolver, canOpen: () => true, monacoModel: async () => null });
   await expect(lent.resolve(file)).rejects.toThrow('Model not found');
   expect(state).toEqual({ held: 0, created: 1 });
+});
+
+test('the workbench lends the preview no wider a range than F12: a scheme with only a content provider stays with Monaco', () => {
+  // The workbench resolver handles a content provider's scheme; F12 opens it only with a file system provider or a model.
+  const files = { hasProvider: (resource: URI) => resource.scheme === 'vscode-vfs' } as unknown as IFileService;
+  const models = { getModel: () => null } as unknown as IModelService;
+  const contribution = new EditorTextModelResolverContribution(workbench().resolver, files, models);
+  try {
+    const lent = editorTextModelResolver()!;
+    expect(lent.canResolve(file)).toBe(true);
+    expect(lent.canResolve('fixture-document:/sample')).toBe(false);
+  } finally {
+    contribution.dispose();
+  }
+  expect(editorTextModelResolver()).toBeUndefined();
 });

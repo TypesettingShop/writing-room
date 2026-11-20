@@ -264,14 +264,14 @@ export class MainThreadEdits implements MainThreadEditsShape, IDisposable {
     const at = rangeOrSelection(range as EditorRange & Partial<EditorSelection>);
     // The extension host has the workbench's markers (its collections and its mirror): only the markers
     // Monaco's own language workers made, which live in Monaco alone, cross with the request.
-    const workbenchOwners = this.seam.workbenchMarkerOwners(modelResource(model));
-    const monacoOnly = Array.isArray(context?.markers)
-      // Monaco's markers are its `IMarker`s, which name their owner; the published type leaves it out.
-      ? context.markers.filter(marker => {
-        const owner = (marker as { owner?: unknown } | undefined)?.owner;
-        return typeof owner === 'string' && !workbenchOwners.has(owner);
-      })
-      : [];
+    // Asked only when Monaco gave markers: the lightbulb asks on every cursor move, mostly with none.
+    const given = Array.isArray(context?.markers) ? context.markers : [];
+    const workbenchOwners = given.length ? this.seam.workbenchMarkerOwners(modelResource(model)) : new Set<string>();
+    // Monaco's markers are its `IMarker`s, which name their owner; the published type leaves it out.
+    const monacoOnly = given.filter(marker => {
+      const owner = (marker as { owner?: unknown } | undefined)?.owner;
+      return typeof owner === 'string' && !workbenchOwners.has(owner);
+    });
     const contextDto = {
       markers: markers(monacoOnly),
       only: typeof context?.only === 'string' && context.only ? text(context.only) : undefined,

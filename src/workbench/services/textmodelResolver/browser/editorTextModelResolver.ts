@@ -8,6 +8,14 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 
+/**
+ * Whether F12 (going to a definition, which opens an editor) opens `resource`: a file system provider
+ * serves it, or a model of it exists. The definition preview resolves no wider.
+ */
+export function canOpenInEditor(files: Pick<IFileService, 'hasProvider'>, models: Pick<IModelService, 'getModel'>, resource: URI): boolean {
+  return files.hasProvider(resource) || !!models.getModel(resource);
+}
+
 export interface EditorTextModelResolverServices {
   readonly resolver: ITextModelService;
   /** Whether F12 (the editor opener) would open the resource: a file system provider, or an open model. */
@@ -68,8 +76,8 @@ export class EditorTextModelResolverContribution extends Disposable {
     super();
     this._register(setEditorTextModelResolver(createEditorTextModelResolver({
       resolver,
-      // The same test as the editor opener's (`EditorOpenerContribution`): no wider than F12.
-      canOpen: resource => files.hasProvider(resource) || !!models.getModel(resource),
+      // The test of F12's Monaco editor opener (`EditorOpenerContribution` in mainThreadLanguageFeaturesNavigation.ts).
+      canOpen: resource => canOpenInEditor(files, models, resource),
       monacoModel: async resource => {
         const monaco = await loadMonaco();
         return monaco.editor.getModel(monaco.Uri.parse(resource.toString()));

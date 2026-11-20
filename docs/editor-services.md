@@ -39,7 +39,7 @@ v0.2.0의 흐름 에픽(문서 API, 파일 편집, Webview, Custom Editor, 언�
 Monaco 자신의 기능(Ctrl+호버 정의 미리보기, 참조 미리보기 등)은 Monaco 독립 실행형 서비스의 `ITextModelService`로 대상의 모델을 얻는다. 그 기본 서비스(`InMemoryTextModelService`)는 이미 있는 모델만 주고 없으면 "Model not found"로 던진다. 그래서 `src/editor/browser/monaco.ts`의 로더가 Monaco가 서비스를 처음 만들기 전에(테마 알림보다 앞) 그 자리를 덮는다. Monaco는 처음 서비스를 만들 때만 덮기를 받고, 그 뒤의 덮기(`editor.create`의 셋째 인자)는 말없이 무시한다.
 
 - 덮은 서비스는 부를 때마다 `src/editor/browser/textModelServiceHook.ts`의 훅에 묻는다. 워크벤치는 시작할 때(`EditorTextModelResolverContribution`, `src/workbench/services/textmodelResolver/browser/editorTextModelResolver.ts`) 자기 리졸버를 훅에 넣는다. 그래서 Monaco가 언제 로드되든 순서가 상관없다.
-- 워크벤치가 맡는 리소스는 F12(편집기 열기, `EditorOpenerContribution`)가 여는 범위와 같다: 파일 제공자가 있거나 모델이 있고, 위 `ITextModelService`가 다룰 수 있는 것. 그 참조는 위 규칙대로 세므로, 열지 않은 작업 폴더 파일은 미리보기 동안 읽혀 확장 호스트에 문서로 열렸다가 참조가 가면 닫힌다. 탭이나 초안이 가진 모델은 그대로 남는다. `vscode-userdata`(다른 확장의 저장 폴더 포함)는 텍스트 파일 스킴이 아니라 열리지 않는다.
+- 워크벤치가 맡는 리소스는 F12(정의로 가기의 Monaco 편집기 오프너, `mainThreadLanguageFeaturesNavigation.ts`의 `EditorOpenerContribution`)가 여는 범위와 같다(같은 `canOpenInEditor`를 쓴다): 파일 제공자가 있거나 모델이 있고, 위 `ITextModelService`가 다룰 수 있는 것. 그 참조는 위 규칙대로 세므로, 열지 않은 작업 폴더 파일은 미리보기 동안 읽혀 확장 호스트에 문서로 열렸다가 참조가 가면 닫힌다. 탭이나 초안이 가진 모델은 그대로 남는다. `vscode-userdata`(다른 확장의 저장 폴더 포함)는 텍스트 파일 스킴이 아니라 열리지 않는다.
 - 워크벤치가 맡지 않는 것(워크벤치가 없는 편집기 하니스, `inmemory` 합성 문서)은 Monaco의 기본 서비스 그대로다 (wr-v108.qc2).
 
 ## 리소스로 에디터 열기
