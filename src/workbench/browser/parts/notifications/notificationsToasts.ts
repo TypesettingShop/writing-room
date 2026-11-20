@@ -9,12 +9,14 @@ import type {
 } from '../../../../platform/notification/common/notification.js';
 import './notificationsToasts.css';
 
-/** Toasts shown at once; the rest wait in order. */
+/** Toasts shown at once. */
 export const maxVisibleToasts = 3;
 /** Waiting toasts kept per source; a source that sends more loses its oldest waiting ones. */
 export const maxWaitingPerSource = 10;
 /** Waiting toasts kept in all. */
 export const maxWaiting = 50;
+/** Visible time before a plain information toast closes. */
+export const toastAutoCloseDelay = 10_000;
 
 const icons: Record<Severity, string> = {
   [Severity.Ignore]: 'info', [Severity.Info]: 'info', [Severity.Warning]: 'warning', [Severity.Error]: 'error',
@@ -26,25 +28,41 @@ class Toast implements INotificationHandle {
   closed = false;
   element: HTMLElement | undefined;
   private readonly store = new DisposableStore();
+  private readonly actionListeners = this.store.add(new DisposableStore());
   private text: HTMLElement | undefined;
   private progressBar: HTMLElement | undefined;
   private buttons: HTMLElement | undefined;
+  private closeTimer: ReturnType<typeof setTimeout> | undefined;
+  readonly urgent: boolean;
 
   constructor(
     private notification: INotification,
     private readonly owner: NotificationsToasts,
-  ) {}
+    readonly arrival: number,
+  ) {
+    this.urgent = notification.severity === Severity.Error || !!notification.progress;
+  }
 
   get source(): string | undefined {
     return this.notification.source;
   }
 
-  /** A progress toast reports work still running and is never dropped from the queue. */
   get droppable(): boolean {
-    return !this.notification.progress;
+    // A rendered toast has already been shown. Its response stays live while it waits.
+    return !this.element && !this.notification.progress;
   }
 
-  render(): HTMLElement {
+  show(stack: HTMLElement): void {
+    stack.append(this.element ?? this.render());
+    this.updateCloseTimer();
+  }
+
+  hide(): void {
+    this.element?.remove();
+    this.updateCloseTimer();
+  }
+
+  private render(): HTMLElement {
     const { severity, message, source } = this.notification;
     const item = $('section.extension-toast', { 'aria-label': message });
     const icon = $('span', { class: 'codicon codicon-' + (icons[severity] ?? 'info'), 'aria-hidden': 'true' });
@@ -73,13 +91,14 @@ class Toast implements INotificationHandle {
   }
 
   private renderActions(): void {
+    this.actionListeners.clear();
     const actions = this.notification.actions ?? [];
     this.buttons?.replaceChildren(...actions.map(action => {
       const button = $('button', { type: 'button' }, String(action.label));
       if (action.enabled === false) {
         button.setAttribute('aria-disabled', 'true');
       }
-      button.addEventListener('click', () => this.run(action));
+      this.actionListeners.add(addDisposableListener(button, 'click', () => this.run(action)));
       return button;
     }));
   }
@@ -99,6 +118,26 @@ class Toast implements INotificationHandle {
     } else {
       bar.removeAttribute('aria-valuenow');
       (bar.firstElementChild as HTMLElement).style.width = '';
+    }
+  }
+
+  private updateCloseTimer(): void {
+    const { severity, progress, actions } = this.notification;
+    const element = this.element;
+    const shouldTime = !this.closed && element?.parentElement && !progress && !actions?.length
+      && (severity === Severity.Info || severity === Severity.Ignore);
+    if (!shouldTime) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = undefined;
+    } else if (this.closeTimer === undefined) {
+      this.closeTimer = setTimeout(() => {
+        this.closeTimer = undefined;
+        if (this.owner.canAutoClose(element)) {
+          this.close();
+        } else {
+          this.updateCloseTimer();
+        }
+      }, toastAutoCloseDelay);
     }
   }
 
@@ -123,23 +162,34 @@ class Toast implements INotificationHandle {
       this.element?.setAttribute('aria-label', String(message));
       this.progressBar?.setAttribute('aria-label', String(message));
     }
+    this.recheckPosition();
   }
 
   updateProgress(progress: INotificationProgressState | undefined): void {
     this.notification = { ...this.notification, progress };
     this.renderProgress();
+    this.updateCloseTimer();
+    this.recheckPosition();
   }
 
   updateActions(actions: readonly INotificationAction[]): void {
     this.notification = { ...this.notification, actions };
     this.renderActions();
+    this.updateCloseTimer();
+    this.recheckPosition();
+  }
+
+  private recheckPosition(): void {
+    if (this.element?.parentElement) {
+      this.owner.fillVisible();
+    }
   }
 
   close(): void {
     if (!this.closed) {
       this.closed = true;
       this.store.dispose();
-      this.element?.remove();
+      this.hide();
       this.owner.closed(this);
       this.didClose.fire();
       this.didClose.dispose();
@@ -153,12 +203,34 @@ export class NotificationsToasts extends Disposable {
   private readonly visible: Toast[] = [];
   private readonly waiting: Toast[] = [];
 
-  constructor(layout: HTMLElement) {
+  private nextArrival = 0;
+  private disposed = false;
+  private pointer: { x: number; y: number } | undefined;
+
+  constructor(layout: HTMLElement, private readonly hasFocus = () => layout.ownerDocument.hasFocus()) {
     super();
-    this.stack = layout.ownerDocument.createElement('div');
+    const document = layout.ownerDocument;
+    this.stack = document.createElement('div');
     this.stack.className = 'extension-toasts';
     layout.append(this.stack);
+    const trackPointer = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') {
+        this.pointer = { x: event.clientX, y: event.clientY };
+        this.fillVisible();
+      }
+    };
+    this._register(addDisposableListener(document, 'pointerover', trackPointer, true));
+    this._register(addDisposableListener(document, 'pointermove', trackPointer, true));
+    this._register(addDisposableListener(document, 'pointerout', event => {
+      if (event.pointerType !== 'touch' && !event.relatedTarget) {
+        this.pointer = undefined;
+        this.fillVisible();
+      }
+    }, true));
+    // Read activeElement after the focus transition has finished.
+    this._register(addDisposableListener(this.stack, 'focusout', () => queueMicrotask(() => this.fillVisible())));
     this._register(toDisposable(() => {
+      this.disposed = true;
       for (const toast of [...this.waiting, ...this.visible]) {
         toast.close();
       }
@@ -167,29 +239,77 @@ export class NotificationsToasts extends Disposable {
   }
 
   add(notification: INotification): INotificationHandle {
-    const toast = new Toast(notification, this);
-    if (this.visible.length < maxVisibleToasts) {
-      this.show(toast);
-    } else {
-      this.waiting.push(toast);
+    const toast = new Toast(notification, this, this.nextArrival++);
+    if (this.disposed) {
+      toast.close();
+      return toast;
+    }
+    this.waiting.push(toast);
+    this.fillVisible();
+    if (this.waiting.includes(toast)) {
       this.trim(toast.source);
     }
     return toast;
   }
 
+  canAutoClose(element: HTMLElement): boolean {
+    return this.hasFocus() && !this.isInteracting(element, this.pointerTarget());
+  }
+
+  private pointerTarget(): Element | null {
+    // Recompute the hit against the current layout, even when the pointer hasn't moved.
+    return (this.pointer && this.stack.ownerDocument.elementFromPoint?.(this.pointer.x, this.pointer.y)) ?? null;
+  }
+
+  private isInteracting(element: HTMLElement, pointer: Element | null): boolean {
+    return element.contains(this.stack.ownerDocument.activeElement) || element.contains(pointer);
+  }
+
   private trim(source: string | undefined): void {
-    const fromSource = this.waiting.filter(toast => toast.source === source);
-    for (const toast of fromSource.filter(toast => toast.droppable).slice(0, Math.max(0, fromSource.length - maxWaitingPerSource))) {
-      toast.close();
-    }
-    for (const toast of this.waiting.filter(toast => toast.droppable).slice(0, Math.max(0, this.waiting.length - maxWaiting))) {
-      toast.close();
+    this.trimWaiting(maxWaitingPerSource, toast => toast.source === source);
+    this.trimWaiting(maxWaiting, () => true);
+  }
+
+  private trimWaiting(limit: number, matches: (toast: Toast) => boolean): void {
+    while (true) {
+      const queued = this.waiting.filter(matches);
+      const oldest = queued.length > limit && queued.find(toast => toast.droppable);
+      if (!oldest) {
+        return;
+      }
+      oldest.close();
     }
   }
 
-  private show(toast: Toast): void {
+  /** Fills an open slot or gives it to a waiting urgent toast when a normal toast can move. */
+  fillVisible(): void {
+    while (!this.disposed && this.waiting.length) {
+      const urgent = this.waiting.findIndex(toast => toast.urgent);
+      if (this.visible.length < maxVisibleToasts) {
+        this.showNext(urgent === -1 ? 0 : urgent);
+        continue;
+      }
+      if (urgent === -1) {
+        return;
+      }
+      const pointer = this.pointerTarget();
+      const displaced = [...this.visible].reverse().find(toast => !toast.urgent && !this.isInteracting(toast.element!, pointer));
+      if (!displaced) {
+        return;
+      }
+      this.visible.splice(this.visible.indexOf(displaced), 1);
+      displaced.hide();
+      this.showNext(urgent);
+      const later = this.waiting.findIndex(toast => toast.arrival > displaced.arrival);
+      this.waiting.splice(later === -1 ? this.waiting.length : later, 0, displaced);
+      this.trim(displaced.source);
+    }
+  }
+
+  private showNext(index: number): void {
+    const [toast] = this.waiting.splice(index, 1);
     this.visible.push(toast);
-    this.stack.append(toast.render());
+    toast.show(this.stack);
   }
 
   /** Called by a toast as it closes. */
@@ -199,13 +319,10 @@ export class NotificationsToasts extends Disposable {
       this.waiting.splice(waiting, 1);
       return;
     }
-    const index = this.visible.indexOf(toast);
-    if (index !== -1) {
-      this.visible.splice(index, 1);
-      const next = this.waiting.shift();
-      if (next) {
-        this.show(next);
-      }
+    const visible = this.visible.indexOf(toast);
+    if (visible !== -1) {
+      this.visible.splice(visible, 1);
+      this.fillVisible();
     }
   }
 }

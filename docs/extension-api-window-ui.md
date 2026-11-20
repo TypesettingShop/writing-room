@@ -69,7 +69,9 @@ vscode.window.setStatusBarMessage('$(sync~spin) Syncing', syncPromise);
 ```
 
 - `showInformationMessage`, `showWarningMessage`, `showErrorMessage`는 둘째 인자로 `MessageOptions`(`modal`, `detail`)를 받는다. 고른 항목은 넘긴 그 객체로 돌아오고, 닫으면 `undefined`다.
-  - 모달이 아니면 오른쪽 아래의 토스트다. 한 번에 셋까지 보이고 나머지는 차례를 기다린다. 기다리는 토스트는 보낸 쪽(확장)마다 열 개, 모두 쉰 개까지이고, 넘치면 그 쪽의 가장 오래 기다린 것부터 `undefined`로 닫힌다(진행 표시 토스트는 닫지 않는다). 토스트는 저절로 닫히지 않으므로, 셋이 떠 있으면 뒤의 오류나 진행 표시도 앞의 것이 닫힐 때까지 기다린다(wr-gtol). 토스트에는 보낸 확장의 이름(`Source: <displayName>`)이 나온다. `detail`과 `isCloseAffordance`는 모달에서만 쓴다(VS Code와 같다).
+  - 모달이 아니면 오른쪽 아래의 토스트다. 한 번에 셋까지 보인다. 액션·진행 표시가 없는 정보 토스트는 화면에 나온 뒤 10초가 지나면 닫힌다. 그때 포인터나 포커스가 토스트 안에 있거나 창에 포커스가 없으면 10초를 다시 잰다. 버튼이 있는 토스트, 진행 표시, 경고와 오류는 자동으로 닫히지 않는다.
+  - 오류와 진행 표시는 대기 줄에서 먼저 나온다. 자리가 없으면 가장 최근에 나타난 일반 토스트 중 포인터·포커스가 없는 것 하나가 대기 줄로 물러난다. 자리가 나면 기다리는 일반 토스트가 도착 순서대로 나오고, 돌아온 정보 토스트는 10초를 처음부터 잰다. 대기 한도는 보낸 쪽마다 열 개, 전체 쉰 개다. 넘치면 가장 오래 기다린 것부터 닫되, 진행 표시와 한 번이라도 화면에 나온 토스트는 상한으로 닫지 않는다.
+  - 토스트에는 보낸 확장의 이름(`Source: <displayName>`)이 나온다. `detail`과 `isCloseAffordance`는 모달에서 쓴다.
   - `modal: true`면 대화상자(`role="dialog"`, `aria-modal="true"`)다. 떠 있는 동안 뒤의 워크벤치는 포커스와 클릭을 받지 않고, Tab은 버튼 사이를 돈다. 첫 `isCloseAffordance` 항목이 취소 버튼(맨 끝)이 되고, 없으면 `Cancel`(항목이 없으면 `OK`) 버튼이 붙는다. Esc와 취소 버튼은 닫기 항목이 있으면 그것을, 없으면 `undefined`를 돌려준다. 닫히면 포커스가 원래 자리로 돌아간다. 대화상자는 한 번에 하나이고 나머지는 차례를 기다린다.
   - 메시지와 상세는 텍스트로만 들어간다. 마크다운이나 HTML로 그리지 않는다.
 - `withProgress(options, task)`: `location`이 `ProgressLocation.Notification`이면 진행 막대가 있는 토스트, `Window`면 상태 표시줄 왼쪽의 도는 아이콘과 글이다. `SourceControl`과 `{ viewId }`도 `Window`로 보인다. `progress.report({ message, increment })`의 증분은 더해져 100에서 멈추고, 증분이 오기 전에는 막대가 끝없이 돈다. 보고는 100밀리초에 한 번으로 모아 보내지만 마지막 보고는 반드시 보인다. `cancellable`이면 토스트에 **Cancel**이 있고, 누르면 토큰이 한 번 취소된다. 작업이 토큰을 무시해도 표시는 작업이 끝날 때까지 남는다. 작업이 끝나거나 던지면 표시가 사라지고, 결과나 오류는 그대로 호출자에게 간다.
@@ -87,11 +89,11 @@ vscode.window.setStatusBarMessage('$(sync~spin) Syncing', syncPromise);
 - 확장이 `value`, `activeItems`, `selectedItems`를 바꾼 뒤에 도착한, 그 이전의 사용자 이벤트는 확장에 전하지 않는다. VS Code는 늦은 이벤트도 그대로 전해 확장의 변경을 덮을 수 있다 — 오래된 비동기 응답을 받아들이지 않는다는 계약을 따른다 (wr-jbmd, wr-x0vf.6wt).
 - 확장의 `hide()`는 `onDidHide`를 바로 낸다. VS Code는 워크벤치가 숨긴 뒤에 낸다 (wr-x0vf.6wt).
 - `withProgress`의 `ProgressLocation.SourceControl`과 `{ viewId }`는 `Window`로 보인다. 소스 제어와 뷰 안의 진행 표시가 없다 (wr-x0vf.hyt).
-- 기다리는 토스트는 보낸 쪽마다 열 개, 모두 쉰 개까지이고 넘치면 오래된 것부터 닫힌다(진행 표시는 빼고). 토스트는 저절로 닫히지 않는다 — VS Code는 액션 없는 정보 토스트를 잠시 뒤 접는다 (wr-gtol). 알림 센터(모아 보기)와 방해 금지가 없어 닫힌 토스트는 다시 볼 수 없다 (wr-x0vf.hyt).
+- 토스트가 자동으로 닫히면 메시지의 약속은 `undefined`로 풀린다. 알림 센터와 방해 금지 기능이 없어 닫힌 토스트는 다시 볼 수 없고, 경고와 오류에는 자동 닫힘 시간을 적용하지 않는다. 보이는 자리가 차면 일반 토스트는 줄을 서고, 오류와 진행 표시만 위의 자리 양보 규칙을 적용한다 (wr-lnox.dl3).
 - 모달 메시지는 브라우저 안의 대화상자이고, 운영 체제의 대화상자를 쓰지 않는다 (wr-x0vf.hyt).
 - 채널의 글은 로그 파일이 아니라 메모리의 고리 버퍼에 있다. 페이지를 새로 고치면 사라지고, 채널을 문서로 열거나 파일로 저장할 수 없다. VS Code는 채널마다 로그 파일에 쓰고 Output 뷰는 그 파일을 읽는다 — 브라우저에는 로그 디렉터리가 없고, 버퍼가 끝없이 자라지 않게 1 MiB로 묶었다 (wr-x0vf.jgz).
 - `LogOutputChannel`의 수준은 늘 `Info`이고 `onDidChangeLogLevel`은 일어나지 않는다. VS Code는 `Developer: Set Log Level`과 채널별 설정을 따른다 — 수준을 고르는 UI와 설정이 이 릴리스에 없다 (wr-x0vf.jgz).
 - Output 뷰는 읽기 전용 에디터가 아니라 줄의 목록이다. 문법 색, 찾기, 링크, 필터가 없고, 10,000 코드 유닛보다 긴 줄은 화면에서 잘린다. 채널은 드롭다운이 아니라 목록(`listbox`)에서 고른다 — 에디터와 링크는 범위 밖이고, 콤보 상자는 커맨드 팔레트와 이름이 겹친다 (wr-x0vf.jgz).
 - `workbench.view.showQuietly` 설정이 없어 `show()`는 늘 뷰를 연다 (wr-x0vf.jgz).
 
-Decided in: wr-efqx.n9k, wr-x0vf
+Decided in: wr-efqx.n9k, wr-x0vf, wr-lnox

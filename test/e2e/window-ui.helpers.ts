@@ -24,6 +24,13 @@ export async function runCommand(page: Page, title: string): Promise<void> {
 
 export const message = (page: Page, text: string): Locator => page.getByRole('status').filter({ hasText: text });
 
+export async function dismissAllToasts(page: Page): Promise<void> {
+  const dismiss = page.getByRole('button', { name: 'Dismiss message', exact: true });
+  while (await dismiss.count()) {
+    await dismiss.first().click();
+  }
+}
+
 const panelPart = (page: Page): Locator => page.locator('[id="workbench.parts.panel"]');
 
 /** The Output view's parts, in the panel. */
