@@ -21,7 +21,7 @@ import { treeItem } from './explorer.helpers.js';
 import { chooseOption, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { activeGroup, editorText } from './language-basics.helpers.js';
 import {
-  actionMenu, actionNames, followLink, hoverWidget, openActionMenu, openQuickOutline, renameInput, suggestionNames, suggestList,
+  actionMenu, actionNames, hoverWidget, openActionMenu, openQuickOutline, renameInput, suggestionNames, suggestList,
   triggerSuggest,
 } from './language-features.helpers.js';
 import { activeEditor, diagnostics, openSettings, replaceText, saveSettings, settingsTab } from './configuration.helpers.js';
@@ -129,6 +129,13 @@ async function caretOn(page: Page, text: string, offset = 0): Promise<void> {
     // A caret position is a point between characters, which may lie at the token's very edge: the line takes the click.
     await token.click({ position: { x: Math.max(width, 1), y: 5 }, force: true, timeout: 5_000 });
   }).toPass({ timeout: 20_000 });
+}
+
+/** Where the active editor's selection overlays lie: changes with every step of a selection, within a line too. */
+async function selectionShape(page: Page): Promise<string> {
+  return activeGroup(page).locator('.monaco-editor').first().evaluate(editor =>
+    [...editor.querySelectorAll<HTMLElement>('.view-overlays .selected-text')]
+      .map(element => [element.parentElement!.style.top, element.style.left, element.style.width].join(' ')).join('|'));
 }
 
 /** The text of the active editor's line that holds the caret (Monaco's current-line highlight). */
@@ -494,17 +501,37 @@ test('다: the language server\'s thirteen features, the settings that turn two 
 
   await test.step('5 Selection range: expanding from a word reaches its section, header included', async () => {
     await caretOn(page, 'body text', 1);
-    await expect.poll(async () => {
+    // One step at a time, each read once Monaco has drawn it: a step pressed before the last one shows would skip past
+    // the section to the whole document.
+    for (let step = 0; step < 6 && (await selectedLines(page))[0] !== '## Section two'; step++) {
+      const before = await selectionShape(page);
       await page.keyboard.press('Shift+Alt+ArrowRight');
-      return (await selectedLines(page))[0] ?? '';
-    }, { intervals: [500] }).toBe('## Section two');
+      await expect.poll(() => selectionShape(page), { timeout: 10_000 }).not.toBe(before);
+    }
+    expect((await selectedLines(page))[0]).toBe('## Section two');
     expect(await selectedLines(page)).not.toContain('# Notes title');
     await page.keyboard.press('Escape');
   });
 
   await test.step('6 Document links: Ctrl+click opens the linked file', async () => {
-    await followLink(page, './other.md#install');
-    await expect(tab(page, 'other.md')).toHaveAttribute('aria-selected', 'true');
+    // The link is also a definition, whose decoration renders the line anew as the pointer moves: the underline found
+    // can be gone before it is measured, so Ctrl+click is tried again until the file opens.
+    await expect(async () => {
+      const link = activeGroup(page).locator('.view-line .detected-link').filter({ hasText: './other.md#install' }).first();
+      const bounds = await link.boundingBox({ timeout: 5_000 });
+      expect(bounds).not.toBeNull();
+      const x = bounds!.x + bounds!.width / 2;
+      const y = bounds!.y + bounds!.height / 2;
+      // By the point, as a person does: the nodes under it are drawn anew while Ctrl and the pointer rest there.
+      await page.mouse.move(x, y);
+      await page.keyboard.down('ControlOrMeta');
+      try {
+        await page.mouse.click(x, y);
+      } finally {
+        await page.keyboard.up('ControlOrMeta');
+      }
+      await expect(tab(page, 'other.md')).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 });
+    }).toPass({ timeout: 30_000 });
     await page.getByRole('button', { name: 'Close other.md' }).click();
     await show(page, 'notes.md');
   });
