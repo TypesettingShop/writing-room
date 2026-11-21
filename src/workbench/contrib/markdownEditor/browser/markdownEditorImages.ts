@@ -1,6 +1,6 @@
 import type { Node } from 'prosemirror-model';
 import { NodeSelection } from 'prosemirror-state';
-import type { Command } from 'prosemirror-state';
+import type { Command, Selection } from 'prosemirror-state';
 import type { NodeView } from 'prosemirror-view';
 import { dirname, extname, isEqualOrParent, joinPath } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
@@ -108,11 +108,9 @@ export function markdownImageView(
   };
 }
 
-export function selectedMarkdownImage(selection: CommandSelection): Node | undefined {
+export function selectedMarkdownImage(selection: Selection): Node | undefined {
   return selection instanceof NodeSelection && selection.node.type.name === 'image' ? selection.node : undefined;
 }
-
-type CommandSelection = Parameters<Command>[0]['selection'];
 
 export function setMarkdownImage(address: string, alt: string): Command {
   const src = normalizeMarkdownLink(address);

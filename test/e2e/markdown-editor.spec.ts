@@ -516,3 +516,50 @@ test('pastes Markdown text and uses the Shift shortcut for literal text', async 
   await expect(editor.locator('p').last()).toHaveText('**Literal**');
   await expect(editor.locator('strong')).toHaveCount(1);
 });
+
+test('keeps list Tab in the editor and saves the nested task structure', async ({ appPage: page }) => {
+  const name = 'nested-list.md';
+  const group = await openMarkdown(page, name, '- Parent\n- [x] Child');
+  const editor = richEditor(group);
+  await editor.getByText('Child').click();
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeFocused();
+  await expect(editor.locator('ul ul > li')).toHaveText('Child');
+  await expect(editor.getByRole('checkbox')).toBeChecked();
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor.locator(':scope > ul > li')).toHaveCount(2);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toMatch(/^- Parent\n +-[ ]\[x\] Child$/);
+  await page.reload();
+  await expect(editor.locator('ul ul > li')).toHaveText('Child', { timeout: 20_000 });
+  await expect(editor.getByRole('checkbox')).toBeChecked();
+});
+
+test('renders and edits an image relative to the Markdown document folder', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'notes/assets/pixel.svg',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+    ['notes', 'notes/assets']);
+  const name = 'notes/local-image.md';
+  await writeWorkspaceFile(page, name, '![Pixel](assets/pixel.svg)\n\n![Missing](../../outside.svg)');
+  await treeItem(page, 'notes').click();
+  await treeItem(page, 'local-image.md').dblclick();
+  const group = groups(page).first();
+  const editor = richEditor(group);
+  const image = editor.getByRole('img', { name: 'Pixel' });
+  await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBe(10);
+  await expect(image).toHaveAttribute('src', /^blob:/);
+  await expect(editor.getByText('Image is outside the workspace folder', { exact: false })).toBeVisible();
+  await image.click();
+  await group.getByRole('button', { name: 'Image', exact: true }).click();
+  const address = page.getByRole('textbox', { name: 'Image Address' });
+  await expect(address).toHaveValue('assets/pixel.svg');
+  await address.press('Enter');
+  const description = page.getByRole('textbox', { name: 'Image Description' });
+  await description.fill('Edited description');
+  await description.press('Enter');
+  await expect(editor.getByRole('img', { name: 'Edited description' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('![Edited description](assets/pixel.svg)');
+});

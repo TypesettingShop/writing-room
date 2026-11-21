@@ -68,17 +68,22 @@ export function taskItemView(
   node: Node, document: Document, toggle: (checked: boolean) => boolean, writable: () => boolean,
 ): NodeView {
   const dom = document.createElement('li');
-  dom.className = node.attrs.classes.join(' ');
-  dom.dataset.taskChecked = String(node.attrs.checked);
   const checkbox = dom.appendChild(document.createElement('input'));
   checkbox.type = 'checkbox';
   checkbox.contentEditable = 'false';
   checkbox.setAttribute('aria-label', 'Task completed');
-  checkbox.checked = node.attrs.checked;
-  checkbox.disabled = !writable();
   checkbox.addEventListener('change', () => {
-    if (!toggle(checkbox.checked)) checkbox.checked = node.attrs.checked;
+    if (!toggle(checkbox.checked)) checkbox.checked = dom.dataset.taskChecked === 'true';
   });
   const contentDOM = dom.appendChild(document.createElement('div'));
-  return { dom, contentDOM, stopEvent: event => event.target === checkbox };
+  function update(next: Node): boolean {
+    if (next.type !== node.type) return false;
+    dom.className = next.attrs.classes.join(' ');
+    dom.dataset.taskChecked = String(next.attrs.checked);
+    checkbox.checked = next.attrs.checked;
+    checkbox.disabled = !writable();
+    return true;
+  }
+  update(node);
+  return { dom, contentDOM, update, stopEvent: event => event.target === checkbox };
 }
