@@ -8,7 +8,25 @@ export type MarkdownEditorMode = 'wysiwyg' | 'source';
 
 export const MARKDOWN_EDITOR_INPUT_ID = 'workbench.editors.markdownEditorInput';
 export const MARKDOWN_EDITOR_DEFAULT_MODE = 'markdownEditor.defaultMode';
+export const MARKDOWN_EDITOR_FONT_FAMILY = 'markdownEditor.fontFamily';
+export const defaultMarkdownFontFamilies = { serif: 'Georgia, serif', sans: 'system-ui, sans-serif' };
 export const MarkdownEditorModeContext = new RawContextKey<MarkdownEditorMode | null>('markdownEditorMode', null);
+export const MarkdownEditorFocusContext = new RawContextKey<boolean>('markdownEditorFocus', false);
+export const MarkdownEditorWritableContext = new RawContextKey<boolean>('markdownEditor.writable', false);
+export const MarkdownEditorBlockTypeContext = new RawContextKey<string | null>('markdownEditor.blockType', null);
+export const MarkdownEditorTextAlignContext = new RawContextKey<string | null>('markdownEditor.textAlign', null);
+export const MarkdownEditorFontSizeContext = new RawContextKey<string | null>('markdownEditor.fontSize', null);
+export const MarkdownEditorFontFamilyContext = new RawContextKey<string | null>('markdownEditor.fontFamily', null);
+export const MarkdownEditorInlineFormattingContext = new RawContextKey<boolean>('markdownEditor.inlineFormatting', false);
+export const MarkdownEditorLinkContext = new RawContextKey<boolean>('markdownEditor.isLink', false);
+export const MarkdownEditorInlineMarkContexts = {
+  strong: new RawContextKey<boolean>('markdownEditor.isBold', false),
+  em: new RawContextKey<boolean>('markdownEditor.isItalic', false),
+  strike: new RawContextKey<boolean>('markdownEditor.isStrike', false),
+  code: new RawContextKey<boolean>('markdownEditor.isCode', false),
+};
+export const MarkdownEditorCanUndoContext = new RawContextKey<boolean>('markdownEditorCanUndo', false);
+export const MarkdownEditorCanRedoContext = new RawContextKey<boolean>('markdownEditorCanRedo', false);
 
 export function isMarkdownResource(resource: URI): boolean {
   const extension = extname(resource).toLowerCase();

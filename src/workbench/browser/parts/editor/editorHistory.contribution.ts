@@ -1,7 +1,7 @@
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
-import { ContextKeyExpr, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { InputFocusedContext } from '../../../../platform/contextkey/common/contextkeys.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
@@ -9,11 +9,11 @@ import { registerWorkbenchContribution2 } from '../../../common/contributions.js
 import { CustomEditorInput } from '../../../contrib/customEditor/browser/customEditorInput.js';
 import { CONTEXT_ACTIVE_CUSTOM_EDITOR_ID } from '../../../contrib/customEditor/common/customEditor.js';
 import { MarkdownEditorPane } from '../../../contrib/markdownEditor/browser/markdownEditorPane.js';
-import { MarkdownEditorModeContext } from '../../../contrib/markdownEditor/common/markdownEditor.js';
+import {
+  MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorModeContext,
+} from '../../../contrib/markdownEditor/common/markdownEditor.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 
-const canUndoMarkdown = new RawContextKey<boolean>('markdownEditorCanUndo', false);
-const canRedoMarkdown = new RawContextKey<boolean>('markdownEditorCanRedo', false);
 const markdownActive = MarkdownEditorModeContext.isEqualTo('wysiwyg');
 const customActive = ContextKeyExpr.has(CONTEXT_ACTIVE_CUSTOM_EDITOR_ID.key);
 
@@ -23,8 +23,8 @@ class EditorHistoryContext extends Disposable {
     @IContextKeyService contextKeys: IContextKeyService,
   ) {
     super();
-    const undo = canUndoMarkdown.bindTo(contextKeys);
-    const redo = canRedoMarkdown.bindTo(contextKeys);
+    const undo = MarkdownEditorCanUndoContext.bindTo(contextKeys);
+    const redo = MarkdownEditorCanRedoContext.bindTo(contextKeys);
     const listener = this._register(new MutableDisposable());
     const bindActivePane = () => {
       const active = groups.activeGroup?.activeEditorPane;
@@ -50,8 +50,8 @@ const workbenchHistoryKeys = ContextKeyExpr.or(
 
 /** One command per operation so Markdown and Custom Editors can coexist. Monaco handles its own keys. */
 for (const [id, title, enabled, keys] of [
-  ['undo', 'Undo', canUndoMarkdown, { primary: KeyMod.CtrlCmd | KeyCode.KeyZ }],
-  ['redo', 'Redo', canRedoMarkdown, {
+  ['undo', 'Undo', MarkdownEditorCanUndoContext, { primary: KeyMod.CtrlCmd | KeyCode.KeyZ }],
+  ['redo', 'Redo', MarkdownEditorCanRedoContext, {
     primary: KeyMod.CtrlCmd | KeyCode.KeyY,
     secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ],
     mac: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ },

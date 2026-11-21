@@ -103,7 +103,10 @@ const nodes: Record<string, NodeSpec> = {
   image: basicMarkdownSchema.spec.nodes.get('image')!,
   hard_break: basicMarkdownSchema.spec.nodes.get('hard_break')!,
   // Keep soft line breaks as inline whitespace so editing does not concatenate source lines.
-  soft_break: { inline: true, group: 'inline', selectable: false, toDOM: () => ['span', ' '], leafText: () => '\n' },
+  soft_break: {
+    inline: true, group: 'inline', selectable: false, linebreakReplacement: true,
+    toDOM: () => ['span', ' '], leafText: () => '\n',
+  },
   footnote_definition: {
     ...styledBlock('div[data-footnote]', { content: 'block+', defining: true, attrs: { label: { validate: 'string' } } }),
     parseDOM: [{ tag: 'div[data-footnote]', getAttrs: element => ({
