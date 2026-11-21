@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { ContextKeyService } from '../../../contextkey/browser/contextKeyService.js';
+import { ContextKeyExpr } from '../../../contextkey/common/contextkey.js';
 import { NullKeybindingService } from '../../../keybinding/common/keybinding.js';
 import { BrowserLayoutService } from '../../../layout/browser/layoutService.js';
 import { MenuWorkbenchToolBar } from '../../browser/toolbar.js';
@@ -29,5 +30,47 @@ test('overflow and submenu buttons cancel only primary-button presses', () => {
     expect(defaultAllowed).toEqual([[false, true, true], [false, true, true]]);
   } finally {
     disposables.dispose();
+  }
+});
+
+test('updates a choice from context and runs the command with the selected menu arguments', async () => {
+  const disposables = new DisposableStore();
+  const toolbarMenu = MenuId.for('test.toolbar.select');
+  const submenu = MenuId.for('test.toolbar.select.options');
+  const container = document.createElement('div');
+  const executeCommand = vi.fn().mockResolvedValue(undefined);
+  document.body.append(container);
+  try {
+    const context = disposables.add(new ContextKeyService());
+    const style = context.createKey<string>('test.style', 'body');
+    const menus = new MenuService({ _serviceBrand: undefined, executeCommand }, new NullKeybindingService());
+    disposables.add(MenuRegistry.appendMenuItem(toolbarMenu, { submenu, title: 'Style', select: true, group: '2_style' }));
+    disposables.add(MenuRegistry.appendMenuItem(toolbarMenu, {
+      command: { id: 'another', title: 'Another action' }, group: '3_inline',
+    }));
+    for (const [order, title] of ['body', 'heading'].entries()) {
+      disposables.add(MenuRegistry.appendMenuItem(submenu, {
+        command: { id: 'test.setStyle', title, toggled: ContextKeyExpr.equals('test.style', title) },
+        args: [{ type: title }], order,
+      }));
+    }
+    disposables.add(new MenuWorkbenchToolBar(
+      { element: container, ariaLabel: 'Formatting' }, toolbarMenu, context, menus, new BrowserLayoutService(),
+    ));
+    const select = () => container.querySelector('select')!;
+    expect(select().selectedOptions[0].textContent).toBe('body');
+    select().focus();
+    select().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
+    style.set('heading');
+    await Promise.resolve();
+    expect(select().selectedOptions[0].textContent).toBe('heading');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
+    select().selectedIndex = 1;
+    select().dispatchEvent(new Event('change'));
+    expect(executeCommand).toHaveBeenCalledWith('test.setStyle', { type: 'body' });
+  } finally {
+    disposables.dispose();
+    container.remove();
   }
 });

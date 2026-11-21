@@ -9,6 +9,10 @@ export type MarkdownEditorMode = 'wysiwyg' | 'source';
 export const MARKDOWN_EDITOR_INPUT_ID = 'workbench.editors.markdownEditorInput';
 export const MARKDOWN_EDITOR_DEFAULT_MODE = 'markdownEditor.defaultMode';
 export const MarkdownEditorModeContext = new RawContextKey<MarkdownEditorMode | null>('markdownEditorMode', null);
+export const MarkdownEditorFocusContext = new RawContextKey<boolean>('markdownEditorFocus', false);
+export const MarkdownEditorWritableContext = new RawContextKey<boolean>('markdownEditor.writable', false);
+export const MarkdownEditorCanUndoContext = new RawContextKey<boolean>('markdownEditorCanUndo', false);
+export const MarkdownEditorCanRedoContext = new RawContextKey<boolean>('markdownEditorCanRedo', false);
 
 export function isMarkdownResource(resource: URI): boolean {
   const extension = extname(resource).toLowerCase();

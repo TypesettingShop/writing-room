@@ -172,3 +172,25 @@ test('starts a new history at the current text when switching between modes', as
   await page.keyboard.press('ControlOrMeta+z');
   await expect(editor).toHaveText('Start rich source');
 });
+
+test('offers keyboard access to rich-text history and hides the toolbar in source mode', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'toolbar.md', 'Start');
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const undo = toolbar.getByRole('button', { name: 'Undo' });
+  const redo = toolbar.getByRole('button', { name: 'Redo' });
+  await expect(toolbar).toBeVisible({ timeout: 20_000 });
+  await expect(undo).toBeDisabled();
+  await editor.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' text');
+  await expect(undo).toBeEnabled();
+  await undo.focus();
+  await page.keyboard.press('Enter');
+  await expect(editor).toHaveText('Start');
+  await expect(redo).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(editor).toHaveText('Start text');
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(toolbar).toBeHidden();
+});

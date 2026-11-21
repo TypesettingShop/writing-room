@@ -38,6 +38,7 @@ interface IMenuEntry {
 
 export interface IMenuItem extends IMenuEntry {
   readonly command: ICommandAction;
+  readonly args?: readonly unknown[];
 }
 
 export interface ISubmenuItem extends IMenuEntry {
@@ -45,6 +46,7 @@ export interface ISubmenuItem extends IMenuEntry {
   readonly forwardMenuContext?: MenuId;
   readonly title: CommandTitle;
   readonly icon?: CommandIcon;
+  readonly select?: boolean;
 }
 
 export function isIMenuItem(item: IMenuItem | ISubmenuItem): item is IMenuItem {
@@ -66,6 +68,7 @@ export class MenuId {
   static readonly EditorTitle = new MenuId('EditorTitle');
   static readonly EditorTitleContext = new MenuId('EditorTitleContext');
   static readonly EditorContext = new MenuId('EditorContext');
+  static readonly MarkdownEditorToolbar = new MenuId('MarkdownEditorToolbar');
   static readonly ExplorerContext = new MenuId('ExplorerContext');
   static readonly WebviewContext = new MenuId('WebviewContext');
   static readonly ViewTitle = new MenuId('ViewTitle');
@@ -182,6 +185,7 @@ export class MenuItemAction {
     private readonly context: IMenuContext,
     keybindings: IKeybindingService,
     private readonly commandService: ICommandService,
+    private readonly menuArgs: readonly unknown[] = [],
   ) {
     this.id = item.id;
     this.label = commandTitle(item.title);
@@ -200,10 +204,12 @@ export class MenuItemAction {
     if (this.menuContext) {
       const command = CommandsRegistry.getCommand(this.id);
       if (!command || menuContextHandlers.has(command.handler)) {
-        return this.commandService.executeCommand(this.id, new MenuCommandContext(this.menuContext, this.context), ...args);
+        return this.commandService.executeCommand(
+          this.id, new MenuCommandContext(this.menuContext, this.context), ...this.menuArgs, ...args,
+        );
       }
     }
-    return this.commandService.executeCommand(this.id, ...args);
+    return this.commandService.executeCommand(this.id, ...this.menuArgs, ...args);
   }
 }
 

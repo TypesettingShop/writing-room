@@ -23,6 +23,7 @@ import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
 import { getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE, MarkdownEditorModeContext } from '../common/markdownEditor.js';
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
+import './markdownEditorToolbar.contribution.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPane(
   EditorPaneDescriptor.create(MarkdownEditorPane, MarkdownEditorPane.ID, 'Markdown Editor'), [MarkdownEditorInput.ID],

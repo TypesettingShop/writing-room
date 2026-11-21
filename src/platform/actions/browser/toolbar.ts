@@ -14,17 +14,22 @@ export class MenuWorkbenchToolBar extends Disposable {
   private readonly popup = this._register(new MutableDisposable<Menu>());
 
   constructor(
-    container: HTMLElement,
+    target: HTMLElement | { readonly element: HTMLElement; readonly ariaLabel: string },
     menuId: MenuId,
     contextKeyService: IMenuContext,
     @IMenuService menuService: IMenuService,
     @ILayoutService layoutService: ILayoutService,
   ) {
     super();
+    const options = 'element' in target ? target : undefined;
+    const container = options?.element ?? target as HTMLElement;
     const document = container.ownerDocument;
     const toolbar = document.createElement('div');
     toolbar.className = 'wr-menu-toolbar';
     toolbar.setAttribute('role', 'toolbar');
+    if (options) {
+      toolbar.setAttribute('aria-label', options.ariaLabel);
+    }
     const overflow = document.createElement('button');
     overflow.type = 'button';
     overflow.textContent = '…';
@@ -75,9 +80,38 @@ export class MenuWorkbenchToolBar extends Disposable {
     overflow.addEventListener('mousedown', preserveFocusOnLeftPress);
     overflow.addEventListener('click', () => open(overflow, remaining));
 
+    let tabStop: string | undefined;
+    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-menu-action]')]
+      .filter(control => !control.disabled && !control.hidden);
+    const setTabStop = (control: HTMLElement | undefined) => {
+      tabStop = control?.dataset.menuAction;
+      for (const candidate of controls()) {
+        candidate.tabIndex = candidate === control ? 0 : -1;
+      }
+    };
+    if (options) {
+      toolbar.addEventListener('focusin', event => {
+        if (event.target instanceof HTMLElement) {
+          setTabStop(event.target);
+        }
+      });
+      toolbar.addEventListener('keydown', event => {
+        const available = controls();
+        const index = available.findIndex(control => control === event.target);
+        if (index < 0) {
+          return;
+        }
+        const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (direction) {
+          event.preventDefault();
+          available[(index + direction + available.length) % available.length].focus();
+        }
+      });
+    }
+
     const update = () => {
       const actions = menu.getActions();
-      remaining = actions.filter(([group]) => group !== 'navigation');
+      remaining = options ? [] : actions.filter(([group]) => group !== 'navigation');
       if (remaining.length > 0 && opener === overflow) {
         this.popup.value?.update(remaining);
       } else {
@@ -85,46 +119,107 @@ export class MenuWorkbenchToolBar extends Disposable {
       }
       overflow.hidden = remaining.length === 0;
 
-      const focusedId = (document.activeElement as HTMLElement | null)?.dataset.menuAction;
-      for (const button of [...toolbar.children]) {
-        if (button !== overflow) {
-          button.remove();
+      const active = document.activeElement as HTMLElement | null;
+      const focusedId = toolbar.contains(active) ? active?.dataset.menuAction : undefined;
+      for (const control of [...toolbar.children]) {
+        if (control !== overflow) {
+          control.remove();
         }
       }
-      for (const action of actions.find(([group]) => group === 'navigation')?.[1] ?? []) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.dataset.menuAction = action.id;
-        button.title = action.label;
-        button.setAttribute('aria-label', action.label);
-        button.disabled = !action.enabled;
-        if (action instanceof MenuItemAction && action.checked !== undefined) {
-          button.setAttribute('aria-pressed', String(action.checked));
+      const primary = actions.filter(([group]) => options || group === 'navigation');
+      for (const [group, items] of primary) {
+        for (const action of items) {
+          const control = createControl(action);
+          control.dataset.menuAction = action.id;
+          control.dataset.menuGroup = group;
+          toolbar.insertBefore(control, overflow);
         }
-        const icon = action.icon && renderMenuIcon(document, action.icon);
-        if (icon) {
-          button.append(icon);
-        } else {
-          button.textContent = action.label;
+      }
+      const available = controls();
+      const focused = available.find(control => control.dataset.menuAction === focusedId);
+      if (options) {
+        setTabStop(focused ?? available.find(control => control.dataset.menuAction === tabStop) ?? available[0]);
+      }
+      (focused ?? (focusedId && options ? available.find(control => control.tabIndex === 0) : undefined))
+        ?.focus({ preventScroll: true });
+    };
+
+    const createControl = (action: MenuActionGroup[1][number]) => {
+      if (action instanceof SubmenuItemAction && action.item.select) {
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', action.label);
+        select.title = action.label;
+        const choices = action.groups.flatMap(([, items]) => items.filter(item => item instanceof MenuItemAction));
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '—';
+        placeholder.disabled = true;
+        placeholder.hidden = true;
+        select.append(placeholder);
+        for (const [index, choice] of choices.entries()) {
+          const option = document.createElement('option');
+          option.value = String(index);
+          option.textContent = choice.label;
+          option.disabled = !choice.enabled;
+          select.append(option);
         }
-        if (action instanceof SubmenuItemAction) {
-          button.setAttribute('aria-haspopup', 'menu');
-          button.setAttribute('aria-expanded', 'false');
+        const selected = choices.findIndex(choice => choice.checked);
+        const currentValue = selected < 0 ? '' : String(selected);
+        select.value = currentValue;
+        select.disabled = choices.every(choice => !choice.enabled);
+        select.addEventListener('change', () => {
+          const choice = choices[select.selectedIndex - 1];
+          select.value = currentValue;
+          if (choice) {
+            void runMenuAction(choice);
+          }
+        });
+        return select;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.title = action.label;
+      button.setAttribute('aria-label', action.label);
+      button.disabled = !action.enabled;
+      if (action instanceof MenuItemAction && action.checked !== undefined) {
+        button.setAttribute('aria-pressed', String(action.checked));
+      }
+      const icon = action.icon && renderMenuIcon(document, action.icon);
+      if (icon) {
+        button.append(icon);
+      } else {
+        button.textContent = action.label;
+      }
+      if (action instanceof SubmenuItemAction) {
+        button.setAttribute('aria-haspopup', 'menu');
+        button.setAttribute('aria-expanded', 'false');
+        button.addEventListener('mousedown', preserveFocusOnLeftPress);
+        button.addEventListener('click', () => open(button, action.groups));
+      } else {
+        if (options) {
           button.addEventListener('mousedown', preserveFocusOnLeftPress);
-          button.addEventListener('click', () => open(button, action.groups));
-        } else {
-          button.addEventListener('click', () => {
-            close();
-            void runMenuAction(action);
-          });
         }
-        toolbar.insertBefore(button, overflow);
-        if (focusedId === action.id) {
-          button.focus({ preventScroll: true });
-        }
+        button.addEventListener('click', () => {
+          close();
+          void runMenuAction(action);
+        });
       }
+      return button;
     };
     update();
-    this._register(menu.onDidChange(update));
+    let pending = false;
+    this._register(menu.onDidChange(() => {
+      if (!options) {
+        update();
+      } else if (!pending) {
+        pending = true;
+        queueMicrotask(() => {
+          pending = false;
+          if (toolbar.parentNode === container) {
+            update();
+          }
+        });
+      }
+    }));
   }
 }
