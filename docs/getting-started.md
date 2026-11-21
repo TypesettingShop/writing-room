@@ -22,7 +22,7 @@ npm run dev
 
 ## 팔레트와 키
 
-**F1**, **Ctrl+Shift+P**(macOS에서는 **Cmd+Shift+P**) 또는 **View → Command Palette**로 커맨드 팔레트를 연다. 커맨드 이름의 일부를 입력하고 **Enter**로 선택한다. 키가 연결된 커맨드는 메뉴와 팔레트에 키를 표시한다. **Ctrl+B**로 사이드바를, **Ctrl+J**로 패널을 표시하거나 숨긴다. macOS에서는 두 키의 **Ctrl** 대신 **Cmd**를 쓴다.
+**F1**, **Ctrl+Shift+P**(macOS에서는 **Cmd+Shift+P**) 또는 **View → Command Palette**로 커맨드 팔레트를 연다. 커맨드 이름의 일부를 입력하고 **Enter**로 선택한다. 키가 연결된 커맨드는 메뉴와 팔레트에 키를 표시한다. WYSIWYG 편집면 밖에서는 **Ctrl+B**로 사이드바를 표시하거나 숨긴다. **Ctrl+J**로는 패널을 표시하거나 숨긴다. macOS에서는 두 키의 **Ctrl** 대신 **Cmd**를 쓴다.
 
 새 텍스트 파일은 **Ctrl+Alt+N**으로 연다. Windows에서는 **Ctrl+K**를 누른 뒤 **N**을 누르고, macOS에서는 **Cmd+Option+N**을 쓴다. **File → New Text File**이나 팔레트의 **File: New Untitled Text File**로도 열 수 있다.
 
@@ -41,6 +41,17 @@ npm run dev
 - 원문과 WYSIWYG는 파일 내용과 dirty 표시를 공유한다. WYSIWYG의 **Edit → Undo**와 **Edit → Redo**, **Ctrl+Z**, **Ctrl+Shift+Z**, **Ctrl+Y**(macOS에서는 **Cmd**)는 같은 이력에 적용된다. 500ms 안에 이어서 입력한 글자는 한 번에 되돌아가며, 서식 명령과 외부 편집은 각각 한 단계다.
 - 모드를 전환하면 전환 순간의 파일 내용이 새 이력의 시작점이 된다. 그 뒤에 한 첫 편집을 되돌리면 전환 순간의 내용으로 돌아온다. 원문 이력은 같은 파일의 Monaco 창이 공유한다.
 - 확장이 제공하는 **Markdown Preview**는 **View: Reopen Editor With...**에서 선택할 수 있다. Monaco의 언어 기능 및 편집기 전용 확장 명령은 원문 모드에서 사용한다. [마크다운 저장 규칙](markdown-editor.md)
+
+### 서식 툴바
+
+- WYSIWYG 본문 위 툴바에서 서식을 바꾼다. **Tab**으로 툴바에 들어가고 좌우 화살표로 버튼을 이동한다. **Enter**로 버튼이나 드롭다운을 열고, 드롭다운 안에서는 위아래 화살표와 **Enter**로 선택한다. **Esc**로 메뉴를 닫는다.
+- **Style**에서 본문, 제목 1–6, 부제목, 인용, 코드 블록을 고른다. 부제목은 `{.subtitle}`을 붙인 문단으로 저장하며 개요에 들어가지 않는다. 선택한 블록의 스타일이 서로 다르면 **Style**에 대시가 표시된다. **Ctrl+Alt+0**은 본문, **Ctrl+Alt+1–6**은 해당 단계의 제목을 적용한다. macOS에서는 **Cmd+Option**을 쓴다.
+- **Align**, **Size**, **Font**는 Markdown 클래스 프리셋을 적용한다. **Ctrl+Shift+L/E/R/J**는 왼쪽/가운데/오른쪽/양쪽 정렬이다. 크기와 글꼴은 블록 전체를 선택하면 블록에, 텍스트 일부를 선택하면 해당 범위에 적용된다. 일부 선택에서 **Default**는 인라인 재정의를 지워 블록의 값을 상속한다. `markdownEditor.fontFamily`의 `serif`와 `sans`에 CSS 글꼴 목록을 설정할 수 있다.
+- 굵게는 **Ctrl+B**, 기울임은 **Ctrl+I**, 취소선은 **Ctrl+Shift+X**, 인라인 코드는 **Ctrl+E**, 링크 편집은 **Ctrl+K**다. macOS에서는 **Cmd**를 쓴다. 링크의 기존 URL은 입력창에 채워지며, 빈 값으로 수락하면 링크를 제거한다. 선택 없이 새 링크를 만들면 URL이 링크 텍스트가 된다. 툴바 작업은 **Markdown** 카테고리의 커맨드 팔레트에서도 실행할 수 있다.
+
+#### Deviations from VS Code
+
+- 편집 가능한 WYSIWYG 편집면에서 **Ctrl+B**, **Ctrl+K**, **Ctrl+Shift+E**, **Ctrl+Shift+X**는 Markdown 서식 단축키다. 원문 모드와 편집면 밖에서는 워크벤치의 사이드바, 코드 편집 명령, Explorer, Extensions 단축키를 사용한다.
 
 ## 사용자 설정 편집하기
 
@@ -108,4 +119,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm
