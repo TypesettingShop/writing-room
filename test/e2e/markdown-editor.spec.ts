@@ -529,37 +529,55 @@ test('uses monospace for inline code and regular weight for subtitles', async ({
 test('loads the four bundled Korean fonts at both weights with external requests blocked', async ({ page, baseURL }, testInfo) => {
   const origin = new URL(baseURL!).origin;
   const external: string[] = [];
+  const fontStyleRequests: string[] = [];
+  let releaseFontStyles!: () => void;
+  const allowFontStyles = new Promise<void>(resolve => { releaseFontStyles = resolve; });
   await page.route(/^https?:/, async route => {
     const url = route.request().url();
-    if (new URL(url).origin === origin) {
-      await route.continue();
-    } else {
+    const { origin: requestOrigin, pathname } = new URL(url);
+    if (requestOrigin !== origin) {
       external.push(url);
       await route.abort('internetdisconnected');
+      return;
     }
+    // Production loads one CSS chunk. Vite's dev server loads the module that injects the CSS.
+    if (/\/markdownEditorFonts(?:-[\w-]+\.css|\.ts)$/.test(pathname)) {
+      fontStyleRequests.push(pathname);
+      await allowFontStyles;
+    }
+    await route.continue();
   });
   // The dev server serves each module separately and fills the default 250-entry resource timing buffer,
   // after which the font requests would not be recorded at all.
   await page.addInitScript(() => performance.setResourceTimingBufferSize(100_000));
-  await page.goto('/');
   const familyAssets = () => page.evaluate(() => performance.getEntriesByType('resource')
     .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming)
     .filter(entry => /(?:noto-(?:sans|serif)-kr|nanum-(?:gothic|myeongjo))-.*\.woff2$/.test(entry.name))
     .map(entry => ({ path: new URL(entry.name).pathname, bytes: entry.encodedBodySize })));
-  expect(await familyAssets()).toEqual([]);
-
-  const group = await openMarkdown(page, 'webfonts.md', '한글 가나다 **굵은 한글**');
-  const paragraph = richEditor(group).locator('p');
-  const font = group.getByRole('button', { name: 'Font', exact: true });
-  const choose = (name: string) => page.getByRole('menuitemradio', { name, exact: true }).click();
-  await expect(paragraph).toHaveText('한글 가나다 굵은 한글');
-
   const families = [
     ['Noto Sans KR', 'Noto Sans KR'],
     ['Noto Serif KR', 'Noto Serif KR'],
     ['나눔고딕', 'Nanum Gothic'],
     ['나눔명조', 'Nanum Myeongjo'],
   ];
+  let group: Locator;
+  try {
+    await page.goto('/');
+    expect(fontStyleRequests).toEqual([]);
+    expect(await familyAssets()).toEqual([]);
+    expect(await page.evaluate(names => [...document.fonts]
+      .filter(face => names.includes(face.family.replace(/["']/g, ''))).length, families.map(([, name]) => name))).toBe(0);
+
+    group = await openMarkdown(page, 'webfonts.md', '한글 가나다 **굵은 한글**');
+    await expect(richEditor(group).locator('p')).toHaveText('한글 가나다 굵은 한글');
+    await expect.poll(() => fontStyleRequests.length).toBe(1);
+    expect(await familyAssets()).toEqual([]);
+  } finally {
+    releaseFontStyles();
+  }
+  const paragraph = richEditor(group).locator('p');
+  const font = group.getByRole('button', { name: 'Font', exact: true });
+  const choose = (name: string) => page.getByRole('menuitemradio', { name, exact: true }).click();
   for (const [label, family] of families) {
     if (label !== 'Noto Sans KR') {
       await paragraph.click();
@@ -570,7 +588,7 @@ test('loads the four bundled Korean fonts at both weights with external requests
     }
     expect(await paragraph.evaluate(node => getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''))).toBe(family);
     await expect.poll(() => page.evaluate(name => [...document.fonts]
-      .filter(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded')
+      .filter(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded' && face.display === 'swap')
       .map(face => face.weight), family)).toEqual(expect.arrayContaining(['400', '700']));
 
     if (label === 'Noto Sans KR') {
@@ -583,6 +601,9 @@ test('loads the four bundled Korean fonts at both weights with external requests
       });
     }
   }
+  await group.getByRole('button', { name: 'Split Editor Right' }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toHaveCount(2);
+  expect(fontStyleRequests).toHaveLength(1);
   expect(external).toEqual([]);
 });
 

@@ -52,14 +52,6 @@ import { markdownTablePlugins, moveMarkdownTableCell } from './markdownEditorTab
 import { centerMarkdownCaret, markdownActiveBlock } from './markdownFocusPresentation.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
-import '@fontsource/noto-sans-kr/400.css';
-import '@fontsource/noto-sans-kr/700.css';
-import '@fontsource/noto-serif-kr/400.css';
-import '@fontsource/noto-serif-kr/700.css';
-import '@fontsource/nanum-gothic/400.css';
-import '@fontsource/nanum-gothic/700.css';
-import '@fontsource/nanum-myeongjo/400.css';
-import '@fontsource/nanum-myeongjo/700.css';
 import 'prosemirror-view/style/prosemirror.css';
 import './markdownEditor.css';
 import './media/markdownTheme.css';
@@ -228,6 +220,8 @@ export class MarkdownEditorPane extends EditorPane {
     if (!(input instanceof MarkdownEditorInput)) {
       return;
     }
+    // Keep opening the editor while the browser fetches the font definitions.
+    void import('./markdownEditorFonts.js').catch(error => console.warn('Could not load Markdown webfonts.', error));
     this.session.add(input.onWillDispose(() => this.clearInput()));
 
     try {
