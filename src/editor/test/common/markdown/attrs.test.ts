@@ -91,3 +91,15 @@ it('keeps class-looking image labels literal and gives explicit spans precedence
   expect(doc.firstChild!.lastChild!.marks.map(mark => mark.type.name)).toEqual(['link']);
   expect(createMarkdownIt().render(source)).toContain('alt="alt [inside]{.literal}"');
 });
+
+it('needs a space before a trailer and keeps footnote references and nested spans out of class spans', () => {
+  const doc = parseMarkdown('word{.attached} ![a](/i.png){.image}\n\n[^a]{.note} [[inner]{.inner}]{.outer}\n\n[^a]: 각주');
+  expect(doc.child(0).attrs.classes).toEqual([]);
+  expect(doc.child(0).lastChild!.text).toBe('{.image}');
+  expect(doc.child(0).firstChild!.text).toBe('word{.attached} ');
+  const paragraph = doc.child(1);
+  expect(paragraph.firstChild!.type.name).toBe('footnote_reference');
+  expect(paragraph.child(1).text).toBe('{.note} ');
+  expect(paragraph.lastChild!.text).toBe('[inner]{.inner}');
+  expect(paragraph.lastChild!.marks.map(mark => mark.attrs.classes)).toEqual([['outer']]);
+});

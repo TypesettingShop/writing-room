@@ -17,7 +17,7 @@ function canonical(doc: Node): string {
 
 function normalizedTree(doc: Node): unknown {
   const attrs = { ...doc.attrs };
-  if (doc.type.name === 'code_block' || doc.type.name === 'heading') delete attrs.markup;
+  if (doc.type.name === 'code_block') delete attrs.markup;
   return {
     type: doc.type.name,
     attrs,
@@ -71,6 +71,26 @@ describe('Markdown save normalization', () => {
     const state = EditorState.create({ doc });
     const { doc: edited } = state.apply(state.tr.insertText('new middle', position, position + 'middle'.length));
     expect(serializeMarkdown(edited)).toBe(source.replace('middle', 'new middle'));
+  });
+
+  it('keeps a single-newline separator between untouched blocks and writes an edited block with the file line ending', () => {
+    const source = '# 제목\r\nfirst\r\n\r\n> quote\r\n> more\r\n';
+    const doc = parseMarkdown(source);
+    const state = EditorState.create({ doc });
+    const position = doc.child(0).nodeSize + doc.child(1).nodeSize + 2;
+    const edited = state.apply(state.tr.insertText('new ', position)).doc;
+    expect(serializeMarkdown(edited)).toBe('# 제목\r\nfirst\r\n\r\n> new quote\r\n> more\r\n');
+  });
+
+  it('writes loose lists with blank lines and intraword emphasis with asterisks', () => {
+    expect(canonical(parseMarkdown('- a\n\n- b'))).toBe('- a\n\n- b');
+    const underscore = markdownSchema.marks.em.create({ markup: '_' });
+    const p = markdownSchema.nodes.paragraph.create(null, [
+      markdownSchema.text('snake'), markdownSchema.text('case', [underscore]), markdownSchema.text(' _ok_ '),
+      markdownSchema.text('word', [underscore]),
+    ]);
+    const written = canonical(markdownSchema.nodes.doc.create(null, p));
+    expect(written).toBe('snake*case* \\_ok\\_ _word_');
   });
 
   it('retains marker spellings around edits in the same block', () => {

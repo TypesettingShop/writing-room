@@ -104,6 +104,11 @@ describe('parseMarkdown', () => {
     expect(doc.lastChild!.textContent).toBe('끝');
   });
 
+  it('reports a footnote definition as one source block', () => {
+    const { blocks } = parseMarkdownWithSource('a\n\n[^1]: one\n    two\n\nb');
+    expect(blocks.map(({ startLine, endLine }) => [startLine, endLine])).toEqual([[0, 1], [2, 5], [5, 6]]);
+  });
+
   it('keeps reference definitions even when nested, repeated or unused', () => {
     const doc = parseMarkdown('> [ref]: /one\n\n[link][ref]\n\n[ref]: /two\n[unused]: /three');
     expect(doc.firstChild!.firstChild!.attrs.source).toBe('[ref]: /one');
