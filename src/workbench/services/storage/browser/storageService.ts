@@ -7,7 +7,8 @@ import { AbstractStorageService, IStorageService, parseStorageKey, WillSaveState
 
 export const STORAGE_PREFIX = 'writing-room:storage:';
 export const STORAGE_VERSION_KEY = STORAGE_PREFIX + 'version';
-export const STORAGE_SCHEMA_VERSION = 1;
+// 2: installed extension records carry their source and version (webExtensionsScannerService.ts migrates 1).
+export const STORAGE_SCHEMA_VERSION = 2;
 
 // Draft keys have the scope prefix produced by storageKey, with no browser prefix.
 type StorageMigration = (draft: Map<string, string>) => undefined;
@@ -181,6 +182,16 @@ class LocalStorageDatabase implements IStorageDatabase {
     for (const [key, value] of insert) {
       this.write(area, STORAGE_PREFIX + key, value);
     }
+  }
+
+  getItem(key: string): string | undefined {
+    const area = this.area;
+    if (!area) {
+      throw new Error('Workbench storage is not open.');
+    }
+    // Only the schema marker and this key are read; the marker check counts keys only for an unmarked origin.
+    this.checkVersion(area);
+    return area.getItem(STORAGE_PREFIX + key) ?? undefined;
   }
 
   readExternal(event: StorageEvent): ReadonlyMap<string, string | undefined> | undefined {

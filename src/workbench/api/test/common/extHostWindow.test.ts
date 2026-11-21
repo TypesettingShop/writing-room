@@ -77,11 +77,15 @@ test('batches visible status updates and removes hidden and disposed entries', a
 });
 
 test('returns the original message item or undefined when dismissed', async () => {
-  const show = vi.fn(async (_extension, _severity, _message, _items) => 1 as number | undefined);
-  const service = new ExtHostMessageService({ $showMessage: show });
-  const choices = [{ title: 'First' }, { title: 'Second' }];
-  expect(await service.showMessage('e', 'warning', 'Pick one', choices)).toBe(choices[1]);
-  expect(show).toHaveBeenCalledWith('e', 'warning', 'Pick one', ['First', 'Second']);
+  const show = vi.fn(async (_extension, _severity, _message, _options, _items) => 1 as number | undefined);
+  const service = new ExtHostMessageService({ $showMessageWithOptions: show });
+  const choices = [{ title: 'First' }, { title: 'Second', isCloseAffordance: true }];
+  expect(await service.showMessage('e', 'warning', 'Pick one', ...choices)).toBe(choices[1]);
+  expect(show).toHaveBeenCalledWith('e', 'warning', 'Pick one', { modal: false, detail: undefined },
+    [{ title: 'First', isCloseAffordance: false }, { title: 'Second', isCloseAffordance: true }]);
   show.mockResolvedValueOnce(undefined);
-  expect(await service.showMessage('e', 'info', 'Dismiss me', ['OK'])).toBeUndefined();
+  expect(await service.showMessage('e', 'info', 'Dismiss me', 'OK')).toBeUndefined();
+  // The first argument is the options unless it is a string or an item.
+  expect(await service.showMessage<string>('e', 'error', 'Modal', { modal: true, detail: 'More' }, 'Yes', 'No')).toBe('No');
+  expect(show).toHaveBeenLastCalledWith('e', 'error', 'Modal', { modal: true, detail: 'More' }, [{ title: 'Yes' }, { title: 'No' }]);
 });

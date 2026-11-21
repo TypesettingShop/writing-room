@@ -15,6 +15,8 @@ const compilerOptions = ts.getParsedCommandLineOfConfigFile(join(projectRoot, 't
     throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
   },
 })!.options;
+// Shared by every lookup that goes through the real file system; a planted host gets no cache, so it cannot see stale entries.
+const resolutionCache = ts.createModuleResolutionCache(projectRoot, name => name, compilerOptions);
 
 function sourceSegments(file: string): string[] {
   const path = relative(srcRoot, file);
@@ -28,7 +30,8 @@ function resolveImport(file: string, specifier: string, host: ts.ModuleResolutio
     : undefined;
   // The compiler resolves a folder import to its index file, whose parent is then the imported folder.
   // A path it cannot find, such as a planted one, is checked as written.
-  return ts.resolveModuleName(local ?? path, file, compilerOptions, host).resolvedModule?.resolvedFileName ?? local;
+  const cache = host === ts.sys ? resolutionCache : undefined;
+  return ts.resolveModuleName(local ?? path, file, compilerOptions, host, cache).resolvedModule?.resolvedFileName ?? local;
 }
 
 function importedPath(node: ts.Node): ts.StringLiteralLike | undefined {
@@ -48,11 +51,17 @@ function importedPath(node: ts.Node): ts.StringLiteralLike | undefined {
 }
 
 const storageBackend = join(srcRoot, 'workbench/services/storage/browser/storageService.ts');
-const browserStorageNames = ['local' + 'Storage', 'session' + 'Storage', 'indexed' + 'DB'];
-const browserStoragePattern = new RegExp('\\b(?:' + browserStorageNames.join('|') + ')\\b');
+const indexedDatabaseBackend = join(srcRoot, 'base/browser', 'indexed' + 'DB.ts');
+const [local, session, database] = ['local' + 'Storage', 'session' + 'Storage', 'indexed' + 'DB'];
+const storageAccess = new Map([
+  [local, { file: storageBackend, use: 'IStorageService' }],
+  [session, { file: storageBackend, use: 'IStorageService' }],
+  [database, { file: indexedDatabaseBackend, use: 'IndexedDB' }],
+]);
 
 function findViolations(file: string, contents: string, host: ts.ModuleResolutionHost = ts.sys): string[] {
-  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
+  // Without parent pointers: every position below is read with `source` passed in, and parsing is faster.
+  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, false);
   const from = sourceSegments(file);
   const violations: string[] = [];
 
@@ -79,22 +88,25 @@ function findViolations(file: string, contents: string, host: ts.ModuleResolutio
         violations.push(`${relative(projectRoot, file)}:${line + 1} ${path.text}: ${reasons.join('; ')}`);
       }
     }
+    if (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) {
+      const access = storageAccess.get(node.text);
+      if (access && file !== access.file) {
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        violations.push(`${relative(projectRoot, file)}:${line + 1} ${node.text}: use ${access.use}`);
+      }
+    }
     ts.forEachChild(node, visit);
   }
 
   visit(source);
-  if (file !== storageBackend) {
-    for (const [line, text] of contents.split('\n').entries()) {
-      const identifier = browserStoragePattern.exec(text)?.[0];
-      if (identifier) {
-        violations.push(`${relative(projectRoot, file)}:${line + 1} ${identifier}: use IStorageService`);
-      }
-    }
-  }
   return violations;
 }
 
-test('src imports obey the layer and common/browser boundaries', () => {
+// It parses every file under src (about 550, growing with each epic): a few seconds alone, more than the default
+// 5 s while the whole suite runs on a loaded machine (wr-jbmd.k62).
+const wholeTreeTimeout = 60_000;
+
+test('src imports obey the layer and common/browser boundaries', { timeout: wholeTreeTimeout }, () => {
   const files = readdirSync(srcRoot, { recursive: true, withFileTypes: true })
     .filter(entry => entry.isFile() && sourceExtension.test(entry.name))
     .map(entry => join(entry.parentPath, entry.name))
@@ -154,11 +166,22 @@ test('allows same-layer and downward imports outside the common-to-browser bound
   ].join('\n'))).toEqual([]);
 });
 
-test('detects browser storage names outside the storage backend', () => {
+test('allows each browser storage name only in its designated backend', () => {
   const planted = join('src', 'workbench', 'browser', 'planted.ts');
-  const mentions = browserStorageNames.map(name => `window['${name}'];`).join('\n');
-  expect(findViolations(join(projectRoot, planted), mentions)).toEqual(
-    browserStorageNames.map((name, index) => `${planted}:${index + 1} ${name}: use IStorageService`),
-  );
-  expect(findViolations(storageBackend, mentions)).toEqual([]);
+  const mentions = [local, session, database].map(name => `window['${name}'];`).join('\n');
+  expect(findViolations(join(projectRoot, planted), mentions)).toEqual([
+    `${planted}:1 ${local}: use IStorageService`,
+    `${planted}:2 ${session}: use IStorageService`,
+    `${planted}:3 ${database}: use IndexedDB`,
+  ]);
+  expect(findViolations(storageBackend, mentions)).toEqual([
+    `${relative(projectRoot, storageBackend)}:3 ${database}: use IndexedDB`,
+  ]);
+  expect(findViolations(indexedDatabaseBackend, mentions)).toEqual([
+    `${relative(projectRoot, indexedDatabaseBackend)}:1 ${local}: use IStorageService`,
+    `${relative(projectRoot, indexedDatabaseBackend)}:2 ${session}: use IStorageService`,
+  ]);
+  expect(findViolations(join(projectRoot, planted), 'globalThis.' + database)).toEqual([
+    `${planted}:1 ${database}: use IndexedDB`,
+  ]);
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CancellationError } from '../../../base/common/errors.js';
 import { formatKeybinding } from '../../../base/common/keybindingLabels.js';
 import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { MenuId, MenuRegistry } from '../../../platform/actions/common/actions.js';
@@ -54,6 +55,21 @@ describe('Workbench', () => {
     const { width, height } = workbench.getContainer(part).style;
     return [Number.parseFloat(width), Number.parseFloat(height)];
   }
+
+  it('prevents default rejection reporting only for cancellations and only while running', () => {
+    const workbench = start();
+    function dispatchRejection(reason: unknown): boolean {
+      const event = Object.assign(new Event('unhandledrejection', { cancelable: true }), { reason });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    expect(dispatchRejection(new CancellationError())).toBe(true);
+    expect(dispatchRejection(new Error('boom'))).toBe(false);
+    expect(dispatchRejection({ name: 'Canceled', message: 'Canceled' })).toBe(false);
+    workbench.dispose();
+    expect(dispatchRejection(new CancellationError())).toBe(false);
+  });
 
   it('registers one real layout service and gives the editor all available growth', () => {
     const workbench = start({ sideBarSize: 240, panelSize: 210 });
@@ -206,6 +222,11 @@ describe('Workbench', () => {
     expect(open!.element.getAttribute('role')).toBe('tabpanel');
     expect(context.getContextKeyValue('activePanel')).toBe(explorer.id);
     expect(context.getContextKeyValue('panelVisible')).toBe(true);
+    const extensions = descriptors.getViewContainerById('workbench.view.extensions')!;
+    expect(context.getContextKeyValue('activeViewlet')).toBe(extensions.id);
+    expect(context.getContextKeyValue('sideBarVisible')).toBe(true);
+    // Explorer is already docked. Move the remaining container to exercise an empty sidebar.
+    descriptors.moveViewContainerToLocation(extensions, ViewContainerLocation.Panel);
     expect(context.getContextKeyValue('activeViewlet')).toBe('');
     expect(context.getContextKeyValue('sideBarVisible')).toBe(false);
     expect(await views.openViewContainer(explorer.id)).toBe(open);
@@ -297,7 +318,10 @@ describe('Workbench', () => {
     service.addEntry({ name: 'Right', text: 'Right' }, 'right', StatusbarAlignment.RIGHT, 10);
     const item = service.addEntry({ name: 'Lower right', text: 'Click' }, 'lower-right', StatusbarAlignment.RIGHT, 1);
     const statusbar = workbench.getContainer(Parts.STATUSBAR_PART);
-    const entries = () => [...statusbar.querySelectorAll<HTMLElement>('[data-entry-id]')].map(element => element.dataset.entryId);
+    const own = new Set(['left', 'priority-left', 'right', 'lower-right']);
+    // Entries that workbench contributions add (the Problems counts) are not this test's.
+    const entries = () => [...statusbar.querySelectorAll<HTMLElement>('[data-entry-id]')]
+      .map(element => element.dataset.entryId).filter(id => own.has(id!));
     expect(entries()).toEqual(['priority-left', 'left', 'right', 'lower-right']);
     const element = statusbar.querySelector('[data-entry-id="lower-right"]');
 

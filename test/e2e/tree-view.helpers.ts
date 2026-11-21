@@ -1,0 +1,79 @@
+import { readFileSync } from 'node:fs';
+import type { Locator, Page } from '@playwright/test';
+import type { IExtensionManifest } from '../../src/platform/extensions/common/extensions.js';
+import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
+import { expect } from './fixtures.js';
+
+export { runCommand } from './window-ui.helpers.js';
+
+const manifest = JSON.parse(readFileSync(
+  new URL('../fixtures/extensions/theming/tree-view/package.json', import.meta.url), 'utf8')) as IExtensionManifest;
+
+/** Installs the tree view fixture before the workbench starts, opens the app and shows the fixture's views. */
+export async function openTreeFixture(page: Page): Promise<void> {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await seedInstalledExtensions(page, [{ location: extensionFixtureLocation('theming') + 'tree-view/', manifest }]);
+  await page.goto('/');
+  await activityButton(page, 'Tree Fixture').click();
+  await expect(notesTree(page).getByRole('treeitem', { name: 'Inbox' })).toBeVisible();
+}
+
+export const activityButton = (page: Page, name: string): Locator =>
+  page.locator('[id="workbench.parts.activitybar"]').getByRole('button', { name });
+
+export const notesView = (page: Page, name = 'Notes'): Locator => page.getByRole('region', { name });
+export const notesTree = (page: Page): Locator => notesView(page).getByRole('tree');
+export const item = (page: Page, name: string): Locator => notesTree(page).getByRole('treeitem', { name, exact: true });
+
+/** The fixture's event log in the status bar, which holds its last twelve events. */
+export const eventLog = (page: Page): Locator => page.locator('[id="workbench.parts.statusbar"]');
+
+/**
+ * The middle of `locator`. The tree draws its rows again when an icon arrives, so a row can be between two
+ * renders for a moment; ask until it has a box instead of failing on the one that was just replaced.
+ */
+export async function center(locator: Locator): Promise<{ x: number; y: number }> {
+  let bounds: Awaited<ReturnType<Locator['boundingBox']>> = null;
+  await expect.poll(async () => (bounds = await locator.boundingBox()) !== null).toBe(true);
+  const { x, y, width, height } = bounds!;
+  return { x: x + width / 2, y: y + height / 2 };
+}
+
+/** Presses the mouse on `from` and moves off it, so the browser starts a drag. */
+export async function startDrag(page: Page, from: Locator): Promise<void> {
+  const point = await center(from);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + 6, point.y + 3, { steps: 3 });
+}
+
+/** Two moves, so the target sees `dragenter` and `dragover`. */
+export async function dragOver(page: Page, to: Locator): Promise<void> {
+  const point = await center(to);
+  await page.mouse.move(point.x - 1, point.y);
+  await page.mouse.move(point.x, point.y);
+}
+
+interface DroppedFile {
+  name: string;
+  content: string;
+  type?: string;
+}
+
+/** Dispatches a drop from outside the window on `target`, carrying `text` and files. */
+export function dropFromOutside(target: Locator, text: string, ...files: DroppedFile[]): Promise<boolean> {
+  return target.evaluate((element, { text, files }) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', text);
+    for (const file of files) {
+      data.items.add(new File([file.content], file.name, { type: file.type }));
+    }
+    const bounds = element.getBoundingClientRect();
+    const init = { bubbles: true, cancelable: true, dataTransfer: data, clientX: bounds.left + 5, clientY: bounds.top + 5 };
+    element.dispatchEvent(new DragEvent('dragenter', init));
+    const over = new DragEvent('dragover', init);
+    element.dispatchEvent(over);
+    element.dispatchEvent(new DragEvent('drop', init));
+    return over.defaultPrevented;
+  }, { text, files });
+}

@@ -6,10 +6,11 @@ import type { ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import type { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { configurationRegistry, OVERRIDE_PROPERTY_REGEX } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 
 const resource = URI.from({ scheme: 'vscode-userdata', path: '/User/settings.json' });
@@ -28,6 +29,7 @@ async function ensureSchema(): Promise<void> {
 }
 
 function registerSchema(monaco: MonacoNamespace): void {
+  const properties = Object.fromEntries(configurationRegistry.getConfigurationProperties());
   const defaults = monaco.json.jsonDefaults;
   const existing = defaults.diagnosticsOptions;
   defaults.setDiagnosticsOptions({
@@ -43,7 +45,11 @@ function registerSchema(monaco: MonacoNamespace): void {
           additionalProperties: false,
           allowComments: true,
           allowTrailingCommas: true,
-          properties: Object.fromEntries(configurationRegistry.getConfigurationProperties()),
+          properties,
+          // A language section such as "[markdown]" holds any registered setting.
+          patternProperties: {
+            [OVERRIDE_PROPERTY_REGEX.source]: { type: 'object', properties, additionalProperties: false },
+          },
         },
       },
     ],
@@ -69,6 +75,7 @@ export class SettingsEditorInput extends EditorInput implements ITextEditorModel
     private readonly previousCreation: Promise<unknown> | undefined,
     @IConfigurationService private readonly configuration: IConfigurationService,
     @IModelService private readonly models: IModelService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     super();
     this.saved = configuration.getUserSettingsText();
@@ -105,12 +112,41 @@ export class SettingsEditorInput extends EditorInput implements ITextEditorModel
     return this.resolving;
   }
 
-  save(): void {
-    // The draft is the model's text, or a restored draft while the model is still being created.
-    const value = this.draft;
-    if (value !== undefined) {
-      this.configuration.saveUserSettings(this.saved.charCodeAt(0) === 0xfeff ? '\ufeff' + value : value);
+  /**
+   * Writes the draft to settings.json. The write happens before the first `await`, so the input is
+   * clean once this returns. When the browser refuses to store it, the user is told and the draft
+   * stays open; the promise then resolves to `undefined`.
+   */
+  override async save(): Promise<EditorInput | undefined> {
+    try {
+      // The draft is the model's text, or a restored draft while the model is still being created.
+      const value = this.draft;
+      if (value !== undefined) {
+        this.configuration.saveUserSettings(this.saved.charCodeAt(0) === 0xfeff ? '\ufeff' + value : value);
+      }
+    } catch (error) {
+      // A warning, not an error: the dialog below already tells the user, and the draft stays open.
+      console.warn('Could not save settings.json.', error);
+      const quickInput = this.instantiation.invokeFunction(accessor => accessor.get(IQuickInputService));
+      await quickInput.pick([{ label: 'OK', detail: 'Your changes are still open. Free browser storage or allow this site to store data, then try again.' }],
+        { title: 'Could not save settings.json' });
+      return undefined;
     }
+    return this;
+  }
+
+  /** settings.json lives in one place; saving it elsewhere is saving it. */
+  override saveAs(): Promise<EditorInput | undefined> {
+    return this.save();
+  }
+
+  /** Drops the draft: the editor shows settings.json as saved. */
+  override async revert(): Promise<void> {
+    this.initialDraft = undefined;
+    if (this.model && editableText(this.model.getValue()) !== editableText(this.saved)) {
+      this.model.setValue(this.saved);
+    }
+    this.refreshDirty();
   }
 
   private async createModel(): Promise<this> {

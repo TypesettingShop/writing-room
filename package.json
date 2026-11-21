@@ -1,6 +1,6 @@
 {
   "name": "writing-room",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -17,11 +17,14 @@
   },
   "dependencies": {
     "@vscode/codicons": "0.0.46-24",
-    "monaco-editor": "0.57.0"
+    "monaco-editor": "0.57.0",
+    "vscode-oniguruma": "1.7.0",
+    "vscode-textmate": "9.3.2"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
     "@types/node": "22.20.5",
+    "fake-indexeddb": "6.2.8",
     "jsdom": "31.0.1",
     "typescript": "6.0.3",
     "vite": "8.3.8",

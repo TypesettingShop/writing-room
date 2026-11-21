@@ -50,13 +50,35 @@ export interface IStorageService {
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue: T): T;
   getObject<T extends object>(key: string, scope: StorageScope, fallbackValue?: T): T | undefined;
 
+  /**
+   * Return a snapshot of this tab's cached keys for the given scope, without their scope prefixes.
+   * Use the `storeImmediately` snapshot for decisions that must see persisted values across tabs.
+   */
+  keys(scope: StorageScope): string[];
+
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void;
-  /** Commit an explicit text save. A transform receives the last persisted value. */
+  /**
+   * Commit an explicit text save. A transform receives the last persisted value and every persisted address;
+   * returning `undefined` removes the key, and throwing leaves the stored value as it was.
+   */
   storeImmediately(
-    key: string, value: string | ((stored: string | undefined) => string), scope: StorageScope, target: StorageTarget,
+    key: string, value: string | ((stored: string | undefined, snapshot: ReadonlyMap<string, string>) => string | undefined), scope: StorageScope, target: StorageTarget,
   ): void;
   remove(key: string, scope: StorageScope): void;
   flush(reason?: WillSaveStateReason): Promise<void>;
+
+  /**
+   * True once this tab's values live only in memory: the persistent backend could not be opened, a write to it
+   * failed, or another tab changed it in a way this code cannot follow. It stays true until the service closes.
+   */
+  readonly usesMemory: boolean;
+  /**
+   * Read the value the persistent backend holds for a key now, even before another tab's storage event arrives.
+   * The cache takes that value and listeners hear an `external` change when it differs. Nothing is written, and a
+   * value this tab queued with `store` or `remove` is the answer. Once `usesMemory` is true, or after the service
+   * closed, this tab's value is the answer. Throws when the persistent backend cannot be read.
+   */
+  getPersisted(key: string, scope: StorageScope): string | undefined;
 }
 
 export function storageKey(scope: StorageScope, key: string): string {
@@ -144,6 +166,17 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
     return fallbackValue;
   }
 
+  keys(scope: StorageScope): string[] {
+    const keys: string[] = [];
+    for (const namespacedKey of this.storage.keys()) {
+      const address = parseStorageKey(namespacedKey);
+      if (address?.scope === scope) {
+        keys.push(address.key);
+      }
+    }
+    return keys;
+  }
+
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void {
     if (this.disposed) {
       return;
@@ -159,7 +192,7 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
   }
 
   storeImmediately(
-    key: string, value: string | ((stored: string | undefined) => string), scope: StorageScope, target: StorageTarget,
+    key: string, value: string | ((stored: string | undefined, snapshot: ReadonlyMap<string, string>) => string | undefined), scope: StorageScope, target: StorageTarget,
   ): void {
     if (this.disposed) {
       throw new Error('Workbench storage is closed.');
@@ -173,6 +206,22 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
     if (!this.disposed && this.storage.set(storageKey(scope, key), undefined)) {
       this.valueChanges.fire({ scope, key, target: undefined });
     }
+  }
+
+  get usesMemory(): boolean {
+    return this.storage.usesMemory;
+  }
+
+  getPersisted(key: string, scope: StorageScope): string | undefined {
+    const namespacedKey = storageKey(scope, key);
+    if (this.disposed) {
+      return this.storage.get(namespacedKey);
+    }
+    const { value, changed } = this.storage.getPersisted(namespacedKey);
+    if (changed) {
+      this.valueChanges.fire({ scope, key, target: undefined, external: true });
+    }
+    return value;
   }
 
   protected acceptExternalValue(namespacedKey: string, value: string | undefined): void {

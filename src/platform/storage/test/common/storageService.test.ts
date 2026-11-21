@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { InMemoryStorageDatabase } from '../../../../base/parts/storage/common/storage.js';
+import type { IStorageUpdate } from '../../../../base/parts/storage/common/storage.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../common/storage.js';
 
 const scope = StorageScope.PROFILE;
@@ -118,5 +119,175 @@ describe('InMemoryStorageService', () => {
       { scope, key: 'key', target: undefined },
     ]);
     expect(scopeChange.mock.calls.map(([event]) => event.key)).toEqual(['key', 'other', 'key']);
+  });
+});
+
+/** A backend another tab can write to directly, and that can be made to fail. */
+class SharedDatabase extends InMemoryStorageDatabase {
+  failOpen = false;
+  failWrite = false;
+  readonly reads: string[] = [];
+  opens = 0;
+
+  override getItems(): Map<string, string> {
+    this.opens++;
+    if (this.failOpen) {
+      throw new Error('access denied');
+    }
+    return super.getItems();
+  }
+
+  override getItem(key: string): string | undefined {
+    this.reads.push(key);
+    return super.getItem(key);
+  }
+
+  override updateItems(update: IStorageUpdate): void {
+    if (this.failWrite) {
+      throw new Error('quota exceeded');
+    }
+    super.updateItems(update);
+  }
+
+  /** Writes as another tab would, without this tab's storage seeing it. */
+  writeFromOtherTab(key: string, value: string | undefined): void {
+    super.updateItems(value === undefined
+      ? { insert: new Map(), delete: new Set([key]) }
+      : { insert: new Map([[key, value]]), delete: new Set() });
+  }
+}
+
+const namespaced = (key: string) => `${scope}:${key}`;
+
+describe('cached keys', () => {
+  test('lists a detached snapshot per scope, including queued and immediate changes', () => {
+    const storage = disposables.add(new InMemoryStorageService());
+    const key = 'shared:part';
+    storage.store(key, 'profile', scope, target);
+    storage.store(key, 'application', StorageScope.APPLICATION, target);
+    storage.store('work', 'workspace', StorageScope.WORKSPACE, target);
+
+    const snapshot = storage.keys(scope);
+    expect(storage.keys(StorageScope.APPLICATION)).toEqual([key]);
+    expect(storage.keys(StorageScope.WORKSPACE)).toEqual(['work']);
+
+    storage.remove(key, scope);
+    expect(storage.keys(scope)).toEqual([]);
+    storage.storeImmediately('immediate', 'saved', scope, target);
+    expect(storage.keys(scope)).toEqual(['immediate']);
+    storage.storeImmediately('immediate', () => undefined, scope, target);
+    expect(storage.keys(scope)).toEqual([]);
+    expect(snapshot).toEqual([key]);
+    snapshot.push('caller');
+    expect(storage.keys(scope)).toEqual([]);
+  });
+
+  test.each([false, true])('only reads this tab’s cache (failed open: %s)', failOpen => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const database = new SharedDatabase();
+    database.failOpen = failOpen;
+    const write = vi.spyOn(database, 'updateItems');
+    const storage = disposables.add(new InMemoryStorageService(database));
+    const change = vi.fn();
+    storage.onDidChangeValue(scope, undefined, disposables)(change);
+
+    database.writeFromOtherTab(namespaced('elsewhere'), 'other tab');
+    expect(storage.keys(scope)).toEqual([]);
+    expect(database.opens).toBe(1);
+    expect(database.reads).toEqual([]);
+    expect(write).not.toHaveBeenCalled();
+    expect(change).not.toHaveBeenCalled();
+
+    if (failOpen) {
+      storage.store('local', 'session', scope, target);
+      expect(storage.keys(scope)).toEqual(['local']);
+      expect(database.opens).toBe(1);
+      expect(database.reads).toEqual([]);
+      expect(write).not.toHaveBeenCalled();
+    } else {
+      expect(storage.getPersisted('elsewhere', scope)).toBe('other tab');
+      expect(storage.keys(scope)).toEqual(['elsewhere']);
+    }
+    const cached = storage.keys(scope);
+    storage.dispose();
+    expect(storage.keys(scope)).toEqual(cached);
+  });
+});
+
+describe('memory mode and persisted reads', () => {
+  test('a service whose backend opened is not in memory mode', () => {
+    const storage = disposables.add(new InMemoryStorageService(new SharedDatabase()));
+    expect(storage.usesMemory).toBe(false);
+  });
+
+  test('a backend that cannot be opened puts the service in memory mode, and reads answer this tab without reopening it', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const database = new SharedDatabase();
+    database.failOpen = true;
+    const storage = disposables.add(new InMemoryStorageService(database));
+    expect(storage.usesMemory).toBe(true);
+    storage.store('key', 'session', scope, target);
+    void storage.flush();
+    database.writeFromOtherTab(namespaced('key'), 'elsewhere');
+    expect(storage.getPersisted('key', scope)).toBe('session');
+    expect(storage.getPersisted('missing', scope)).toBeUndefined();
+    expect(database.opens).toBe(1);
+    expect(database.reads).toEqual([]);
+  });
+
+  test('a failed write puts the service in memory mode for good', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const database = new SharedDatabase();
+    const storage = disposables.add(new InMemoryStorageService(database));
+    database.failWrite = true;
+    storage.store('key', 'one', scope, target);
+    void storage.flush();
+    expect(storage.usesMemory).toBe(true);
+    database.failWrite = false;
+    storage.store('key', 'two', scope, target);
+    void storage.flush();
+    expect(storage.usesMemory).toBe(true);
+    expect(storage.getPersisted('key', scope)).toBe('two');
+    expect(database.reads).toEqual([]);
+  });
+
+  test('reads what another tab persisted, aligns the cache and reports an external change once', () => {
+    const database = new SharedDatabase();
+    const storage = disposables.add(new InMemoryStorageService(database));
+    const change = vi.fn();
+    storage.onDidChangeValue(scope, undefined, disposables)(change);
+
+    database.writeFromOtherTab(namespaced('shared'), 'other tab');
+    expect(storage.getPersisted('shared', scope)).toBe('other tab');
+    expect(storage.get('shared', scope)).toBe('other tab');
+    expect(storage.getPersisted('shared', scope)).toBe('other tab');
+    expect(change.mock.calls).toEqual([[{ scope, key: 'shared', target: undefined, external: true }]]);
+
+    database.writeFromOtherTab(namespaced('shared'), undefined);
+    expect(storage.getPersisted('shared', scope)).toBeUndefined();
+    expect(storage.get('shared', scope)).toBeUndefined();
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(database.reads).toEqual([namespaced('shared'), namespaced('shared'), namespaced('shared')]);
+  });
+
+  test('answers a value this tab queued and still persists it', async () => {
+    const database = new SharedDatabase();
+    const storage = disposables.add(new InMemoryStorageService(database));
+    storage.store('queued', 'local', scope, target);
+    database.writeFromOtherTab(namespaced('queued'), 'other tab');
+    expect(storage.getPersisted('queued', scope)).toBe('local');
+    storage.remove('removed', scope);
+    expect(storage.getPersisted('removed', scope)).toBeUndefined();
+    await Promise.resolve();
+    expect(database.getItems().get(namespaced('queued'))).toBe('local');
+  });
+
+  test('answers the cache once the service is closed', () => {
+    const database = new SharedDatabase();
+    const storage = new InMemoryStorageService(database);
+    storage.store('key', 'cached', scope, target);
+    storage.dispose();
+    database.writeFromOtherTab(namespaced('key'), 'other tab');
+    expect(storage.getPersisted('key', scope)).toBe('cached');
   });
 });

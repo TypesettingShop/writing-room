@@ -1,5 +1,23 @@
+import type { IDisposable } from '../../../base/common/lifecycle.js';
+import type { IExtensionDescription } from '../../../platform/extensions/common/extensions.js';
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
-import type { IViewContainerContribution, IViewContribution } from '../../../platform/extensions/common/extensions.js';
+import { isRecord } from '../../../platform/extensions/common/extensionValidator.js';
+import { ExtensionsRegistry } from '../../services/extensions/common/extensionsRegistry.js';
+import { viewWelcomeContributions } from '../../browser/parts/views/treeViewWelcome.js';
+import type { IViewWelcomeContent } from '../../browser/parts/views/treeViewWelcome.js';
+
+interface IViewContainerContribution {
+  readonly id: string;
+  readonly title: string;
+  readonly icon: string;
+}
+
+interface IViewContribution {
+  readonly id: string;
+  readonly name: string;
+  readonly when?: string;
+  readonly type?: string;
+}
 import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../common/views.js';
 import type { IViewDescriptor, ViewContainer } from '../../common/views.js';
 import { contributionEntries, contributionIcon, contributionRecord, contributionWhen } from '../../services/extensions/common/contributionValidation.js';
@@ -11,10 +29,32 @@ const locations = new Map([
   ['panel', ViewContainerLocation.Panel],
 ]);
 type ViewPointUser = IExtensionPointUser<Readonly<Record<string, unknown>>>;
+type ViewBodyRenderer = (options: {
+  readonly parent: HTMLElement;
+  readonly viewId: string;
+  readonly extension: IExtensionDescription;
+  readonly renderTree: IViewDescriptor['renderBody'];
+}) => ReturnType<IViewDescriptor['renderBody']>;
+
+const viewBodies = new Map<string, ViewBodyRenderer>([
+  ['tree', ({ parent, renderTree }) => renderTree(parent)],
+]);
+
+export function registerExtensionViewBody(type: string, renderer: ViewBodyRenderer): IDisposable {
+  if (viewBodies.has(type)) {
+    throw new Error(`Extension view body '${type}' already exists.`);
+  }
+  viewBodies.set(type, renderer);
+  return toDisposable(() => viewBodies.delete(type));
+}
 
 export class ViewsExtensionHandler extends Disposable {
   private readonly containers = new Map<string, { owner: string; container: ViewContainer }>();
-  private readonly views = new Map<string, { owner: string; view: IViewDescriptor; container: ViewContainer }>();
+  private readonly views = new Map<string, {
+    owner: string; view: IViewDescriptor; container: ViewContainer; renderer: ViewBodyRenderer;
+    /** What the descriptor was made from: an updated manifest with other values replaces it. */
+    source: { readonly name: string; readonly when?: string; readonly extension: IExtensionDescription };
+  }>();
 
   constructor(private readonly renderTree: (parent: HTMLElement, viewId: string) => ReturnType<IViewDescriptor['renderBody']>) {
     super();
@@ -83,7 +123,7 @@ export class ViewsExtensionHandler extends Disposable {
     return [...this.views].filter(([, entry]) => entry.owner === owner).map(([id]) => id);
   }
 
-  acceptViews(users: readonly ViewPointUser[], events: Map<string, Set<string>>): void {
+  acceptViews(users: readonly ViewPointUser[], addActivationEvent: (extension: string, event: string) => void): void {
     const keep = new Set<string>();
     for (const user of users) {
       const owner = user.description.identifier.value;
@@ -101,7 +141,7 @@ export class ViewsExtensionHandler extends Disposable {
         }
         for (const [index, value] of contributionEntries(values, base, user).entries()) {
           const path = base + '.' + index;
-          const entry = contributionRecord<IViewContribution>(value, path, user, ['id', 'name'], ['when']);
+          const entry = contributionRecord<IViewContribution>(value, path, user, ['id', 'name'], ['when', 'type']);
           if (!entry) {
             continue;
           }
@@ -109,24 +149,36 @@ export class ViewsExtensionHandler extends Disposable {
           if (when === false) {
             continue;
           }
+          const renderer = viewBodies.get(entry.type ?? 'tree');
+          if (!renderer) {
+            user.collector.warn(path + '.type', `Unsupported view type '${entry.type}'.`);
+            continue;
+          }
           const current = this.views.get(entry.id);
           if (keep.has(entry.id) || (!current && viewsRegistry.getViewContainer(entry.id))) {
             user.collector.error(path + '.id', `View '${entry.id}' already exists.`);
             continue;
           }
-          if (current?.owner !== owner || current.container !== destination) {
+          if (current?.owner !== owner || current.container !== destination || current.renderer !== renderer
+            || current.source.name !== entry.name || current.source.when !== entry.when
+            || current.source.extension !== user.description) {
             if (current) {
               viewsRegistry.deregisterViews([current.view], current.container);
             }
             const view = {
               id: entry.id, name: entry.name, when,
-              renderBody: (parent: HTMLElement) => this.renderTree(parent, entry.id),
+              renderBody: (parent: HTMLElement) => renderer({
+                parent, viewId: entry.id, extension: user.description, renderTree: element => this.renderTree(element, entry.id),
+              }),
             };
             viewsRegistry.registerViews([view], destination);
-            this.views.set(entry.id, { owner, view, container: destination });
+            this.views.set(entry.id, {
+              owner, view, container: destination, renderer,
+              source: { name: entry.name, when: entry.when, extension: user.description },
+            });
           }
           keep.add(entry.id);
-          events.get(owner)?.add('onView:' + entry.id);
+          addActivationEvent(owner, 'onView:' + entry.id);
         }
       }
     }
@@ -138,3 +190,47 @@ export class ViewsExtensionHandler extends Disposable {
     }
   }
 }
+
+ExtensionsRegistry.registerExtensionPoint({
+  name: 'viewsContainers',
+  after: ['menus', 'keybindings'],
+  validate: isRecord,
+  accept: (users, _registrations, context) => context.viewHandler.acceptContainers(users),
+});
+
+ExtensionsRegistry.registerExtensionPoint({
+  name: 'views',
+  after: ['viewsContainers'],
+  validate: isRecord,
+  accept: (users, _registrations, context) => context.viewHandler.acceptViews(users, context.addActivationEvent),
+});
+
+ExtensionsRegistry.registerExtensionPoint<unknown[]>({
+  name: 'viewsWelcome',
+  after: ['views'],
+  validate: (value): value is unknown[] => Array.isArray(value),
+  accept(users, registrations) {
+    const contents: IViewWelcomeContent[] = [];
+    for (const user of users) {
+      const declared = user.description.manifest.contributes?.commands;
+      const commands = (Array.isArray(declared) ? declared : [declared]).flatMap(entry =>
+        entry && typeof entry === 'object' && typeof (entry as { command?: unknown }).command === 'string'
+          ? [(entry as { command: string }).command] : []);
+      for (const [index, value] of user.value.entries()) {
+        const path = `contributes.viewsWelcome[${index}]`;
+        const entry = contributionRecord<{ view: string; contents: string; when?: string; enablement?: string }>(
+          value, path, user, ['view', 'contents'], ['when', 'enablement', 'group']);
+        if (!entry) {
+          continue;
+        }
+        const when = contributionWhen(entry.when, path + '.when', user);
+        const enablement = contributionWhen(entry.enablement, path + '.enablement', user);
+        if (when === false || enablement === false) {
+          continue;
+        }
+        contents.push({ view: entry.view, contents: entry.contents, when, enablement, commands });
+      }
+    }
+    registrations.add(viewWelcomeContributions.replace(contents));
+  },
+});

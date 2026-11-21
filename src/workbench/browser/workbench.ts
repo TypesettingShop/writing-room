@@ -1,3 +1,5 @@
+import { addDisposableListener } from '../../base/browser/dom.js';
+import { isCancellationError } from '../../base/common/errors.js';
 import type { IDisposable } from '../../base/common/lifecycle.js';
 import { IConfigurationService } from '../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../platform/contextkey/common/contextkey.js';
@@ -36,6 +38,14 @@ export class Workbench extends Layout {
       return;
     }
     this.started = true;
+
+    // Standalone Monaco can leave a canceled operation's progress promise unhandled.
+    const window = this.parent.ownerDocument.defaultView!;
+    this._register(addDisposableListener(window, 'unhandledrejection', event => {
+      if (isCancellationError(event.reason)) {
+        event.preventDefault();
+      }
+    }));
 
     const instantiation = this.instantiationService;
     const storage = instantiation.invokeFunction(accessor => accessor.get(IStorageService));

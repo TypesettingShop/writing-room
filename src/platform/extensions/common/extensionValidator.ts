@@ -1,6 +1,7 @@
 import type { IExtensionManifest, IExtensionMessage } from './extensions.js';
 
-const identifierPart = /^[a-z\d][a-z\d-]*$/i;
+/** A publisher or extension name, as vsce accepts it. */
+export const identifierPart = /^[a-z\d][a-z\d-]*$/i;
 const versionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\da-z-]+(?:\.[\da-z-]+)*)?(?:\+[\da-z-]+(?:\.[\da-z-]+)*)?$/i;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,4 +53,50 @@ export function validateExtensionManifest(input: unknown, resolveResource: (path
     return { messages };
   }
   return { manifest: input as unknown as IExtensionManifest, messages };
+}
+
+type Version = readonly [major: number, minor: number, patch: number];
+
+function compareVersions(a: Version, b: Version): number {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/**
+ * Checks the engines.vscode range against a stable API version by VS Code's rules: a part may be
+ * `x`, a prerelease suffix such as `-insider` is allowed, `^0.y.z` frees only the patch, and a range
+ * below 1.0.0 that is not an exact version accepts every 1.x release.
+ */
+export function isValidExtensionVersion(version: string, range: string): boolean {
+  const current = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/.exec(version);
+  if (!current) {
+    return false;
+  }
+  const actual: Version = [Number(current[1]), Number(current[2]), Number(current[3])];
+  const requested = range.trim();
+  if (requested === '*') {
+    return true;
+  }
+  const match = /^(\^|>=)?(\d+|x)\.(\d+|x)\.(\d+|x)(?:-.*)?$/i.exec(requested);
+  if (!match) {
+    return false;
+  }
+  const [, operator, ...parts] = match;
+  let desired = parts.map(part => part.toLowerCase() === 'x' ? 0 : Number(part)) as unknown as Version;
+  if (operator === '>=') {
+    return compareVersions(actual, desired) >= 0;
+  }
+  let mustEqual = parts.map(part => part.toLowerCase() !== 'x');
+  if (operator === '^') {
+    mustEqual = desired[0] === 0 ? [mustEqual[0], mustEqual[1], false] : [mustEqual[0], false, false];
+  }
+  if (actual[0] === 1 && desired[0] === 0 && mustEqual.includes(false)) {
+    desired = [1, 0, 0];
+    mustEqual = [true, false, false];
+  }
+  for (let index = 0; index < 3; index++) {
+    if (actual[index] !== desired[index]) {
+      return actual[index] > desired[index] && !mustEqual[index];
+    }
+  }
+  return true;
 }

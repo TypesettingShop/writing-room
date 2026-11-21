@@ -1,0 +1,16 @@
+{
+  "name": "diagnostics",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Diagnostics Fixture",
+  "browser": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "diagnosticsFixture.set", "title": "Set Fixture Diagnostics" },
+      { "command": "diagnosticsFixture.setMany", "title": "Set Many Fixture Diagnostics" },
+      { "command": "diagnosticsFixture.setWithFix", "title": "Set Fixture Diagnostic With Fix" },
+      { "command": "diagnosticsFixture.clear", "title": "Clear Fixture Diagnostics" },
+      { "command": "diagnosticsFixture.report", "title": "Report Fixture Diagnostics" }
+    ]
+  }
+}

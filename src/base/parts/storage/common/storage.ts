@@ -6,6 +6,8 @@ export interface IStorageUpdate {
 export interface IStorageDatabase {
   /** Return a snapshot owned by the caller. */
   getItems(): Map<string, string>;
+  /** Read one key from the already open backend without writing anything. Throws when it cannot be read. */
+  getItem(key: string): string | undefined;
   updateItems(update: IStorageUpdate): void;
   close(): void;
 }
@@ -19,6 +21,10 @@ export class InMemoryStorageDatabase implements IStorageDatabase {
 
   getItems(): Map<string, string> {
     return new Map(this.items);
+  }
+
+  getItem(key: string): string | undefined {
+    return this.items.get(key);
   }
 
   updateItems(update: IStorageUpdate): void {
@@ -56,6 +62,24 @@ export class Storage {
     return this.items.keys();
   }
 
+  /** True once this tab fell back to memory. It stays true until the storage closes. */
+  get usesMemory(): boolean {
+    return this.database !== this.persistentDatabase;
+  }
+
+  /**
+   * Read the value the persistent backend holds for one key and align the cache with it. Nothing is written.
+   * A write queued in this tab will land after any other tab's, so its value is the answer. Once this tab
+   * uses memory, its own value is the answer and the backend is not reopened. A failed read throws.
+   */
+  getPersisted(key: string): { readonly value: string | undefined; readonly changed: boolean } {
+    if (this.usesMemory || this.pending.has(key)) {
+      return { value: this.items.get(key), changed: false };
+    }
+    const value = this.persistentDatabase.getItem(key);
+    return { value, changed: this.updateCache(key, value) };
+  }
+
   set(key: string, value: string | undefined): boolean {
     if (!this.updateCache(key, value)) {
       return false;
@@ -72,15 +96,17 @@ export class Storage {
   }
 
   /** Commit an explicit save before changing what readers see. A failed write remains retryable. */
-  setImmediately(key: string, write: string | ((stored: string | undefined) => string)): boolean {
+  setImmediately(key: string, write: string | ((stored: string | undefined, snapshot: ReadonlyMap<string, string>) => string | undefined)): boolean {
     const usingFallback = this.database !== this.persistentDatabase;
     try {
       // Reopen a backend closed by the fallback, for this write only. A transform also reads the current
       // persisted value, even when a different tab's storage event has yet to reach this cache.
-      const stored = usingFallback || typeof write === 'function'
-        ? this.persistentDatabase.getItems().get(key) : undefined;
-      const value = typeof write === 'function' ? write(stored) : write;
-      const update = { insert: new Map([[key, value]]), delete: new Set<string>() };
+      const snapshot = usingFallback || typeof write === 'function'
+        ? this.persistentDatabase.getItems() : new Map<string, string>();
+      const value = typeof write === 'function' ? write(snapshot.get(key), snapshot) : write;
+      const update = value === undefined
+        ? { insert: new Map<string, string>(), delete: new Set([key]) }
+        : { insert: new Map([[key, value]]), delete: new Set<string>() };
       this.persistentDatabase.updateItems(update);
       if (usingFallback) {
         this.database.updateItems(update);

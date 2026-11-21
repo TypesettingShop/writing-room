@@ -3,6 +3,7 @@ import { toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { configurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import type { ISerializableView } from '../../../../base/browser/ui/grid/grid.js';
+import type { IMenuContext } from '../../../../platform/actions/common/actions.js';
 import type { IEditorGroupModelOptions, ISerializedEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
 import type { GroupDirection, IEditorGroup, IMergeGroupOptions } from '../../../services/editor/common/editorGroupsService.js';
@@ -106,6 +107,8 @@ export interface IEditorGroupView extends IEditorGroup, ISerializableView {
   readonly titleContainer: HTMLElement;
   /** The height of `titleContainer`, which drop coordinates leave out. */
   readonly titleHeight: number;
+  /** What the group's title menu is evaluated in: the active pane's scope, or the group's without one. */
+  readonly titleMenuContext: IMenuContext;
   /** Marks the group as the active one, or not. Only the part calls this. */
   setActive(active: boolean): void;
   toJSON(): ISerializedEditorGroupModel;

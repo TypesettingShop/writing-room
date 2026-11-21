@@ -6,3 +6,5 @@ export interface ProxyIdentifier<T> {
 export function createProxyIdentifier<T>(id: string): ProxyIdentifier<T> {
   return { id };
 }
+
+export { TransferableBuffer } from '../../../../base/common/marshalling.js';

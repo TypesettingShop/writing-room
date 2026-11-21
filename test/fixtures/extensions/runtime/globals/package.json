@@ -1,0 +1,10 @@
+{
+  "publisher": "test",
+  "name": "runtime-globals",
+  "version": "1.0.0",
+  "displayName": "%name%",
+  "engines": {"vscode": "^1.80.0"},
+  "browser": "./extension.js",
+  "l10n": "./l10n",
+  "contributes": {"commands": [{"command": "runtime.globals", "title": "%title%"}]}
+}

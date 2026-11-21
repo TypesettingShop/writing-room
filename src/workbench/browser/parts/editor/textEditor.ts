@@ -1,12 +1,13 @@
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Event } from '../../../../base/common/event.js';
-import { MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { loadMonaco } from '../../../../editor/browser/monaco.js';
 import type {
   ICodeEditorViewState, IMonacoTextModel, IStandaloneCodeEditor, IStandaloneEditorConstructionOptions, MonacoNamespace,
 } from '../../../../editor/browser/monaco.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 import { isTextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -14,51 +15,68 @@ import { configurationRegistry } from '../../../../platform/configuration/common
 import type { IConfigurationPropertySchema } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
-import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
+import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorPane } from './editorPane.js';
 import './media/textEditor.css';
 
+type QuickSuggestionsValue = boolean | 'on' | 'inline' | 'off';
+type QuickSuggestions = boolean | { readonly other?: QuickSuggestionsValue; readonly comments?: QuickSuggestionsValue; readonly strings?: QuickSuggestionsValue };
+const quickSuggestionsValue = { anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['on', 'inline', 'off'] }] };
+
+// Editor settings can be set per language (`"[markdown]": { ... }`), as in VS Code.
 const editorSettings = {
-  'editor.fontSize': { type: 'number', default: 14, minimum: 6, maximum: 100, description: 'Controls the font size in pixels.' },
-  'editor.tabSize': { type: 'integer', default: 4, minimum: 1, description: 'Controls how many columns a tab occupies.' },
+  'editor.fontSize': {
+    type: 'number', default: 14, minimum: 6, maximum: 100, scope: 'language-overridable', description: 'Controls the font size in pixels.',
+  },
+  'editor.tabSize': {
+    type: 'integer', default: 4, minimum: 1, scope: 'language-overridable', description: 'Controls how many columns a tab occupies.',
+  },
   'editor.wordWrap': {
-    type: 'string', default: 'off', enum: ['off', 'on', 'wordWrapColumn', 'bounded'],
+    type: 'string', default: 'off', enum: ['off', 'on', 'wordWrapColumn', 'bounded'], scope: 'language-overridable',
     description: 'Controls where editor lines wrap.',
   },
   'editor.lineNumbers': {
-    type: 'string', default: 'on', enum: ['off', 'on', 'relative', 'interval'],
+    type: 'string', default: 'on', enum: ['off', 'on', 'relative', 'interval'], scope: 'language-overridable',
     description: 'Controls how editor line numbers are shown.',
   },
-  'editor.minimap.enabled': { type: 'boolean', default: true, description: 'Shows the editor minimap.' },
+  'editor.minimap.enabled': { type: 'boolean', default: true, scope: 'language-overridable', description: 'Shows the editor minimap.' },
+  'editor.quickSuggestions': {
+    type: ['boolean', 'object'], default: { other: 'on', comments: 'off', strings: 'off' }, scope: 'language-overridable',
+    properties: { other: quickSuggestionsValue, comments: quickSuggestionsValue, strings: quickSuggestionsValue },
+    additionalProperties: false,
+    description: 'Controls whether suggestions show up while typing, in code, comments and strings.',
+  },
 } as const satisfies Record<string, IConfigurationPropertySchema>;
 
 configurationRegistry.registerConfiguration({ id: 'editor', title: 'Editor', properties: editorSettings });
 
 /**
- * Every option the text editor is created with, and updated with when the configuration changes.
- * The pane lays the editor out itself (`automaticLayout: false`), as all layout here is explicit.
- * The theme is not among them: Monaco's theme is global, and `loadMonaco()` sets it once. Nor is the
- * tab size: Monaco keeps it on each model (`getTextEditorTabSize`).
+ * Every option the text editor is created with, and updated with when the configuration or the shown
+ * model's language changes. Values set for `language` win over the others. The pane lays the editor out
+ * itself (`automaticLayout: false`), as all layout here is explicit. The theme is not among them:
+ * Monaco's theme is global, and `loadMonaco()` sets it once. Nor is the tab size: Monaco keeps it on each
+ * model (`getTextEditorTabSize`).
  */
-export function getTextEditorOptions(configuration?: IConfigurationService): IStandaloneEditorConstructionOptions {
+export function getTextEditorOptions(configuration?: IConfigurationService, language?: string): IStandaloneEditorConstructionOptions {
+  const overrides = language ? { overrideIdentifier: language } : undefined;
+  const value = <K extends keyof typeof editorSettings, T>(key: K): T =>
+    configuration?.getValue<T>(key, overrides) ?? editorSettings[key].default as T;
   return {
     automaticLayout: false,
     ariaLabel: 'Editor content',
-    fontSize: configuration?.getValue<number>('editor.fontSize') ?? editorSettings['editor.fontSize'].default,
-    wordWrap: configuration?.getValue<NonNullable<IStandaloneEditorConstructionOptions['wordWrap']>>('editor.wordWrap')
-      ?? editorSettings['editor.wordWrap'].default,
-    lineNumbers: configuration?.getValue<NonNullable<IStandaloneEditorConstructionOptions['lineNumbers']>>('editor.lineNumbers')
-      ?? editorSettings['editor.lineNumbers'].default,
-    minimap: {
-      enabled: configuration?.getValue<boolean>('editor.minimap.enabled') ?? editorSettings['editor.minimap.enabled'].default,
-    },
+    fontSize: value('editor.fontSize'),
+    wordWrap: value('editor.wordWrap'),
+    lineNumbers: value('editor.lineNumbers'),
+    minimap: { enabled: value('editor.minimap.enabled') },
+    quickSuggestions: value<'editor.quickSuggestions', QuickSuggestions>('editor.quickSuggestions'),
   };
 }
 
-/** The tab size the pane gives each model it shows. */
-export function getTextEditorTabSize(configuration?: IConfigurationService): number {
-  return configuration?.getValue<number>('editor.tabSize') ?? editorSettings['editor.tabSize'].default;
+/** The tab size the pane gives each model it shows, for the model's language. */
+export function getTextEditorTabSize(configuration?: IConfigurationService, language?: string): number {
+  return configuration?.getValue<number>('editor.tabSize', language ? { overrideIdentifier: language } : undefined)
+    ?? editorSettings['editor.tabSize'].default;
 }
 
 interface IShownModel {
@@ -66,6 +84,8 @@ interface IShownModel {
   readonly model: IMonacoTextModel;
   /** View state to restore once the model is attached. */
   viewState: object | undefined;
+  /** A selection to make once the model is attached, after the view state. */
+  selection: ITextEditorSelection | undefined;
 }
 
 /**
@@ -82,11 +102,18 @@ export class TextEditorPane extends EditorPane {
   private editor: IStandaloneCodeEditor | undefined;
   private dimension: Dimension | undefined;
   private shown: IShownModel | undefined;
+  /** The language the editor's options were last read for. */
+  private optionsLanguage: string | undefined;
   private pendingFocus = false;
   /** Increases with every `setInput` and `clearInput`; a load that finishes under an older one is dropped. */
   private request = 0;
   private readonly inputListener = this._register(new MutableDisposable());
   private readonly viewStates = new Map<EditorInput, { state: object; listener: IDisposable }>();
+  private scoped: IContextKeyService | undefined;
+  private readonly modelListener = this._register(new MutableDisposable());
+  private editorLanguage!: IContextKey<string>;
+  private editorReadonly!: IContextKey<boolean>;
+  private editorHasSelection!: IContextKey<boolean>;
   private editorTextFocus!: IContextKey<boolean>;
   private editorFocus!: IContextKey<boolean>;
   private textInputFocus!: IContextKey<boolean>;
@@ -94,12 +121,12 @@ export class TextEditorPane extends EditorPane {
   constructor(
     @IContextKeyService private readonly contextKeyService: IContextKeyService,
     @IConfigurationService private readonly configuration: IConfigurationService,
+    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
   ) {
     super(TextEditorPane.ID);
     this._register(configuration.onDidChangeConfiguration(event => {
-      if (event.affectsConfiguration('editor') && this.editor) {
-        this.editor.updateOptions(getTextEditorOptions(configuration));
-        this.updateTabSize();
+      if (event.affectsConfiguration('editor')) {
+        this.updateOptions(true);
       }
     }));
   }
@@ -108,8 +135,13 @@ export class TextEditorPane extends EditorPane {
     parent.classList.add('text-editor');
     this.editorContainer = append(parent, $('.text-editor-container'));
     this.messageElement = append(parent, $('.text-editor-message', { role: 'alert', hidden: '' }));
-    // The keys live in the pane's own scope, so they hold for what has focus inside it.
-    const scoped = this._register(this.contextKeyService.createScoped(parent));
+    // The keys live in the pane's own scope, so they hold for what has focus inside it. The scope is
+    // a child of the group's (the nearest scope around the pane), as in VS Code, so the group's keys
+    // hold inside it too.
+    const scoped = this.scoped = this._register(this.contextKeyService.getScopedContextKeyService(parent).createScoped(parent));
+    this.editorLanguage = EditorContextKeys.languageId.bindTo(scoped);
+    this.editorReadonly = EditorContextKeys.readOnly.bindTo(scoped);
+    this.editorHasSelection = EditorContextKeys.hasNonEmptySelection.bindTo(scoped);
     this.editorTextFocus = EditorContextKeys.editorTextFocus.bindTo(scoped);
     this.editorFocus = EditorContextKeys.focus.bindTo(scoped);
     this.textInputFocus = EditorContextKeys.textInputFocus.bindTo(scoped);
@@ -123,6 +155,9 @@ export class TextEditorPane extends EditorPane {
       void super.setInput(input, options);
       if (options?.viewState) {
         this.editor!.restoreViewState(options.viewState as ICodeEditorViewState);
+      }
+      if (options?.selection) {
+        this.applySelection(options.selection);
       }
       return;
     }
@@ -167,7 +202,7 @@ export class TextEditorPane extends EditorPane {
       return;
     }
     this.monaco = monaco;
-    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state };
+    this.shown = { input, model, viewState: options?.viewState ?? this.viewStates.get(input)?.state, selection: options?.selection };
     this.ensureEditor();
     this.attach();
   }
@@ -207,6 +242,10 @@ export class TextEditorPane extends EditorPane {
     return input && (this.currentViewState(input) ?? this.viewStates.get(input)?.state);
   }
 
+  override get scopedContextKeyService(): IContextKeyService | undefined {
+    return this.scoped;
+  }
+
   /** The Monaco editor, once the pane has had a real size and the package has loaded. */
   getControl(): IStandaloneCodeEditor | undefined {
     return this.editor;
@@ -226,13 +265,18 @@ export class TextEditorPane extends EditorPane {
       return;
     }
     const { width, height } = this.dimension;
+    this.optionsLanguage = this.shown?.model.getLanguageId();
     // Without `model: null` Monaco creates an empty model of its own that nothing would dispose.
-    this.editor = this.monaco.editor.create(this.editorContainer, {
-      ...getTextEditorOptions(this.configuration),
+    const editor = this.editor = this.monaco.editor.create(this.editorContainer, {
+      ...getTextEditorOptions(this.configuration, this.optionsLanguage),
       model: null,
       dimension: { width, height },
     });
-    this._register(this.editor);
+    // The editor stays registered while the pane lives, whatever model it shows; it leaves the
+    // service before it is disposed.
+    this.codeEditorService.addCodeEditor(editor);
+    this._register(toDisposable(() => this.codeEditorService.removeCodeEditor(editor)));
+    this._register(editor);
     this._register(this.editor.onDidFocusEditorText(() => {
       this.editorTextFocus.set(true);
       this.textInputFocus.set(true);
@@ -241,6 +285,7 @@ export class TextEditorPane extends EditorPane {
       this.editorTextFocus.set(false);
       this.textInputFocus.set(false);
     }));
+    this._register(editor.onDidChangeCursorSelection(({ selection }) => this.editorHasSelection.set(!selection.isEmpty())));
     this._register(this.editor.onDidFocusEditorWidget(() => this.editorFocus.set(true)));
     this._register(this.editor.onDidBlurEditorWidget(() => this.editorFocus.set(false)));
   }
@@ -252,12 +297,27 @@ export class TextEditorPane extends EditorPane {
     }
     this.hideMessage();
     if (this.editor.getModel() !== shown.model) {
-      this.updateTabSize();
+      // The pane is reused: the options follow the language of the model it shows now.
+      this.updateOptions();
       this.editor.setModel(shown.model);
+      this.editorLanguage.set(shown.model.getLanguageId());
+      this.editorReadonly.set(shown.input.isReadonly());
+      this.editorHasSelection.set(!(this.editor.getSelection()?.isEmpty() ?? true));
+      const model = shown.model;
+      this.modelListener.value = model.onDidChangeLanguage(({ newLanguage }) => {
+        if (this.shown?.model === model) {
+          this.editorLanguage.set(newLanguage);
+          this.updateOptions();
+        }
+      });
     }
     if (shown.viewState) {
       this.editor.restoreViewState(shown.viewState as ICodeEditorViewState);
       shown.viewState = undefined;
+    }
+    if (shown.selection) {
+      this.applySelection(shown.selection);
+      shown.selection = undefined;
     }
     if (this.pendingFocus) {
       this.pendingFocus = false;
@@ -265,9 +325,35 @@ export class TextEditorPane extends EditorPane {
     }
   }
 
-  private updateTabSize(): void {
+  /** Selects `selection` (a cursor without an end) and scrolls it into the middle of the view. */
+  private applySelection(selection: ITextEditorSelection): void {
+    const range = {
+      startLineNumber: selection.startLineNumber,
+      startColumn: selection.startColumn,
+      endLineNumber: selection.endLineNumber ?? selection.startLineNumber,
+      endColumn: selection.endColumn ?? selection.startColumn,
+    };
+    this.editor!.setSelection(range);
+    this.editor!.revealRangeInCenter(range);
+  }
+
+  /**
+   * Applies the options for the shown model's language: to the editor when they were read for another
+   * language or `changed`, and the tab size to the model.
+   */
+  private updateOptions(changed = false): void {
     const model = this.shown?.model;
-    const tabSize = getTextEditorTabSize(this.configuration);
+    const language = model && !model.isDisposed() ? model.getLanguageId() : undefined;
+    if (this.editor && (changed || language !== this.optionsLanguage)) {
+      this.optionsLanguage = language;
+      this.editor.updateOptions(getTextEditorOptions(this.configuration, language));
+    }
+    this.updateTabSize(language);
+  }
+
+  private updateTabSize(language: string | undefined): void {
+    const model = this.shown?.model;
+    const tabSize = getTextEditorTabSize(this.configuration, language);
     if (model && !model.isDisposed() && model.getOptions().tabSize !== tabSize) {
       model.updateOptions({ tabSize });
     }
@@ -277,6 +363,11 @@ export class TextEditorPane extends EditorPane {
     this.shown = undefined;
     this.hideMessage();
     this.editor?.setModel(null);
+    // The pane is reused: what described the last model must not stay for the next one.
+    this.modelListener.clear();
+    this.editorLanguage?.reset();
+    this.editorReadonly?.reset();
+    this.editorHasSelection?.reset();
   }
 
   /** The view state `input` has in this pane right now: shown, waiting for the editor, or loading. */

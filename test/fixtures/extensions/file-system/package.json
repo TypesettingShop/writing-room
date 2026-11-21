@@ -1,0 +1,41 @@
+{
+  "name": "file-system",
+  "publisher": "fixture",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "*"
+  },
+  "browser": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fixture.fileSystem.check",
+        "title": "Check File System API"
+      },
+      {
+        "command": "fixture.fileSystem.events",
+        "title": "Check File Events and Search"
+      },
+      {
+        "command": "fixture.fileSystem.watchPeer",
+        "title": "Watch File From Other Tab"
+      },
+      {
+        "command": "fixture.fileSystem.writePeer",
+        "title": "Write File From Other Tab"
+      },
+      {
+        "command": "fixture.fileSystem.provider",
+        "title": "Check File System Provider"
+      },
+      {
+        "command": "fixture.fileSystem.providerRemoved",
+        "title": "Check Removed File System Provider"
+      },
+      {
+        "command": "fixture.fileSystem.providerOpen",
+        "title": "Open File System Provider Document"
+      }
+    ]
+  }
+}

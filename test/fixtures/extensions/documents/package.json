@@ -1,0 +1,114 @@
+{
+  "name": "documents",
+  "publisher": "fixtures",
+  "displayName": "Documents Fixture",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "browser": "./extension.js",
+  "activationEvents": [
+    "onCommand:documents.check",
+    "onCommand:documents.checkEditor",
+    "onCommand:documents.checkBulk",
+    "onCommand:documents.clearDecoration",
+    "onCommand:documents.checkTabs",
+    "onCommand:documents.checkResource",
+    "onCommand:documents.wrongLanguage",
+    "onCommand:documents.checkReferences",
+    "onCommand:documents.saveShownUntitled",
+    "onCommand:documents.saveHiddenUntitled",
+    "onCommand:documents.saveLateShownUntitled",
+    "onCommand:documents.reportEditors",
+    "onCommand:documents.showFileFromSide",
+    "onCommand:documents.editActiveEditor",
+    "onCommand:documents.renameAtResource"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "documents.check",
+        "title": "Check Document API"
+      },
+      {
+        "command": "documents.checkEditor",
+        "title": "Check Text Editor API"
+      },
+      {
+        "command": "documents.checkBulk",
+        "title": "Check Workspace Edit API"
+      },
+      {
+        "command": "documents.clearDecoration",
+        "title": "Clear Fixture Decoration"
+      },
+      {
+        "command": "documents.checkTabs",
+        "title": "Check Tab Groups API"
+      },
+      {
+        "command": "documents.checkResource",
+        "title": "Report Fixture Editor Resource"
+      },
+      {
+        "command": "documents.wrongLanguage",
+        "title": "Different Language Fixture Action"
+      },
+      {
+        "command": "documents.checkReferences",
+        "title": "Check Reference Command"
+      },
+      {
+        "command": "documents.saveShownUntitled",
+        "title": "Save Shown Untitled Fixture"
+      },
+      {
+        "command": "documents.saveHiddenUntitled",
+        "title": "Save Hidden Untitled Fixture"
+      },
+      {
+        "command": "documents.saveLateShownUntitled",
+        "title": "Save Late Shown Untitled Fixture"
+      },
+      {
+        "command": "documents.reportEditors",
+        "title": "Report Text Editors"
+      },
+      {
+        "command": "documents.showFileFromSide",
+        "title": "Show File From Side Group"
+      },
+      {
+        "command": "documents.editActiveEditor",
+        "title": "Edit Active Text Editor"
+      },
+      {
+        "command": "documents.renameAtResource",
+        "title": "Rename At Resource"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "documents.fixtureActions",
+        "label": "Fixture Actions"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "documents.fixtureActions",
+          "when": "editorLangId == plaintext"
+        },
+        {
+          "command": "documents.wrongLanguage",
+          "when": "editorLangId == markdown"
+        }
+      ],
+      "documents.fixtureActions": [
+        {
+          "command": "documents.checkResource"
+        }
+      ]
+    }
+  }
+}

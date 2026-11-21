@@ -1,6 +1,6 @@
 import type * as vscode from 'vscode';
 import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
-import { URI } from '../../../base/common/uri.js';
+import { Disposable, EventEmitter, Uri } from './extHostTypes.js';
 import { dispose } from '../../../base/common/lifecycle.js';
 import type { MainThreadExtensionServiceShape } from './extHost.protocol.js';
 
@@ -13,37 +13,64 @@ export type ExtensionLoader = (
   extension: HostExtensionDescription, api: typeof vscode, signal: AbortSignal,
 ) => Promise<IExtensionModule>;
 
+type BaseExtensionContext = Pick<vscode.ExtensionContext, 'subscriptions' | 'extensionUri'> & {
+  readonly extension: vscode.Extension<unknown>;
+};
+
 class Activation {
   readonly abort = new AbortController();
+  readonly aborted = new Promise<void>(resolve => {
+    this.abort.signal.addEventListener('abort', () => resolve(), { once: true });
+  });
   readonly subscriptions: vscode.ExtensionContext['subscriptions'] = [];
-  readonly context: vscode.ExtensionContext;
+  readonly context: BaseExtensionContext;
+  access?: ExtensionActivationAccess;
   module?: IExtensionModule;
+  exports?: unknown;
+  readonly commands = new Set<string>();
+  readonly waitingFor = new Map<Activation, number>();
   operation?: Promise<void>;
-  state: 'inactive' | 'activating' | 'active' | 'failed' = 'inactive';
+  state: 'inactive' | 'activating' | 'active' | 'failed' | 'deactivating' = 'inactive';
 
-  constructor(public description: HostExtensionDescription) {
+
+  constructor(public description: HostExtensionDescription, ownExtension: () => vscode.Extension<unknown>) {
     this.context = {
       subscriptions: this.subscriptions,
-      extensionUri: URI.parse(description.location),
-      extension: { id: description.id, packageJSON: structuredClone(description.manifest) },
+      extensionUri: Uri.parse(description.location),
+      get extension() { return ownExtension(); },
     };
   }
 }
 
+export interface ExtensionActivationAccess {
+  readonly commands: Set<string>;
+  readonly all: () => readonly vscode.Extension<unknown>[];
+  readonly getExtension: (id: string) => vscode.Extension<unknown> | undefined;
+  readonly onDidChange: vscode.Event<void>;
+  prepare?: () => Promise<void>;
+  logError?: (message: string, error: unknown) => void;
+}
+
+export const extensionActivation = new WeakMap<HostExtensionDescription, ExtensionActivationAccess>();
+
 export class ExtensionsActivator {
   private readonly extensions = new Map<string, Activation>();
+  private readonly removing = new Set<Activation>();
+  private readonly onDidChange = new EventEmitter<void>();
 
   constructor(
     private readonly main: MainThreadExtensionServiceShape,
     private readonly load: ExtensionLoader,
-    private readonly createApi: (id: string, isLive: () => boolean) => typeof vscode,
+    private readonly createApi: (
+      extension: HostExtensionDescription, isLive: () => boolean, context: BaseExtensionContext,
+    ) => { api: typeof vscode; context: vscode.ExtensionContext },
     private readonly flush: (key: string) => Promise<void>,
     private readonly release: (key: string) => void,
   ) {}
 
   isLive(key: string): boolean {
     const extension = this.extensions.get(key);
-    return extension?.state === 'activating' || extension?.state === 'active';
+    return extension?.state === 'activating' || extension?.state === 'active' || extension?.state === 'deactivating';
   }
 
   getViews(key: string): readonly string[] {
@@ -51,11 +78,13 @@ export class ExtensionsActivator {
   }
 
   deltaExtensions(added: readonly HostExtensionDescription[], removed: readonly string[]): void {
+    let changed = false;
     for (const key of removed) {
       const extension = this.extensions.get(key);
-      if (extension) {
-        this.extensions.delete(key);
-        this.deactivate(extension);
+      if (extension && !this.removing.has(extension)) {
+        this.removing.add(extension);
+        changed = true;
+        void this.deactivate(extension);
       }
     }
     for (const description of added) {
@@ -63,17 +92,155 @@ export class ExtensionsActivator {
       if (existing) {
         existing.description = description;
       } else {
-        this.extensions.set(description.key, new Activation(description));
+        const activation: Activation = new Activation(description, () => this.extensionView(activation, activation));
+        this.extensions.set(description.key, activation);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.onDidChange.fire();
+    }
+  }
+
+  private extensionView(target: Activation, caller: Activation): vscode.Extension<unknown> {
+    const activator = this;
+    const { id, key, location } = target.description;
+    const extensionUri = Uri.parse(location);
+    const isActive = () => target.state === 'active' || target.state === 'deactivating';
+    return Object.freeze({
+      id, extensionUri, extensionPath: extensionUri.fsPath,
+      get isActive() { return isActive(); },
+      get packageJSON() { return structuredClone(target.description.manifest); },
+      extensionKind: 2 as vscode.ExtensionKind.Workspace,
+      get exports() { return isActive() ? target.exports : undefined; },
+      async activate() {
+        if (!activator.isLive(caller.description.key) || activator.extensions.get(key) !== target
+          || activator.removing.has(target)) {
+          throw new Error(`Extension '${id}' is no longer available.`);
+        }
+        if (target.state !== 'active' && activator.reaches(target, caller)) {
+          throw new Error(`Cyclic activation request for '${id}'.`);
+        }
+        await activator.waitFor(caller, target, false);
+        if (target.state !== 'active') {
+          throw new Error(`Extension '${id}' did not activate.`);
+        }
+        return target.exports;
+      },
+    });
+  }
+
+  private catalog(caller: Activation): ExtensionActivationAccess {
+    const available = () => [...this.extensions.values()].filter(extension => !this.removing.has(extension));
+    return {
+      commands: caller.commands,
+      all: () => available().map(extension => this.extensionView(extension, caller)),
+      getExtension: id => {
+        const match = available().find(extension => extension.description.id.toLowerCase() === id.toLowerCase());
+        return match && this.extensionView(match, caller);
+      },
+      onDidChange: (listener, thisArgs, disposables) => {
+        const listening = this.onDidChange.event(listener, thisArgs);
+        // Removal disposes what is left; one the extension disposes first leaves the list.
+        const subscription: vscode.Disposable = new Disposable(() => {
+          listening.dispose();
+          const index = caller.subscriptions.indexOf(subscription);
+          if (index !== -1) {
+            caller.subscriptions.splice(index, 1);
+          }
+        });
+        caller.subscriptions.push(subscription);
+        disposables?.push(subscription);
+        return subscription;
+      },
+    };
+  }
+
+  async activateByEvent(event: string, origin?: string): Promise<void> {
+    const caller = origin ? this.extensions.get(origin) : undefined;
+    const command = event.startsWith('onCommand:') ? event.slice('onCommand:'.length) : undefined;
+    const extensions = [...this.extensions.values()];
+    const targets = extensions.filter(extension =>
+      !this.removing.has(extension)
+      && (!extension.description.manifest.main || extension.description.entry)
+      && extension.description.activationEvents.includes(event),
+    );
+    if (caller && command && targets.length === 0) {
+      const registered = extensions.reverse().find(extension => !this.removing.has(extension) && extension.commands.has(command));
+      if (registered) {
+        targets.push(registered);
+      }
+    }
+    await Promise.all(targets.map(extension => this.waitFor(caller, extension, false)));
+  }
+
+  private async waitFor(caller: Activation | undefined, target: Activation, dependency: boolean): Promise<void> {
+    if (target.state === 'active') {
+      return;
+    }
+    const wait = () => Promise.race([this.activate(target), target.aborted]);
+    if (!caller) {
+      await wait();
+      return;
+    }
+    if (this.reaches(target, caller)) {
+      if (dependency) {
+        throw new Error(`Cyclic activation dependency on '${target.description.id}'.`);
+      }
+      return;
+    }
+    caller.waitingFor.set(target, (caller.waitingFor.get(target) ?? 0) + 1);
+    try {
+      await wait();
+    } finally {
+      const remaining = (caller.waitingFor.get(target) ?? 1) - 1;
+      if (remaining) {
+        caller.waitingFor.set(target, remaining);
+      } else {
+        caller.waitingFor.delete(target);
       }
     }
   }
 
-  async activateByEvent(event: string, origin?: string): Promise<void> {
-    await Promise.all([...this.extensions.values()].filter(extension =>
-      extension.description.key !== origin
-      && !(origin && extension.state === 'activating')
-      && extension.description.activationEvents.includes(event),
-    ).map(extension => this.activate(extension)));
+  private reaches(start: Activation, target: Activation): boolean {
+    const pending = [start];
+    const visited = new Set<Activation>();
+    while (pending.length) {
+      const next = pending.pop()!;
+      if (next === target) {
+        return true;
+      }
+      if (!visited.has(next)) {
+        visited.add(next);
+        for (const waiting of next.waitingFor.keys()) {
+          pending.push(waiting);
+        }
+      }
+    }
+    return false;
+  }
+
+  private async activateDependencies(extension: Activation): Promise<void> {
+    const dependencies = extension.description.manifest.extensionDependencies;
+    if (dependencies === undefined) {
+      return;
+    }
+    if (!Array.isArray(dependencies) || dependencies.some(id => typeof id !== 'string')) {
+      throw new Error('Expected extensionDependencies to contain extension identifiers.');
+    }
+    for (const id of dependencies) {
+      const target = [...this.extensions.values()].find(candidate =>
+        !this.removing.has(candidate) && candidate.description.id.toLowerCase() === id.toLowerCase(),
+      );
+      if (!target) {
+        throw new Error(`Missing extension dependency '${id}'.`);
+      }
+      await this.waitFor(extension, target, true);
+      if (target.state !== 'active') {
+        throw new Error(`Extension dependency '${id}' did not activate.`);
+      }
+      extension.abort.signal.throwIfAborted();
+    }
   }
 
   private activate(extension: Activation): Promise<void> {
@@ -84,55 +251,137 @@ export class ExtensionsActivator {
       }
       extension.state = 'activating';
       void this.main.$setActivationStatus(description.key, { state: 'activating' }).catch(() => {});
+      const slow = setTimeout(() => console.warn(`[${description.id}] Activation is still running after 10 seconds.`), 10_000);
+      const cancelSlowWarning = () => clearTimeout(slow);
+      abort.signal.addEventListener('abort', cancelSlowWarning, { once: true });
       try {
-        const api = this.createApi(description.key, () => this.isLive(description.key));
-        extension.module = await this.load(description, api, abort.signal);
+        if (description.manifest.main && !description.entry) {
+          throw new Error('This extension has no web entry point.');
+        }
+        await this.activateDependencies(extension);
         abort.signal.throwIfAborted();
-        await extension.module.activate?.(extension.context);
-        abort.signal.throwIfAborted();
-        await this.flush(description.key);
-        abort.signal.throwIfAborted();
+        if (description.entry) {
+          const access = extension.access = this.catalog(extension);
+          extensionActivation.set(description, access);
+          const { api, context } = this.createApi(description, () => {
+            if (!this.isLive(description.key)) {
+              throw new Error(`Extension '${description.id}' is no longer active.`);
+            }
+            return true;
+          }, extension.context);
+          await access.prepare?.();
+          abort.signal.throwIfAborted();
+          extension.module = await this.load(description, api, abort.signal);
+          abort.signal.throwIfAborted();
+          extension.exports = await extension.module.activate?.(context);
+          abort.signal.throwIfAborted();
+          await this.flush(description.key);
+          abort.signal.throwIfAborted();
+        }
         extension.state = 'active';
         await this.main.$setActivationStatus(description.key, { state: 'active' });
       } catch (error) {
+        // Removal disposed the subscriptions while the API was live; this only takes those pushed after it.
         if (abort.signal.aborted) {
           this.disposeSubscriptions(extension);
           return;
         }
-        extension.state = 'failed';
-        this.release(description.key);
+        // Still activating, so the API stays live while the subscriptions are disposed (wr-eycu.u4t).
         this.disposeSubscriptions(extension);
+        extension.state = 'failed';
+        // A dispose callback can push more while the API is live; with the API closed it cannot register again.
+        this.disposeSubscriptions(extension);
+        this.release(description.key);
         const message = `Could not activate ${description.id} from ${description.entry}: ${error instanceof Error ? error.message : error}`;
         console.error(message);
         await this.main.$setActivationStatus(description.key, { state: 'failed', message }).catch(() => {});
+      } finally {
+        cancelSlowWarning();
+        abort.signal.removeEventListener('abort', cancelSlowWarning);
       }
     });
   }
 
-  private deactivate(extension: Activation): void {
+  private async deactivate(extension: Activation): Promise<void> {
+    const { key, id } = extension.description;
     extension.abort.abort();
-    this.release(extension.description.key);
-    if (extension.state === 'active') {
+    if (extension.state === 'active' && extension.module?.deactivate) {
+      extension.state = 'deactivating';
+      let deadline: ReturnType<typeof setTimeout> | undefined;
       try {
-        void Promise.resolve(extension.module?.deactivate?.()).catch(error => {
-          console.error(`[${extension.description.id}] Deactivation failed:`, error);
-        });
+        await Promise.race([
+          extension.module.deactivate(),
+          new Promise<void>(resolve => {
+            deadline = setTimeout(() => {
+              console.warn(`[${id}] Deactivation timed out after 5 seconds.`);
+              resolve();
+            }, 5_000);
+          }),
+        ]);
       } catch (error) {
-        console.error(`[${extension.description.id}] Deactivation failed:`, error);
+        this.logError(extension, 'Deactivation failed:', error);
+      } finally {
+        clearTimeout(deadline);
       }
     }
+    if (this.extensions.get(key) === extension) {
+      this.finishRemoval(extension);
+      await this.main.$setActivationStatus(key, { state: 'inactive' }).catch(() => {});
+    }
+  }
+
+  /**
+   * Disposes the subscriptions while the extension is still live, so their callbacks can use the API, then closes the
+   * API and releases what the extension registered, including what it registered during the disposal (wr-eycu.u4t).
+   * Other extensions already miss it in `all` and `getExtension`, since it is in `removing`.
+   */
+  private finishRemoval(extension: Activation): void {
+    const { key } = extension.description;
+    if (extension.state === 'active') {
+      extension.state = 'deactivating';
+    }
     this.disposeSubscriptions(extension);
+    this.extensions.delete(key);
+    this.removing.delete(extension);
+    extension.state = 'inactive';
+    extension.waitingFor.clear();
+    // A dispose callback can push more while the API is live, such as an `extensions.onDidChange` listener that only
+    // the subscriptions release; with the API closed it cannot register again.
+    this.disposeSubscriptions(extension);
+    this.release(key);
+  }
+
+  private logError(extension: Activation, message: string, error: unknown): void {
+    const logError = extension.access?.logError;
+    if (logError) {
+      logError(message, error);
+    } else {
+      console.error(`[${extension.description.id}] ${message}`, error);
+    }
   }
 
   private disposeSubscriptions(extension: Activation): void {
     try {
       dispose(extension.subscriptions.splice(0));
     } catch (error) {
-      console.error(`[${extension.description.id}] Subscription disposal failed:`, error);
+      this.logError(extension, 'Subscription disposal failed:', error);
     }
   }
 
   dispose(): void {
-    this.deltaExtensions([], [...this.extensions.keys()]);
+    for (const extension of this.extensions.values()) {
+      extension.abort.abort();
+      if (extension.state === 'active') {
+        try {
+          void Promise.resolve(extension.module?.deactivate?.())
+            .catch(error => this.logError(extension, 'Deactivation failed:', error));
+        } catch (error) {
+          this.logError(extension, 'Deactivation failed:', error);
+        }
+      }
+      this.removing.add(extension);
+      this.finishRemoval(extension);
+    }
+    this.onDidChange.dispose();
   }
 }

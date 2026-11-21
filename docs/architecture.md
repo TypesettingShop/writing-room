@@ -1,17 +1,17 @@
 # 아키텍처 맵: VS Code와 writing-room의 대응
 
-writing-room(v0.1.0)은 VS Code 워크벤치를 참고해 처음부터 직접 구현하는 웹 워크벤치다. 이 문서는 두 코드베이스 간 파일 단위 대응표이며, VS Code와 달라진 점을 기록하는 유일한 문서다. VS Code 측 근거는 [README.md](README.md)에 명시된 고정 커밋의 경로와 심볼을 기준으로 한다.
+writing-room(v0.2.0)은 VS Code 워크벤치를 참고해 처음부터 직접 구현하는 웹 워크벤치다. 이 문서는 두 코드베이스 간 파일 단위 대응표이며, VS Code와 달라진 점을 기록하는 유일한 문서다. VS Code 측 참조 근거는 [README.md](README.md)에 명시된 고정 커밋의 경로와 심볼을 기준으로 삼는다.
 
 ## 대응 규칙
 
 - 경로: VS Code의 `src/vs/<path>`는 이 저장소의 `src/<path>`에 대응한다. 예를 들어 `src/vs/base/browser/ui/grid/grid.ts`는 `src/base/browser/ui/grid/grid.ts`에 해당한다.
-- 이름: 클래스, 인터페이스, 레지스트리, id, 숫자는 VS Code를 따른다. 단, 파일이나 코드 블록을 그대로 복사하지 않는다.
+- 이름: 클래스, 인터페이스, 레지스트리, id, 숫자는 VS Code를 따른다. 단, 파일이나 코드 블록을 그대로 복사하지 않는다. 승인된 예외는 적합성 검사의 참조 픽스처 `test/fixtures/vscode-api/vscode.d.ts` 하나다([maintainability.md](maintainability.md#9-vs-code와의-차이를-기록하는-규칙)).
 - 계층 구조: `base`, `platform`, `editor`, `workbench` 순으로 구성되며 각 계층은 하위 계층만 임포트한다. `common` 디렉터리는 `browser` 디렉터리를 임포트하지 않는다. 확장 호스트 계층(`workbench/api/common`, `workbench/api/worker`)은 DOM에 접근하지 않는다.
-- 범위: v0.1.0에서 구현하는 파트는 제목 표시줄, 액티비티 바, 사이드바, 에디터, 패널, 상태 표시줄 여섯 개다. 채팅, 세션, 노트북, 터미널, 디버그, 설정 에디터 UI, 원격, 데스크톱 빌드는 범위에서 제외한다.
+- 범위: v0.2.0에서 구현하는 파트는 제목 표시줄, 액티비티 바, 사이드바, 에디터, 패널, 상태 표시줄 여섯 개다. 채팅, 세션, 노트북, 터미널, 디버그, 설정 에디터 UI, 원격, 데스크톱 빌드는 범위에서 제외한다.
 
 ## 개념별 대응표
 
-각 행의 VS Code 경로는 고정 커밋에 실제로 존재하는 경로다. 오른쪽 경로는 v0.1.0에서 구현할 위치다. 자세한 설명은 마지막 열의 링크된 문서를 참조한다.
+각 행의 VS Code 경로는 고정 커밋에 실제로 존재하는 경로다. 오른쪽 경로는 이 저장소에서 구현한 위치다. 자세한 설명은 마지막 열의 링크된 문서를 참조한다.
 
 | 개념 | VS Code 경로 | 이 저장소 경로 | 설명 |
 | --- | --- | --- | --- |
@@ -61,11 +61,10 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Commands, menus and keys
 
-- `when`은 불리언 키와 리터럴, 동등·부등 비교, 논리 부정·곱·합, 괄호를 지원한다. 정규식, 포함 관계, 수치 순서 비교는 구문 오류로 보고한다 — v0.1.0의 메뉴와 키바인딩에 공통으로 적용하는 구문을 이 부분집합으로 정했다 (wr-cla6.jvs). [VS Code의 `Parser`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/contextkey/common/contextkey.ts#L174)
 - `MenuRegistry`는 VS Code와 같이 같은 마이크로태스크에 들어온 변경을 메뉴 id 집합으로 묶는다. VS Code의 `MenuImpl` 기본 지연은 50ms이며 여기서는 관련 레지스트리 알림을 받거나 참조한 컨텍스트 키가 바뀌면 바로 알린다 — 한 번의 등록 묶음을 합치면서 이미 열린 메뉴에는 컨텍스트 변경을 즉시 반영한다 (wr-cla6.jvs). [VS Code의 `MenuRegistry`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/common/actions.ts#L525-L529), [VS Code의 `MenuService.createMenu`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/common/menuService.ts#L35-L37)
 - 최상위 메뉴 후보는 코어가 등록하는 File, Edit, View, Help 네 가지이며 표시할 항목이 있는 메뉴만 나타난다. VS Code는 Selection, Go, Terminal 등도 등록한다 — 여기서는 v0.1.0의 셸과 커맨드 범위에 맞춰 메뉴 후보를 줄였다 (wr-cla6.jvs). [VS Code의 메뉴 바 기여](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/browser/parts/titlebar/menubar.contribution.ts)
 - 키바인딩은 US 배열 기준 `KeyboardEvent.code`의 물리 위치를 해석하고 OS에 맞는 수정자 레이블을 표기한다. 다른 배열에서는 키가 입력하는 문자와 메뉴·팔레트 레이블이 다를 수 있다. VS Code는 배열을 감지하는 키보드 매퍼와 사용자 `keybindings.json`을 적용한다 — v0.1.0에서는 기본 및 기여 단축키에 공통 물리 키 규칙을 사용한다 (wr-cla6.em5). [VS Code의 `WorkbenchKeybindingService`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/keybinding/browser/keybindingService.ts)
-- F1 또는 **View → Command Palette...**로 팔레트를 연다. Firefox를 제외하면 Ctrl+Shift+P(macOS에서는 Cmd+Shift+P)도 쓸 수 있다. VS Code는 `>`를 넣어 커맨드 제공자를 선택한다 — v0.1.0에는 커맨드 모드만 있어 빈 입력으로 시작한다 (wr-cla6.nzs). [VS Code의 `ShowAllCommandsAction`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/quickaccess/browser/commandsQuickAccess.ts#L273-L294)
+- F1 또는 **View → Command Palette...**로 팔레트를 연다. Firefox를 제외하면 Ctrl+Shift+P(macOS에서는 Cmd+Shift+P)도 쓸 수 있다. VS Code는 `>`를 넣어 커맨드 제공자를 선택한다 — 팔레트는 여전히 `>` 없이 커맨드 모드만 있는 화면으로 따로 열려 빈 입력으로 시작한다. 다만 퀵 액세스에 `#` 접두어의 워크스페이스 기호 검색(Go to Symbol in Workspace, 커맨드 `workbench.action.showAllSymbols`, Ctrl+T 또는 macOS Cmd+T)이 생겼다. 그 화면은 `#`가 든 채 열리며 커맨드 팔레트에 `#`를 입력해서는 열리지 않는다 (wr-cla6.nzs, wr-c9d8.qq0). [VS Code의 `ShowAllCommandsAction`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/quickaccess/browser/commandsQuickAccess.ts#L273-L294)
 - 팔레트를 열기 직전 포커스의 스코프에서 `MenuId.CommandPalette` 항목의 `when`과 활성 조건을 평가한다. 다시 열 때는 열려 있던 퀵 인풋의 복귀 포커스 스코프를 쓴다. 이름은 `Category: Title`로 표시하고, 일치한 글자와 단축키를 보여 준다. 검색은 대소문자를 구분하지 않는 연속 부분 문자열로 모든 입력 단어를 검사하며 일반 행은 이름순으로 정렬한다. VS Code의 제공자는 별도로 에디터 액션을 합치고 관련도 기반의 추가 검색을 지원한다 — v0.1.0은 등록된 메뉴 항목과 입력한 단어의 일치만으로 검색 결과를 예측할 수 있게 했다 (wr-cla6.nzs). [VS Code의 메뉴 항목 수집](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/quickaccess/browser/commandsQuickAccess.ts), [VS Code의 검색 제공자](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/quickinput/browser/commandsQuickAccess.ts)
 - 위·아래 화살표로 결과를 순환하고 Enter나 클릭으로 선택한다. Esc, 위젯 바깥 클릭, 외부 요소로의 포커스 이동으로 취소할 수 있다. 포커스를 받을 수 있는 바깥 요소를 선택하면 그 요소에 포커스가 남고, Tab은 위젯 안에 포커스를 둔다. 선택하면 팔레트가 닫히고 기존 포커스가 복원된 뒤 커맨드를 실행한다. 실행 오류는 로그에 남긴다. VS Code는 실행 오류를 대화 상자로 표시한다 — 여기서는 실행에 실패해도 사용자가 입력을 계속할 수 있게 알림을 로그로 남긴다 (wr-cla6.nzs). [VS Code의 `CommandsHistory`와 실행 처리](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/quickinput/browser/commandsQuickAccess.ts)
 - 최근에 선택한 최대 50개는 새로고침 뒤 **Recently Used**에서 최신순으로 표시된다. `commandPalette.mru.cache`에는 프로필 스토리지의 단일 id 배열을 쓰며, 미등록 커맨드는 표시 단계에서 걸러 낸다. id는 한도에서 밀려나기 전까지 저장되어 확장이 뒤늦게 등록하면 다시 나타난다. VS Code는 설정 가능한 LRU와 별도 순번을 저장한다 — 고정 한도와 최신순 배열이면 순번 키 없이 기록을 복원할 수 있다 (wr-cla6.nzs). [VS Code의 `CommandsHistory`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/quickinput/browser/commandsQuickAccess.ts)
@@ -100,12 +99,14 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `IModelService.createModel`은 비동기다. VS Code는 동기다 — 패키지를 처음 쓸 때 로드하므로 모델을 만들기 전에 기다려야 한다 (wr-cla6.36n)
 - 에디터 페인 레지스트리는 입력의 `typeId`로 페인을 찾는다(`registerEditorPane(descriptor, editorTypeIds)`). VS Code는 입력 생성자의 `SyncDescriptor`로 찾는다 — 입력 타입 id가 이미 계약이라 `instanceof`가 필요 없다 (wr-cla6.36n)
 - 제목 없는 에디터의 이름은 언제나 `Untitled-N`이다. VS Code는 텍스트의 첫 줄에서 이름을 만든다 (wr-cla6.36n)
-- `URI`는 퍼센트 인코딩 없이 구성 요소를 그대로 이어 쓴다 — v0.1.0의 에디터 리소스는 워크벤치가 만드는 `untitled:Untitled-N`과 `vscode-userdata:/User/settings.json`이다. 그렇게 이어 쓰면 다른 URI로 읽히는 구성 요소(경로의 `?`·`#`, authority가 있을 때 `/`로 시작하지 않는 경로 등)는 거부한다 (wr-cla6.36n)
+- `URI`는 퍼센트 인코딩 없이 구성 요소를 그대로 이어 쓴다 — 에디터 리소스는 워크벤치가 만드는 `untitled:Untitled-N`, `vscode-userdata:/User/settings.json`, 워크스페이스 파일 `vscode-vfs://writing-room/workspace/…`과 확장이 등록한 스킴의 파일이다. 그렇게 이어 쓰면 다른 URI로 읽히는 구성 요소(경로의 `?`·`#`, authority가 있을 때 `/`로 시작하지 않는 경로 등)는 거부한다 (wr-cla6.36n)
 - `TextEditorPane`은 입력별 뷰 상태를 페인 안의 메모리 맵에 두고 입력이 dispose되면 지운다. VS Code의 `AbstractEditorWithViewState`는 그룹과 리소스 키로 memento에 저장한다 — 새로고침 뒤 복원은 레이아웃과 에디터 저장 멤버의 몫이다. 다른 페인으로 옮길 때는 `getViewState()`와 `setInput`의 `viewState` 옵션으로 넘긴다 (wr-cla6.36n)
 - 페인은 새 입력을 로드하는 동안 이전 모델을 떼어(`setModel(null)`) 둔다. VS Code는 새 모델로 바로 바꾼다 — 패키지나 모델 로드가 늦을 때 이전 탭의 텍스트가 새 탭 아래 보이지 않게 한다. 떼기 전에 에디터에 포커스가 있었으면 새 모델이 붙을 때 되돌린다 (wr-cla6.36n)
 - Monaco 자체의 F1 바인딩(`editor.action.quickCommand`)을 지운다 — F1은 워크벤치의 커맨드 팔레트로 간다. Monaco의 컨텍스트 메뉴, 찾기 위젯, 다른 키바인딩은 그대로 둔다 (wr-cla6.36n)
 - `editorTextFocus`, `editorFocus`, `textInputFocus`는 페인 요소에 만든 범위 컨텍스트 키 서비스에서 Monaco의 포커스 이벤트를 따른다. VS Code는 `CodeEditorWidget`이 자기 범위 서비스에서 설정한다 (wr-cla6.36n)
 - Monaco의 CSS도 `@vscode/codicons`와 같은 `codicon` 글꼴 패밀리를 선언하므로, Monaco가 로드된 뒤에는 나중에 온 Monaco의 글꼴이 워크벤치 아이콘에도 쓰인다. monaco-editor 0.57.0의 글꼴은 `@vscode/codicons` 0.0.46-24의 아이콘 746개를 모두 같은 코드 포인트로 담고 있어 지금은 보이는 차이가 없다. 두 패키지 중 하나를 올리면 다시 확인한다 (wr-cla6.36n)
+- 메인 창은 워크벤치 수명 동안 `unhandledrejection`에서 실제 취소 오류의 기본 보고만 동기로 막고, 일반 거부는 브라우저에 남긴다. VS Code는 모든 거부를 로그 경로로 돌린다 (wr-mb1v)
+- 워크벤치·확장의 키바인딩 규칙이 우선한다. 등록 편집기에서 해당 규칙이 둘째 키를 처리하지 않는 이어 키(chord)이면 `monaco.ts`가 독립 실행형 Monaco에 첫 키를 재생하고, 같은 호출에서 실제 둘째 키까지 판정한다. 워크벤치의 캡처 리스너가 이벤트 전파를 멈추므로 편집기 위젯은 이 키를 따로 처리하지 않고, Monaco가 받은 경우 기본 동작의 취소 여부는 Monaco의 응답을 따른다. 워크벤치는 `KeyboardEvent.code`의 US 물리 키를 쓰고 Monaco는 원래 둘째 키의 `keyCode`를 쓰므로 US 이외 배열에서 결과가 다를 수 있다 — 의도된 한계다 (wr-mb1v.g91)
 
 #### Editor groups and tabs
 
@@ -118,10 +119,9 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 그룹 최소 크기는 페인과 무관하게 `DEFAULT_EDITOR_MIN_DIMENSIONS`(220 x 70)이다. VS Code는 활성 페인의 최소 크기를 쓴다 — 두 페인 모두 기본값을 쓴다 (wr-cla6.vge)
 - 탭의 `role="tab"`은 탭 안의 레이블에 있고, 닫기 버튼(`Close <이름>`)은 그 옆 형제다. VS Code는 닫기 액션을 탭 요소 안에 둔다 — `tab`의 자식은 표현용(presentational)이라 탭 안의 버튼은 버튼으로 노출되지 않는다. dirty 탭은 `aria-description="Modified"`와 닫기 아이콘 자리의 점으로 표시한다. 탭 스트립은 브라우저 기본 가로 스크롤을 쓰고 VS Code의 커스텀 스크롤바는 없다 (wr-cla6.vge)
 - 그룹 타이틀 툴바(`MenuId.EditorTitle`)의 액션은 인자 없이 실행되어 활성 그룹에 작용한다. 그룹은 `mousedown`(캡처)과 `focusin`에서 활성 그룹이 되므로 툴바 버튼을 누르면 그 그룹이 먼저 활성화된다. VS Code는 툴바의 액션 러너가 그룹 컨텍스트를 넘긴다. 탭 컨텍스트 메뉴(`MenuId.EditorTitleContext`)는 VS Code처럼 `{ groupId, editorIndex }`를 넘긴다 (wr-cla6.vge)
-- 페인은 워크벤치의 인스턴스화 서비스로 만들어지므로 페인 요소의 범위 컨텍스트 키 서비스(`editorTextFocus` 등)의 부모는 그룹의 범위가 아니라 전역 서비스다. 그래서 텍스트 에디터에 포커스가 있을 때는 그룹 범위의 `groupEditorsCount`가 보이지 않는다. VS Code는 그룹의 범위 컨텍스트 키 서비스를 담은 자식 인스턴스화 서비스로 페인을 만든다 — 인스턴스화 서비스에 자식 서비스가 아직 없다 (wr-cla6.vge)
-- dirty한 제목 없는 에디터는 확인 없이 닫힌다 — v0.1.0에는 저장할 파일도 확인 대화 상자도 없다 (wr-cla6.vge)
+- 고친 파일과 텍스트가 있는 제목 없는 에디터는 닫기 전에 Save / Don't Save / Cancel을 퀵 픽으로 묻는다. VS Code는 모달 대화상자로 묻고, 여러 에디터를 한 번에 묻는다 — [files-and-explorer.md](files-and-explorer.md#닫기-전-확인) (wr-jrhv.r4v)
 - Close Editor는 VS Code처럼 Ctrl+W(Windows는 Ctrl+F4와 Ctrl+W, macOS는 Cmd+W)로 선언하지만 일반 브라우저 탭에서 Ctrl+W는 브라우저가 가져가 페이지에 닿지 않는다 (wr-cla6.vge)
-- `workbench.action.files.newUntitledFile`은 `parts/editor/editorActions.ts`에 둔다. VS Code는 `contrib/files/browser/fileActions.contribution.ts`에 둔다 — 파일 기여가 아직 없다. 키는 VS Code 웹의 것(Ctrl+Alt+N, Windows는 Ctrl+K N)이다. Ctrl+N은 브라우저가 가져간다 (wr-cla6.vge)
+- `workbench.action.files.newUntitledFile`은 `parts/editor/editorActions.ts`에 둔다. VS Code는 `contrib/files/browser/fileActions.contribution.ts`에 둔다 — 이 커맨드는 에디터 쪽에 남아 있다. 저장과 새 파일 같은 나머지 파일 커맨드는 `contrib/files`에 있다([파일 커맨드와 키](files-and-explorer.md#파일-커맨드와-키)). 키는 VS Code 웹의 것(Ctrl+Alt+N, Windows는 Ctrl+K N)이다. Ctrl+N은 브라우저가 가져간다 (wr-cla6.vge)
 - Welcome 페이지는 `parts/editor/welcomeEditor.ts`의 작은 페인과 입력(`workbench.editors.gettingStartedInput`)이며, 저장한 에디터 상태가 없을 때 워크벤치가 시작하면서 포커스를 옮기지 않고 연다. VS Code의 Getting Started는 `contrib/welcomeGettingStarted`에 있고 설정과 복원 상태에 따라 연다 (wr-cla6.vge, wr-cla6.kn7)
 - **View → Editor Layout**에 Split Up/Down/Left/Right와 **Join All Editor Groups**를 둔다. VS Code의 Editor Layout 메뉴에는 레이아웃 프리셋도 있다 — 프리셋은 범위 밖이다 (wr-cla6.vge)
 
@@ -136,9 +136,9 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 #### Editor docking
 
 - 드래그 페이로드와 세션은 `browser/dnd.ts`의 `EditorDragAndDropObserver`가 맡는다. 시작할 때 `LocalSelectionTransfer`에 `DraggedEditorIdentifier`나 `DraggedEditorGroupIdentifier`를 넣고, 드롭·소스의 `dragend`·Escape·창 `blur`·`pagehide` 중 먼저 오는 것에서 페이로드와 오버레이, 삽입 표시를 함께 지운다. VS Code는 탭 컨트롤이 `LocalSelectionTransfer`를 직접 쓰고 `dragend`에서 지운다 — 옮겨진 탭은 드롭 중에 문서에서 빠져 자기 `dragend`를 받지 못하므로, 뷰 컨테이너 드래그(wr-cla6.3d4)와 같은 규율로 어떤 출구에서도 낡은 페이로드가 남지 않게 한다 (wr-cla6.bxt)
-- 드래그에는 텍스트 값(에디터 이름)과 전용 MIME 표시(`application/x-writing-room-editor`)만 싣고, 대상은 이 표시와 진행 중인 세션이 둘 다 있을 때만 페이로드를 읽는다. VS Code는 리소스 전송 데이터와 드래그 이미지도 싣고 표시 형식 없이 전송 싱글턴의 프로토타입만 본다 — 파일이 없는 릴리스이고, 표시가 있어야 뷰 컨테이너 드래그와 에디터 드래그가 서로의 대상에서 착각되지 않는다 (wr-cla6.bxt)
+- 드래그에는 텍스트 값(에디터 이름)과 전용 MIME 표시(`application/x-writing-room-editor`)만 싣고, 대상은 이 표시와 진행 중인 세션이 둘 다 있을 때만 페이로드를 읽는다. VS Code는 리소스 전송 데이터와 드래그 이미지도 싣고 표시 형식 없이 전송 싱글턴의 프로토타입만 본다 — 에디터 영역은 파일 드래그를 받지 않고(파일은 Explorer가 받는다), 표시가 있어야 뷰 컨테이너 드래그와 에디터 드래그가 서로의 대상에서 착각되지 않는다 (wr-cla6.bxt)
 - 모든 드래그는 이동이며 `effectAllowed`는 `move`다. VS Code는 `copyMove`이고 Ctrl(macOS는 Alt)로 복사한다. 다중 선택 탭 드래그, 탭 위에 1500 ms 머물면 열기, 드래그 중 탭 줄 자동 스크롤, Alt/Shift로 분할·병합 뒤집기, 새 창으로 끌어내기도 없다 — 릴리스 범위 밖이다 (wr-cla6.bxt)
-- 에디터 영역은 에디터와 그룹 드래그에만 드롭을 내준다. 파일, 텍스트, 뷰 컨테이너 드래그는 파트 어디서나 `dropEffect = 'none'`으로 거절해 브라우저가 파일로 이동하지도 않는다. VS Code는 외부 파일을 `ResourcesDropHandler`로 열고 Monaco가 텍스트 드롭을 받는다 — 열 파일이 없고, 페이지 밖에서 온 것을 놓아도 아무 일도 일어나지 않아야 한다 (wr-cla6.bxt)
+- 에디터 영역은 에디터와 그룹 드래그에만 드롭을 내준다. 파일, 텍스트, 뷰 컨테이너 드래그는 파트 어디서나 `dropEffect = 'none'`으로 거절해 브라우저가 파일로 이동하지도 않는다. VS Code는 외부 파일을 `ResourcesDropHandler`로 열고 Monaco가 텍스트 드롭을 받는다 — 에디터 영역에 놓은 파일은 열지 않는다(올리기는 Explorer의 몫이다). 페이지 밖에서 온 것을 놓아도 아무 일도 일어나지 않아야 한다 (wr-cla6.bxt)
 - `EditorDropTarget`은 파트 콘텐츠의 캡처 단계에서 그룹 본문으로 가는 드래그 이벤트를 모두 멈춰(`stopPropagation`) Monaco가 어떤 드래그도 보지 못하게 하고, 드롭을 내줄 때는 첫 `dragenter`에서 바로 오버레이를 만든다. VS Code는 버블 단계의 `onDragEnter`에서 만들고 `isContentDropTargetEvent`로 에디터에 양보할 위치를 가린다 — 드롭을 내주지 않는 경우(그룹의 유일한 탭, 자기 자신 위의 그룹)에도 Monaco가 드롭 커서를 그리거나 숨은 입력 요소가 텍스트를 받지 않게 한다 (wr-cla6.bxt)
 - `getSplitDirection`은 모듈의 순수 함수로 export하고 `preferSplitVertically`는 언제나 `true`다. VS Code에서는 `DropOverlay`의 메서드이며 `workbench.editor.openSideBySideDirection`에서 읽고 `splitsOnly` 인자도 받는다 — 설정이 없고, 표를 jsdom에서 경계값으로 검증한다 (wr-cla6.bxt)
 - 오버레이는 비어 있는 그룹에서도 탭 줄 아래 본문만 덮는다. VS Code는 빈 그룹이나 탭을 숨긴 그룹에서 그룹 전체를 덮는다 — 여기서는 탭 줄이 늘 보이고 빈 그룹의 탭 줄도 드롭 대상(끝에 삽입)이다 (wr-cla6.bxt)
@@ -161,29 +161,39 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `getNumber`는 `Number(value)`로 문자열을 숫자로 변환한다. VS Code는 `parseInt(value, 10)`을 쓴다 — `store`로 쓴 소수와 지수 표기 숫자를 같은 값으로 읽기 위해서다 (wr-cla6.68r). [VS Code의 `getNumber`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/storage/common/storage.ts#L115-L125)
 - 유휴 저장은 마지막 유휴 저장 후 최소 60초 간격으로 실행되고, 문서가 숨겨지거나 `pagehide`가 발생하면 동기 저장한다. VS Code 웹은 5초 주기로 포커스가 있고 대기 중인 쓰기가 없을 때 유휴 저장한다 — 동기 백엔드가 페이지를 떠날 때 상태를 반영할 수 있어 주기 저장의 빈도를 낮췄다 (wr-cla6.68r). [VS Code 웹의 저장 주기와 조건](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/storage/browser/storageService.ts)
 - `Memento`의 상태 객체는 인스턴스와 스코프별로 유지된다. VS Code는 같은 ID와 스코프의 객체를 정적 맵에서 공유한다 — 여기서는 상태 객체의 수명을 컴포넌트 인스턴스에 맞춘다. 같은 저장 키를 가진 여러 인스턴스가 각각 수정하면 마지막으로 저장한 값이 남는다 (wr-cla6.68r). [VS Code의 `Memento`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/common/memento.ts#L11-L60)
+- `IStorageService`는 메모리 모드 여부(`usesMemory`: 백엔드를 열지 못했거나, 쓰기가 실패했거나, 다른 탭의 스키마 변경을 본 뒤에 참이 되고, 한 번 참이면 이 탭의 저장소가 닫힐 때까지 참으로 남는다)와 키 하나의 영속 값 읽기(`getPersisted`: 이미 열린 백엔드에서 스키마 표식과 그 키만 읽고 아무것도 쓰지 않으며, 메모리 모드에서는 이 탭의 값을 답한다)를 드러낸다. `storeImmediately`는 그대로 메모리 모드에서도 백엔드를 다시 열어 쓴다 (wr-uz4j)
+- `keys(scope)`는 범위 접두 없는 이 탭 캐시 키의 사본을 돌려준다. 탭 사이에서 일치해야 하는 판단에는 이 사본이 아니라 `storeImmediately`가 변환 함수에 주는 영속 스냅숏을 쓴다 (wr-s9ew.wx6)
 
 #### Settings
 
 - **File → Preferences → Open User Settings (JSON)** 또는 F1의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. Monaco에서 키 자동 완성과 스키마 진단을 제공한다. Ctrl+S(macOS에서는 Cmd+S)로 저장하면 열린 Monaco 편집기에 적용한다 (wr-cla6.dnq). [VS Code 설정 열기 커맨드](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts)
 - 프로필 스토리지의 `user.settings.json` 키에 JSONC 텍스트 원문을 저장한다. 주석, 후행 쉼표, 알 수 없는 키를 보존한다. 구문이 깨지면 현재 탭의 마지막 유효한 설정을 적용하고, 새 탭에서 아직 유효한 설정을 읽은 적이 없으면 기본값을 쓴다. 명시적 저장이 실패하면 편집 중인 텍스트와 적용값을 유지한다. 다른 탭의 저장은 적용값을 갱신하면서 이 탭의 더티 텍스트를 보존한다. 프로그램에서 한 키를 바꿀 때는 현재 저장된 텍스트를 읽어 그 키의 값만 편집한다 (wr-cla6.dnq). [VS Code 설정 서비스](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/configuration/browser/configurationService.ts)
 - `editor.fontSize`(14), `editor.tabSize`(4), `editor.wordWrap`(`off`), `editor.lineNumbers`(`on`), `editor.minimap.enabled`(`true`), `workbench.editor.closeEmptyGroups`(`true`), `workbench.commandPalette.history`(50)를 지원한다. 기록을 끄려면 `workbench.commandPalette.history`를 0으로 설정한다 (wr-cla6.dnq).
+- v0.2.0에서 더한 워크벤치 설정은 `workbench.colorTheme`([테마와 뷰](extension-api-theming-and-views.md)), `workbench.editorAssociations`([Custom Editor](extension-api-custom-editors.md)), `files.refactoring.autoSave`([문서와 에디터](extension-api-documents.md)), `editor.quickSuggestions`와 언어별 `[언어]` 구역([설정 기여](extension-api-configuration.md)), `locale`([확장 런타임](extension-api-runtime.md))이다. 확장이 기여한 설정도 같은 `settings.json`에서 읽는다([설정 기여](extension-api-configuration.md)) (wr-jbmd).
 - 열린 설정 탭의 미저장 초안은 에디터 배치 상태에서 복원한다. 새로고침 뒤에도 탭은 더티 상태이며, Ctrl+S를 누를 때까지 저장된 원문과 적용값은 유지한다 (wr-cla6.dnq).
 - `editor.tabSize`를 열린 모든 Monaco 모델에 적용하며, 모델이 감지한 탭 크기도 이 값으로 갱신한다 — 설정을 문서에 관계없이 일관되게 적용하기 위해서다. VS Code는 `editor.detectIndentation`이 기본으로 켜져 있어 파일에서 감지한 크기를 우선한다 (wr-tw4t.u5g). [VS Code의 들여쓰기 설정](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/editor/common/config/editorConfigurationSchema.ts#L21-L50)
 - `editor.fontSize` 기본값을 모든 운영체제에서 14px로 유지한다 — 설정 이슈에서 정한 공통 기본값이다. VS Code는 macOS 기본값으로 12px를 쓴다 (wr-tw4t.u5g). [VS Code의 글꼴 기본값](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/editor/common/config/fontInfo.ts#L222-L225)
 
 ### Extensions
 
+[확장 API 색인](extension-api.md#영역별-문서)에서 영역별 선언과 지원 범위를 찾는다.
+
 #### Manifest contributions
 
 - Vite가 빌드 시 내장 확장 매니페스트를 읽고, 빌드 후 디렉터리를 `dist/extensions/`에 복사한다 — 개발과 배포에서 `extensionUri`를 기준으로 매니페스트와 리소스를 읽을 수 있게 한다 (wr-cla6.rmv). [VS Code 내장 확장 스캐너](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensionManagement/browser/builtinExtensionsScannerService.ts)
 - 파싱에 실패하는 `when`과 `enablement`는 해당 기여를 건너뛴다. 기여 집합이 바뀌어도 같은 확장의 뷰와 컨테이너를 유지해 열린 위치를 보존한다 (wr-cla6.v89). [VS Code 메뉴 기여 핸들러](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/actions/common/menusExtensionPoint.ts)
 
+- 테마별 커맨드와 서브메뉴 아이콘은 등록 시 현재 테마에 맞는 경로를 고른다. 테마가 바뀌면 기여 지점을 다시 적용한다. VS Code는 두 경로를 메뉴 아이콘에 함께 유지하고 표시할 때 선택한다 (wr-efqx.6ek). [VS Code의 테마 아이콘 경로 선택](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/browser/menuEntryActionViewItem.ts#L291-L319)
+- 확장 매니페스트 메뉴 항목의 `alt`는 문자열로 검증한다. 메뉴에는 기본 커맨드가 표시되고 실행된다. VS Code의 메뉴는 대체 커맨드를 표시하고 실행할 수 있다 (wr-efqx.6ek). [VS Code의 대체 메뉴 액션](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/platform/actions/browser/menuEntryActionViewItem.ts)
+
 #### Extension host
+
+- Writing Room은 영역별 기여로 Worker의 API와 확장 컨텍스트를 조립한다. VS Code는 `extHost.api.impl.ts`에 조립을 모은다. 영역의 진입 파일에서 함께 개발하는 기능을 별도로 등록하도록 분리했다 (wr-efqx.n9k). [VS Code API 조립](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.api.impl.ts)
 
 - 앱과 같은 오리진에서 전용 모듈 Worker 하나를 지연 시작한다. Vite의 Worker URL 변환을 사용하고, 준비·초기화·종료 신호와 객체 기반 RPC가 전용 `MessagePort`를 공유한다. 시작 제한은 60초다. 포그라운드에서 응답이 끊기면 호스트를 중지하고, 재시작으로 이미 발생한 활성화 이벤트를 재생한다 (wr-cla6.rmv). [VS Code 웹 Worker 호스트](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts)
 - 커맨드와 활성화 RPC는 식별자와 구조화 복제 가능한 값을 전달한다. 등록에는 확장 설치 세대의 키를 사용해 제거 후 같은 확장을 다시 설치해도 이전 호스트의 호출이 새 등록을 바꾸지 못하게 한다 (wr-cla6.rmv). [VS Code 확장 호스트 프로토콜](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/api/common/extHost.protocol.ts)
 
-- 초기화 뒤 Worker의 잡히지 않은 오류와 Promise 거부는 Worker에서 기록한다 — 한 확장의 비동기 예외가 다른 확장의 등록과 실행을 끊지 않게 한다 (wr-cla6.rmv).
+- 초기화 뒤 Worker의 잡히지 않은 오류와 Promise 거부는 Worker에서 잡아 스택에서 확장 진입 파일을 찾으면 Output의 `Extension Host (Worker)` 채널에 확장 ID와 함께 남기고, 주인을 찾지 못한 오류는 개발자 콘솔에 남긴다. VS Code 웹 호스트는 Worker를 띄운 iframe의 콘솔로 보낸다 — 한 확장의 비동기 예외가 다른 확장의 등록과 실행을 끊지 않게 하고, 어느 확장의 오류인지 화면에서 보이게 한다 (wr-cla6.rmv, wr-54me).
 
 #### Extension API
 
@@ -198,4 +208,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd

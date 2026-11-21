@@ -1,3 +1,4 @@
+import type { IMenuContext } from '../../../../platform/actions/common/actions.js';
 import type { Event } from '../../../../base/common/event.js';
 import type { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -62,6 +63,14 @@ export interface IEditorMoveOptions {
   readonly preserveFocus?: boolean;
 }
 
+/** An editor and what takes its place in the group. */
+export interface IEditorReplacement {
+  readonly editor: EditorInput;
+  readonly replacement: EditorInput;
+  /** How the replacement opens; by default with the replaced editor's view state. */
+  readonly options?: IEditorOpenOptions;
+}
+
 export interface ICloseEditorsFilter {
   /** Close every editor of the group except this one. */
   readonly except?: EditorInput;
@@ -73,6 +82,8 @@ export interface IEditorGroup {
   readonly element: HTMLElement;
   /** The group's own context key scope, on its element. */
   readonly scopedContextKeyService: IContextKeyService;
+  /** Context used to construct the group's title menu. */
+  readonly titleMenuContext: IMenuContext;
 
   readonly onDidModelChange: Event<IGroupModelChangeEvent>;
   readonly onDidActiveEditorChange: Event<void>;
@@ -104,10 +115,22 @@ export interface IEditorGroup {
   /**
    * Closes `editor`, by default the active one, without activating it first. Focus that was inside
    * the group stays in it, or moves to the group that becomes active when this one goes away.
+   *
+   * An input with a `closeHandler` that wants to ask is asked first, unless another group still
+   * shows it; the promise resolves to `false` and nothing changes when the answer is to cancel.
+   * Without a question the editor is gone before this returns. While a question about an editor is
+   * open, closing it again waits for that same answer instead of asking twice.
    */
-  closeEditor(editor?: EditorInput): boolean;
-  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): boolean;
-  closeAllEditors(): boolean;
+  closeEditor(editor?: EditorInput): Promise<boolean>;
+  /** Closes the editors, asking about each that wants it first; one cancel keeps them all. */
+  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): Promise<boolean>;
+  closeAllEditors(): Promise<boolean>;
+  /**
+   * Puts each replacement where its editor is: the same index, active if the editor was, with the
+   * editor's view state (cursor, scroll) unless the options give one. The replaced editor closes
+   * without being asked about. An editor the group does not hold is skipped.
+   */
+  replaceEditors(editors: readonly IEditorReplacement[]): Promise<void>;
 
   focus(): void;
 }

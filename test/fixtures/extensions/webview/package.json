@@ -1,0 +1,30 @@
+{
+  "name": "webview",
+  "displayName": "Webview Fixture",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "engines": { "vscode": "^1.95.0" },
+  "browser": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "fixture.webview.retained", "title": "Fixture: Open Retained Webview" },
+      { "command": "fixture.webview.transient", "title": "Fixture: Open Transient Webview" },
+      { "command": "fixture.webview.reveal", "title": "Fixture: Reveal Webview Beside" },
+      { "command": "fixture.webview.probe", "title": "Fixture: Probe Webview State" },
+      { "command": "fixture.webview.dispose", "title": "Fixture: Dispose Webview" },
+      { "command": "fixture.webview.context", "title": "Fixture: Webview Context Action" },
+      { "command": "fixture.webview.active", "title": "Fixture: Active Webview Action" },
+      { "command": "fixture.webview.tabIcon", "title": "Fixture: Change Webview Tab Icon" },
+      { "command": "fixture.webview.inspectTab", "title": "Fixture: Inspect Webview Tab" }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "fixture.webview.context", "when": "false" },
+        { "command": "fixture.webview.active", "when": "activeWebviewPanelId == fixture.retained" }
+      ],
+      "webview/context": [
+        { "command": "fixture.webview.context", "when": "webviewId == fixture.retained && webviewSection == counter" }
+      ]
+    }
+  }
+}

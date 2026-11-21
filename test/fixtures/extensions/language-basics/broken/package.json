@@ -1,0 +1,66 @@
+{
+  "name": "language-basics-broken",
+  "publisher": "fixtures",
+  "displayName": "Broken Language Fixture",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "escapelang",
+        "aliases": ["Escaping Language"],
+        "extensions": [".escape"],
+        "configuration": "../fixturelang-configuration.json"
+      },
+      {
+        "id": "brokenlang",
+        "aliases": ["Broken Grammar Language"],
+        "extensions": [".broken"]
+      },
+      {
+        "id": "missinglang",
+        "aliases": ["Missing Grammar Language"],
+        "extensions": [".missing"]
+      },
+      {
+        "id": "plistlang",
+        "aliases": ["Plist Grammar Language"],
+        "extensions": [".plist-lang"]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "escapelang",
+        "scopeName": "source.escapelang",
+        "path": "../syntaxes/fixturelang.tmLanguage.json"
+      },
+      {
+        "language": "brokenlang",
+        "scopeName": "source.brokenlang",
+        "path": "./syntaxes/broken.tmLanguage.json"
+      },
+      {
+        "language": "missinglang",
+        "scopeName": "source.missinglang",
+        "path": "./syntaxes/missing.tmLanguage.json"
+      },
+      {
+        "language": "plistlang",
+        "scopeName": "source.plistlang",
+        "path": "./syntaxes/plist.tmLanguage"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "markdown",
+        "path": "./snippets/broken.code-snippets"
+      },
+      {
+        "language": "markdown",
+        "path": "../snippets/markdown.code-snippets"
+      }
+    ]
+  }
+}

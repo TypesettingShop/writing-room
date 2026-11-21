@@ -1,7 +1,9 @@
 import type { Event } from '../../../../base/common/event.js';
+import type { URI } from '../../../../base/common/uri.js';
+import type { IResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../../../platform/instantiation/common/instantiation.js';
-import type { GroupIdentifier, IEditorPane } from '../../../common/editor.js';
+import type { GroupIdentifier, IEditorIdentifier, IEditorPane } from '../../../common/editor.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import type { IEditorGroup, IEditorOpenOptions } from './editorGroupsService.js';
 
@@ -17,15 +19,53 @@ export type SIDE_GROUP_TYPE = typeof SIDE_GROUP;
 
 export type PreferredGroup = IEditorGroup | GroupIdentifier | ACTIVE_GROUP_TYPE | SIDE_GROUP_TYPE;
 
+export interface ISaveEditorsOptions {
+  /** Why the save happens; `explicit` for the save commands. */
+  readonly reason?: 'explicit' | 'auto';
+  /** Save under a resource the user picks, as Save As does. */
+  readonly saveAs?: boolean;
+}
+
+export interface IEditorCloseEvent extends IEditorIdentifier {
+  /** The index the editor had in its group. */
+  readonly index: number;
+}
+
 /** Editors across every group, and the one that is active. */
 export interface IEditorService extends BrandedService {
   /** Fires when the active group's active editor changes, or another group becomes active. */
   readonly onDidActiveEditorChange: Event<void>;
+  /** Fires once per change of `visibleEditors`: a group showed another editor, came or went. */
+  readonly onDidVisibleEditorsChange: Event<void>;
+  /** An editor left a group: closed, or moved to another group. */
+  readonly onDidCloseEditor: Event<IEditorCloseEvent>;
+
   /** The active group's active editor. */
   readonly activeEditor: EditorInput | undefined;
   readonly activeEditorPane: IEditorPane | undefined;
   /** Every open editor, group by group in creation order, each group in tab order. */
   readonly editors: readonly EditorInput[];
+  /** The active editor of each group, groups in grid order. */
+  readonly visibleEditors: readonly EditorInput[];
+  /** The panes that show `visibleEditors`, in the same order. */
+  readonly visibleEditorPanes: readonly IEditorPane[];
 
+  /**
+   * Opens `editor` in `group`. A resource opens through the editor resolver, which picks the
+   * editor (or `options.override` names it); one nobody can open shows an error editor instead.
+   */
   openEditor(editor: EditorInput, options?: IEditorOpenOptions, group?: PreferredGroup): Promise<IEditorPane | undefined>;
+  openEditor(editor: IResourceEditorInput, group?: PreferredGroup): Promise<IEditorPane | undefined>;
+  /** The open editors of `resource`, in every group or in `group`. */
+  findEditors(resource: URI, group?: IEditorGroup | GroupIdentifier): readonly IEditorIdentifier[];
+  /**
+   * Saves the editors one after another, through their inputs' `save` (or `saveAs`). When a save
+   * gives another editor, such as untitled text saved to a file, that editor takes the saved one's
+   * place: in its group, or in every group that shows it for untitled text, at the same index and
+   * with the same view state. Stops at the first editor that did not save (failed or cancelled) and
+   * resolves to whether all of them saved.
+   */
+  save(editors: IEditorIdentifier | readonly IEditorIdentifier[], options?: ISaveEditorsOptions): Promise<boolean>;
+  /** Replaces an editor with the result of a completed save, preserving its group and view state. */
+  replaceSaved(editor: IEditorIdentifier, result: EditorInput | IResourceEditorInput): Promise<void>;
 }

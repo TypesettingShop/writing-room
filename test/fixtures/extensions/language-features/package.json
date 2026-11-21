@@ -1,0 +1,89 @@
+{
+  "name": "language-features",
+  "publisher": "fixtures",
+  "displayName": "Language Features Fixture",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "browser": "./extension.js",
+  "activationEvents": [
+    "onLanguage:lftest"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "lftest",
+        "aliases": [
+          "LF Test",
+          "lftest"
+        ],
+        "extensions": [
+          ".lft"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "languageFeaturesFixture.report",
+        "title": "Report Completions",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.hoverCommand",
+        "title": "Hover Command",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.unregister",
+        "title": "Unregister Providers",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.register",
+        "title": "Register Providers",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportEdits",
+        "title": "Report Edits",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.lensRan",
+        "title": "Lens Ran",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.bumpLenses",
+        "title": "Change Code Lenses",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportDocuments",
+        "title": "Report Documents",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportSymbols",
+        "title": "Report Symbols",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.reportWorkspaceSymbols",
+        "title": "Report Workspace Symbols",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.slowSymbols",
+        "title": "Slow Workspace Symbols",
+        "category": "Language Features"
+      },
+      {
+        "command": "languageFeaturesFixture.throwingSymbols",
+        "title": "Throwing Workspace Symbols",
+        "category": "Language Features"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "window-ui",
+  "publisher": "writing-room-tests",
+  "version": "1.0.0",
+  "displayName": "Window UI Fixture",
+  "browser": "./browser/extension",
+  "contributes": {
+    "commands": [
+      { "command": "windowUi.pickFruit", "title": "Window UI: Pick Fruit" },
+      { "command": "windowUi.pickMany", "title": "Window UI: Pick Many" },
+      { "command": "windowUi.askName", "title": "Window UI: Ask Name" },
+      { "command": "windowUi.search", "title": "Window UI: Search Notes" },
+      { "command": "windowUi.writeOutput", "title": "Window UI: Write Output" },
+      { "command": "windowUi.showOutput", "title": "Window UI: Show Output" },
+      { "command": "windowUi.logOutput", "title": "Window UI: Write Log" },
+      { "command": "windowUi.closeOutput", "title": "Window UI: Close Output" },
+      { "command": "windowUi.confirm", "title": "Window UI: Confirm Delete" },
+      { "command": "windowUi.export", "title": "Window UI: Export" },
+      { "command": "windowUi.index", "title": "Window UI: Index" },
+      { "command": "windowUi.status", "title": "Window UI: Status Message" },
+      { "command": "windowUi.flood", "title": "Window UI: Flood" },
+      { "command": "windowUi.toastSamples", "title": "Window UI: Show Toast Samples" },
+      { "command": "windowUi.error", "title": "Window UI: Show Error" }
+    ]
+  }
+}
