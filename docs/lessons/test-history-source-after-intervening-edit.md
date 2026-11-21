@@ -6,7 +6,7 @@
 
 ## Why
 
-- 나중 편집을 되돌리면서 구조가 같은 새 ProseMirror Fragment가 생겼다. 원문 스냅샷을 Fragment 객체로 찾는 경로에서는 새 객체에 원문과 출처를 따로 연결해야 했다.
+- 나중 편집을 되돌리면서 구조가 같은 새 ProseMirror Fragment가 생겼다. 원문 스냅샷을 Fragment 객체로 찾는 경로에서는 새 객체에 원문과 출처를 따로 이어 주어야 했다.
 
 ## Do this instead
 
