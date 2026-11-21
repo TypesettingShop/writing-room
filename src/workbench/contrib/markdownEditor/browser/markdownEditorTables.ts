@@ -12,16 +12,20 @@ const { table, table_row, table_cell, table_header } = markdownSchema.nodes;
 export const markdownTableEditing = tableEditing();
 
 export const markdownTableFormat = new Plugin({
-  appendTransaction(_transactions, oldState, state) {
+  appendTransaction(transactions, oldState, state) {
     if (oldState.doc === state.doc) return;
+    // Typing normally supplies one replacement step. Other edits may also change node attributes.
+    const change = transactions.length === 1 && transactions[0].steps.length === 1
+      ? transactions[0].changedRange()
+      : null;
     const before = oldState.doc.content;
     const after = state.doc.content;
-    const start = before.findDiffStart(after);
+    const start = change?.from ?? before.findDiffStart(after);
     if (start === null) return;
-    const end = before.findDiffEnd(after)!.b;
+    const end = change?.to ?? before.findDiffEnd(after)!.b;
     const tr = state.tr;
     state.doc.nodesBetween(start, Math.max(start, end), (node, pos) => {
-      if (node.type !== table) return true;
+      if (node.type !== table) return !node.isTextblock;
       // The table plugin repairs missing cells. GFM also requires a header row and one alignment per column.
       const header = node.firstChild!;
       node.forEach((row, rowOffset, rowIndex) => {
