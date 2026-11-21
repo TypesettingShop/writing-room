@@ -96,3 +96,83 @@
 .markdown-editor-error {
   padding: 1rem;
 }
+
+.markdown-editor-surface .ProseMirror li[data-task-checked] {
+  list-style: none;
+  position: relative;
+}
+
+.markdown-editor-surface .ProseMirror li[data-task-checked] > input {
+  position: absolute;
+  right: calc(100% + 0.25em);
+  top: 0.3em;
+}
+
+.markdown-editor-surface .markdown-image img {
+  vertical-align: middle;
+}
+
+.markdown-editor-surface .markdown-image button {
+  margin-inline-start: 0.4em;
+}
+
+.markdown-outline {
+  overflow: auto;
+  height: 100%;
+}
+
+.markdown-outline ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.markdown-outline li > ul {
+  padding-inline-start: 12px;
+}
+
+.markdown-outline button {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 3px 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.markdown-outline button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.markdown-outline button[aria-current] {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.markdown-outline p {
+  margin: 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.markdown-focus-mode .markdown-editor-surface .ProseMirror {
+  max-width: var(--markdown-focus-width);
+}
+
+.markdown-focus-mode .markdown-dim-others .ProseMirror
+  :is(p, h1, h2, h3, h4, h5, h6, pre, hr, td, th):not([data-markdown-active-block]) {
+  opacity: 0.45;
+}
+
+.markdown-typewriter {
+  container-type: size;
+}
+
+.markdown-typewriter .ProseMirror {
+  padding-block: max(1.25rem, 50cqh);
+}

@@ -27,6 +27,7 @@
     "prosemirror-keymap": "1.2.3",
     "prosemirror-markdown": "1.13.4",
     "prosemirror-model": "1.25.13",
+    "prosemirror-schema-list": "1.6.1",
     "prosemirror-state": "1.4.4",
     "prosemirror-view": "1.43.0",
     "vscode-oniguruma": "1.7.0",

@@ -1,6 +1,7 @@
 import type { Node } from 'prosemirror-model';
 import { TextSelection } from 'prosemirror-state';
 import type { Selection } from 'prosemirror-state';
+import type { IParsedMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
 import type { ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
@@ -16,9 +17,9 @@ interface Block {
   readonly text: readonly { document: Range; source: Range }[];
 }
 
-function mapBlocks(model: ITextModel, doc: Node): Block[] {
+function mapBlocks(model: ITextModel, doc: Node, parsed?: IParsedMarkdown): Block[] {
   const source = model.getValue();
-  const parsed = parseMarkdownWithSource(source);
+  parsed ??= parseMarkdownWithSource(source);
   const ranges = new Map(parsed.blocks.map(block => [block.from, block]));
   const sourceBlocks: (Range | undefined)[] = [];
   parsed.doc.forEach((_node, offset) => {
@@ -54,7 +55,14 @@ function mapBlocks(model: ITextModel, doc: Node): Block[] {
 }
 
 function mapPosition(blocks: readonly Block[], value: number, from: 'document' | 'source', to: 'source' | 'document'): number {
-  const block = blocks.find(item => value < item[from].to) ?? blocks.at(-1);
+  let low = 0;
+  let high = blocks.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (value < blocks[mid][from].to) high = mid;
+    else low = mid + 1;
+  }
+  const block = blocks[low] ?? blocks.at(-1);
   if (!block) {
     return 0;
   }
@@ -81,4 +89,16 @@ export function toMarkdownSelection(model: ITextModel, doc: Node, range: ITextEd
   const anchor = doc.resolve(mapPosition(blocks, start, 'source', 'document'));
   const head = doc.resolve(mapPosition(blocks, end, 'source', 'document'));
   return TextSelection.between(anchor, head);
+}
+
+
+export function sourceWritingPositions(model: ITextModel, parsed: IParsedMarkdown): {
+  toDocument(sourceOffset: number): number;
+  toSource(documentOffset: number): number;
+} {
+  const blocks = mapBlocks(model, parsed.doc, parsed);
+  return {
+    toDocument: sourceOffset => mapPosition(blocks, sourceOffset, 'source', 'document'),
+    toSource: documentOffset => mapPosition(blocks, documentOffset, 'document', 'source'),
+  };
 }

@@ -1,5 +1,6 @@
 import { $, append } from '../../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../../base/browser/dom.js';
+import { Emitter } from '../../../../../base/common/event.js';
 import { MutableDisposable } from '../../../../../base/common/lifecycle.js';
 import type { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
 import type { IEditorOptions } from '../../../../../platform/editor/common/editor.js';
@@ -47,6 +48,8 @@ export class TextFileEditor extends EditorPane {
   private readonly readonlyListener = this._register(new MutableDisposable());
   /** Increases with every `setInput` and `clearInput`; an older load's outcome is dropped. */
   private request = 0;
+  private readonly controlChanged = this._register(new Emitter<void>());
+  readonly onDidChangeControl = this.controlChanged.event;
 
   constructor(@IInstantiationService private readonly instantiationService: IInstantiationService) {
     super(TextFileEditor.ID);
@@ -82,6 +85,7 @@ export class TextFileEditor extends EditorPane {
     if (failure !== undefined) {
       this.textPane.clearInput();
       await this.showError(input, failure);
+      if (request === this.request) this.controlChanged.fire();
       return;
     }
     await shown;
@@ -89,6 +93,7 @@ export class TextFileEditor extends EditorPane {
       const update = () => this.textPane.getControl()?.updateOptions({ readOnly: input.isReadonly() });
       update();
       this.readonlyListener.value = input.onDidChangeLabel(update);
+      this.controlChanged.fire();
     }
   }
 
@@ -98,6 +103,7 @@ export class TextFileEditor extends EditorPane {
     this.hideError();
     this.textPane.clearInput();
     super.clearInput();
+    this.controlChanged.fire();
   }
 
   override layout(dimension: Dimension): void {
@@ -109,8 +115,10 @@ export class TextFileEditor extends EditorPane {
     this.textPane.layout(dimension);
     this.errorPane.layout(dimension);
     // The Monaco editor is made at the first real size, without knowing the input.
-    if (created && this.readonlyListener.value && this.input) {
-      this.textPane.getControl()?.updateOptions({ readOnly: this.input.isReadonly() });
+    const control = this.getControl();
+    if (created && control && this.input) {
+      if (this.readonlyListener.value) control.updateOptions({ readOnly: this.input.isReadonly() });
+      this.controlChanged.fire();
     }
   }
 
