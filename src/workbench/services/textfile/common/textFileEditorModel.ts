@@ -343,7 +343,8 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
 
   private isAtSavedText(model: ITextModel): boolean {
     return alternativeVersionId(model) === this.savedVersionId
-      || (this.hasRichEditorEdits && this.savedText !== undefined && model.getValue() === this.savedText);
+      || (this.hasRichEditorEdits && this.savedText !== undefined
+        && model.getValueLength() === this.savedText.length && model.getValue() === this.savedText);
   }
 
   private handleContentChange(): void {
