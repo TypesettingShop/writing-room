@@ -101,6 +101,33 @@ function endsWithParagraphLine(block: Node | null): boolean {
     (block.type.name !== 'heading' && classSuffix(block.attrs))));
 }
 
+function headingContent(node: Node): Node {
+  // An empty line ends a Setext heading. Drop breaks at either end and collapse runs, keeping a hard break.
+  const children: Node[] = [];
+  node.forEach(child => {
+    const previous = children.at(-1);
+    if (isLineBreak(child) && (!previous || isLineBreak(previous))) {
+      if (previous && child.type.name === 'hard_break') children[children.length - 1] = child;
+      return;
+    }
+    children.push(child);
+  });
+  while (children.length && isLineBreak(children.at(-1)!)) children.pop();
+  // An ATX heading ends at its line break, so levels without a Setext form keep the words on one line.
+  const lines = node.attrs.level > 2
+    ? children.map(child => isLineBreak(child) ? node.type.schema.text(' ', child.marks) : child)
+    : children;
+  const unchanged = lines.length === node.childCount && lines.every((child, index) => child === node.child(index));
+  return unchanged ? node : node.type.create(node.attrs, lines, node.marks);
+}
+
+function usesSetext(node: Node): boolean {
+  if (node.attrs.level > 2) return false;
+  let lineBreak = false;
+  headingContent(node).forEach(child => { if (isLineBreak(child)) lineBreak = true; });
+  return lineBreak;
+}
+
 function renderList(
   state: MarkdownSerializerState,
   node: Node,
@@ -168,20 +195,24 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       const previousType = previous.type.name;
       const childType = child.type.name;
       const previousHasClasses = Boolean(classSuffix(previous.attrs));
-      // A table cannot interrupt a nested list, so its rows would continue the list's last paragraph.
-      const tableStartsBlock = previousType !== 'table' && previousType !== 'bullet_list' &&
-        previousType !== 'ordered_list';
-      const startsWithoutBlankLine = childType === 'code_block' || childType === 'heading' ||
-        childType === 'horizontal_rule' || (childType === 'table' && tableStartsBlock) ||
+      // Tables and Setext text can be consumed by the preceding table or nested list. Setext text
+      // can also become the title of a preceding reference definition.
+      const previousIsTableOrList = previousType === 'table' || previousType === 'bullet_list' ||
+        previousType === 'ordered_list';
+      const setext = childType === 'heading' && usesSetext(child);
+      const setextNeedsBlankLine = setext && (endsWithParagraphLine(previous) || previousIsTableOrList ||
+        previousType === 'raw_block');
+      const startsWithoutBlankLine = childType === 'code_block' || (childType === 'heading' && !setextNeedsBlankLine) ||
+        childType === 'horizontal_rule' || (childType === 'table' && !previousIsTableOrList) ||
         (childType === 'blockquote' && (previousType !== 'blockquote' || previousHasClasses));
       const paragraphFollowsWithoutBlankLine = childType === 'paragraph' && (previousType === 'heading' ||
         (!previousHasClasses && (previousType === 'code_block' || previousType === 'blockquote' ||
           previousType === 'horizontal_rule')));
       if (startsWithoutBlankLine || paragraphFollowsWithoutBlankLine) {
         listState.flushClose(1);
-        // Paragraphs and tables can be lazy continuations of a quote.
+        // End lazy quote continuation without adding a blank line to the item.
         if (previousType === 'blockquote' && !previousHasClasses &&
-          (childType === 'paragraph' || childType === 'table')) state.write('>\n');
+          (childType === 'paragraph' || childType === 'table' || setext)) state.write('>\n');
       }
     }
     state.render(child, item, index);
@@ -290,7 +321,7 @@ const markdownSerializer = new MarkdownSerializer({
     // Trailing hard breaks write nothing, so such a paragraph is empty in Markdown too.
     let blank = true;
     node.forEach(child => { if (child.type.name !== 'hard_break') blank = false; });
-    if (blank && suffix && isListItem(parent)) {
+    if (blank && suffix && (isListItem(parent) || parent.type.name === 'blockquote')) {
       state.write('[]' + (looseTrailer ? '{}' : suffix));
       if (itemSuffix) state.write(' ' + itemSuffix);
       if (looseTrailer) {
@@ -316,13 +347,22 @@ const markdownSerializer = new MarkdownSerializer({
     state.closeBlock(node);
   },
   heading(state, node) {
-    state.write('#'.repeat(node.attrs.level) + ' ');
-    state.renderInline(node, false);
     const suffix = classSuffix(node.attrs);
-    if (suffix) state.write((node.content.size ? ' ' : '') + suffix);
+    const content = headingContent(node);
+    if (usesSetext(node)) {
+      state.renderInline(content);
+      if (suffix) state.write(' ' + suffix);
+      state.write('\n');
+      state.write(node.attrs.level === 1 ? '===' : '---');
+      state.closeBlock(node);
+      return;
+    }
+    state.write('#'.repeat(node.attrs.level) + ' ');
+    state.renderInline(content, false);
+    if (suffix) state.write((content.content.size ? ' ' : '') + suffix);
     // A terminal hash after space would otherwise become an ATX closing marker.
     const output = state as MarkdownSerializerState & { out: string };
-    if (!suffix && node.content.size) output.out = output.out.replace(/([ \t])(#+)$/, '$1\\$2');
+    if (!suffix && content.content.size) output.out = output.out.replace(/([ \t])(#+)$/, '$1\\$2');
     state.closeBlock(node);
   },
   code_block: writeCodeBlock,
@@ -391,6 +431,11 @@ const markdownSerializer = new MarkdownSerializer({
     if (atBlockStart || afterBreak) {
       // Also protect ordered-list parentheses and Setext markers at line boundaries.
       value = value.replace(/^(\d{1,9})\)(?=[ \t])/, '$1\\)').replace(/^=(?==*[ \t]*$)/, '\\=');
+      if (!next || isLineBreak(next) || /^[ \t]/.test(next.text ?? '')) {
+        // A marker that ends its line starts an empty list item. Whitespace expelled from the
+        // next mark is written after the marker and starts a list item too.
+        value = value.replace(/^\+$/, '\\+').replace(/^(\d{1,9})([.)])$/, '$1\\$2');
+      }
     }
     if (index === 0 || afterBreak) value = value.replace(/^[ \t]+/, escapeBoundaryWhitespace);
     if (!next || isLineBreak(next)) value = value.replace(/[ \t]+$/, escapeBoundaryWhitespace);
