@@ -9,6 +9,7 @@ interface PresetChoice {
   readonly label: string;
   readonly value: string;
   readonly className?: string;
+  readonly legacyClassName?: string;
   readonly readOnly?: boolean;
   readonly hidden?: boolean;
 }
@@ -47,9 +48,13 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
     defaultValue: 'default',
     options: [
       { label: 'Default', value: 'default' },
-      { label: 'Serif', value: 'serif', className: 'font-serif' },
-      { label: 'Sans Serif', value: 'sans', className: 'font-sans' },
-      { label: 'Monospace', value: 'monospace', className: 'font-mono' },
+      { label: 'Noto Sans KR', value: 'noto-sans-kr', className: 'font-noto-sans-kr' },
+      { label: 'Noto Serif KR', value: 'noto-serif-kr', className: 'font-noto-serif-kr' },
+      { label: '나눔명조', value: 'nanum-myeongjo', className: 'font-nanum-myeongjo' },
+      { label: '나눔고딕', value: 'nanum-gothic', className: 'font-nanum-gothic' },
+      { label: 'monospace', value: 'monospace', className: 'font-monospace', legacyClassName: 'font-mono' },
+      { label: 'Serif', value: 'serif', className: 'font-serif', hidden: true },
+      { label: 'Sans Serif', value: 'sans', className: 'font-sans', hidden: true },
     ],
   },
 };
@@ -61,7 +66,7 @@ function presetForClass(axis: PresetAxisId, name: string): string | undefined {
   if (axis === 'textAlign' && name === 'left') {
     return 'left';
   }
-  return formattingPresets[axis].options.find(option => option.className === name)?.value;
+  return formattingPresets[axis].options.find(option => option.className === name || option.legacyClassName === name)?.value;
 }
 
 function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string | undefined {

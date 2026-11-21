@@ -140,10 +140,25 @@ describe('Markdown class presets', () => {
     const state = read('[First]{.authored .font-serif .size-xl} next {.font-sans}', 1, 11);
     expect(presets(state).fontFamily).toBeNull();
     const mono = apply(state, setFormattingPreset('fontFamily', 'monospace'));
-    expect(write(mono)).toBe('[First]{.authored .size-xl} next {.font-mono}');
+    expect(write(mono)).toBe('[First]{.authored .size-xl} next {.font-monospace}');
     expect(presets(mono).fontFamily).toBe('monospace');
     expect(presets(mono).fontSize).toBeNull();
   });
+
+  it.each(['noto-sans-kr', 'noto-serif-kr', 'nanum-myeongjo', 'nanum-gothic', 'monospace'])(
+    'round-trips the %s font while replacing a legacy monospace class',
+    font => {
+      const source = 'Line {.authored .font-mono}';
+      const state = read(source, 1, 5);
+      expect(presets(state).fontFamily).toBe('monospace');
+      expect(write(state)).toBe(source);
+      const styled = apply(state, setFormattingPreset('fontFamily', font));
+      const saved = `Line {.authored .font-${font}}`;
+      expect(write(styled)).toBe(saved);
+      expect(presets(read(saved)).fontFamily).toBe(font);
+      expect(write(apply(styled, setFormattingPreset('fontFamily', 'default')))).toBe('Line {.authored}');
+    },
+  );
 
   it('applies a size and font to upcoming typing without styling the surrounding text', () => {
     const sized = apply(read('before after', 8), setFormattingPreset('fontSize', 'small'));

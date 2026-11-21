@@ -81,10 +81,10 @@ configurationRegistry.registerConfiguration({
       default: defaultMarkdownFontFamilies,
       additionalProperties: false,
       properties: {
-        serif: { type: 'string', description: 'CSS font-family list for the Serif preset.' },
-        sans: { type: 'string', description: 'CSS font-family list for the Sans Serif preset.' },
+        serif: { type: 'string', description: 'CSS font-family list for the legacy font-serif class.' },
+        sans: { type: 'string', description: 'CSS font-family list for the legacy font-sans class.' },
       },
-      description: 'Controls the font families used by the Serif and Sans Serif presets in the Markdown editor.',
+      description: 'Controls the font families used by the legacy font-serif and font-sans Markdown classes.',
     },
   },
 });

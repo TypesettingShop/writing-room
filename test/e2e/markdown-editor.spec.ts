@@ -411,7 +411,8 @@ test('saves paragraph alignment and inline size and font presets and restores th
   }, settingsKey);
   await page.goto('/');
   const name = 'presets.md';
-  const group = await openMarkdown(page, name, 'One word {.my-class}\n\nSubheading {.subtitle .font-sans}');
+  const legacy = 'Subheading {.subtitle .font-sans}\n\nLegacy serif {.font-serif}\n\nLegacy mono {.font-mono}';
+  const group = await openMarkdown(page, name, `One word {.my-class}\n\n${legacy}`);
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   const paragraph = editor.locator('p.my-class');
@@ -435,23 +436,39 @@ test('saves paragraph alignment and inline size and font presets and restores th
   }
   await toolbar.getByRole('button', { name: 'Size', exact: true }).click();
   await page.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
-  await toolbar.getByRole('button', { name: 'Font', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'Serif', exact: true }).click();
-  const span = paragraph.locator('span.size-18pt.font-serif');
+  const font = toolbar.getByRole('button', { name: 'Font', exact: true });
+  await font.click();
+  const menu = page.getByRole('menu', { name: 'Font' });
+  const families = [
+    ['Noto Sans KR', 'Noto Sans KR'], ['Noto Serif KR', 'Noto Serif KR'],
+    ['나눔명조', 'Nanum Myeongjo'], ['나눔고딕', 'Nanum Gothic'], ['monospace', 'monospace'],
+  ];
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(1 + families.length);
+  const primaryFamily = (element: Locator) => element.evaluate(node =>
+    getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''));
+  for (const [label, family] of families) {
+    expect(await primaryFamily(menu.getByRole('menuitemradio', { name: label, exact: true }).getByText(label))).toBe(family);
+  }
+  await menu.getByRole('menuitemradio', { name: 'Noto Serif KR', exact: true }).click();
+  await expect(font).toHaveText('Noto Serif KR');
+  expect(await primaryFamily(font.getByText('Noto Serif KR'))).toBe('Noto Serif KR');
+  const span = paragraph.locator('span.size-18pt.font-noto-serif-kr');
   await expect(span).toHaveText('word');
   await expect(span).toHaveCSS('font-size', '24px');
-  await expect(span).toHaveCSS('font-family', 'Cambria, serif');
+  expect(await primaryFamily(span)).toBe('Noto Serif KR');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(90, 101, 119)');
   await expect(editor.locator('.subtitle')).toHaveCSS('font-family', 'system-ui, sans-serif');
+  await expect(editor.locator('.font-serif')).toHaveCSS('font-family', 'Cambria, serif');
+  await expect(editor.locator('.font-mono')).toHaveCSS('font-family', 'monospace');
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
   expect(await readWorkspaceText(page, name)).toBe(
-    'One [word]{.size-18pt .font-serif} {.my-class .center}\n\nSubheading {.subtitle .font-sans}',
+    `One [word]{.size-18pt .font-noto-serif-kr} {.my-class .center}\n\n${legacy}`,
   );
   await page.reload();
   await expect(paragraph).toHaveCSS('text-align', 'center', { timeout: 20_000 });
   await expect(span).toHaveText('word');
-  await expect(span).toHaveCSS('font-family', 'Cambria, serif');
+  expect(await primaryFamily(span)).toBe('Noto Serif KR');
   await chooseTheme(page, 'Writing Room Dark');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(167, 182, 203)');
 });

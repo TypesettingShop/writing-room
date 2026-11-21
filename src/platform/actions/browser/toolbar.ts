@@ -248,6 +248,9 @@ export class MenuWorkbenchToolBar extends Disposable {
           const label = current?.label ?? action.item.selectFallback;
           value.className = 'wr-menu-toolbar-choice-label';
           value.textContent = label ?? '—';
+          if (current instanceof MenuItemAction && current.labelClass) {
+            value.classList.add(current.labelClass);
+          }
           button.replaceChildren(value);
           if (label) {
             button.setAttribute('aria-description', label);

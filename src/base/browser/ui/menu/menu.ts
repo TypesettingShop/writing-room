@@ -11,6 +11,7 @@ export interface MenuAction {
   readonly enabled?: boolean;
   readonly checked?: boolean;
   readonly icon?: ThemeIcon | string | URL;
+  readonly labelClass?: string;
   readonly keybinding?: { getLabel(): string | null; getAriaLabel(): string | null };
   readonly groups?: readonly MenuGroup[];
   run?(): unknown;
@@ -177,6 +178,9 @@ export class Menu extends Disposable {
     }
     const label = document.createElement('span');
     label.textContent = action.label;
+    if (action.labelClass) {
+      label.classList.add(action.labelClass);
+    }
     button.append(label);
     button.setAttribute('aria-label', action.label);
     const keybinding = action.keybinding?.getLabel();

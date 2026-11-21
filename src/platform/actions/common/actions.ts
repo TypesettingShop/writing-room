@@ -25,6 +25,7 @@ export interface ICommandAction {
   readonly title: CommandTitle;
   readonly category?: CommandTitle;
   readonly icon?: CommandIcon;
+  readonly labelClass?: string;
   readonly precondition?: ContextKeyExpression;
   readonly toggled?: ContextKeyExpression;
   readonly forwardMenuContext?: MenuId;
@@ -186,6 +187,7 @@ export class MenuItemAction {
   readonly enabled: boolean;
   readonly checked: boolean | undefined;
   readonly icon: CommandIcon | undefined;
+  readonly labelClass: string | undefined;
   readonly keybinding: ResolvedKeybinding | undefined;
   private menuContext: MenuId | undefined;
 
@@ -202,6 +204,7 @@ export class MenuItemAction {
     this.enabled = context.contextMatchesRules(item.precondition);
     this.checked = item.toggled && context.contextMatchesRules(item.toggled);
     this.icon = item.icon;
+    this.labelClass = item.labelClass;
     this.keybinding = menuArgs.length ? undefined : keybindings.lookupKeybinding(item.id);
     this.menuContext = item.forwardMenuContext;
   }

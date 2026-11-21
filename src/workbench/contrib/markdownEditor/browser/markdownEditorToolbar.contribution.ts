@@ -96,7 +96,7 @@ for (const [order, [id, title, icon, precondition]] of ([
 interface FormattingPicker<T> {
   readonly commandId: string;
   readonly commandTitle: string;
-  readonly options: readonly { readonly label: string; readonly value: T }[];
+  readonly options: readonly { readonly label: string; readonly value: T; readonly labelClass?: string }[];
   readonly parse: (arg: unknown) => T | undefined;
   readonly createCommand: (value: T) => Command;
   readonly keybinding?: readonly Omit<IKeybindingRule, 'id'>[];
@@ -118,7 +118,9 @@ function registerChoice<T>(choice: FormattingChoice<T>): void {
     MenuRegistry.appendMenuItem(submenu, {
       order: index,
       args: [option.value],
-      command: { id: commandId, title: option.label, precondition: writable, toggled: selected(option.value) },
+      command: {
+        id: commandId, title: option.label, labelClass: option.labelClass, precondition: writable, toggled: selected(option.value),
+      },
     });
   }
   registerFormattingPicker(choice);
@@ -207,7 +209,9 @@ for (const [axis, title, commandTitle, group, order, context] of [
   registerChoice({
     group, order, title, commandTitle,
     commandId: 'markdownEditor.set' + axis[0].toUpperCase() + axis.slice(1),
-    options: options.filter(option => !option.hidden),
+    options: options.filter(option => !option.hidden).map(option => ({
+      label: option.label, value: option.value, labelClass: axis === 'fontFamily' ? option.className : undefined,
+    })),
     selectFallback: axis === 'fontSize' ? 'Custom' : undefined,
     selected: value => context.isEqualTo(value),
     parse: arg => options.find(option => option.value === arg)?.value,

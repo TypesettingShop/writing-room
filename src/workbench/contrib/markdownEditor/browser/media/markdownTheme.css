@@ -52,6 +52,27 @@
   font-family: var(--markdown-editor-font-sans);
 }
 .markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
-.markdown-editor-surface .ProseMirror :is(.font-serif, .font-sans, .font-mono) > code {
+
+/* Share the installed font stacks with the dropdown’s previews. */
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-noto-sans-kr {
+  font-family: 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-noto-serif-kr {
+  font-family: 'Noto Serif KR', 'Noto Serif CJK KR', 'Batang', 'AppleMyungjo', serif;
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-nanum-myeongjo {
+  font-family: 'Nanum Myeongjo', '나눔명조', 'Noto Serif KR', 'Noto Serif CJK KR', 'Batang', 'AppleMyungjo', serif;
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-nanum-gothic {
+  font-family: 'Nanum Gothic', '나눔고딕', 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-monospace {
+  font-family: monospace;
+}
+
+.markdown-editor-surface .ProseMirror :is(
+  .font-serif, .font-sans, .font-mono, .font-monospace,
+  .font-noto-sans-kr, .font-noto-serif-kr, .font-nanum-myeongjo, .font-nanum-gothic
+) > code {
   font-family: inherit;
 }
