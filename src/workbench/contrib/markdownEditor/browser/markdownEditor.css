@@ -133,7 +133,7 @@
 
 .markdown-editor-frame:not(.markdown-content-fill) .markdown-editor-surface .ProseMirror,
 .markdown-focus-mode .markdown-editor-surface .ProseMirror {
-  border-inline: var(--markdown-content-border-width) solid var(--vscode-editorGroup-border);
+  border-inline: var(--markdown-content-border-width) solid var(--vscode-markdownEditor-contentBorder);
 }
 
 .markdown-editor-surface .ProseMirror > :first-child {

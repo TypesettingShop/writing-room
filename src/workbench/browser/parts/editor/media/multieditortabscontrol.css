@@ -36,8 +36,17 @@
   background: var(--vscode-tab-activeBackground, var(--vscode-editor-background));
 }
 
-.editor-group-container.active .tabs-container > .tab.active {
-  box-shadow: inset 0 1px 0 var(--vscode-tab-activeBorderTop, #90baff);
+/* Above the editor group separator (z-index 5), which a group below another group draws along its top edge. */
+.editor-group-container.active .tabs-container > .tab.active::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 6;
+  height: 1px;
+  content: '';
+  background: var(--vscode-tab-activeBorderTop, #90baff);
+  pointer-events: none;
 }
 
 .tabs-container > .tab > .tab-label {
@@ -141,7 +150,8 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  z-index: 1;
+  /* Above the editor group separator (z-index 5) that a group right of another group draws at its left edge. */
+  z-index: 6;
   width: 2px;
   content: '';
   background: var(--vscode-tab-dragAndDropBorder, #eaf0f9);
