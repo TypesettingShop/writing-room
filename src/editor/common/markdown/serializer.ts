@@ -179,8 +179,8 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       // Tables and Setext text can be consumed by the preceding table or nested list.
       const previousIsTableOrList = previousType === 'table' || previousType === 'bullet_list' ||
         previousType === 'ordered_list';
-      const setextNeedsBlankLine = childType === 'heading' && usesSetext(child) &&
-        (endsWithParagraphLine(previous) || previousIsTableOrList || previousType === 'blockquote');
+      const setext = childType === 'heading' && usesSetext(child);
+      const setextNeedsBlankLine = setext && (endsWithParagraphLine(previous) || previousIsTableOrList);
       const startsWithoutBlankLine = childType === 'code_block' || (childType === 'heading' && !setextNeedsBlankLine) ||
         childType === 'horizontal_rule' || (childType === 'table' && !previousIsTableOrList) ||
         (childType === 'blockquote' && (previousType !== 'blockquote' || previousHasClasses));
@@ -189,9 +189,9 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
           previousType === 'horizontal_rule')));
       if (startsWithoutBlankLine || paragraphFollowsWithoutBlankLine) {
         listState.flushClose(1);
-        // Paragraphs and tables can be lazy continuations of a quote.
+        // End lazy quote continuation without adding a blank line to the item.
         if (previousType === 'blockquote' && !previousHasClasses &&
-          (childType === 'paragraph' || childType === 'table')) state.write('>\n');
+          (childType === 'paragraph' || childType === 'table' || setext)) state.write('>\n');
       }
     }
     state.render(child, item, index);

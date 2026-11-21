@@ -92,6 +92,18 @@ describe('Markdown save normalization', () => {
     }
   });
 
+  it('ends a quote before a multiline Setext heading without loosening the item', () => {
+    const source = '- > q\n  >\n  {.x}\n  s\n  ===';
+    const doc = parseMarkdown(source);
+    const item = doc.firstChild!.firstChild!;
+    expect(item.child(1).type.name).toBe('blockquote');
+    expect(item.child(2).type.name).toBe('heading');
+    expect(doc.firstChild!.attrs.tight).toBe(true);
+    const written = canonical(doc);
+    expect(written).toBe(source.replace('{.x}', '\\{.x}'));
+    expect(parseMarkdown(written).toJSON()).toEqual(doc.toJSON());
+  });
+
   it('retains unchanged blocks and their separators through a transaction', () => {
     const source = ' 첫째   \r\n\r\n\r\nmiddle\r\n\r\n' +
       '~~~ spaced-info\r\ncode\r\n~~~\r\n\r\n' +
