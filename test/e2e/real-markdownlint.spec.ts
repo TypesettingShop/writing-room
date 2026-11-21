@@ -9,12 +9,16 @@ import { treeItem } from './explorer.helpers.js';
 import { waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { activeGroup, editorText as renderedEditorText, openEditorContextMenu, runCommand } from './language-basics.helpers.js';
 import { actionNames, hoverWidget, openActionMenu } from './language-features.helpers.js';
-import { openSettings as openUserSettings, replaceText, saveSettings } from './configuration.helpers.js';
+import { openSettings as openUserSettings, replaceText, saveSettings, startWithMarkdownSource } from './configuration.helpers.js';
 import { packageFolders, savedRecords } from './packages.helpers.js';
 import {
   installFromGallery, installedExtensions, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
 } from './real-extensions.helpers.js';
 import { outputView } from './window-ui.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -179,7 +183,7 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
   await test.step('markdownlint.run = onSave: typing does not lint again, saving does', async () => {
     await page.keyboard.press('ControlOrMeta+Shift+e');
     await openUserSettings(page);
-    await replaceText(page, '{ "markdownlint.run": "onSave" }\n');
+    await replaceText(page, '{ "markdownEditor.defaultMode": "source", "markdownlint.run": "onSave" }\n');
     await saveSettings(page);
     await show(page, 'notes.md');
     await expectRelint(page, ['MD009'], 'a changed setting lints the open document again');
@@ -199,7 +203,7 @@ test('installs markdownlint and sort-lines from the gallery, uses them, keeps ma
     ]);
     // Back to the default, so that the reload below lints as it is typed.
     await show(page, 'settings.json');
-    await replaceText(page, '{}\n');
+    await replaceText(page, '{ "markdownEditor.defaultMode": "source" }\n');
     await saveSettings(page);
     await show(page, 'notes.md');
   });

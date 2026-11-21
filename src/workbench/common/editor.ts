@@ -9,6 +9,8 @@ export const EditorExtensions = {
   EditorFactory: 'workbench.contributions.editor.inputFactories',
 } as const;
 
+export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
+
 /** An editor group's id: an increasing integer, never reused. */
 export type GroupIdentifier = number;
 

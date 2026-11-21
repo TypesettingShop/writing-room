@@ -24,13 +24,17 @@ import {
   actionMenu, actionNames, hoverWidget, openActionMenu, openQuickOutline, renameInput, suggestionNames, suggestList,
   triggerSuggest,
 } from './language-features.helpers.js';
-import { activeEditor, diagnostics, openSettings, replaceText, saveSettings, settingsEditor } from './configuration.helpers.js';
+import { activeEditor, diagnostics, openSettings, replaceText, saveSettings, settingsEditor, startWithMarkdownSource } from './configuration.helpers.js';
 import { problemItems, problemsTree } from './diagnostics.helpers.js';
 import { packageFolders, savedRecords } from './packages.helpers.js';
 import {
   installFromGallery, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
 } from './real-extensions.helpers.js';
 import { expectSymbolsOpen, openFromPalette, symbolRow, symbolsField } from './workspace-symbols.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 // The extension starts a language server in a nested Worker and the preview loads two frames and a service worker;
 // on a busy machine each of these takes seconds.
@@ -374,6 +378,7 @@ test('가 (forwarded address): the preview opens on its own forwarded origin and
     const browser = await chromium.launch({ args: ['--ignore-certificate-errors'] });
     cleanup.unshift(() => browser.close());
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    await startWithMarkdownSource(page);
     page.setDefaultTimeout(20_000);
     const errors = collectPageErrors(page);
     const messages = collectMessages(page, [featuresId]);
@@ -429,9 +434,13 @@ test('나: Reopen With switches the tab to the Markdown Preview custom editor an
   const group = groups(page).filter({ has: tab(page, 'notes.md') });
   const before = await tabNames(group);
 
-  await test.step('Reopen Editor With... lists Markdown Preview; choosing it replaces the text editor in the same tab', async () => {
+  await test.step('Reopen Editor With... replaces the core WYSIWYG pane with the extension preview in the same tab', async () => {
+    await group.getByRole('button', { name: 'Switch to WYSIWYG' }).click();
+    const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+    await expect(editor.getByRole('heading', { name: 'Notes title' })).toBeVisible();
+    await expect(editor.getByRole('img', { name: 'logo' })).toBeVisible();
     await command(page, 'View: Reopen Editor With...');
-    await expect(page.getByRole('option', { name: /^Text Editor/ })).toContainText('Active');
+    await expect(page.getByRole('option', { name: /^Markdown Editor/ })).toContainText('Active');
     await chooseOption(page, 'Markdown Preview');
     await expectPreviewWorks(page);
     expect(await tabNames(group)).toEqual(before);

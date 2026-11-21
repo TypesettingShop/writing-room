@@ -3,6 +3,7 @@
 // (test/fixtures/routes/openvsx.mjs serves the pinned, signed cache), then used, kept over a reload and removed.
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { activeGroup, editorText, languageStatus, pasteText, toggleBlockCommentUntil } from './language-basics.helpers.js';
@@ -11,6 +12,10 @@ import {
   installedExtensions, installFromGallery, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
 } from './real-extensions.helpers.js';
 import { chooseTheme, colorVariable, editorBackground, openThemePicker, persistedSettings, rgb } from './themes.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -204,7 +209,10 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
     await expect.poll(() => editorBackground(page)).toBe(rgb('#ffffff'));
     await expect.poll(() => color(page, 'Title')).toBe(rgb('#0550ae'));
     await expect.poll(() => color(page, 'Plain body')).toBe(rgb('#1f2328'));
-    expect(JSON.parse((await persistedSettings(page))!)).toEqual({ 'workbench.colorTheme': 'GitHub Light Default' });
+    expect(JSON.parse((await persistedSettings(page))!)).toEqual({
+      'markdownEditor.defaultMode': 'source',
+      'workbench.colorTheme': 'GitHub Light Default',
+    });
   });
 
   await test.step('Reload: the theme, the language and the grammar are still there', async () => {

@@ -34,6 +34,14 @@ npm run dev
 
 워크스페이스는 브라우저 저장소(IndexedDB)에 있는 폴더 하나(`vscode-vfs://writing-room/workspace`)다. 처음에는 비어 있다. **File → New File...**로 파일을 만들고 Explorer에서 폴더와 파일을 만들고 이름을 바꾸고 지운다. 파일을 올리고 내려받을 수도 있다. **Ctrl+S**로 저장하고 **File → Save As...**로 다른 이름으로 저장한다. 텍스트가 있는 제목 없는 탭과 고친 파일의 탭은 닫기 전에 **Save**, **Don't Save**, **Cancel**을 묻는다. 폴더 열기, 다중 루트, 로컬 디스크 연결은 없다. 같은 사이트 주소의 같은 브라우저 프로필에서만 파일이 보이며 브라우저가 사이트 데이터를 지우면 파일도 사라진다. 자세한 동작은 [파일 편집과 Explorer](files-and-explorer.md)에 있다.
 
+## 마크다운 편집하기
+
+- Explorer에서 `.md`나 `.markdown` 파일을 열면 WYSIWYG 모드로 표시된다. 제목 툴바의 **Switch to Markdown Source** 또는 **Switch to WYSIWYG**, 팔레트의 **Markdown: Toggle Source Mode**, **Ctrl+Shift+M**(macOS는 **Cmd+Shift+M**)으로 같은 탭에서 모드를 바꾼다. 커서는 같은 블록 근처로 이동한다.
+- 새 탭을 원문 모드로 열려면 사용자 설정에 `"markdownEditor.defaultMode": "source"`를 추가한다. 기본값은 `wysiwyg`이고, `workbench.editorAssociations`에서 지정한 에디터가 새 탭에 우선한다. 열려 있는 탭은 새로고침 뒤에도 선택했던 모드와 저장하지 않은 초안을 복원한다.
+- 원문과 WYSIWYG는 파일 내용과 dirty 표시를 공유한다. WYSIWYG의 **Edit → Undo**와 **Edit → Redo**, **Ctrl+Z**, **Ctrl+Shift+Z**, **Ctrl+Y**(macOS에서는 **Cmd**)는 같은 이력에 적용된다. 500ms 안에 이어서 입력한 글자는 한 번에 되돌아가며, 서식 명령과 외부 편집은 각각 한 단계다.
+- 모드를 전환하면 전환 순간의 파일 내용이 새 이력의 시작점이 된다. 그 뒤에 한 첫 편집을 되돌리면 전환 순간의 내용으로 돌아온다. 원문 이력은 같은 파일의 Monaco 창이 공유한다.
+- 확장이 제공하는 **Markdown Preview**는 **View: Reopen Editor With...**에서 선택할 수 있다. Monaco의 언어 기능 및 편집기 전용 확장 명령은 원문 모드에서 사용한다. [마크다운 저장 규칙](markdown-editor.md)
+
 ## 사용자 설정 편집하기
 
 **File → Preferences → Open User Settings (JSON)** 또는 팔레트의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. 예를 들어 `{"editor.fontSize": 24}`를 쓰고 **Ctrl+S**(macOS에서는 **Cmd+S**)를 누르면 열린 편집기에 적용한다. Monaco에서 키를 자동 완성하고 값의 오류를 표시한다. 주석과 후행 쉼표를 쓸 수 있다. 지원하는 키와 기본값은 [아키텍처의 Settings 절](architecture.md#settings)에 있다.
@@ -81,7 +89,7 @@ coder처럼 포트를 포워딩하는 환경에서 앱을 열 때 확장의 Webv
 3. 앱 포트의 포워딩 주소로 워크벤치를 연다. 주소에 앱 포트 숫자(`5173--…`)가 한 번만 나타나야 한다.
 4. 같은 주소에서 `/webview/config.json`을 열어 `{"appPort":5173,"webviewPort":5174}`처럼 두 포트가 실제와 맞는지 확인한다.
 5. 처음 한 번 Webview 포트의 주소 `https://5174--<나머지>/webview/index.html`을 새 탭에서 열어 포워딩 서비스에 로그인한다. 셸만 직접 열면 빈 페이지가 보이는 것이 정상이다.
-6. 워크벤치로 돌아가 Webview를 여는 확장 명령을 실행한다. 예를 들어 `vscode.markdown-language-features`를 설치하고 Markdown 파일에서 **Ctrl+Shift+V**를 누른다.
+6. 워크벤치로 돌아가 Webview를 여는 확장 명령을 실행한다. 예를 들어 `vscode.markdown-language-features`를 설치하고 Markdown 파일을 원문 모드로 전환한 뒤 **Ctrl+Shift+V**를 누른다.
 
 `WRITING_ROOM_WEBVIEW_PORT` 없이 포워딩 주소로 열면 Webview 대신 "Webviews need a separate origin. Set WRITING_ROOM_WEBVIEW_PORT for forwarded addresses."로 시작하는 안내가 보인다. 같은 오리진으로 물러서서 열지 않는다. 안내가 보이면 변수를 주었는지, 두 포트를 포워딩했는지, 둘째 주소에 로그인했는지 확인한다. 포워딩 주소와 `127.0.0.1` 주소는 오리진이 달라서 설치한 확장, 파일, 설정이 따로 저장된다. v0.2.0은 담당자가 coder 포워딩 주소(앱 5173, Webview 5174)로 띄워 실행해 보고 잘 동작함을 확인했다(2026-11-20). 이 확인이 이 절의 수동 확인 절차를 대신한다. 포트 설정의 세부와 오리진을 고르는 순서는 [Webview](extension-api-webview.md)에 있다.
 
@@ -100,4 +108,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd
+Decided in: wr-cla6, wr-jbmd, wr-ndsy

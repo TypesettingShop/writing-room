@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import {
   contextMenuByKeyboard, dragFiles, DROP_TARGET_ATTRIBUTE, explorerInput, explorerTree, fileTabs, focusRow, part, rowNames,
@@ -10,6 +11,10 @@ import {
   answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, quickPick, readWorkspaceBytes, readWorkspaceText,
   selectedTab, waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 /** Opens a second tab of the same storage, its Explorer drawn. */
 async function otherTab(page: Page): Promise<Page> {

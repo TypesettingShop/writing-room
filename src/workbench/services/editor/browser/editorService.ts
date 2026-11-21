@@ -6,9 +6,10 @@ import type { URI } from '../../../../base/common/uri.js';
 import { isResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import type { IResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { GroupModelChangeKind } from '../../../common/editor.js';
+import { EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import type { GroupIdentifier, IEditorIdentifier, IEditorPane } from '../../../common/editor.js';
+import { getMarkdownEditorMode, isMarkdownResource } from '../../../contrib/markdownEditor/common/markdownEditor.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../common/editorGroupsService.js';
 import type { IEditorGroup, IEditorOpenOptions } from '../common/editorGroupsService.js';
 import { IEditorResolverService } from '../common/editorResolverService.js';
@@ -106,6 +107,15 @@ export class EditorService extends Disposable implements IEditorService {
   ): Promise<IEditorPane | undefined> {
     if (isResourceEditorInput(editor)) {
       const target = this.findTargetGroup(optionsOrGroup as PreferredGroup | undefined ?? ACTIVE_GROUP);
+      // The default and associations choose new Markdown tabs. Reopening an existing tab keeps
+      // the mode chosen for that tab; an explicit override still opens the requested editor.
+      if (!editor.options?.override && isMarkdownResource(editor.resource)) {
+        const open = target.getEditors(EditorsOrder.MOST_RECENTLY_ACTIVE)
+          .find(input => getMarkdownEditorMode(input) && isEqual(input.resource, editor.resource));
+        if (open) {
+          return target.openEditor(open, editor.options);
+        }
+      }
       const resolved = await this.editorResolverService.resolveEditor(editor, target);
       // The group may have gone while the input was made; the active one takes the editor then.
       const group = this.editorGroupsService.getGroup(target.id) === target ? target : this.editorGroupsService.activeGroup;

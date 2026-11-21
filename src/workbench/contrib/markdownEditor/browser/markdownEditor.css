@@ -1,0 +1,51 @@
+.markdown-editor-surface,
+.markdown-editor-error {
+  box-sizing: border-box;
+  overflow: auto;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.markdown-editor-surface .ProseMirror {
+  box-sizing: border-box;
+  min-height: 100%;
+  max-width: 80ch;
+  margin: 0 auto;
+  padding: 1.25rem 2rem;
+  outline: none;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.markdown-editor-surface .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.markdown-editor-surface .ProseMirror img {
+  max-width: 100%;
+}
+
+.markdown-editor-surface .ProseMirror pre {
+  overflow: auto;
+  padding: 0.75em;
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-inactiveSelectionBackground));
+}
+
+.markdown-editor-surface .ProseMirror blockquote {
+  margin-inline: 0;
+  padding-inline: 1em;
+  border-inline-start: 3px solid var(--vscode-textBlockQuote-border, currentColor);
+}
+
+.markdown-editor-surface .ProseMirror table {
+  border-collapse: collapse;
+}
+
+.markdown-editor-surface .ProseMirror :is(td, th) {
+  padding: 0.25em 0.6em;
+  border: 1px solid var(--vscode-editorWidget-border, currentColor);
+}
+
+.markdown-editor-error {
+  padding: 1rem;
+}
