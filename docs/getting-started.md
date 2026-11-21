@@ -135,4 +135,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f
