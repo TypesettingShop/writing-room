@@ -61,6 +61,18 @@ function inDefaultSample(source: string): boolean {
 }
 
 const quoteBeforeSetext = '- > q\n  >\n  {.x}\n  s\n  ===';
+const indentationRegressions = new Map([
+  ['- Parent\n  - [x] Child\n    - Grandchild', '- Parent\n    - [x] Child\n        - Grandchild'],
+  [
+    '- Parent\n\n  second paragraph\n\n  - Child\n\n        let x = 1;',
+    '- Parent\n\n  second paragraph\n\n    - Child\n\n      ```\n      let x = 1;\n      ```',
+  ],
+  [
+    '100. Parent\n\n     second paragraph\n\n     - Child\n\n       ~~~text\n         indented\n       ~~~',
+    '100. Parent\n\n     second paragraph\n\n     - Child\n\n       ~~~text\n         indented\n       ~~~',
+  ],
+  ['* - - \n\n       3) m', '* - - \n    3) m'],
+]);
 const regressions = new Set([
   '- a\n  s\n  ===', // wr-x9d4
   '> * ***\n>   {.x}\n>   {.y}', // wr-vcbs
@@ -68,6 +80,7 @@ const regressions = new Set([
   '- ***\n  {.x}\n  {.y}', // A class edit forces a loose list.
   quoteBeforeSetext,
   '- \\+\n  s\n  ===', // wr-x9d4: a literal marker on the first Setext line.
+  ...indentationRegressions.keys(),
 ]);
 
 function editFirstText(doc: Node): Node | undefined {
@@ -187,6 +200,8 @@ it('preserves document content through generated Markdown saves', () => {
     if (source === quoteBeforeSetext) {
       expect(normalized).toBe('- > q\n  >\n  \\{.x}\n  s\n  ===');
     }
+    const indentation = indentationRegressions.get(source);
+    if (indentation !== undefined) expect(normalized).toBe(indentation);
     check('canonical', doc, normalized);
     const textEdit = editFirstText(doc);
     if (textEdit) check('text edit', textEdit, serializeMarkdown(textEdit));

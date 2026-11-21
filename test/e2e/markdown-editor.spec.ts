@@ -564,7 +564,7 @@ test('keeps list Tab in the editor and saves the nested task structure', async (
   await expect(editor.locator(':scope > ul > li')).toHaveCount(2);
   await page.keyboard.press('Tab');
   await page.keyboard.press('ControlOrMeta+s');
-  await expect.poll(() => readWorkspaceText(page, name)).toMatch(/^- Parent\n +-[ ]\[x\] Child$/);
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('- Parent\n    - [x] Child');
   await page.reload();
   await expect(editor.locator('ul ul > li')).toHaveText('Child', { timeout: 20_000 });
   await expect(editor.getByRole('checkbox')).toBeChecked();
