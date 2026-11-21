@@ -75,8 +75,7 @@ function styleOf(doc: Node, { node, pos }: SelectedTextBlock): string | null {
   }
 }
 
-export function currentBlockStyle(state: EditorState): string | null {
-  const blocks = selectedTextBlocks(state.doc, state.selection);
+export function currentBlockStyle(state: EditorState, blocks = selectedTextBlocks(state.doc, state.selection)): string | null {
   const first = blocks[0] && styleOf(state.doc, blocks[0]);
   return first && blocks.every(block => styleOf(state.doc, block) === first) ? first : null;
 }

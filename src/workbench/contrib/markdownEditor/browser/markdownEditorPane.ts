@@ -13,6 +13,7 @@ import type { ITextEditorModel } from '../../../../editor/common/services/resolv
 import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
 import { MenuId } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -22,15 +23,18 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import {
-  MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
-  MarkdownEditorModeContext, MarkdownEditorWritableContext,
+  MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
+  MarkdownEditorFocusContext, MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorModeContext,
+  MarkdownEditorTextAlignContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
-import { currentBlockStyle } from './markdownEditorBlockStyles.js';
+import { currentBlockStyle, selectedTextBlocks } from './markdownEditorBlockStyles.js';
+import { currentFormattingPresets } from './markdownEditorPresets.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
 import 'prosemirror-view/style/prosemirror.css';
 import './markdownEditor.css';
+import './media/markdownTheme.css';
 
 const { validateLink } = createMarkdownIt();
 
@@ -55,6 +59,7 @@ export class MarkdownEditorPane extends EditorPane {
     @IEditorGroupsService private readonly groups: IEditorGroupsService,
     @IContextKeyService private readonly contextKeys: IContextKeyService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IConfigurationService private readonly configuration: IConfigurationService,
   ) {
     super(MarkdownEditorPane.ID);
   }
@@ -69,18 +74,46 @@ export class MarkdownEditorPane extends EditorPane {
     const mode = MarkdownEditorModeContext.bindTo(scoped);
     const writable = MarkdownEditorWritableContext.bindTo(scoped);
     const blockType = MarkdownEditorBlockTypeContext.bindTo(scoped);
+    const alignment = MarkdownEditorTextAlignContext.bindTo(scoped);
+    const fontSize = MarkdownEditorFontSizeContext.bindTo(scoped);
+    const fontFamily = MarkdownEditorFontFamilyContext.bindTo(scoped);
     const undo = MarkdownEditorCanUndoContext.bindTo(scoped);
     const redo = MarkdownEditorCanRedoContext.bindTo(scoped);
     this.updateToolbarContext = () => {
       mode.set(this.view ? 'wysiwyg' : null);
       writable.set(this.formattingState !== undefined);
-      blockType.set(this.view && this.sync ? currentBlockStyle(this.sync.state) : null);
+      const state = this.view && this.sync?.state;
+      const blocks = state ? selectedTextBlocks(state.doc, state.selection) : [];
+      blockType.set(state ? currentBlockStyle(state, blocks) : null);
+      const presets = state ? currentFormattingPresets(state, blocks) : undefined;
+      alignment.set(presets?.textAlign ?? null);
+      fontSize.set(presets?.fontSize ?? null);
+      fontFamily.set(presets?.fontFamily ?? null);
       undo.set(this.canUndo);
       redo.set(this.canRedo);
     };
     this._register(this.instantiation.createInstance(
       MenuWorkbenchToolBar, { element: toolbar, ariaLabel: 'Markdown formatting' }, MenuId.MarkdownEditorToolbar, scoped,
     ));
+    const updateFonts = () => {
+      const families = this.configuration.getValue<Partial<Record<'serif' | 'sans', unknown>>>(MARKDOWN_EDITOR_FONT_FAMILY);
+      const css = parent.ownerDocument.defaultView?.CSS;
+      for (const name of ['serif', 'sans'] as const) {
+        const value = families?.[name];
+        const property = `--markdown-editor-font-${name}`;
+        if (typeof value === 'string' && css?.supports('font-family', value)) {
+          this.frame.style.setProperty(property, value);
+        } else {
+          this.frame.style.removeProperty(property);
+        }
+      }
+    };
+    updateFonts();
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_FONT_FAMILY)) {
+        updateFonts();
+      }
+    }));
     const group = this.groups.groups.find(group => group.element.contains(parent));
     if (group) {
       toolbar.addEventListener('click', () => {

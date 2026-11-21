@@ -1,0 +1,24 @@
+.markdown-editor-surface .ProseMirror :where(p.subtitle) {
+  color: var(--vscode-descriptionForeground, var(--vscode-editor-foreground));
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.markdown-editor-surface .ProseMirror .left { text-align: left; }
+.markdown-editor-surface .ProseMirror .center { text-align: center; }
+.markdown-editor-surface .ProseMirror .right { text-align: right; }
+.markdown-editor-surface .ProseMirror .justify { text-align: justify; }
+
+.markdown-editor-surface .ProseMirror .size-sm { font-size: 0.875rem; }
+.markdown-editor-surface .ProseMirror .size-lg { font-size: 1.25rem; }
+.markdown-editor-surface .ProseMirror .size-xl { font-size: 1.5rem; }
+.markdown-editor-surface .ProseMirror .font-serif {
+  font-family: var(--markdown-editor-font-serif, Georgia, serif);
+}
+.markdown-editor-surface .ProseMirror .font-sans {
+  font-family: var(--markdown-editor-font-sans, system-ui, sans-serif);
+}
+.markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
+.markdown-editor-surface .ProseMirror :is(.font-serif, .font-sans, .font-mono) > code {
+  font-family: inherit;
+}

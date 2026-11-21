@@ -1,8 +1,9 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
-import { runCommand, startWithMarkdownSource } from './configuration.helpers.js';
+import { runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
+import { chooseTheme } from './themes.helpers.js';
 
 const richEditor = (scope: Locator) => scope.getByRole('textbox', { name: 'Markdown editor' });
 
@@ -230,4 +231,56 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   await page.reload();
   await expect(editor.locator('p.subtitle')).toHaveText('Second', { timeout: 20_000 });
   await expect(editor.getByRole('heading')).toHaveCount(1);
+});
+
+test('saves paragraph alignment and inline size and font presets and restores their appearance', async ({ page }) => {
+  await page.addInitScript(key => {
+    if (localStorage.getItem(key) === null) {
+      localStorage.setItem('writing-room:storage:version', '2');
+      localStorage.setItem(key, JSON.stringify({
+        'markdownEditor.fontFamily': { serif: 'Cambria, serif' },
+        'workbench.colorTheme': 'Writing Room Light',
+      }));
+    }
+  }, settingsKey);
+  await page.goto('/');
+  const name = 'presets.md';
+  const group = await openMarkdown(page, name, 'One word {.my-class}\n\nSubheading {.subtitle}');
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const paragraph = editor.locator('p.my-class');
+  await paragraph.click({ timeout: 20_000 });
+  await toolbar.getByRole('button', { name: 'Align: Left' }).click();
+  await page.getByRole('menuitemradio', { name: 'Center', exact: true }).click();
+  await expect(paragraph).toHaveCSS('text-align', 'center');
+  await expect(toolbar.getByRole('button', { name: 'Align: Center' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+Shift+l');
+  await expect(paragraph).toHaveCSS('text-align', 'start');
+  await page.keyboard.press('ControlOrMeta+Shift+e');
+  await expect(paragraph).toHaveCSS('text-align', 'center');
+  await expect(editor).toBeFocused();
+
+  await editor.focus();
+  await page.keyboard.press('End');
+  for (let index = 0; index < 4; index++) {
+    await page.keyboard.press('Shift+ArrowLeft');
+  }
+  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await page.getByRole('menuitemradio', { name: 'Large', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Font: Default' }).click();
+  await page.getByRole('menuitemradio', { name: 'Serif', exact: true }).click();
+  const span = paragraph.locator('span.size-lg.font-serif');
+  await expect(span).toHaveText('word');
+  await expect(span).toHaveCSS('font-size', '20px');
+  await expect(span).toHaveCSS('font-family', 'Cambria, serif');
+  await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(90, 101, 119)');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('One [word]{.size-lg .font-serif} {.my-class .center}\n\nSubheading {.subtitle}');
+  await page.reload();
+  await expect(paragraph).toHaveCSS('text-align', 'center', { timeout: 20_000 });
+  await expect(span).toHaveText('word');
+  await expect(span).toHaveCSS('font-family', 'Cambria, serif');
+  await chooseTheme(page, 'Writing Room Dark');
+  await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(167, 182, 203)');
 });
