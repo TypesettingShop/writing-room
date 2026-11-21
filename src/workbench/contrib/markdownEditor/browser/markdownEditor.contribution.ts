@@ -22,11 +22,14 @@ import { FileEditorInput } from '../../files/browser/editors/fileEditorInput.js'
 import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
 import {
   defaultMarkdownFontFamilies, getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE,
-  MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorModeContext,
+  defaultMarkdownFocusWidth, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FONT_FAMILY,
+  MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorModeContext,
 } from '../common/markdownEditor.js';
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
 import './markdownEditorToolbar.contribution.js';
+import './markdownWriting.contribution.js';
+import './markdownFocusMode.contribution.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPane(
   EditorPaneDescriptor.create(MarkdownEditorPane, MarkdownEditorPane.ID, 'Markdown Editor'), [MarkdownEditorInput.ID],
@@ -38,6 +41,21 @@ configurationRegistry.registerConfiguration({
   id: 'markdownEditor',
   title: 'Markdown Editor',
   properties: {
+    [MARKDOWN_EDITOR_FOCUS_WIDTH]: {
+      type: 'string',
+      default: defaultMarkdownFocusWidth,
+      description: 'Maximum width of the Markdown writing surface in Focus Mode, as a CSS length.',
+    },
+    [MARKDOWN_EDITOR_FOCUS_DIM]: {
+      type: 'boolean',
+      default: true,
+      description: 'Dims Markdown blocks outside the current paragraph in Focus Mode.',
+    },
+    [MARKDOWN_EDITOR_TYPEWRITER]: {
+      type: 'boolean',
+      default: false,
+      description: 'Centers the caret line vertically as you write in the visual Markdown editor.',
+    },
     [MARKDOWN_EDITOR_DEFAULT_MODE]: {
       type: 'string',
       enum: ['wysiwyg', 'source'],

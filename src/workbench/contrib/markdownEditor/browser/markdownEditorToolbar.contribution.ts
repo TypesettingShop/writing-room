@@ -1,3 +1,5 @@
+import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
+import { TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -16,6 +18,9 @@ import {
 } from '../common/markdownEditor.js';
 import { blockStyleKey, blockStyles, parseBlockStyle, setBlockStyle } from './markdownEditorBlockStyles.js';
 import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from './markdownEditorInline.js';
+import { selectedMarkdownImage, setMarkdownImage } from './markdownEditorImages.js';
+import { setMarkdownList } from './markdownEditorLists.js';
+import { editMarkdownTable, insertMarkdownTable } from './markdownEditorTables.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
 import { formattingPresets, setFormattingPreset } from './markdownEditorPresets.js';
 
@@ -197,3 +202,79 @@ registerInlineAction(
     }
   },
 );
+
+
+function registerInsertAction(
+  id: string, title: string, menu: MenuId, order: number, command: Command, icon?: string,
+): void {
+  MenuRegistry.appendMenuItem(menu, {
+    group: menu === toolbar ? '6_insert' : undefined, order, when: wysiwyg,
+    command: { id, title, precondition: writable, ...(icon && { icon: { id: icon } }) },
+  });
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({ id, title, category: 'Markdown', f1: true, precondition: ContextKeyExpr.and(wysiwyg, writable) });
+    }
+    override run(accessor: ServicesAccessor): void {
+      const pane = getMarkdownPane(accessor.get(IEditorGroupsService));
+      if (pane?.runFormattingCommand(command)) pane.focus();
+    }
+  });
+}
+
+registerInsertAction('markdownEditor.insertBulletList', 'Bullet List', toolbar, 0, setMarkdownList('bullet'), 'list-unordered');
+registerInsertAction('markdownEditor.insertOrderedList', 'Numbered List', toolbar, 1, setMarkdownList('ordered'), 'list-ordered');
+registerInsertAction('markdownEditor.insertTaskList', 'Task List', toolbar, 2, setMarkdownList('task'), 'checklist');
+const tableMenu = MenuId.for('MarkdownEditorToolbar.Table');
+MenuRegistry.appendMenuItem(toolbar, { submenu: tableMenu, group: '6_insert', order: 3, title: 'Table', when: wysiwyg });
+registerInsertAction('markdownEditor.insertTable', 'Insert Table', tableMenu, 0, insertMarkdownTable);
+for (const [order, [edit, title]] of ([
+  ['addRow', 'Add Row After'], ['deleteRow', 'Delete Row'], ['addColumn', 'Add Column After'],
+  ['deleteColumn', 'Delete Column'], ['alignLeft', 'Align Column Left'], ['alignCenter', 'Align Column Center'],
+  ['alignRight', 'Align Column Right'], ['clearAlignment', 'Clear Column Alignment'], ['deleteTable', 'Delete Table'],
+] as const).entries()) {
+  registerInsertAction(`markdownEditor.table.${edit}`, title, tableMenu, order + 1, editMarkdownTable(edit));
+}
+registerInsertAction('markdownEditor.insertHorizontalRule', 'Horizontal Rule', toolbar, 4, (state, dispatch) => {
+  if (state.selection.$from.parent.type.spec.code) return false;
+  const tr = state.tr.replaceSelectionWith(markdownSchema.nodes.horizontal_rule.create());
+  if (!tr.docChanged) return false;
+  const end = tr.doc.resolve(tr.selection.to);
+  if (!end.parent.isTextblock && end.depth === 0) {
+    tr.insert(end.pos, markdownSchema.nodes.paragraph.create());
+    tr.setSelection(TextSelection.create(tr.doc, end.pos + 1));
+  }
+  dispatch?.(tr.scrollIntoView());
+  return true;
+}, 'horizontal-rule');
+
+const imageId = 'markdownEditor.editImage';
+MenuRegistry.appendMenuItem(toolbar, {
+  group: '6_insert', order: 5, when: wysiwyg,
+  command: { id: imageId, title: 'Image', icon: { id: 'file-media' }, precondition: writable },
+});
+registerAction2(class extends Action2 {
+  constructor() {
+    super({ id: imageId, title: 'Insert or Edit Image', category: 'Markdown', f1: true, precondition: ContextKeyExpr.and(wysiwyg, writable) });
+  }
+
+  override async run(accessor: ServicesAccessor): Promise<void> {
+    const groups = accessor.get(IEditorGroupsService);
+    const pane = getMarkdownPane(groups);
+    const state = pane?.formattingState;
+    if (!pane || !state) return;
+    const image = selectedMarkdownImage(state.selection);
+    const quickInput = accessor.get(IQuickInputService);
+    const address = await quickInput.input({
+      title: 'Image Address', placeHolder: 'images/photo.png or https://example.com/photo.png', value: image?.attrs.src,
+      validateInput: value => normalizeMarkdownLink(value) ? undefined : 'Enter an image URL or a relative path.',
+    });
+    if (!address || getMarkdownPane(groups) !== pane || pane.formattingState !== state) return;
+    const alt = await quickInput.input({
+      title: 'Image Description', prompt: 'Describe the image for readers who cannot see it.', value: image?.attrs.alt
+        ?? state.doc.textBetween(state.selection.from, state.selection.to, ' '),
+    });
+    if (alt !== undefined && getMarkdownPane(groups) === pane && pane.formattingState === state
+        && pane.runFormattingCommand(setMarkdownImage(address, alt))) pane.focus();
+  }
+});

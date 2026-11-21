@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect, test } from './fixtures.js';
+import { box, drag, expect, test } from './fixtures.js';
 import { runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
@@ -409,4 +409,340 @@ test('targets the toolbar’s editor group when another Markdown editor has focu
   await expect(leftEditor.getByRole('heading', { name: 'Left editor', level: 2 })).toBeVisible();
   await expect(rightEditor.locator('p')).toHaveText('Right editor');
   await expect(right.getByRole('button', { name: 'Style: Body' })).toBeVisible();
+});
+
+test('creates, edits and saves a GFM table from the toolbar', async ({ appPage: page }) => {
+  const name = 'blocks-table.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  await editor.click();
+  await group.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table', exact: true }).click();
+  await expect(editor.locator('th')).toHaveCount(2);
+  await page.keyboard.type('First');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Second');
+  await group.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add Column After', exact: true }).click();
+  await expect(editor.locator('th')).toHaveCount(3);
+  await page.keyboard.type('Third');
+  await runCommand(page, 'Align Column Center', /^Markdown: Align Column Center$/);
+  await expect(editor.locator('th').last()).toHaveCSS('text-align', 'center');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('| First | Second | Third |\n| --- | --- | :---: |\n|  |  |  |');
+  await page.reload();
+  await expect(editor.locator('th')).toHaveText(['First', 'Second', 'Third'], { timeout: 20_000 });
+  await expect(editor.locator('th').last()).toHaveCSS('text-align', 'center');
+});
+
+test('toggles a task, exits a list, and loads remote images only on request', async ({ appPage: page }) => {
+  const name = 'blocks-list.md';
+  const group = await openMarkdown(page, name, '- [ ] Check me\n\n![Remote](https://images.example.test/photo.png)\n\n![Blocked](http://images.example.test/photo.png)');
+  const editor = richEditor(group);
+  const requests: string[] = [];
+  await page.route('**/photo.png', async route => {
+    requests.push(route.request().url());
+    await route.fulfill({ contentType: 'image/png', body: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XGl0AAAAASUVORK5CYII=', 'base64',
+    ) });
+  });
+  const task = editor.getByRole('checkbox', { name: 'Task completed' });
+  await expect(task).not.toBeChecked();
+  await task.click();
+  await expect(task).toBeChecked();
+  await expect(editor.getByText('HTTP image blocked', { exact: false })).toBeVisible();
+  expect(requests).toEqual([]);
+  await editor.getByRole('button', { name: 'Load image' }).click();
+  await expect.poll(() => requests).toEqual(['https://images.example.test/photo.png']);
+  await expect(editor.locator('img[alt="Remote"]')).toBeVisible();
+  await editor.getByText('Check me').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Outside');
+  await expect(editor.locator(':scope > p').first()).toHaveText('Outside');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('- [x] Check me\n\nOutside');
+  expect(await readWorkspaceText(page, name)).toContain('![Blocked](http://images.example.test/photo.png)');
+});
+
+test('pastes a web heading, list and link as Markdown and strips unrelated HTML', async ({ appPage: page }) => {
+  const name = 'web-paste.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  await editor.focus();
+  await editor.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', [
+      '<h2 style="text-align:center;color:red">Heading</h2>',
+      '<ul><li>First</li><li>Second</li></ul>',
+      '<p><a href="https://example.test/" onclick="fail()">Good link</a> ',
+      '<a href="java&#10;script:fail()">Rejected link</a></p>',
+      '<script>discardScript()</script><style>discardStyles</style>',
+    ].join(''));
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+  });
+  const heading = editor.getByRole('heading', { name: 'Heading' });
+  await expect(heading).toHaveCSS('text-align', 'center');
+  await expect(heading).not.toHaveCSS('color', 'rgb(255, 0, 0)');
+  await expect(editor.locator('li')).toHaveText(['First', 'Second']);
+  await expect(editor.getByRole('link')).toHaveText('Good link');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(
+    '## Heading {.center}\n\n- First\n- Second\n\n[Good link](https://example.test/) Rejected link',
+  );
+});
+
+test('pastes Markdown text and uses the Shift shortcut for literal text', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'text-paste.md', '');
+  const editor = richEditor(group);
+  await editor.focus();
+  async function pasteText(text: string): Promise<void> {
+    await editor.evaluate((element, value) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', value);
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+    }, text);
+  }
+  await pasteText('# Parsed title\n\n**Bold**');
+  await expect(editor.getByRole('heading')).toHaveText('Parsed title');
+  await expect(editor.locator('strong')).toHaveText('Bold');
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('Shift');
+  await pasteText('**Literal**');
+  await page.keyboard.up('Shift');
+  await expect(editor.locator('p').last()).toHaveText('**Literal**');
+  await expect(editor.locator('strong')).toHaveCount(1);
+});
+
+test('keeps list Tab in the editor and saves the nested task structure', async ({ appPage: page }) => {
+  const name = 'nested-list.md';
+  const group = await openMarkdown(page, name, '- Parent\n- [x] Child');
+  const editor = richEditor(group);
+  await editor.getByText('Child').click();
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeFocused();
+  await expect(editor.locator('ul ul > li')).toHaveText('Child');
+  await expect(editor.getByRole('checkbox')).toBeChecked();
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor.locator(':scope > ul > li')).toHaveCount(2);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toMatch(/^- Parent\n +-[ ]\[x\] Child$/);
+  await page.reload();
+  await expect(editor.locator('ul ul > li')).toHaveText('Child', { timeout: 20_000 });
+  await expect(editor.getByRole('checkbox')).toBeChecked();
+});
+
+test('renders and edits an image relative to the Markdown document folder', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'notes/assets/pixel.svg',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+    ['notes', 'notes/assets']);
+  const name = 'notes/local-image.md';
+  await writeWorkspaceFile(page, name, '![Pixel](assets/pixel.svg)\n\n![Missing](../../outside.svg)');
+  await treeItem(page, 'notes').click();
+  await treeItem(page, 'local-image.md').dblclick();
+  const group = groups(page).first();
+  const editor = richEditor(group);
+  const image = editor.getByRole('img', { name: 'Pixel' });
+  await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBe(10);
+  await expect(image).toHaveAttribute('src', /^blob:/);
+  await expect(editor.getByText('Image is outside the workspace folder', { exact: false })).toBeVisible();
+  await image.click();
+  await group.getByRole('button', { name: 'Image', exact: true }).click();
+  const address = page.getByRole('textbox', { name: 'Image Address' });
+  await expect(address).toHaveValue('assets/pixel.svg');
+  await address.press('Enter');
+  const description = page.getByRole('textbox', { name: 'Image Description' });
+  await description.fill('Edited description');
+  await description.press('Enter');
+  await expect(editor.getByRole('img', { name: 'Edited description' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('![Edited description](assets/pixel.svg)');
+});
+
+test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'copy.md', '## Heading\n\nOne **bold** [link](https://example.test/)');
+  const editor = richEditor(group);
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  const data = await editor.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    element.dispatchEvent(new ClipboardEvent('copy', { clipboardData, cancelable: true, bubbles: true }));
+    return { markdown: clipboardData.getData('text/plain'), html: clipboardData.getData('text/html') };
+  });
+  expect(data.markdown).toBe('## Heading\n\nOne **bold** [link](https://example.test/)');
+  expect(data.html).toContain('<strong>bold</strong>');
+  expect(data.html).toContain('<a href="https://example.test/">link</a>');
+});
+
+test('updates word counts and navigates the outline in visual and source Markdown', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'outline.md', '# First\n\n한글 **문장**\n\n### Nested\n\nCaption {.subtitle}\n\n## Last');
+  const editor = richEditor(group);
+  const outline = page.getByRole('region', { name: 'Outline' });
+  const count = page.getByText(/^6 words · /);
+  await expect(count).toBeVisible();
+  await expect(outline.getByRole('button')).toHaveText(['First', 'Nested', 'Last']);
+  await outline.getByRole('button', { name: 'Nested' }).click();
+  await expect(outline.getByRole('button', { name: 'Nested' })).toHaveAttribute('aria-current', 'location');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('Shift+End');
+  await expect(page.getByText('Selection · 1 word · 6 characters · 6 without spaces')).toBeVisible();
+  await page.keyboard.type('Renamed');
+  await expect(outline.getByRole('button', { name: 'Renamed' })).toHaveAttribute('aria-current', 'location');
+
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  const source = group.getByRole('textbox', { name: 'Editor content' });
+  await expect(source).toBeFocused();
+  await expect(count).toBeVisible();
+  await outline.getByRole('button', { name: 'Last' }).click();
+  await expect(outline.getByRole('button', { name: 'Last' })).toHaveAttribute('aria-current', 'location');
+  await expect(source).toBeFocused();
+  await page.keyboard.press('Shift+End');
+  await expect(page.getByText('Selection · 1 word · 4 characters · 4 without spaces')).toBeVisible();
+  await page.keyboard.type('Final');
+  await expect(outline.getByRole('button', { name: 'Final' })).toHaveAttribute('aria-current', 'location');
+});
+
+test('focus mode restores part sizes and keeps a previously hidden part hidden', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'focus.md', 'First paragraph\n\nSecond paragraph');
+  const editor = richEditor(group);
+  const part = (name: string) => page.locator(`[id="workbench.parts.${name}"]`);
+  const sidebar = part('sidebar');
+  const panel = part('panel');
+  const statusbar = part('statusbar');
+  const activitybar = part('activitybar');
+  const bounds = await box(sidebar);
+  await drag(page, bounds.x + bounds.width, 175, bounds.x + bounds.width + 55, 175);
+  await runCommand(page, 'Toggle Panel Visibility', /^View: Toggle Panel Visibility$/);
+  await expect(panel).toBeHidden();
+  const resized = await box(sidebar);
+  const writingWidth = (await box(editor)).width;
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  for (const element of [sidebar, panel, statusbar, activitybar]) await expect(element).toBeHidden();
+  expect((await box(editor)).width).toBeLessThan(writingWidth);
+  await expect(editor.getByText('First paragraph')).toHaveCSS('opacity', '1');
+  await expect(editor.getByText('Second paragraph')).toHaveCSS('opacity', '0.45');
+  await editor.getByText('Second paragraph').click();
+  await expect(editor.getByText('Second paragraph')).toHaveCSS('opacity', '1');
+  await page.keyboard.press('Escape');
+  for (const element of [sidebar, statusbar, activitybar]) await expect(element).toBeVisible();
+  await expect(panel).toBeHidden();
+  expect(await box(sidebar)).toEqual(resized);
+  await expect(editor.getByText('First paragraph')).toHaveCSS('opacity', '1');
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(sidebar).toBeVisible();
+});
+
+test('focus mode yields to layout commands and lets Escape close quick input first', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'focus-yield.md', 'Text');
+  const editor = richEditor(group);
+  const sidebar = page.locator('[id="workbench.parts.sidebar"]');
+  const statusbar = page.locator('[id="workbench.parts.statusbar"]');
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(statusbar).toBeHidden();
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Status Bar', exact: true }).click();
+  await expect(statusbar).toBeVisible();
+  await group.getByRole('button', { name: 'Image', exact: true }).click();
+  const address = page.getByRole('textbox', { name: 'Image Address' });
+  await expect(address).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(address).toBeHidden();
+  await expect(sidebar).toBeHidden();
+  await editor.click();
+  await page.keyboard.press('Escape');
+  await expect(sidebar).toBeVisible();
+  await expect(statusbar).toBeVisible();
+});
+
+test('typewriter scrolling centers the first, middle and newly written last line', async ({ page }) => {
+  await page.addInitScript(key => {
+    localStorage.setItem('writing-room:storage:version', '2');
+    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
+  }, settingsKey);
+  await page.goto('/');
+  const group = await openMarkdown(page, 'typewriter.md', Array.from({ length: 30 }, (_, index) => `Line ${index + 1}`).join('\n\n'));
+  const editor = richEditor(group);
+  await editor.focus();
+  const caretDistance = () => editor.evaluate(element => {
+    const selection = element.ownerDocument.getSelection()!;
+    if (!selection.rangeCount) return Infinity;
+    const range = selection.getRangeAt(0);
+    const caret = range.getBoundingClientRect();
+    const surface = element.parentElement!;
+    return Math.abs((caret.top + caret.bottom) / 2 - (surface.getBoundingClientRect().top + surface.clientHeight / 2));
+  });
+  await expect.poll(caretDistance).toBeLessThan(3);
+  await editor.getByText('Line 16', { exact: true }).click();
+  await expect.poll(caretDistance).toBeLessThan(3);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('New last line');
+  await expect.poll(caretDistance).toBeLessThan(3);
+});
+
+test('scales the Markdown size presets relative to headings, subtitles, and body text', async ({ appPage: page }) => {
+  const name = 'relative-size.md';
+  const labels = ['Small', 'Default', 'Large', 'Extra Large'];
+  const prefixes = [...Array.from({ length: 6 }, (_, index) => '#'.repeat(index + 1) + ' '), '', ''];
+  const blocks = prefixes.flatMap((prefix, index) => ['size-sm', '', 'size-lg', 'size-xl'].map((preset, variant) => {
+    const classes = [index === 6 ? 'subtitle' : '', preset].filter(Boolean).map(name => '.' + name).join(' ');
+    return `${prefix}Example ${index} ${variant}${classes ? ' {' + classes + '}' : ''}`;
+  }));
+  const group = await openMarkdown(page, name, blocks.join('\n\n'));
+  const editor = richEditor(group);
+  await expect(editor.getByText('Example 0 1', { exact: true })).toBeVisible({ timeout: 20_000 });
+  const sizes = await editor.locator(':scope > :is(h1,h2,h3,h4,h5,h6,p)').evaluateAll(elements =>
+    elements.map(element => Number.parseFloat(getComputedStyle(element).fontSize)));
+  for (let index = 0; index < prefixes.length; index++) {
+    const row = sizes.slice(index * 4, index * 4 + 4);
+    expect(row).toHaveLength(4);
+    expect(row[0]).toBeLessThan(row[1]);
+    expect(row[1]).toBeLessThan(row[2]);
+    expect(row[2]).toBeLessThan(row[3]);
+  }
+
+  const title = editor.getByRole('heading', { name: 'Example 0 1' });
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  await title.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await page.getByRole('menuitemradio', { name: labels[2], exact: true }).click();
+  await expect(title).toHaveCSS('font-size', '40px');
+  await toolbar.getByRole('button', { name: 'Size: Large' }).click();
+  await page.getByRole('menuitemradio', { name: labels[1], exact: true }).click();
+  await expect(title).toHaveCSS('font-size', '32px');
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+ArrowLeft');
+  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await page.getByRole('menuitemradio', { name: labels[3], exact: true }).click();
+  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-xl}');
+  await page.reload();
+  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
+});
+
+test('uses Tab to indent code and lets Tab leave ordinary Markdown text', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'code-tab.md', 'Ordinary paragraph\n\n```\nfirst\nsecond\n```');
+  const editor = richEditor(group);
+  const code = editor.locator('pre');
+  await code.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeFocused();
+  expect(await code.textContent()).toBe('first\n    second');
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor).toBeFocused();
+  expect(await code.textContent()).toBe('first\nsecond');
+  await editor.getByText('Ordinary paragraph').click();
+  await page.keyboard.press('Tab');
+  await expect(editor).not.toBeFocused();
 });

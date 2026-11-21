@@ -174,3 +174,35 @@ function convertBlocks(tr: Transaction, blocks: readonly SelectedTextBlock[], ty
     tr.setBlockType(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize, -1), type, attrs);
   }
 }
+
+
+const codeIndent = '    ';
+
+export function indentMarkdownCode(outdent: boolean): Command {
+  return (state, dispatch) => {
+    const { $from, $to } = state.selection;
+    if ($from.parent.type !== state.schema.nodes.code_block || !$from.sameParent($to)) return false;
+    if (!dispatch) return true;
+
+    const text = $from.parent.textContent;
+    const from = $from.parentOffset;
+    // A selection ending at the next line's start does not include that line.
+    const last = Math.max(from, $to.parentOffset - 1);
+    const first = from === 0 ? 0 : text.lastIndexOf('\n', from - 1) + 1;
+    const tr = state.tr;
+    for (let offset = first; offset <= last;) {
+      const position = tr.mapping.map($from.start() + offset);
+      if (outdent) {
+        const prefix = /^(?: {1,4}|\t)/.exec(text.slice(offset, offset + codeIndent.length))?.[0];
+        if (prefix) tr.delete(position, position + prefix.length);
+      } else {
+        tr.insertText(codeIndent, position);
+      }
+      const newline = text.indexOf('\n', offset);
+      if (newline === -1) break;
+      offset = newline + 1;
+    }
+    if (tr.docChanged) dispatch(tr.scrollIntoView());
+    return true;
+  };
+}
