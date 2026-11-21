@@ -47,7 +47,7 @@ configurationRegistry.registerConfiguration({
       default: markdownContentWidth.defaultValue,
       minimum: markdownContentWidth.min,
       maximum: markdownContentWidth.max,
-      description: 'Maximum width in characters for centered visual Markdown outside Focus Mode.',
+      description: 'Maximum line width in ch for centered visual Markdown outside Focus Mode, excluding padding and borders.',
     },
     [MARKDOWN_EDITOR_CONTENT_LAYOUT]: {
       type: 'string',

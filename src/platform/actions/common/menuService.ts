@@ -47,6 +47,9 @@ class MenuInfo {
           this.keys.add(item.numberInput.valueKey);
         }
       } else {
+        for (const { when } of item.selectFallback ?? []) {
+          this.collectKeys(when);
+        }
         this.collect(item.submenu);
       }
     }

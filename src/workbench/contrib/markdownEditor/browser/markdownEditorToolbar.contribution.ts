@@ -3,6 +3,7 @@ import { TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import type { IMenuSelectFallback } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
@@ -34,6 +35,8 @@ const editorFocus = ContextKeyExpr.and(MarkdownEditorFocusContext.isEqualTo(true
 const formattingWeight = KeybindingWeight.WorkbenchContrib + 1;
 
 const setContentWidthId = 'markdownEditor.setContentWidth';
+// Only plain decimal digits: Number() alone would also take '0x3c' or '6e1' as 60.
+const parseContentWidth = (text: string) => /^\d+$/.test(text.trim()) ? Number(text) : NaN;
 MenuRegistry.appendMenuItem(toolbar, {
   group: '7_layout', order: 2, when: wysiwyg,
   command: {
@@ -54,10 +57,10 @@ registerAction2(class extends Action2 {
       const input = await accessor.get(IQuickInputService).input({
         title: 'Set Content Width',
         value: String(isMarkdownContentWidth(current) ? current : markdownContentWidth.defaultValue),
-        validateInput: text => isMarkdownContentWidth(text.trim() ? Number(text) : NaN)
+        validateInput: text => isMarkdownContentWidth(parseContentWidth(text))
           ? undefined : `Enter a whole number from ${markdownContentWidth.min} to ${markdownContentWidth.max}.`,
       });
-      value = input === undefined ? undefined : Number(input);
+      value = input === undefined ? undefined : parseContentWidth(input);
     }
     if (isMarkdownContentWidth(value)) {
       await configuration.updateValue(MARKDOWN_EDITOR_CONTENT_WIDTH, value);
@@ -106,7 +109,7 @@ interface FormattingChoice<T> extends FormattingPicker<T> {
   readonly group: string;
   readonly order: number;
   readonly title: string;
-  readonly selectFallback?: string;
+  readonly selectFallback?: readonly IMenuSelectFallback[];
   readonly selected: (value: T) => ContextKeyExpression;
 }
 
@@ -212,7 +215,10 @@ for (const [axis, title, commandTitle, group, order, context] of [
     options: options.filter(option => !option.hidden).map(option => ({
       label: option.label, value: option.value, labelClass: axis === 'fontFamily' ? option.className : undefined,
     })),
-    selectFallback: axis === 'fontSize' ? 'Custom' : undefined,
+    // Legacy classes stay readable without a menu entry; a mixed selection (null) keeps the dash.
+    selectFallback: options.filter(option => option.hidden).map(option => ({
+      label: axis === 'fontSize' ? 'Custom' : option.label, when: context.isEqualTo(option.value),
+    })),
     selected: value => context.isEqualTo(value),
     parse: arg => options.find(option => option.value === arg)?.value,
     createCommand: value => setFormattingPreset(axis, value),

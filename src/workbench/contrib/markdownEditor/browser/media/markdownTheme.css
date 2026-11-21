@@ -51,9 +51,8 @@
 .markdown-editor-surface .ProseMirror .font-sans {
   font-family: var(--markdown-editor-font-sans);
 }
-.markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
 
-/* Share the installed font stacks with the dropdown’s previews. */
+/* Share the installed font stacks with the dropdown’s previews. Rules follow formattingPresets’ order. */
 :is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-noto-sans-kr {
   font-family: 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
 }
@@ -69,6 +68,8 @@
 :is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-monospace {
   font-family: monospace;
 }
+/* The legacy monospace class sits with its replacement and still follows the other legacy fonts. */
+.markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
 
 .markdown-editor-surface .ProseMirror :is(
   .font-serif, .font-sans, .font-mono, .font-monospace,

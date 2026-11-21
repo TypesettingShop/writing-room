@@ -110,11 +110,13 @@
 }
 
 .markdown-editor-surface .ProseMirror {
+  --markdown-content-padding-inline: 2rem;
+  --markdown-content-border-width: 1px;
   box-sizing: border-box;
   min-height: 100%;
-  max-width: var(--markdown-content-width);
+  max-width: calc(var(--markdown-content-width) + 2 * (var(--markdown-content-padding-inline) + var(--markdown-content-border-width)));
   margin: 0 auto;
-  padding: 1.25rem 2rem;
+  padding: 1.25rem var(--markdown-content-padding-inline);
   background: var(--vscode-editor-background);
   outline: none;
   font-size: 1rem;
@@ -132,7 +134,7 @@
 
 .markdown-editor-frame:not(.markdown-content-fill) .markdown-editor-surface .ProseMirror,
 .markdown-focus-mode .markdown-editor-surface .ProseMirror {
-  border-inline: 1px solid var(--vscode-editorGroup-border);
+  border-inline: var(--markdown-content-border-width) solid var(--vscode-editorGroup-border);
 }
 
 .markdown-editor-surface .ProseMirror > :first-child {

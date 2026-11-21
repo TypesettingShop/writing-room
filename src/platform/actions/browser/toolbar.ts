@@ -175,8 +175,13 @@ export class MenuWorkbenchToolBar extends Disposable {
         for (const action of items) {
           let control: HTMLButtonElement | HTMLInputElement;
           if (options && action instanceof MenuItemAction && action.numberInput) {
-            const input = inputs.get(action.id) ?? createNumberInput(document, action.numberInput);
-            inputs.set(action.id, input);
+            let input = inputs.get(action.id);
+            if (!input) {
+              input = createNumberInput(document, action.numberInput);
+              // A click inside the toolbar does not dismiss its popup, so moving to the input closes it here.
+              input.control.addEventListener('focus', close);
+              inputs.set(action.id, input);
+            }
             inputIds.add(action.id);
             input.update(action, contextKeyService.getContextKeyValue?.<number>(action.numberInput.valueKey));
             control = input.control;
@@ -247,7 +252,8 @@ export class MenuWorkbenchToolBar extends Disposable {
           const choices = action.groups.flatMap(([, items]) => items);
           const current = choices.find(item => item instanceof MenuItemAction && item.checked);
           const value = document.createElement('span');
-          const label = current?.label ?? action.item.selectFallback;
+          const fallback = action.item.selectFallback?.find(({ when }) => contextKeyService.contextMatchesRules(when));
+          const label = current?.label ?? fallback?.label;
           value.className = 'wr-menu-toolbar-choice-label';
           value.textContent = label ?? '—';
           if (current instanceof MenuItemAction && current.labelClass) {

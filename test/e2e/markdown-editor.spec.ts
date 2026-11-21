@@ -134,10 +134,25 @@ test('applies a shared Markdown content width on Enter and blur and restores it 
   const name = 'content-width.md';
   const group = await openMarkdown(page, name, 'Shared width');
   const left = richEditor(group);
-  const maxWidth = (editor: Locator) => editor.evaluate(element => Number.parseFloat(getComputedStyle(element).maxWidth));
+  const maxLineWidth = (editor: Locator) => editor.evaluate(element => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.maxWidth) - [
+      style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth,
+    ].reduce((sum, length) => sum + Number.parseFloat(length), 0);
+  });
   const widthInput = (scope: Locator) => scope.getByRole('spinbutton', { name: 'Content Width (characters)' });
   await expect(widthInput(group)).toHaveValue('80', { timeout: 20_000 });
-  const initialWidth = await maxWidth(left);
+  const expectedWidth = await left.evaluate(element => {
+    const probe = element.ownerDocument.createElement('div');
+    probe.style.cssText = 'position: absolute; visibility: hidden; width: 80ch';
+    const { fontFamily, fontSize, fontWeight, fontStyle } = getComputedStyle(element);
+    Object.assign(probe.style, { fontFamily, fontSize, fontWeight, fontStyle });
+    element.after(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    return width;
+  });
+  expect((await box(left.locator('p'))).width).toBeCloseTo(expectedWidth, 1);
   await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
   const rightGroup = groups(page).nth(1);
   const right = richEditor(rightGroup);
@@ -150,8 +165,8 @@ test('applies a shared Markdown content width on Enter and blur and restores it 
   await expect(rightGroup.getByRole('toolbar', { name: 'Markdown formatting' }).locator('button[tabindex="0"]')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(input).toBeFocused();
-  expect(await maxWidth(left)).toBeCloseTo(initialWidth * 0.75, 0);
-  expect(await maxWidth(right)).toBe(await maxWidth(left));
+  expect(await maxLineWidth(left)).toBeCloseTo(expectedWidth * 0.75, 1);
+  expect(await maxLineWidth(right)).toBe(await maxLineWidth(left));
   for (const invalid of ['0', '-30', '60.5', '401', '']) {
     await input.fill(invalid);
     await input.press('Enter');
@@ -243,6 +258,13 @@ test('starts typing at the clicked gutter’s line edge or document end', async 
   await page.mouse.click(paper.x - 12, last.y + last.height + 35);
   await page.keyboard.type(' below');
   await expect(lastItem).toHaveText('Start Last item below');
+  // Shift extends from the caret, here at the document end, to the clicked line's start.
+  await page.keyboard.down('Shift');
+  await page.mouse.click(paper.x - 12, line.y + line.height / 2);
+  await page.keyboard.up('Shift');
+  await page.keyboard.type('Replaced');
+  await expect(second).toHaveText('Replaced');
+  await expect(editor.locator('li')).toHaveCount(0);
 });
 
 test('keeps split source and WYSIWYG views synchronized on one dirty model', async ({ appPage: page }) => {
@@ -464,6 +486,10 @@ test('saves paragraph alignment and inline size and font presets and restores th
   await expect(editor.locator('.subtitle')).toHaveCSS('font-family', 'system-ui, sans-serif');
   await expect(editor.locator('.font-serif')).toHaveCSS('font-family', 'Cambria, serif');
   await expect(editor.locator('.font-mono')).toHaveCSS('font-family', 'monospace');
+  await editor.getByText('Legacy serif').click();
+  await expect(font).toHaveText('Serif');
+  await editor.getByText('Legacy mono').click();
+  await expect(font).toHaveText('monospace');
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
   expect(await readWorkspaceText(page, name)).toBe(
@@ -958,6 +984,12 @@ test('renders absolute point sizes and still scales authored legacy sizes relati
   const title = editor.getByRole('heading', { name: 'Example 0 1' });
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   const size = toolbar.getByRole('button', { name: 'Size', exact: true });
+  await editor.getByRole('heading', { name: 'Example 0 0' }).click();
+  await expect(size).toHaveText('Custom');
+  // A selection across differently sized blocks has no single size, so it shows the dash rather than Custom.
+  await page.keyboard.press('Home');
+  await title.click({ modifiers: ['Shift'] });
+  await expect(size).toHaveText('—');
   await editor.getByRole('heading', { name: 'Example 0 0' }).click();
   await expect(size).toHaveText('Custom');
   await size.click();

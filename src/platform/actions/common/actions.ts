@@ -49,13 +49,19 @@ export interface IMenuNumberInput {
   readonly max: number;
 }
 
+/** A label a select submenu shows when no listed choice is checked but `when` holds. */
+export interface IMenuSelectFallback {
+  readonly label: string;
+  readonly when: ContextKeyExpression | undefined;
+}
+
 export interface ISubmenuItem extends IMenuEntry {
   readonly submenu: MenuId;
   readonly forwardMenuContext?: MenuId;
   readonly title: CommandTitle;
   readonly icon?: CommandIcon;
   readonly select?: boolean;
-  readonly selectFallback?: string;
+  readonly selectFallback?: readonly IMenuSelectFallback[];
 }
 
 export function isIMenuItem(item: IMenuItem | ISubmenuItem): item is IMenuItem {

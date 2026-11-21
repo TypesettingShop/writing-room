@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +9,7 @@ import { ContextKeyService } from '../../../../../platform/contextkey/browser/co
 import { blockStyles, currentBlockStyle, selectedTextBlocks, setBlockStyle } from '../../browser/markdownEditorBlockStyles.js';
 import { bindMarkdownFormattingContext } from '../../browser/markdownEditorFormattingContext.js';
 import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from '../../browser/markdownEditorInline.js';
-import { currentFormattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
+import { currentFormattingPresets, formattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
 
 function read(source: string, from = 1, to = from): EditorState {
   const doc = parseMarkdown(source);
@@ -112,6 +113,25 @@ describe('Markdown class presets', () => {
     expect(setFormattingPreset('textAlign', 'justify')(read('Line'))).toBe(false);
     expect(write(state)).toBe('Line {.center .justify .authored}');
     expect(write(apply(state, setFormattingPreset('textAlign', 'center')))).toBe('Line {.authored .center}');
+  });
+
+  it('reports the size and font the theme renders when a block carries several of one axis', () => {
+    expect(presets(read('Line {.size-24pt .size-12pt}')).fontSize).toBe('24pt');
+    expect(presets(read('Line {.size-12pt .size-lg}')).fontSize).toBe('12pt');
+    expect(presets(read('Line {.font-nanum-gothic .font-noto-sans-kr}')).fontFamily).toBe('nanum-gothic');
+    expect(presets(read('Line {.font-mono .font-serif}')).fontFamily).toBe('monospace');
+    expect(presets(read('Line {.font-mono .font-noto-serif-kr}')).fontFamily).toBe('monospace');
+  });
+
+  it('keeps the theme rules in the preset table order that the reported value relies on', () => {
+    const css = readFileSync(new URL('../../browser/media/markdownTheme.css', import.meta.url), 'utf8');
+    for (const { options } of Object.values(formattingPresets)) {
+      const positions = options.flatMap(({ className, legacyClassName }) => [className, legacyClassName])
+        .filter(name => name !== undefined)
+        .map(name => css.search(new RegExp(`\\.${name}(?![\\w-])`)));
+      expect(positions.every(position => position >= 0)).toBe(true);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    }
   });
 
   it('updates only the selected part of a span and preserves the other axes and classes', () => {
