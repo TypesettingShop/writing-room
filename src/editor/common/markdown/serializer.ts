@@ -54,11 +54,12 @@ interface RenderedList extends ListMarker {
 
 const lastListInScope = new WeakMap<MarkdownSerializerState, RenderedList>();
 const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
-// The written marker of the list whose items are being rendered.
-const renderingMarkers = new WeakMap<MarkdownSerializerState, string>();
+// The marker and minimum content column of the item currently being rendered.
+const renderingListItems = new WeakMap<MarkdownSerializerState, { marker: string; indent: number }>();
 // prosemirror-markdown's list renderer uses one continuation indent for the
 // whole list. Keep its block-closing behavior while choosing the indent per item.
 type ListSerializerState = MarkdownSerializerState & {
+  delim: string;
   closed: Node | null;
   inTightList: boolean;
   atBlank(): boolean;
@@ -154,26 +155,32 @@ function renderList(
   const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1;
   const outerItem = looseSingleItems.get(state);
   const outerTight = listState.inTightList;
+  const outerDelim = listState.delim;
+  const parentItem = renderingListItems.get(state);
+  const sharesMarkerLine = isListItem(parent) && !listState.closed && !listState.atBlank();
+  if (isListItem(parent) && parentItem && parent.firstChild!.content.size && !sharesMarkerLine) {
+    // Only move the nested list. Other blocks use the item's content column.
+    listState.delim += ' '.repeat(Math.max(0, 4 - parentItem.indent));
+  }
   if (needsLooseTrailer) looseSingleItems.set(state, item);
-  const parentMarker = renderingMarkers.get(state);
-  renderingMarkers.set(state, current.marker);
   listState.inTightList = node.attrs.tight;
   node.forEach((child, _offset, itemIndex) => {
     if (itemIndex && node.attrs.tight) listState.flushClose(1);
     const delim = firstDelim(current.marker, itemIndex);
-    const sharesMarkerLine = isListItem(parent) && !listState.closed && !listState.atBlank();
-    const run = sharesMarkerLine ? (parentMarker === current.marker ? 2 : 1) : 0;
+    const run = !itemIndex && sharesMarkerLine ? (parentItem?.marker === current.marker ? 2 : 1) : 0;
     const firstLine = needsRuleMarkerBreak(child, current.marker, run) ? delim.trimEnd() + '\n' : delim;
+    renderingListItems.set(state, { marker: current.marker, indent: delim.length });
     state.wrapBlock(' '.repeat(delim.length), firstLine, node, () => state.render(child, node, itemIndex));
   });
-  if (parentMarker === undefined) renderingMarkers.delete(state);
-  else renderingMarkers.set(state, parentMarker);
+  if (parentItem === undefined) renderingListItems.delete(state);
+  else renderingListItems.set(state, parentItem);
   listState.inTightList = outerTight;
   if (needsLooseTrailer) {
     if (outerItem) looseSingleItems.set(state, outerItem);
     else looseSingleItems.delete(state);
   }
   finishBlock(state, node);
+  listState.delim = outerDelim;
   lastListInScope.set(state, { ...current, parent, index });
 }
 
@@ -384,7 +391,7 @@ const markdownSerializer = new MarkdownSerializer({
     const previous = parent.maybeChild(index - 1);
     // A list starting above 1 cannot interrupt a paragraph, including the class line
     // written after a styled block, without a blank line.
-    if (start !== 1 && endsWithParagraphLine(previous)) state.write();
+    if (start !== 1 && endsWithParagraphLine(previous)) (state as ListSerializerState).flushClose();
     renderList(state, node, parent, index, (marker, item) => String(start + item) + marker + ' ');
   },
   list_item: renderItemContent,

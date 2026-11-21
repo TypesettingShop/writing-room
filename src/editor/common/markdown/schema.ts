@@ -1,5 +1,5 @@
 import { Schema } from 'prosemirror-model';
-import type { Attrs, MarkSpec, NodeSpec, TagParseRule } from 'prosemirror-model';
+import type { Attrs, MarkSpec, Node, NodeSpec, TagParseRule } from 'prosemirror-model';
 import { schema as basicMarkdownSchema } from 'prosemirror-markdown';
 import { isMarkdownClass } from './plugins/attrs.js';
 
@@ -22,6 +22,36 @@ function styledBlock(tag: string, spec: NodeSpec = {}): NodeSpec {
     parseDOM: [{ tag, getAttrs: element => ({ classes: readClasses(element) }) }],
     toDOM: node => [tag, classAttribute(node.attrs), 0],
   };
+}
+
+function tableCell(tag: 'td' | 'th', tableRole: 'cell' | 'header_cell'): NodeSpec {
+  return {
+    ...styledBlock(tag, {
+      content: 'inline*', group: '', isolating: true, tableRole,
+      attrs: {
+        align: { default: null, validate: 'string|null' },
+        // TableMap needs span and width attributes. GFM cells always occupy one slot.
+        colspan: { default: 1, validate: 'number' },
+        rowspan: { default: 1, validate: 'number' },
+        colwidth: { default: null, validate: 'null' },
+      },
+    }),
+    parseDOM: [{
+      tag,
+      getAttrs: element => ({
+        align: /^(left|center|right)$/.test(element.style.textAlign) ? element.style.textAlign : null,
+        classes: readClasses(element),
+      }),
+    }],
+    toDOM: node => [tag, {
+      ...classAttribute(node.attrs), ...(node.attrs.align && { style: `text-align: ${node.attrs.align}` }),
+    }, 0],
+  };
+}
+
+export function isMarkdownTableCell(node: Node): boolean {
+  const role = node.type.spec.tableRole;
+  return role === 'cell' || role === 'header_cell';
 }
 
 const nodes: Record<string, NodeSpec> = {
@@ -79,27 +109,12 @@ const nodes: Record<string, NodeSpec> = {
     toDOM: node => ['li', { ...classAttribute(node.attrs), 'data-task-checked': String(node.attrs.checked) }, 0],
   },
   table: {
-    ...styledBlock('table', { content: 'table_row+', isolating: true }),
+    ...styledBlock('table', { content: 'table_row+', isolating: true, tableRole: 'table' }),
     toDOM: node => ['table', classAttribute(node.attrs), ['tbody', 0]],
   },
-  table_row: styledBlock('tr', { content: 'table_cell+', group: '' }),
-  table_cell: {
-    ...styledBlock('td', {
-      content: 'inline*', group: '', isolating: true,
-      attrs: { align: { default: null, validate: 'string|null' }, header: { default: false, validate: 'boolean' } },
-    }),
-    parseDOM: ['th', 'td'].map((tag): TagParseRule => ({
-      tag,
-      getAttrs: element => ({
-        header: tag === 'th',
-        align: element.style.textAlign || null,
-        classes: readClasses(element),
-      }),
-    })),
-    toDOM: node => [node.attrs.header ? 'th' : 'td', {
-      ...classAttribute(node.attrs), ...(node.attrs.align && { style: `text-align: ${node.attrs.align}` }),
-    }, 0],
-  },
+  table_row: styledBlock('tr', { content: '(table_cell | table_header)+', group: '', tableRole: 'row' }),
+  table_cell: tableCell('td', 'cell'),
+  table_header: tableCell('th', 'header_cell'),
   image: basicMarkdownSchema.spec.nodes.get('image')!,
   hard_break: basicMarkdownSchema.spec.nodes.get('hard_break')!,
   // Keep soft line breaks as inline whitespace so editing does not concatenate source lines.

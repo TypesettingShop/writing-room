@@ -10,6 +10,7 @@ import { normalizeMarkdownLink } from './markdownEditorInline.js';
 const htmlNamespace = 'http://www.w3.org/1999/xhtml';
 const discarded = 'script, style, template, noscript, iframe, object, embed, link, meta, base, title';
 // `data-pm-slice` carries the open depth and context of a copy from this editor; ProseMirror reads it after this transform.
+// Keep one GFM cell per HTML cell. Span and column-width attributes are discarded here.
 const safeAttributes = new Set([
   'class', 'href', 'src', 'title', 'alt', 'start', 'data-task-checked', 'data-code-info', 'data-footnote', 'data-pm-slice',
 ]);
@@ -80,6 +81,10 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
 
   clipboardTextSerializer(slice) {
     let { content, openStart, openEnd } = slice;
+    // A cell selection over the whole table copies the table, opened only at its rows.
+    if (content.childCount === 1 && content.firstChild!.type === markdownSchema.nodes.table && openStart === 1 && openEnd === 1) {
+      return serializeMarkdown(markdownSchema.topNodeType.create(null, content));
+    }
     // A selection inside one block copies that block's text, not the markers of the blocks around it.
     while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
       content = content.firstChild!.content;

@@ -18,13 +18,26 @@ import { sourceWritingPositions } from './markdownEditorSelection.js';
 
 interface WritingState {
   readonly doc: Node;
-  readonly from: number;
-  readonly to: number;
+  /** The selected ranges. A table cell selection has one range per cell. */
+  readonly ranges: readonly { readonly from: number; readonly to: number }[];
   readonly head: number;
   readonly selected: boolean;
   /** Brings a pending source reparse up to date before positions are used. */
   sync?(): void;
   reveal(position: number): void;
+}
+
+function selectionCounts({ doc, ranges }: WritingState): MarkdownCounts {
+  let total: MarkdownCounts = { characters: 0, nonWhitespace: 0, words: 0 };
+  for (const { from, to } of ranges) {
+    const counts = markdownCounts(doc, from, to);
+    total = {
+      characters: total.characters + counts.characters,
+      nonWhitespace: total.nonWhitespace + counts.nonWhitespace,
+      words: total.words + counts.words,
+    };
+  }
+  return total;
 }
 
 class MarkdownOutline extends Disposable {
@@ -139,7 +152,8 @@ class MarkdownWritingContribution extends Disposable {
         const state = pane.writingState;
         const selection = state?.selection;
         this.update(state && selection ? {
-          doc: state.doc, from: selection.from, to: selection.to, head: selection.head, selected: !selection.empty,
+          doc: state.doc, ranges: selection.ranges.map(({ $from, $to }) => ({ from: $from.pos, to: $to.pos })),
+          head: selection.head, selected: !selection.empty,
           reveal: position => pane.revealWritingPosition(position),
         } : undefined);
       };
@@ -194,7 +208,7 @@ class MarkdownWritingContribution extends Disposable {
       const head = selection ? positions.toDocument(model.getOffsetAt(selection.getPosition())) : from;
       this.immediate = true;
       this.update({
-        doc: parsed.doc, from, to, head, selected: selection ? !selection.isEmpty() : false,
+        doc: parsed.doc, ranges: [{ from, to }], head, selected: selection ? !selection.isEmpty() : false,
         sync: () => {
           if (version !== model.getVersionId()) update();
         },
@@ -248,7 +262,7 @@ class MarkdownWritingContribution extends Disposable {
       this.status = '';
       return;
     }
-    const { characters, nonWhitespace, words } = state.selected ? markdownCounts(state.doc, state.from, state.to) : this.counts;
+    const { characters, nonWhitespace, words } = state.selected ? selectionCounts(state) : this.counts;
     const wordLabel = words === 1 ? 'word' : 'words';
     const characterLabel = characters === 1 ? 'character' : 'characters';
     const text = `${state.selected ? 'Selection · ' : ''}${words} ${wordLabel} · ${characters} ${characterLabel} · ${nonWhitespace} without spaces`;
