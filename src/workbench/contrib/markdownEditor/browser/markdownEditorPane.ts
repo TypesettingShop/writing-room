@@ -1,4 +1,5 @@
 import { baseKeymap } from 'prosemirror-commands';
+import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
 import type { Command, EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
@@ -8,7 +9,6 @@ import { Emitter } from '../../../../base/common/event.js';
 import { combinedDisposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { clearMonacoUndoHistory } from '../../../../editor/browser/monaco.js';
-import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
 import type { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
@@ -31,6 +31,8 @@ import {
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
+import { markdownClipboard } from './markdownEditorClipboard.js';
+import { markdownInputRules } from './markdownEditorInputRules.js';
 import { markdownImageView } from './markdownEditorImages.js';
 import { markdownListKeys, taskItemView } from './markdownEditorLists.js';
 import { moveMarkdownTableCell } from './markdownEditorTables.js';
@@ -39,8 +41,6 @@ import { MarkdownEditorModel } from './markdownEditorModel.js';
 import 'prosemirror-view/style/prosemirror.css';
 import './markdownEditor.css';
 import './media/markdownTheme.css';
-
-const { validateLink } = createMarkdownIt();
 
 export class MarkdownEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.markdownEditor';
@@ -159,19 +159,7 @@ export class MarkdownEditorPane extends EditorPane {
         state: sync.state,
         editable: () => !input.isReadonly(),
         attributes: { role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true' },
-        transformPastedHTML: (html, view) => {
-          // Apply the Markdown parser's URL policy to links and images pasted as rich text too.
-          const template = view.dom.ownerDocument.createElement('template');
-          template.innerHTML = html;
-          for (const [selector, attribute] of [['a[href]', 'href'], ['img[src]', 'src']]) {
-            for (const element of template.content.querySelectorAll(selector)) {
-              if (!validateLink(element.getAttribute(attribute)!)) {
-                element.removeAttribute(attribute);
-              }
-            }
-          }
-          return template.innerHTML;
-        },
+        ...markdownClipboard,
         nodeViews: {
           image: (node, view) => markdownImageView(node, view.dom.ownerDocument, input.resource, this.files, this.workspace),
           task_item: (node, view, getPos) => taskItemView(node, view.dom.ownerDocument, checked => {
@@ -250,9 +238,9 @@ export class MarkdownEditorPane extends EditorPane {
     }
     const undo: Command = () => { this.undo(); return true; };
     const redo: Command = () => { this.redo(); return true; };
-    const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo });
+    const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, Backspace: undoInputRule });
     const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
-    const model = new MarkdownEditorModel(textModel, [keys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
+    const model = new MarkdownEditorModel(textModel, [markdownInputRules, keys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
       if (this.input === input) {
         this.view?.updateState(state);
         this.updateHistoryContext();

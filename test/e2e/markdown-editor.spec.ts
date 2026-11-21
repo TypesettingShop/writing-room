@@ -466,3 +466,53 @@ test('toggles a task, exits a list, and loads remote images only on request', as
   await expect.poll(() => readWorkspaceText(page, name)).toContain('- [x] Check me\n\nOutside');
   expect(await readWorkspaceText(page, name)).toContain('![Blocked](http://images.example.test/photo.png)');
 });
+
+test('pastes a web heading, list and link as Markdown and strips unrelated HTML', async ({ appPage: page }) => {
+  const name = 'web-paste.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  await editor.focus();
+  await editor.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', [
+      '<h2 style="text-align:center;color:red">Heading</h2>',
+      '<ul><li>First</li><li>Second</li></ul>',
+      '<p><a href="https://example.test/" onclick="fail()">Good link</a> ',
+      '<a href="java&#10;script:fail()">Rejected link</a></p>',
+      '<script>discardScript()</script><style>discardStyles</style>',
+    ].join(''));
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+  });
+  const heading = editor.getByRole('heading', { name: 'Heading' });
+  await expect(heading).toHaveCSS('text-align', 'center');
+  await expect(heading).not.toHaveCSS('color', 'rgb(255, 0, 0)');
+  await expect(editor.locator('li')).toHaveText(['First', 'Second']);
+  await expect(editor.getByRole('link')).toHaveText('Good link');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(
+    '## Heading {.center}\n\n- First\n- Second\n\n[Good link](https://example.test/) Rejected link',
+  );
+});
+
+test('pastes Markdown text and uses the Shift shortcut for literal text', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'text-paste.md', '');
+  const editor = richEditor(group);
+  await editor.focus();
+  async function pasteText(text: string): Promise<void> {
+    await editor.evaluate((element, value) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', value);
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+    }, text);
+  }
+  await pasteText('# Parsed title\n\n**Bold**');
+  await expect(editor.getByRole('heading')).toHaveText('Parsed title');
+  await expect(editor.locator('strong')).toHaveText('Bold');
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('Shift');
+  await pasteText('**Literal**');
+  await page.keyboard.up('Shift');
+  await expect(editor.locator('p').last()).toHaveText('**Literal**');
+  await expect(editor.locator('strong')).toHaveCount(1);
+});
