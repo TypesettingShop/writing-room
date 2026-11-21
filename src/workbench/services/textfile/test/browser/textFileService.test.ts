@@ -315,6 +315,55 @@ describe('text file models', () => {
     expect(reopened.model.isDirty()).toBe(false);
   });
 
+  test('saves and reopens a queued rich edit on the paragraph a source batch moved', async () => {
+    const original = 'Alpha\n\nBravo';
+    const external = 'Bravo\n\nCharlie';
+    const typed = 'BravoX\n\nCharlie';
+    const path = '/rich.md';
+    await files.writeFile(file(path), bytes(original));
+    const { service } = createService();
+    const { model, textModel } = await resolve(service, path);
+    let sync: MarkdownEditorModel;
+    disposables.add(textModel.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        sync.dispatch(sync.state.tr.insertText('X', sync.state.doc.content.size - 1));
+      }
+    }));
+    sync = disposables.add(new MarkdownEditorModel(textModel, [], () => {}, edit => model.applyRichEditorEdit(edit)));
+    const expectSource = (source: string, dirty: boolean) => {
+      expect(textModel.getValue()).toBe(source);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      expect(model.isDirty()).toBe(dirty);
+    };
+    // One event deletes the first paragraph and appends another, so Bravo moves to index 0.
+    textModel.applyEdits([
+      { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 1 }, text: '' },
+      { range: { startLineNumber: 3, startColumn: 6, endLineNumber: 3, endColumn: 6 }, text: '\n\nCharlie' },
+    ]);
+    expectSource(typed, true);
+    expect(sync.undo()).toBe(true);
+    expectSource(external, true);
+    expect(sync.undo()).toBe(true);
+    expectSource(original, false);
+    expect(sync.canUndo).toBe(false);
+    expect(sync.redo()).toBe(true);
+    expectSource(external, true);
+    expect(sync.redo()).toBe(true);
+    expectSource(typed, true);
+    expect(sync.canRedo).toBe(false);
+    expect(await model.save()).toBe(true);
+    expectSource(typed, false);
+    expect(Array.from((await files.readFile(file(path))).value)).toEqual(Array.from(bytes(typed)));
+
+    sync.dispose();
+    model.dispose();
+    const reopened = await resolve(service, path);
+    const rich = disposables.add(new MarkdownEditorModel(reopened.textModel, [], () => {}));
+    expect(reopened.textModel.getValue()).toBe(typed);
+    expect(rich.state.doc.eq(parseMarkdownWithSource(typed).doc)).toBe(true);
+    expect(reopened.model.isDirty()).toBe(false);
+  });
+
   test('asks before overwriting a file another writer saved first, and keeps both sides until answered', async () => {
     await files.writeFile(file('/a.txt'), bytes('base'));
     const { service } = createService();

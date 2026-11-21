@@ -5,14 +5,9 @@ import type { EditorState } from 'prosemirror-state';
 import { TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { describe, expect, it, vi } from 'vitest';
-import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
-import { TestModelService, TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
-import { FileService } from '../../../../../platform/files/common/fileService.js';
-import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
-import { TextFileEditorModel } from '../../../../services/textfile/common/textFileEditorModel.js';
-import type { ITextFileModelHost } from '../../../../services/textfile/common/textFileEditorModel.js';
+import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
 
 function editLine(model: TestTextModel, line: number, startColumn: number, endColumn: number, text: string): void {
@@ -322,72 +317,11 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
-  it('saves and reopens the queued edit on the surviving paragraph after a batch moves it', async () => {
-    const original = 'Alpha\n\nBravo';
-    const external = 'Bravo\n\nCharlie';
-    const typed = 'BravoX\n\nCharlie';
-    const resource = URI.parse('mem:///draft.md');
-    const disposables = new DisposableStore();
-    const files = disposables.add(new FileService());
-    const provider = disposables.add(new InMemoryFileSystemProvider());
-    const models = new TestModelService();
-    const host: ITextFileModelHost = {
-      backups: undefined,
-      runSaveParticipants: async () => {},
-      saveErrorHandler: { resolveConflict: async () => 'cancel', onSaveError: error => { throw error; } },
-    };
-    disposables.add(files.registerProvider(resource.scheme, provider));
-    try {
-      await files.writeFile(resource, new TextEncoder().encode(original));
-      const file = disposables.add(new TextFileEditorModel(resource, host, files, models));
-      await file.resolve();
-      const model = file.textEditorModel!;
-      disposables.add(model.onDidChangeContent(event => {
-        if (event.versionId === 2) {
-          sync.dispatch(sync.state.tr.insertText('X', sync.state.doc.content.size - 1));
-        }
-      }));
-      const sync = disposables.add(new MarkdownEditorModel(model, [], () => {}, edit => file.applyRichEditorEdit(edit)));
-      model.applyEdits([
-        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 1 }, text: '' },
-        { range: { startLineNumber: 3, startColumn: 6, endLineNumber: 3, endColumn: 6 }, text: '\n\nCharlie' },
-      ]);
-      const expectSource = (source: string) => {
-        expect(model.getValue()).toBe(source);
-        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
-      };
-      expectSource(typed);
-      expect(sync.undo()).toBe(true);
-      expectSource(external);
-      expect(sync.undo()).toBe(true);
-      expectSource(original);
-      expect(sync.canUndo).toBe(false);
-      expect(sync.redo()).toBe(true);
-      expectSource(external);
-      expect(sync.redo()).toBe(true);
-      expectSource(typed);
-      expect(sync.canRedo).toBe(false);
-      expect(file.isDirty()).toBe(true);
-      expect(await file.save()).toBe(true);
-      expect(file.isDirty()).toBe(false);
-      expect(Array.from((await files.readFile(resource)).value)).toEqual(Array.from(new TextEncoder().encode(typed)));
-      sync.dispose();
-      file.dispose();
-      const reopened = disposables.add(new TextFileEditorModel(resource, host, files, models));
-      await reopened.resolve();
-      const rich = disposables.add(new MarkdownEditorModel(reopened.textEditorModel!, [], () => {}));
-      expect(reopened.textEditorModel!.getValue()).toBe(typed);
-      expect(rich.state.doc.eq(parseMarkdownWithSource(typed).doc)).toBe(true);
-    } finally {
-      disposables.dispose();
-    }
-  });
-
   it.each([
     { last: 'Bravo\n\n_Charlie_', appended: 'Delta', target: 1, expected: 'BravoX\n\n_Charlie_\n\nDelta' },
     { last: 'Alpha', appended: 'Alpha', target: 1, expected: 'AlphaX\n\nAlpha' },
     { last: 'Alpha', appended: 'Alpha', target: 0, expected: 'Alpha\n\nAlpha' },
-  ])('tracks the queued edit from paragraph $target when replacing Alpha with $appended', ({ last, appended, target, expected }) => {
+  ])('tracks the queued edit from paragraph $target when deleting Alpha and appending $appended', ({ last, appended, target, expected }) => {
     const original = 'Alpha\n\n' + last;
     const external = last + '\n\n' + appended;
     const model = new TestTextModel(URI.parse('file:///draft.md'), original);
@@ -440,6 +374,8 @@ describe('MarkdownEditorModel', () => {
       external: 'Alpha\n\nNew\n\nBravo', changes: [[5, 5, '\n\nNew'], [12, 21, '']], from: 3, to: 10 },
     { label: 'replaces a list item with identical source', original: '- Alpha\n- Alpha', external: '- Alpha\n- Alpha',
       changes: [[0, 8, ''], [15, 15, '\n- Alpha']], from: 8, to: 8 },
+    { label: 'keeps only the line ending of a paragraph', original: 'Alpha\n\nBravo', external: 'Zed\n\nBravo',
+      changes: [[0, 4, ''], [4, 5, 'Zed']], from: 6, to: 6 },
   ] as const)('drops a queued replacement when the source batch $label', ({ original, external, changes, from, to }) => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), original);
     const listener = model.onDidChangeContent(event => {

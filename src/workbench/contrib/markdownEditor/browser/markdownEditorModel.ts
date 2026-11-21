@@ -205,7 +205,11 @@ function sourceBatchChangeMap(
 
 function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null {
   const mapping = remap.slice(start);
-  if (!mapping.maps.some(map => map instanceof SourceBatchMap)) {
+  let firstBatch = start;
+  while (firstBatch < remap.to && !(remap.maps[firstBatch] instanceof SourceBatchMap)) {
+    firstBatch++;
+  }
+  if (firstBatch === remap.to) {
     return step.map(mapping);
   }
   // Steps can map successfully even if they cross an unmatched block or land exactly on
@@ -224,7 +228,7 @@ function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null
   if (!mapped) {
     return null;
   }
-  for (let index = start; index < remap.to; index++) {
+  for (let index = firstBatch; index < remap.to; index++) {
     const batch = remap.maps[index];
     if (!(batch instanceof SourceBatchMap)) {
       continue;
