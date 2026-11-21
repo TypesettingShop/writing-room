@@ -78,6 +78,42 @@ test('honors the Source default and still allows explicit WYSIWYG', async ({ pag
   await expect(richEditor(group).getByRole('heading', { name: 'Heading' })).toBeVisible();
 });
 
+test('keeps Source mode available while rich Markdown is loading and after the read fails', async ({ appPage: page }) => {
+  const name = 'read-retry.md';
+  const source = '# Retry the Markdown file in source mode';
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, name, source);
+  await page.evaluate(length => {
+    const read = Blob.prototype.arrayBuffer;
+    Blob.prototype.arrayBuffer = function () {
+      if (this.size !== length) {
+        return read.call(this);
+      }
+      Blob.prototype.arrayBuffer = read;
+      return new Promise((_resolve, reject) => {
+        window.addEventListener('test-reject-markdown-read', () => reject(new Error('Test read failure')), { once: true });
+        document.documentElement.dataset.testMarkdownRead = 'pending';
+      });
+    };
+  }, source.length);
+
+  await treeItem(page, name).dblclick();
+  const group = groups(page).first();
+  const sourceButton = group.getByRole('button', { name: 'Switch to Markdown Source' });
+  await expect(page.locator('html')).toHaveAttribute('data-test-markdown-read', 'pending');
+  await expect(richEditor(group)).toBeHidden();
+  await expect(sourceButton).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event('test-reject-markdown-read')));
+
+  const error = group.getByRole('alert').filter({ hasText: name });
+  await expect(error).toBeVisible();
+  await expect(sourceButton).toBeVisible();
+  await error.focus();
+  await page.keyboard.press('ControlOrMeta+Shift+m');
+  await expect(group.getByRole('button', { name: 'Switch to WYSIWYG' })).toBeVisible();
+  await expect(group.locator('.view-lines')).toContainText(source);
+});
+
 test('keeps split source and WYSIWYG views synchronized on one dirty model', async ({ appPage: page }) => {
   const name = 'split.md';
   const left = await openMarkdown(page, name, '# Heading\n\nShared');
@@ -238,14 +274,14 @@ test('saves paragraph alignment and inline size and font presets and restores th
     if (localStorage.getItem(key) === null) {
       localStorage.setItem('writing-room:storage:version', '2');
       localStorage.setItem(key, JSON.stringify({
-        'markdownEditor.fontFamily': { serif: 'Cambria, serif' },
+        'markdownEditor.fontFamily': { serif: 'Cambria, serif', sans: '16px' },
         'workbench.colorTheme': 'Writing Room Light',
       }));
     }
   }, settingsKey);
   await page.goto('/');
   const name = 'presets.md';
-  const group = await openMarkdown(page, name, 'One word {.my-class}\n\nSubheading {.subtitle}');
+  const group = await openMarkdown(page, name, 'One word {.my-class}\n\nSubheading {.subtitle .font-sans}');
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   const paragraph = editor.locator('p.my-class');
@@ -274,9 +310,12 @@ test('saves paragraph alignment and inline size and font presets and restores th
   await expect(span).toHaveCSS('font-size', '20px');
   await expect(span).toHaveCSS('font-family', 'Cambria, serif');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(90, 101, 119)');
+  await expect(editor.locator('.subtitle')).toHaveCSS('font-family', 'system-ui, sans-serif');
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
-  expect(await readWorkspaceText(page, name)).toBe('One [word]{.size-lg .font-serif} {.my-class .center}\n\nSubheading {.subtitle}');
+  expect(await readWorkspaceText(page, name)).toBe(
+    'One [word]{.size-lg .font-serif} {.my-class .center}\n\nSubheading {.subtitle .font-sans}',
+  );
   await page.reload();
   await expect(paragraph).toHaveCSS('text-align', 'center', { timeout: 20_000 });
   await expect(span).toHaveText('word');

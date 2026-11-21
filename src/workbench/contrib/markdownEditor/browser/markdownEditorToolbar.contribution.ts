@@ -133,8 +133,9 @@ for (const [axis, title, commandTitle, group, order, context] of [
 
 const inline = MarkdownEditorInlineFormattingContext.isEqualTo(true);
 const inlineEnabled = ContextKeyExpr.and(writable, inline);
-// Override workbench shortcuts only for editable rich text. Source and other workbench parts keep their bindings.
-const inlineKeybinding = ContextKeyExpr.and(editorFocus, inline);
+// Override workbench shortcuts only inside the editable rich text surface. Source and other workbench parts keep
+// their bindings; inside a code block or on a selected node the shortcut does nothing rather than reach the workbench.
+const inlineKeybinding = editorFocus;
 
 function registerInlineAction(
   id: string,

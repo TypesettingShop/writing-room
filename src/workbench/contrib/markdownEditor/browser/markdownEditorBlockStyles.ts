@@ -1,6 +1,8 @@
 import { lift, wrapIn } from 'prosemirror-commands';
-import type { Node } from 'prosemirror-model';
-import type { Command, EditorState, Selection } from 'prosemirror-state';
+import { Fragment } from 'prosemirror-model';
+import type { Node, NodeType } from 'prosemirror-model';
+import { EditorState, TextSelection } from 'prosemirror-state';
+import type { Command, Selection, Transaction } from 'prosemirror-state';
 
 type BlockStyle =
   | { readonly type: 'paragraph' | 'subtitle' | 'blockquote' | 'code_block' }
@@ -80,46 +82,42 @@ export function currentBlockStyle(state: EditorState, blocks = selectedTextBlock
   return first && blocks.every(block => styleOf(state.doc, block) === first) ? first : null;
 }
 
+/** Code text as the blocks Markdown reads back: blank lines separate blocks, edge newlines vanish. */
+function codeTextBlocks(text: string): string[][] {
+  const trimmed = text.replace(/^(?:[ \t]*\n)+/, '').replace(/(?:\n[ \t]*)+$/, '');
+  return trimmed.split(/\n(?:[ \t]*\n)+/).map(chunk => chunk.split('\n'));
+}
+
 export function setBlockStyle(style: BlockStyle): Command {
   return (state, dispatch) => {
-    const { schema, selection } = state;
-    const inQuote = selection.$from.blockRange(selection.$to)?.parent.type === schema.nodes.blockquote;
-    if (style.type === 'blockquote') {
-      return inQuote ? lift(state, dispatch) : wrapIn(schema.nodes.blockquote)(state, dispatch);
-    }
-    if (style.type === 'paragraph' && inQuote && currentBlockStyle(state) === 'blockquote') {
-      return lift(state, dispatch);
-    }
-
-    const type = schema.nodes[style.type === 'subtitle' ? 'paragraph' : style.type];
+    const { schema, selection, doc } = state;
+    const blocks = selectedTextBlocks(doc, selection).filter(({ node }) => node.type !== schema.nodes.table_cell);
+    const quoted = ({ pos }: SelectedTextBlock) => doc.resolve(pos).parent.type === schema.nodes.blockquote;
     const tr = state.tr;
-    for (const { node, pos } of selectedTextBlocks(state.doc, selection)) {
-      if (node.type.name === 'table_cell') {
-        continue;
+    // Quote state is judged per block, so a selection over two quotes or a quote and plain text toggles each block once.
+    const runInEach = (targets: readonly SelectedTextBlock[], command: Command) => {
+      for (const { pos } of [...targets].reverse()) {
+        const at = tr.mapping.map(pos) + 1;
+        const block = EditorState.create({ schema, doc: tr.doc, selection: TextSelection.create(tr.doc, at) });
+        command(block, inner => inner.steps.forEach(step => tr.step(step)));
       }
-      if (type === schema.nodes.code_block && node.type !== type) {
-        const before = state.doc.resolve(pos);
-        // Code blocks can carry text and line breaks, but cannot represent inline images or references.
-        if (!before.parent.canReplaceWith(before.index(), before.index() + 1, type)
-          || node.content.content.some(child => !child.isText &&
-            child.type !== schema.nodes.soft_break && child.type !== schema.nodes.hard_break)) {
-          continue;
-        }
-        node.forEach((child, offset) => {
-          if (child.type === schema.nodes.hard_break) {
-            const at = tr.mapping.map(pos + 1 + offset);
-            tr.replaceWith(at, at + 1, schema.nodes.soft_break.create());
-          }
-        });
+    };
+
+    if (style.type === 'blockquote') {
+      if (!blocks.some(quoted)) {
+        return wrapIn(schema.nodes.blockquote)(state, dispatch);
       }
-      const classes = (node.attrs.classes as string[]).filter(name => name !== 'subtitle');
-      if (style.type === 'subtitle') {
-        classes.push('subtitle');
+      if (currentBlockStyle(state) === 'blockquote') {
+        runInEach(blocks, lift);
+      } else {
+        convertBlocks(tr, blocks.filter(quoted), schema.nodes.paragraph, { type: 'paragraph' });
+        runInEach(blocks.filter(block => !quoted(block)), wrapIn(schema.nodes.blockquote));
       }
-      const attrs = { ...(node.type === type ? node.attrs : {}), classes };
-      const start = tr.mapping.map(pos);
-      const end = tr.mapping.map(pos + node.nodeSize, -1);
-      tr.setBlockType(start, end, type, style.type === 'heading' ? { ...attrs, level: style.level } : attrs);
+    } else {
+      convertBlocks(tr, blocks, schema.nodes[style.type === 'subtitle' ? 'paragraph' : style.type], style);
+      if (style.type === 'paragraph') {
+        runInEach(blocks.filter(quoted), lift);
+      }
     }
     if (!tr.docChanged) {
       return false;
@@ -127,4 +125,52 @@ export function setBlockStyle(style: BlockStyle): Command {
     dispatch?.(tr.scrollIntoView());
     return true;
   };
+}
+
+function convertBlocks(tr: Transaction, blocks: readonly SelectedTextBlock[], type: NodeType, style: BlockStyle): void {
+  const { schema } = type;
+  for (const { node, pos } of blocks) {
+    const classes = (node.attrs.classes as string[]).filter(name => name !== 'subtitle');
+    if (style.type === 'subtitle') {
+      classes.push('subtitle');
+    }
+    const base = { ...(node.type === type ? node.attrs : {}), classes };
+    const attrs = style.type === 'heading' ? { ...base, level: style.level } : base;
+    const start = tr.mapping.map(pos);
+    const end = tr.mapping.map(pos + node.nodeSize, -1);
+    if (node.type === schema.nodes.code_block && type !== node.type) {
+      // A blank code line would become a block boundary once saved, so split there now and show what reopens.
+      const replacement = codeTextBlocks(node.textContent).map(lines => type.create(attrs, lines.flatMap((line, index) => [
+        ...(index > 0 ? [type === schema.nodes.heading ? schema.text(' ') : schema.nodes.soft_break.create()] : []),
+        ...(line ? [schema.text(line)] : []),
+      ])));
+      const $start = tr.doc.resolve(start);
+      if ($start.parent.canReplace($start.index(), $start.index() + 1, Fragment.from(replacement))) {
+        tr.replaceWith(start, end, replacement);
+      }
+      continue;
+    }
+    if (type === schema.nodes.code_block && node.type !== type) {
+      const before = tr.doc.resolve(start);
+      // Code blocks can carry text and line breaks, but cannot represent inline images or references.
+      if (!before.parent.canReplaceWith(before.index(), before.index() + 1, type)
+        || node.content.content.some(child => !child.isText &&
+          child.type !== schema.nodes.soft_break && child.type !== schema.nodes.hard_break)) {
+        continue;
+      }
+    }
+    const breakReplacement = type === schema.nodes.code_block ? schema.nodes.soft_break
+      : type === schema.nodes.heading ? 'space' : undefined;
+    if (breakReplacement && node.type !== type) {
+      // An ATX heading ends at its line break, and a fence keeps only plain newlines.
+      node.forEach((child, offset) => {
+        if (child.type === schema.nodes.hard_break || (breakReplacement === 'space' && child.type === schema.nodes.soft_break)) {
+          const at = tr.mapping.map(pos + 1 + offset);
+          tr.replaceWith(at, at + 1, breakReplacement === 'space'
+            ? schema.text(' ', child.marks) : schema.nodes.soft_break.create());
+        }
+      });
+    }
+    tr.setBlockType(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize, -1), type, attrs);
+  }
 }

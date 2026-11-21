@@ -23,7 +23,8 @@ test.each([
     MarkdownEditorModeContext.bindTo(root).set('wysiwyg');
     MarkdownEditorFocusContext.bindTo(editor).set(true);
     MarkdownEditorWritableContext.bindTo(editor).set(true);
-    MarkdownEditorInlineFormattingContext.bindTo(editor).set(true);
+    const inline = MarkdownEditorInlineFormattingContext.bindTo(editor);
+    inline.set(true);
     const resolver = new KeybindingResolver(KeybindingsRegistry.getDefaultKeybindings(), platform);
     const resolve = (key: string, scope = editor) => resolver.resolve(scope.getContext(null), parseKeybinding(key)!.chords[0]);
     const bold = resolver.lookupKeybinding('markdownEditor.toggleBold')!;
@@ -38,6 +39,12 @@ test.each([
     expect(resolve(`${modifier}+alt+6`)).toMatchObject({
       kind: ResultKind.KbFound, rule: { id: 'markdownEditor.setBlockType', args: { type: 'heading', level: 6 } },
     });
+    // The palette runs the bare command, so a key bound only with arguments must not label it.
+    expect(resolver.lookupKeybinding('markdownEditor.setBlockType')).toBeUndefined();
+    expect(resolver.lookupKeybinding('markdownEditor.setTextAlign')).toBeUndefined();
+    inline.set(false);
+    expect(resolve(`${modifier}+b`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.toggleBold' } });
+    expect(resolve(`${modifier}+k`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.editLink' } });
     if (platform === 'mac') {
       expect(resolve('ctrl+b').kind).toBe(ResultKind.NoMatchingKb);
     }

@@ -23,9 +23,10 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import {
-  MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
+  defaultMarkdownFontFamilies, MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
   MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
+import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
@@ -69,13 +70,18 @@ export class MarkdownEditorPane extends EditorPane {
     const scoped = this.scoped = this._register(this.contextKeys.getScopedContextKeyService(parent).createScoped(parent));
     const surfaceScope = this._register(scoped.createScoped(this.surface));
     MarkdownEditorFocusContext.bindTo(surfaceScope).set(true);
-    const mode = MarkdownEditorModeContext.bindTo(scoped);
+    // Leave the key unset without a view so the group's mode (title menu, source toggle) still shows through.
+    const mode = scoped.createKey<MarkdownEditorMode>(MarkdownEditorModeContext.key, undefined);
     const writable = MarkdownEditorWritableContext.bindTo(scoped);
     const updateFormatting = bindMarkdownFormattingContext(scoped);
     const undo = MarkdownEditorCanUndoContext.bindTo(scoped);
     const redo = MarkdownEditorCanRedoContext.bindTo(scoped);
     this.updateToolbarContext = () => {
-      mode.set(this.view ? 'wysiwyg' : null);
+      if (this.view) {
+        mode.set('wysiwyg');
+      } else {
+        mode.reset();
+      }
       writable.set(this.formattingState !== undefined);
       updateFormatting(this.view && this.sync?.state);
       undo.set(this.canUndo);
@@ -89,12 +95,8 @@ export class MarkdownEditorPane extends EditorPane {
       const css = parent.ownerDocument.defaultView?.CSS;
       for (const name of ['serif', 'sans'] as const) {
         const value = families?.[name];
-        const property = `--markdown-editor-font-${name}`;
-        if (typeof value === 'string' && css?.supports('font-family', value)) {
-          this.frame.style.setProperty(property, value);
-        } else {
-          this.frame.style.removeProperty(property);
-        }
+        const supported = typeof value === 'string' && css?.supports('font-family', value);
+        this.frame.style.setProperty(`--markdown-editor-font-${name}`, supported ? value : defaultMarkdownFontFamilies[name]);
       }
     };
     updateFonts();

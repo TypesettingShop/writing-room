@@ -17,10 +17,10 @@
 .markdown-editor-surface .ProseMirror .size-lg { font-size: 1.25rem; }
 .markdown-editor-surface .ProseMirror .size-xl { font-size: 1.5rem; }
 .markdown-editor-surface .ProseMirror .font-serif {
-  font-family: var(--markdown-editor-font-serif, Georgia, serif);
+  font-family: var(--markdown-editor-font-serif);
 }
 .markdown-editor-surface .ProseMirror .font-sans {
-  font-family: var(--markdown-editor-font-sans, system-ui, sans-serif);
+  font-family: var(--markdown-editor-font-sans);
 }
 .markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
 .markdown-editor-surface .ProseMirror :is(.font-serif, .font-sans, .font-mono) > code {

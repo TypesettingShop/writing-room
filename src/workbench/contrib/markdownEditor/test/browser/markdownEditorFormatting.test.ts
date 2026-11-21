@@ -59,6 +59,33 @@ describe('Markdown block styles', () => {
     expect(style('Code Block')(read('image ![description](image.png)'))).toBe(false);
   });
 
+  it('keeps a converted heading on one line and splits code at the blank lines Markdown reads as block breaks', () => {
+    const reopen = (state: EditorState) => parseMarkdown(write(state)).content.content.map(node => node.type.name);
+    for (const source of ['one\ntwo', 'one  \ntwo', '```\none\ntwo\n```']) {
+      const heading = apply(read(source, 2), style('Heading 2'));
+      expect(write(heading)).toBe('## one two');
+      expect(reopen(heading)).toEqual(['heading']);
+    }
+    const body = apply(read('```\n\none\n\n\ntwo\nthree\n\n```', 2), style('Body'));
+    expect(body.doc.content.content.map(node => node.type.name)).toEqual(['paragraph', 'paragraph']);
+    expect(write(body)).toBe('one\n\ntwo\nthree');
+    expect(reopen(body)).toEqual(['paragraph', 'paragraph']);
+  });
+
+  it('judges quotes per block across several quotes, mixed selections and quoted headings', () => {
+    const all = (source: string) => {
+      const doc = parseMarkdown(source);
+      return EditorState.create({ doc, selection: TextSelection.create(doc, 1, doc.content.size - 1) });
+    };
+    expect(currentBlockStyle(all('> A\n\n> B'))).toBe('blockquote');
+    expect(write(apply(all('> A\n\n> B'), style('Block Quote')))).toBe('A\n\nB');
+    expect(write(apply(all('> A\n\n> B'), style('Body')))).toBe('A\n\nB');
+    expect(write(apply(all('> A\n\nB'), style('Body')))).toBe('A\n\nB');
+    expect(write(apply(all('> A\n\nB'), style('Block Quote')))).toBe('> A\n\n> B');
+    expect(write(apply(read('> # Head', 4), style('Block Quote')))).toBe('> Head');
+    expect(write(apply(read('> # Head', 4), style('Body')))).toBe('Head');
+  });
+
   it('reports mixed styles and retains each affected block’s classes during conversion', () => {
     const mixed = read('First {.one}\n\n### Second {.two}', 2, 11);
     expect(currentBlockStyle(mixed)).toBeNull();
