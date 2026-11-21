@@ -663,3 +663,46 @@ test('typewriter scrolling centers the first, middle and newly written last line
   await page.keyboard.type('New last line');
   await expect.poll(caretDistance).toBeLessThan(3);
 });
+
+test('scales the Markdown size presets relative to headings, subtitles, and body text', async ({ appPage: page }) => {
+  const name = 'relative-size.md';
+  const labels = ['Small', 'Default', 'Large', 'Extra Large'];
+  const prefixes = [...Array.from({ length: 6 }, (_, index) => '#'.repeat(index + 1) + ' '), '', ''];
+  const blocks = prefixes.flatMap((prefix, index) => ['size-sm', '', 'size-lg', 'size-xl'].map((preset, variant) => {
+    const classes = [index === 6 ? 'subtitle' : '', preset].filter(Boolean).map(name => '.' + name).join(' ');
+    return `${prefix}Example ${index} ${variant}${classes ? ' {' + classes + '}' : ''}`;
+  }));
+  const group = await openMarkdown(page, name, blocks.join('\n\n'));
+  const editor = richEditor(group);
+  await expect(editor.getByText('Example 0 1', { exact: true })).toBeVisible({ timeout: 20_000 });
+  const sizes = await editor.locator(':scope > :is(h1,h2,h3,h4,h5,h6,p)').evaluateAll(elements =>
+    elements.map(element => Number.parseFloat(getComputedStyle(element).fontSize)));
+  for (let index = 0; index < prefixes.length; index++) {
+    const row = sizes.slice(index * 4, index * 4 + 4);
+    expect(row).toHaveLength(4);
+    expect(row[0]).toBeLessThan(row[1]);
+    expect(row[1]).toBeLessThan(row[2]);
+    expect(row[2]).toBeLessThan(row[3]);
+  }
+
+  const title = editor.getByRole('heading', { name: 'Example 0 1' });
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  await title.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await page.getByRole('menuitemradio', { name: labels[2], exact: true }).click();
+  await expect(title).toHaveCSS('font-size', '40px');
+  await toolbar.getByRole('button', { name: 'Size: Large' }).click();
+  await page.getByRole('menuitemradio', { name: labels[1], exact: true }).click();
+  await expect(title).toHaveCSS('font-size', '32px');
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+ArrowLeft');
+  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await page.getByRole('menuitemradio', { name: labels[3], exact: true }).click();
+  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-xl}');
+  await page.reload();
+  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
+});
