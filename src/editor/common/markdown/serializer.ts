@@ -13,10 +13,14 @@ function classSuffix(attrs: Attrs): string {
   return classes.length ? '{' + classes.map(name => '.' + name).join(' ') + '}' : '';
 }
 
-function finishBlock(state: MarkdownSerializerState, node: Node): void {
+function finishBlock(state: MarkdownSerializerState, node: Node, tight = false): void {
   state.closeBlock(node);
   const suffix = classSuffix(node.attrs);
   if (suffix) {
+    if (tight) {
+      (state as ListSerializerState).flushClose(1);
+      if (node.type.name === 'blockquote') state.write('>\n');
+    }
     state.write(suffix);
     state.closeBlock(node);
   }
@@ -50,8 +54,13 @@ interface RenderedList extends ListMarker {
 
 const lastListInScope = new WeakMap<MarkdownSerializerState, RenderedList>();
 const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
-// Columns by which the continuation lines of the item being written sit past its content.
-const itemOvershoot = new WeakMap<MarkdownSerializerState, number>();
+// prosemirror-markdown's list renderer uses one continuation indent for the
+// whole list. Keep its block-closing behavior while choosing the indent per item.
+type ListSerializerState = MarkdownSerializerState & {
+  closed: Node | null;
+  inTightList: boolean;
+  flushClose(size?: number): void;
+};
 
 function skipsPlaceholder(item: Node): boolean {
   // ProseMirror fills in a paragraph when a Markdown item starts with another block.
@@ -59,39 +68,37 @@ function skipsPlaceholder(item: Node): boolean {
     !classSuffix(item.firstChild!.attrs) && !classSuffix(item.attrs);
 }
 
-function restore<T>(map: WeakMap<MarkdownSerializerState, T>, state: MarkdownSerializerState, value?: T): void {
-  if (value === undefined) map.delete(state);
-  else map.set(state, value);
-}
-
 function renderList(
   state: MarkdownSerializerState,
   node: Node,
   parent: Node,
   index: number,
-  indent: number,
   firstDelim: (marker: string, itemIndex: number) => string,
 ): void {
   const previous = lastListInScope.get(state);
   const adjacent = previous?.parent === parent && previous.index === index - 1 ? previous : undefined;
   const current = separateListMarker(listMarker(node)!, adjacent);
-  // After a skipped placeholder the list starts on the parent's marker line and inherits its overshoot.
-  const outerOvershoot = itemOvershoot.get(state);
-  const inherited = index === 1 && skipsPlaceholder(parent) ? outerOvershoot ?? 0 : 0;
+  const listState = state as ListSerializerState;
+  if (listState.closed?.type === node.type) listState.flushClose(3);
+  else if (listState.inTightList) listState.flushClose(1);
+
   const item = node.firstChild!;
   const blocks = item.childCount - (skipsPlaceholder(item) ? 1 : 0);
-  // Four columns past the content would turn the class line after the blank line into indented code.
-  const fitsTrailer = indent - firstDelim(current.marker, 0).length + inherited < 4;
-  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1 && fitsTrailer;
+  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1;
   const outerItem = looseSingleItems.get(state);
+  const outerTight = listState.inTightList;
   if (needsLooseTrailer) looseSingleItems.set(state, item);
-  state.renderList(node, ' '.repeat(indent), itemIndex => {
+  listState.inTightList = node.attrs.tight;
+  node.forEach((child, _offset, itemIndex) => {
+    if (itemIndex && node.attrs.tight) listState.flushClose(1);
     const delim = firstDelim(current.marker, itemIndex);
-    itemOvershoot.set(state, indent - delim.length + (itemIndex === 0 ? inherited : 0));
-    return delim;
+    state.wrapBlock(' '.repeat(delim.length), delim, node, () => state.render(child, node, itemIndex));
   });
-  restore(itemOvershoot, state, outerOvershoot);
-  if (needsLooseTrailer) restore(looseSingleItems, state, outerItem);
+  listState.inTightList = outerTight;
+  if (needsLooseTrailer) {
+    if (outerItem) looseSingleItems.set(state, outerItem);
+    else looseSingleItems.delete(state);
+  }
   finishBlock(state, node);
   lastListInScope.set(state, { ...current, parent, index });
 }
@@ -100,7 +107,35 @@ function isListItem(node: Node): boolean {
   return node.type.name === 'list_item' || node.type.name === 'task_item';
 }
 
-function writeCodeBlock(state: MarkdownSerializerState, node: Node): void {
+function isTightItem(state: MarkdownSerializerState, parent: Node): boolean {
+  return isListItem(parent) && (state as ListSerializerState).inTightList;
+}
+
+function renderItemContent(state: MarkdownSerializerState, item: Node): void {
+  const listState = state as ListSerializerState;
+  const first = skipsPlaceholder(item) ? 1 : 0;
+  for (let index = first; index < item.childCount; index++) {
+    const child = item.child(index);
+    if (listState.inTightList && index > first) {
+      const previous = item.child(index - 1);
+      const previousType = previous.type.name;
+      const childType = child.type.name;
+      if (childType === 'code_block' ||
+        (childType === 'blockquote' && (previousType !== 'blockquote' || classSuffix(previous.attrs)))) {
+        // Both blocks can interrupt a paragraph without making the list loose.
+        listState.flushClose(1);
+      } else if (childType === 'paragraph' && (previousType === 'code_block' || previousType === 'blockquote') &&
+        !classSuffix(previous.attrs)) {
+        listState.flushClose(1);
+        // End the quote explicitly so the next paragraph cannot be a lazy continuation.
+        if (previousType === 'blockquote') state.write('>\n');
+      }
+    }
+    state.render(child, item, index);
+  }
+}
+
+function writeCodeBlock(state: MarkdownSerializerState, node: Node, parent: Node): void {
   const markup: string | null = node.attrs.markup;
   const info: string = node.attrs.info;
   const marker = markup?.[0] === '~' || info.includes('`') ? '~' : '`';
@@ -115,7 +150,7 @@ function writeCodeBlock(state: MarkdownSerializerState, node: Node): void {
     state.write('\n');
   }
   state.write(fence);
-  finishBlock(state, node);
+  finishBlock(state, node, isTightItem(state, parent));
 }
 
 function encodeEntities(text: string): string {
@@ -191,19 +226,34 @@ function writeTable(state: MarkdownSerializerState, node: Node): void {
 }
 
 const markdownSerializer = new MarkdownSerializer({
-  blockquote(state, node) {
+  blockquote(state, node, parent) {
     defaultNodes.blockquote(state, node, node, 0);
-    finishBlock(state, node);
+    finishBlock(state, node, isTightItem(state, parent));
   },
   paragraph(state, node, parent, index) {
-    state.renderInline(node);
     const itemSuffix = isListItem(parent) && index === 0 ? classSuffix(parent.attrs) : '';
-    if (itemSuffix) state.write((node.content.size ? ' ' : '') + itemSuffix);
     const suffix = classSuffix(node.attrs);
+    const looseTrailer = looseSingleItems.get(state) === parent;
+    // Trailing hard breaks write nothing, so such a paragraph is empty in Markdown too.
+    let blank = true;
+    node.forEach(child => { if (child.type.name !== 'hard_break') blank = false; });
+    if (blank && suffix && isListItem(parent)) {
+      state.write('[]' + (looseTrailer ? '{}' : suffix));
+      if (itemSuffix) state.write(' ' + itemSuffix);
+      if (looseTrailer) {
+        state.closeBlock(node);
+        state.write(suffix);
+      }
+      state.closeBlock(node);
+      return;
+    }
+
+    state.renderInline(node);
+    if (itemSuffix) state.write((node.content.size ? ' ' : '') + itemSuffix);
     if (suffix && node.content.size) {
       if (isListItem(parent) || parent.type.name === 'blockquote') {
         // A lone paragraph in a loose list needs the blank line before its class trailer.
-        if (looseSingleItems.get(state) === parent) state.closeBlock(node);
+        if (looseTrailer) state.closeBlock(node);
         else state.write('\n');
         state.write(suffix);
       } else {
@@ -228,25 +278,23 @@ const markdownSerializer = new MarkdownSerializer({
     finishBlock(state, node);
   },
   bullet_list(state, node, parent, index) {
-    renderList(state, node, parent, index, 4, marker => marker + ' ');
+    renderList(state, node, parent, index, marker => marker + ' ');
   },
   ordered_list(state, node, parent, index) {
     const start: number = node.attrs.order;
-    const indent = Math.max(4, String(start + node.childCount - 1).length + 2);
-    // A list starting above 1 cannot interrupt a paragraph without a blank line.
-    if (start !== 1 && parent.maybeChild(index - 1)?.type.name === 'paragraph') state.write();
-    renderList(state, node, parent, index, indent, (marker, item) => String(start + item) + marker + ' ');
+    const previous = parent.maybeChild(index - 1);
+    // A list starting above 1 cannot interrupt a paragraph, including the class line
+    // written after a styled block, without a blank line.
+    if (start !== 1 && previous && (previous.type.name === 'paragraph' ||
+      (previous.type.name !== 'heading' && classSuffix(previous.attrs)))) state.write();
+    renderList(state, node, parent, index, (marker, item) => String(start + item) + marker + ' ');
   },
-  list_item(state, node) {
-    const skipPlaceholder = skipsPlaceholder(node);
-    node.forEach((child, _offset, index) => {
-      if (index !== 0 || !skipPlaceholder) state.render(child, node, index);
-    });
-  },
+  list_item: renderItemContent,
   task_item(state, node) {
-    const needsSpace = Boolean(node.firstChild!.content.size || classSuffix(node.attrs));
+    const first = node.firstChild!;
+    const needsSpace = Boolean(first.content.size || classSuffix(first.attrs) || classSuffix(node.attrs));
     state.write((node.attrs.checked ? '[x]' : '[ ]') + (needsSpace ? ' ' : ''));
-    state.renderContent(node);
+    renderItemContent(state, node);
   },
   table: writeTable,
   image(state, node) {
@@ -258,7 +306,15 @@ const markdownSerializer = new MarkdownSerializer({
     state.write('\n');
   },
   footnote_definition(state, node) {
-    state.wrapBlock('    ', '[^' + node.attrs.label + ']: ', node, () => state.renderContent(node));
+    state.wrapBlock('    ', '[^' + node.attrs.label + ']: ', node, () => node.forEach((child, _offset, index) => {
+      // The definition's first line starts one column past its later lines. Lists and
+      // fences measure their content from that column, so keep the whole block on it.
+      if (index === 0 && ['bullet_list', 'ordered_list', 'code_block'].includes(child.type.name)) {
+        state.wrapBlock(' ', '', child, () => state.render(child, node, index));
+      } else {
+        state.render(child, node, index);
+      }
+    }));
     finishBlock(state, node);
   },
   footnote_reference(state, node) {
