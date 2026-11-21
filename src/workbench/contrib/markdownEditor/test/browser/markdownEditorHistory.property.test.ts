@@ -40,6 +40,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   let recordedText = model.getValue();
   const writtenTexts = new Set([recordedText]);
   const events = new Map<number, IModelContentChangedEvent>();
+  let paragraphMove: { version: number; dispatch: () => void } | undefined;
   // Listeners may receive v4 before v3 and reading getValue in the v3 callback can return v4.
   // Record the actual text of every version by replaying the text model's changes in version order.
   model.onDidChangeContent(event => {
@@ -48,10 +49,65 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
     }
   });
 
+  function moveParagraphs(pane: MarkdownEditorModel): boolean {
+    const paragraphs = model.getValue().split('\n\n');
+    if (paragraphs.length < 2 || !paragraphs.every(paragraph => /^[A-Za-z]+(?: [A-Za-z]+)*$/.test(paragraph))) {
+      return false;
+    }
+    const last = paragraphs.length - 1;
+    const moveUp = nextRandom() < 0.5;
+    const removed = moveUp ? 0 : last;
+    const target = Math.floor(nextRandom() * paragraphs.length);
+    const replacement = pick(['Added', 'New', paragraphs[removed]]);
+    const input = pick(['x', 'Y', 'k']);
+    const expected = paragraphs.slice();
+    if (target !== removed) {
+      expected[target] += input;
+    }
+    expected.splice(removed, 1);
+    expected.splice(moveUp ? last : 0, 0, replacement);
+
+    const lastLine = last * 2 + 1;
+    const lastColumn = paragraphs[last].length + 1;
+    const edits = moveUp ? [
+      { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 1 }, text: '' },
+      { range: { startLineNumber: lastLine, startColumn: lastColumn, endLineNumber: lastLine, endColumn: lastColumn },
+        text: '\n\n' + replacement },
+    ] : [
+      { range: { startLineNumber: lastLine - 2, startColumn: paragraphs[last - 1].length + 1, endLineNumber: lastLine, endColumn: lastColumn },
+        text: '' },
+      { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: replacement + '\n\n' },
+    ];
+    const position = paragraphs.slice(0, target + 1).reduce((pos, text) => pos + text.length + 2, -1);
+    trace.push(`batch ${moveUp ? 'up' : 'down'} target ${target} input ${input} replacement ${replacement}`);
+    paragraphMove = {
+      version: model.getVersionId() + 1,
+      dispatch: () => {
+        time += 100;
+        pane.dispatch(pane.state.tr.insertText(input, position).setTime(time));
+      },
+    };
+    try {
+      model.applyEdits(edits);
+    } finally {
+      paragraphMove = undefined;
+    }
+    // This oracle tracks which original paragraph survives. Comparing the pane with its text
+    // alone would also pass if both agreed on an edit to the wrong paragraph.
+    const source = expected.join('\n\n');
+    if (model.getValue() !== source) {
+      throw new Error(`Expected batch to leave ${JSON.stringify(source)}, got ${JSON.stringify(model.getValue())}`);
+    }
+    return true;
+  }
+
   function act(): void {
     const operation = nextRandom();
     const paneIndex = Math.floor(nextRandom() * panes.length);
     const pane = panes[paneIndex];
+    if (operation < 0.12 && depth === 0 && moveParagraphs(pane)) {
+      return;
+    }
     if (operation < 0.35) {
       const offset = Math.floor(nextRandom() * (model.getValueLength() + 1));
       let text = pick(exactSource ? ['a', 'Z', '\n\n', 'q', 's'] : ['a', 'Z ', '\n\n', 'q', '# ']);
@@ -91,7 +147,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   }
 
   const listener = (label: string) => () => {
-    if (recording && depth < 3 && nextRandom() < 0.3) {
+    if (recording && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
       trace.push(label + '[');
       depth++;
       try {
@@ -102,6 +158,11 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
       }
     }
   };
+  model.onDidChangeContent(event => {
+    if (event.versionId === paragraphMove?.version) {
+      paragraphMove.dispatch();
+    }
+  });
   model.onDidChangeContent(listener('before panes'));
   for (let index = 0; index < paneCount; index++) {
     panes.push(new MarkdownEditorModel(model, [], () => {}));
