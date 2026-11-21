@@ -410,3 +410,59 @@ test('targets the toolbar’s editor group when another Markdown editor has focu
   await expect(rightEditor.locator('p')).toHaveText('Right editor');
   await expect(right.getByRole('button', { name: 'Style: Body' })).toBeVisible();
 });
+
+test('creates, edits and saves a GFM table from the toolbar', async ({ appPage: page }) => {
+  const name = 'blocks-table.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  await editor.click();
+  await group.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table', exact: true }).click();
+  await expect(editor.locator('th')).toHaveCount(2);
+  await page.keyboard.type('First');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Second');
+  await group.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add Column After', exact: true }).click();
+  await expect(editor.locator('th')).toHaveCount(3);
+  await page.keyboard.type('Third');
+  await runCommand(page, 'Align Column Center', /^Markdown: Align Column Center$/);
+  await expect(editor.locator('th').last()).toHaveCSS('text-align', 'center');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('| First | Second | Third |\n| --- | --- | :---: |\n|  |  |  |');
+  await page.reload();
+  await expect(editor.locator('th')).toHaveText(['First', 'Second', 'Third'], { timeout: 20_000 });
+  await expect(editor.locator('th').last()).toHaveCSS('text-align', 'center');
+});
+
+test('toggles a task, exits a list, and loads remote images only on request', async ({ appPage: page }) => {
+  const name = 'blocks-list.md';
+  const group = await openMarkdown(page, name, '- [ ] Check me\n\n![Remote](https://images.example.test/photo.png)\n\n![Blocked](http://images.example.test/photo.png)');
+  const editor = richEditor(group);
+  const requests: string[] = [];
+  await page.route('**/photo.png', async route => {
+    requests.push(route.request().url());
+    await route.fulfill({ contentType: 'image/png', body: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XGl0AAAAASUVORK5CYII=', 'base64',
+    ) });
+  });
+  const task = editor.getByRole('checkbox', { name: 'Task completed' });
+  await expect(task).not.toBeChecked();
+  await task.click();
+  await expect(task).toBeChecked();
+  await expect(editor.getByText('HTTP image blocked', { exact: false })).toBeVisible();
+  expect(requests).toEqual([]);
+  await editor.getByRole('button', { name: 'Load image' }).click();
+  await expect.poll(() => requests).toEqual(['https://images.example.test/photo.png']);
+  await expect(editor.locator('img[alt="Remote"]')).toBeVisible();
+  await editor.getByText('Check me').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Outside');
+  await expect(editor.locator(':scope > p').first()).toHaveText('Outside');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('- [x] Check me\n\nOutside');
+  expect(await readWorkspaceText(page, name)).toContain('![Blocked](http://images.example.test/photo.png)');
+});

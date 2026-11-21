@@ -15,6 +15,8 @@ import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolb
 import { MenuId } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { GroupModelChangeKind } from '../../../common/editor.js';
@@ -29,6 +31,9 @@ import {
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
+import { markdownImageView } from './markdownEditorImages.js';
+import { markdownListKeys, taskItemView } from './markdownEditorLists.js';
+import { moveMarkdownTableCell } from './markdownEditorTables.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -59,6 +64,8 @@ export class MarkdownEditorPane extends EditorPane {
     @IContextKeyService private readonly contextKeys: IContextKeyService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IConfigurationService private readonly configuration: IConfigurationService,
+    @IFileService private readonly files: IFileService,
+    @IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
   ) {
     super(MarkdownEditorPane.ID);
   }
@@ -166,25 +173,17 @@ export class MarkdownEditorPane extends EditorPane {
           return template.innerHTML;
         },
         nodeViews: {
-          image: (node, view) => {
-            const { src, alt, title } = node.attrs;
-            const document = view.dom.ownerDocument;
-            if (/^(?:https?:|data:)/i.test(src) && validateLink(src)) {
-              const dom = document.createElement('img');
-              dom.src = src;
-              dom.alt = alt ?? '';
-              if (title) {
-                dom.title = title;
-              }
-              return { dom };
-            }
-            // Workspace-relative sources have no browser URL yet (wr-h2sa.kfw).
-            const dom = document.createElement('span');
-            dom.setAttribute('role', 'img');
-            dom.setAttribute('aria-label', alt || 'Image');
-            dom.textContent = alt || 'Image';
-            return { dom };
-          },
+          image: (node, view) => markdownImageView(node, view.dom.ownerDocument, input.resource, this.files, this.workspace),
+          task_item: (node, view, getPos) => taskItemView(node, view.dom.ownerDocument, checked => {
+            const pos = getPos();
+            if (pos === undefined || input.isReadonly()) return false;
+            const current = view.state.doc.nodeAt(pos);
+            if (current?.type !== node.type) return false;
+            return this.runFormattingCommand((state, dispatch) => {
+              dispatch?.(state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, checked }));
+              return true;
+            });
+          }, () => !input.isReadonly()),
         },
         dispatchTransaction: transaction => {
           if (!transaction.docChanged || !input.isReadonly()) {
@@ -252,7 +251,8 @@ export class MarkdownEditorPane extends EditorPane {
     const undo: Command = () => { this.undo(); return true; };
     const redo: Command = () => { this.redo(); return true; };
     const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo });
-    const model = new MarkdownEditorModel(textModel, [keys, keymap(baseKeymap)], state => {
+    const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
+    const model = new MarkdownEditorModel(textModel, [keys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
       if (this.input === input) {
         this.view?.updateState(state);
         this.updateHistoryContext();

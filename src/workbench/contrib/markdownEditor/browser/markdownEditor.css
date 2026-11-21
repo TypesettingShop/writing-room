@@ -96,3 +96,22 @@
 .markdown-editor-error {
   padding: 1rem;
 }
+
+.markdown-editor-surface .ProseMirror li[data-task-checked] {
+  list-style: none;
+  position: relative;
+}
+
+.markdown-editor-surface .ProseMirror li[data-task-checked] > input {
+  position: absolute;
+  right: calc(100% + 0.25em);
+  top: 0.3em;
+}
+
+.markdown-editor-surface .markdown-image img {
+  vertical-align: middle;
+}
+
+.markdown-editor-surface .markdown-image button {
+  margin-inline-start: 0.4em;
+}
