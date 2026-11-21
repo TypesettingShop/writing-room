@@ -479,7 +479,8 @@ test('saves paragraph alignment and inline size and font presets and restores th
 
 test('clears an alignment from the command palette and leaves existing justify readable', async ({ appPage: page }) => {
   const name = 'alignment.md';
-  const group = await openMarkdown(page, name, 'Adjust me\n\nJustified {.justify}');
+  const justifiedSource = 'Justified {.center .justify}';
+  const group = await openMarkdown(page, name, `Adjust me\n\n${justifiedSource}`);
   const editor = richEditor(group);
   const left = group.getByRole('button', { name: 'Align Left' });
   const center = group.getByRole('button', { name: 'Align Center' });
@@ -490,11 +491,11 @@ test('clears an alignment from the command palette and leaves existing justify r
   await right.click();
   await expect(right).toHaveAttribute('aria-pressed', 'true');
   await editor.press('ControlOrMeta+s');
-  await expect.poll(() => readWorkspaceText(page, name)).toBe('Adjust me {.right}\n\nJustified {.justify}');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(`Adjust me {.right}\n\n${justifiedSource}`);
   await runCommand(page, 'Align Left', /^Markdown: Align Left$/);
   await expect(left).toHaveAttribute('aria-pressed', 'true');
   await editor.press('ControlOrMeta+s');
-  await expect.poll(() => readWorkspaceText(page, name)).toBe('Adjust me\n\nJustified {.justify}');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(`Adjust me\n\n${justifiedSource}`);
   const justified = editor.getByText('Justified');
   await justified.click();
   await expect(justified).toHaveCSS('text-align', 'justify');

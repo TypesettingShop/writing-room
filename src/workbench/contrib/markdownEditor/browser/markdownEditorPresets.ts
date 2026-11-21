@@ -70,6 +70,16 @@ function presetForClass(axis: PresetAxisId, name: string): string | undefined {
 }
 
 function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string | undefined {
+  if (axis === 'textAlign') {
+    // Equal-specificity alignment rules in markdownTheme.css follow the preset order.
+    let effective = formattingPresets.textAlign.defaultValue;
+    for (const { className, value } of formattingPresets.textAlign.options) {
+      if (className && classes.includes(className)) {
+        effective = value;
+      }
+    }
+    return effective;
+  }
   for (const name of classes) {
     const value = presetForClass(axis, name);
     if (value !== undefined) {

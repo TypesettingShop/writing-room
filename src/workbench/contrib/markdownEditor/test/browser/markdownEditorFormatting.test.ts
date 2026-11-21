@@ -107,10 +107,10 @@ describe('Markdown class presets', () => {
   });
 
   it('reads and preserves authored justify, but only offers other alignments for editing', () => {
-    const state = read('Line {.justify .authored}');
+    const state = read('Line {.center .justify .authored}');
     expect(presets(state).textAlign).toBe('justify');
     expect(setFormattingPreset('textAlign', 'justify')(read('Line'))).toBe(false);
-    expect(write(state)).toBe('Line {.justify .authored}');
+    expect(write(state)).toBe('Line {.center .justify .authored}');
     expect(write(apply(state, setFormattingPreset('textAlign', 'center')))).toBe('Line {.authored .center}');
   });
 
