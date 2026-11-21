@@ -44,12 +44,15 @@
   height: 100%;
 }
 
-/* Paint over the view contents and below the sash without taking up layout or hit-test space. */
+/*
+ * Paint over the view contents and below the sash without taking up layout or hit-test space. The index stays
+ * low (5, as in VS Code) so indicators drawn at a view's edge, such as the active tab's top border, can sit above it.
+ */
 .monaco-split-view2.separator-border > .split-view-container > .split-view-view.visible ~ .split-view-view.visible::before {
   content: '';
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: 5;
   pointer-events: none;
 }
 

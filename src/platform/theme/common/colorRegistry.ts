@@ -278,7 +278,7 @@ color('activityBarBadge.foreground', '#ffffff', '#ffffff', '#ffffff', '#ffffff',
 // Side bar
 color('sideBar.background', '#202735', '#f4f6fa', '#000000', '#ffffff', 'Side bar background.');
 color('sideBar.foreground', '#d1daea', '#2b3443', '#ffffff', '#292929', 'Side bar foreground.');
-color('sideBar.border', null, null, 'contrastBorder', 'contrastBorder', 'Border between the side bar and the editor.');
+color('sideBar.border', 'panel.border', 'panel.border', 'contrastBorder', 'contrastBorder', 'Border between the side bar and the editor.');
 color('sideBarTitle.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'Side bar title foreground.');
 color('sideBarSectionHeader.background', '#262f40', '#e7ecf4', null, null, 'Side bar section header background.');
 color('sideBarSectionHeader.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'Side bar section header foreground.');
