@@ -253,7 +253,9 @@ export class MenuWorkbenchToolBar extends Disposable {
           const current = choices.find(item => item instanceof MenuItemAction && item.checked);
           const value = document.createElement('span');
           const fallback = action.item.selectFallback?.find(({ when }) => contextKeyService.contextMatchesRules(when));
-          const label = current?.label ?? fallback?.label;
+          const contextLabel = action.item.selectLabelKey
+            && contextKeyService.getContextKeyValue?.(action.item.selectLabelKey);
+          const label = current?.label ?? fallback?.label ?? (typeof contextLabel === 'string' ? contextLabel : undefined);
           value.className = 'wr-menu-toolbar-choice-label';
           value.textContent = label ?? '—';
           if (current instanceof MenuItemAction && current.labelClass) {

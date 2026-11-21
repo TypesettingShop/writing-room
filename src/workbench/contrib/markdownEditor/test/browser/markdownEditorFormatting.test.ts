@@ -9,6 +9,7 @@ import { ContextKeyService } from '../../../../../platform/contextkey/browser/co
 import { blockStyles, currentBlockStyle, selectedTextBlocks, setBlockStyle } from '../../browser/markdownEditorBlockStyles.js';
 import { bindMarkdownFormattingContext } from '../../browser/markdownEditorFormattingContext.js';
 import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from '../../browser/markdownEditorInline.js';
+import { resolveMarkdownFontDefaults } from '../../common/markdownEditor.js';
 import { currentFormattingPresets, formattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
 
 function read(source: string, from = 1, to = from): EditorState {
@@ -97,7 +98,8 @@ describe('Markdown block styles', () => {
 });
 
 describe('Markdown class presets', () => {
-  const presets = (state: EditorState) => currentFormattingPresets(state, selectedTextBlocks(state.doc, state.selection));
+  const presets = (state: EditorState, defaults?: ReturnType<typeof resolveMarkdownFontDefaults>) =>
+    currentFormattingPresets(state, selectedTextBlocks(state.doc, state.selection), defaults);
 
   function selectTextBlocks(source: string, first: string, last = first): EditorState {
     const doc = parseMarkdown(source);
@@ -196,19 +198,22 @@ describe('Markdown class presets', () => {
       'A [w]{.authored .size-lg .font-serif}[or]{.authored .font-serif .size-xl}[d]{.authored .size-lg .font-serif} Z {.font-sans}',
     );
     expect(presets(read(write(large), 4, 6))).toEqual({ textAlign: 'left', fontSize: 'extraLarge', fontFamily: 'serif' });
-    const reset = apply(large, setFormattingPreset('fontSize', 'default'));
+    const reset = apply(large, setFormattingPreset('fontSize', '12pt'));
     expect(write(reset)).toContain('[or]{.authored .font-serif}');
-    expect(presets(reset).fontSize).toBe('default');
+    expect(presets(reset).fontSize).toBe('12pt');
   });
 
   it.each([8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72])('round-trips %s pt on a heading', size => {
     const value = `${size}pt`;
     const state = read('# Line {.size-lg .authored}', 1, 5);
     const styled = apply(state, setFormattingPreset('fontSize', value));
-    const source = `# Line {.authored .size-${value}}`;
+    const source = size === 24 ? '# Line {.authored}' : `# Line {.authored .size-${value}}`;
     expect(write(styled)).toBe(source);
     expect(presets(read(source)).fontSize).toBe(value);
-    expect(write(apply(styled, setFormattingPreset('fontSize', 'default')))).toBe('# Line {.authored}');
+    expect(setFormattingPreset('fontSize', '24pt')(styled)).toBe(size !== 24);
+    if (size !== 24) {
+      expect(write(apply(styled, setFormattingPreset('fontSize', '24pt')))).toBe('# Line {.authored}');
+    }
   });
 
   it('makes a whole-block choice replace inline overrides on its own axis', () => {
@@ -228,12 +233,47 @@ describe('Markdown class presets', () => {
       expect(presets(state).fontFamily).toBe('monospace');
       expect(write(state)).toBe(source);
       const styled = apply(state, setFormattingPreset('fontFamily', font));
-      const saved = `Line {.authored .font-${font}}`;
+      const saved = font === 'noto-sans-kr' ? 'Line {.authored}' : `Line {.authored .font-${font}}`;
       expect(write(styled)).toBe(saved);
       expect(presets(read(saved)).fontFamily).toBe(font);
-      expect(write(apply(styled, setFormattingPreset('fontFamily', 'default')))).toBe('Line {.authored}');
+      expect(setFormattingPreset('fontFamily', 'noto-sans-kr')(styled)).toBe(font !== 'noto-sans-kr');
+      if (font !== 'noto-sans-kr') {
+        expect(write(apply(styled, setFormattingPreset('fontFamily', 'noto-sans-kr')))).toBe('Line {.authored}');
+      }
     },
   );
+
+  it('resolves configured body, heading and container sizes and fonts', () => {
+    const defaults = resolveMarkdownFontDefaults(11, 'noto-serif-kr');
+    expect(presets(read('Line'), defaults)).toEqual({ textAlign: 'left', fontSize: '11pt', fontFamily: 'noto-serif-kr' });
+    expect(presets(read('### Heading'), defaults).fontSize).toBe('12.87pt');
+    expect(resolveMarkdownFontDefaults('11', 'unknown')).toEqual({ size: 12, family: 'noto-sans-kr' });
+
+    const source = '- Parent {.size-14pt .font-nanum-gothic}\n    - Child\n      {.size-18pt .font-noto-sans-kr}\n\n> Quote\n\n{.size-16pt}';
+    expect(presets(selectTextBlocks(source, 'Quote'), defaults).fontSize).toBe('16pt');
+    const styled = selectTextBlocks(source, 'Child');
+    const selected = styled.apply(styled.tr.setSelection(TextSelection.create(
+      styled.doc, styled.selection.from, styled.selection.from + 'Child'.length,
+    )));
+    const sized = apply(selected, setFormattingPreset('fontSize', '14pt', defaults));
+    const font = apply(sized, setFormattingPreset('fontFamily', 'nanum-gothic', defaults));
+    expect(presets(font, defaults)).toEqual({ textAlign: 'left', fontSize: '14pt', fontFamily: 'nanum-gothic' });
+    expect(write(font)).toBe(source.replace('Child\n      {.size-18pt .font-noto-sans-kr}', 'Child'));
+  });
+
+  it('clears selected and pending spans when choosing their containing block’s size or font', () => {
+    const source = 'A [word]{.size-11pt .font-mono} Z {.size-14pt .font-nanum-myeongjo}';
+    const selected = read(source, 3, 7);
+    const sized = apply(selected, setFormattingPreset('fontSize', '14pt'));
+    const font = apply(sized, setFormattingPreset('fontFamily', 'nanum-myeongjo'));
+    expect(write(font)).toBe('A word Z {.size-14pt .font-nanum-myeongjo}');
+
+    const caret = read(source, 5);
+    const pending = apply(caret, setFormattingPreset('fontSize', '14pt'));
+    expect(write(pending)).toBe(source);
+    expect(presets(pending).fontSize).toBe('14pt');
+    expect(presets(pending).fontFamily).toBe('monospace');
+  });
 
   it('applies a size and font to upcoming typing without styling the surrounding text', () => {
     const sized = apply(read('before after', 8), setFormattingPreset('fontSize', 'small'));

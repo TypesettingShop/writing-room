@@ -62,6 +62,8 @@ export interface ISubmenuItem extends IMenuEntry {
   readonly icon?: CommandIcon;
   readonly select?: boolean;
   readonly selectFallback?: readonly IMenuSelectFallback[];
+  /** Context key containing the display label when no listed choice is checked. */
+  readonly selectLabelKey?: string;
 }
 
 export function isIMenuItem(item: IMenuItem | ISubmenuItem): item is IMenuItem {

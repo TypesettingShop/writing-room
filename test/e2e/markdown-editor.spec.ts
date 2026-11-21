@@ -1,6 +1,8 @@
 import type { Locator, Page } from '@playwright/test';
 import { box, drag, expect, test } from './fixtures.js';
-import { persistedSettings, runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
+import {
+  openSettings, persistedSettings, replaceText, runCommand, saveSettings, settingsKey, startWithMarkdownSource,
+} from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { chooseTheme, kindClass, openWithThemingFixtures } from './themes.helpers.js';
@@ -425,6 +427,74 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   await expect(editor.getByRole('heading')).toHaveCount(1);
 });
 
+test('checks concrete body defaults and updates an open pane when typography settings are saved', async ({ appPage: page }) => {
+  const name = 'font-defaults.md';
+  const source = 'Body text\n\n# Heading\n\n### Smaller heading\n\n- List item\n\n> Quote';
+  const group = await openMarkdown(page, name, source);
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const size = toolbar.getByRole('button', { name: 'Size', exact: true });
+  const font = toolbar.getByRole('button', { name: 'Font', exact: true });
+  const sizeMenu = page.getByRole('menu', { name: 'Size' });
+  const fontMenu = page.getByRole('menu', { name: 'Font' });
+  const body = editor.getByText('Body text', { exact: true });
+
+  for (const text of ['Body text', 'List item', 'Quote']) {
+    const block = editor.getByText(text, { exact: true });
+    await block.click();
+    await expect(block).toHaveCSS('font-size', '16px');
+    await expect(size).toHaveText('12 pt');
+    await expect(font).toHaveText('Noto Sans KR');
+  }
+
+  await editor.getByRole('heading', { level: 1 }).click();
+  await expect(size).toHaveText('24 pt');
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('24 pt');
+  await page.keyboard.press('Escape');
+
+  const smallHeading = editor.getByRole('heading', { level: 3 });
+  await smallHeading.click();
+  await expect(size).toHaveText('14.04 pt');
+  expect(await smallHeading.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(18.72);
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await body.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await font.click();
+  await expect(fontMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Noto Sans KR');
+  await page.keyboard.press('Escape');
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('12 pt');
+  await sizeMenu.getByRole('menuitemradio', { name: '14 pt', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('Body text {.size-14pt}');
+  await size.click();
+  await sizeMenu.getByRole('menuitemradio', { name: '12 pt', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(source);
+
+  await group.getByRole('button', { name: 'Split Editor Right' }).click();
+  await openSettings(page);
+  await replaceText(page, '{"markdownEditor.fontSize": 11, "markdownEditor.fontFamily": "noto-serif-kr"}');
+  await saveSettings(page);
+
+  await expect(size).toHaveText('11 pt');
+  await expect(font).toHaveText('Noto Serif KR');
+  expect(await body.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(44 / 3);
+  await expect(body).toHaveCSS('font-family', /^"Noto Serif KR",/);
+  await body.click();
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('11 pt');
+  await page.keyboard.press('Escape');
+  await font.click();
+  await expect(fontMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Noto Serif KR');
+  expect(await readWorkspaceText(page, name)).toBe(source);
+});
+
 test('saves paragraph alignment and inline size and font presets and restores their appearance', async ({ page }) => {
   await page.addInitScript(key => {
     if (localStorage.getItem(key) === null) {
@@ -469,7 +539,7 @@ test('saves paragraph alignment and inline size and font presets and restores th
     ['Noto Sans KR', 'Noto Sans KR'], ['Noto Serif KR', 'Noto Serif KR'],
     ['나눔명조', 'Nanum Myeongjo'], ['나눔고딕', 'Nanum Gothic'], ['monospace', 'monospace'],
   ];
-  await expect(menu.getByRole('menuitemradio')).toHaveCount(1 + families.length);
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(families.length);
   const primaryFamily = (element: Locator) => element.evaluate(node =>
     getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''));
   for (const [label, family] of families) {
@@ -1045,7 +1115,7 @@ test('renders absolute point sizes and still scales authored legacy sizes relati
   await expect(size).toHaveText('Custom');
   await size.click();
   const menu = page.getByRole('menu', { name: 'Size' });
-  await expect(menu.getByRole('menuitemradio')).toHaveText(['Default', ...points.map(point => `${point} pt`)]);
+  await expect(menu.getByRole('menuitemradio')).toHaveText(points.map(point => `${point} pt`));
   await page.keyboard.press('Escape');
   await title.click();
   await page.keyboard.press('Home');
@@ -1055,7 +1125,7 @@ test('renders absolute point sizes and still scales authored legacy sizes relati
   await expect(title).toHaveCSS('font-size', '24px');
   await expect(size).toHaveText('18 pt');
   await size.click();
-  await menu.getByRole('menuitemradio', { name: 'Default', exact: true }).click();
+  await menu.getByRole('menuitemradio', { name: '24 pt', exact: true }).click();
   await expect(title).toHaveCSS('font-size', '32px');
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+ArrowLeft');

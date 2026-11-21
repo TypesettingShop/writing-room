@@ -2,6 +2,8 @@ import type { Mark, MarkType, Node } from 'prosemirror-model';
 import type { Command, EditorState, Transaction } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { isMarkdownTableCell } from '../../../../editor/common/markdown/schema.js';
+import { defaultMarkdownFonts, markdownFontFamilies, markdownFontSizes } from '../common/markdownEditor.js';
+import type { MarkdownFontDefaults } from '../common/markdownEditor.js';
 import { selectedTextBlocks } from './markdownEditorBlockStyles.js';
 import type { SelectedTextBlock } from './markdownEditorBlockStyles.js';
 
@@ -16,19 +18,19 @@ interface PresetChoice {
 
 interface PresetAxis {
   readonly options: readonly PresetChoice[];
-  readonly defaultValue: string;
 }
 
 export type PresetAxisId = 'textAlign' | 'fontSize' | 'fontFamily';
 
-const pointSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+const headingScales = [2, 1.5, 1.17, 1, 0.83, 0.67];
+const subtitleScale = 1.25;
+const legacySizeScales = new Map([['small', 0.875], ['large', 1.25], ['extraLarge', 1.5]]);
 
 // Both UI and transactions use this table. Markdown persists the resulting generic classes.
 // Within an axis the options follow the order of their equal-specificity rules in markdownTheme.css, so when a
 // block carries several classes of one axis the last listed option is the one that renders.
 export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
   textAlign: {
-    defaultValue: 'left',
     options: [
       { label: 'Left', value: 'left', className: 'left' },
       { label: 'Center', value: 'center', className: 'center' },
@@ -37,26 +39,21 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
     ],
   },
   fontSize: {
-    defaultValue: 'default',
     options: [
-      { label: 'Default', value: 'default' },
       { label: 'Small', value: 'small', className: 'size-sm', hidden: true },
       { label: 'Large', value: 'large', className: 'size-lg', hidden: true },
       { label: 'Extra Large', value: 'extraLarge', className: 'size-xl', hidden: true },
-      ...pointSizes.map(size => ({ label: `${size} pt`, value: `${size}pt`, className: `size-${size}pt` })),
+      ...markdownFontSizes.map(size => ({ label: `${size} pt`, value: `${size}pt`, className: `size-${size}pt` })),
     ],
   },
   fontFamily: {
-    defaultValue: 'default',
     options: [
-      { label: 'Default', value: 'default' },
       { label: 'Serif', value: 'serif', className: 'font-serif', hidden: true },
       { label: 'Sans Serif', value: 'sans', className: 'font-sans', hidden: true },
-      { label: 'Noto Sans KR', value: 'noto-sans-kr', className: 'font-noto-sans-kr' },
-      { label: 'Noto Serif KR', value: 'noto-serif-kr', className: 'font-noto-serif-kr' },
-      { label: '나눔명조', value: 'nanum-myeongjo', className: 'font-nanum-myeongjo' },
-      { label: '나눔고딕', value: 'nanum-gothic', className: 'font-nanum-gothic' },
-      { label: 'monospace', value: 'monospace', className: 'font-monospace', legacyClassName: 'font-mono' },
+      ...markdownFontFamilies.map(option => ({
+        ...option, className: `font-${option.value}`,
+        legacyClassName: option.value === 'monospace' ? 'font-mono' : undefined,
+      })),
     ],
   },
 };
@@ -78,9 +75,50 @@ function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string
   return effective;
 }
 
-/** The alignment each block inherits from its nearest aligned ancestor, keyed by the block's position. */
-function inheritedTextAligns(doc: Node, blocks: readonly SelectedTextBlock[]): Map<number, string> {
-  const inherited = new Map<number, string>();
+interface FontSize {
+  readonly points: number;
+  readonly legacy?: string;
+}
+
+interface BlockPresets {
+  readonly textAlign: string;
+  readonly fontSize: FontSize;
+  readonly fontFamily: string;
+}
+
+function scalePoints(points: number, scale: number): number {
+  return Number((points * scale).toFixed(8));
+}
+
+function sizeWithPreset(base: FontSize, preset: string | undefined): FontSize {
+  if (preset === undefined) return base;
+  const scale = legacySizeScales.get(preset);
+  return scale === undefined
+    ? { points: Number.parseInt(preset, 10) }
+    : { points: scalePoints(base.points, scale), legacy: preset };
+}
+
+function sizeValue(size: FontSize): string {
+  return size.legacy ?? `${size.points}pt`;
+}
+
+export function markdownFontSizeLabel(value: string): string {
+  return legacySizeScales.has(value) ? 'Custom' : `${Number(Number.parseFloat(value).toFixed(2))} pt`;
+}
+
+function withClasses(base: BlockPresets, classes: readonly string[]): BlockPresets {
+  return {
+    textAlign: presetInClasses('textAlign', classes) ?? base.textAlign,
+    fontSize: sizeWithPreset(base.fontSize, presetInClasses('fontSize', classes)),
+    fontFamily: presetInClasses('fontFamily', classes) ?? base.fontFamily,
+  };
+}
+
+/** Effective defaults before each text block's own preset classes are applied. */
+function inheritedBlockPresets(
+  doc: Node, blocks: readonly SelectedTextBlock[], defaults: MarkdownFontDefaults,
+): Map<number, BlockPresets> {
+  const inherited = new Map<number, BlockPresets>();
   if (!blocks.length) return inherited;
   let from = blocks[0].pos;
   let to = from;
@@ -89,20 +127,37 @@ function inheritedTextAligns(doc: Node, blocks: readonly SelectedTextBlock[]): M
     to = Math.max(to, pos);
   }
   const wanted = new Set(blocks.map(({ pos }) => pos));
-  // One walk keeps the ancestors' alignments on a stack. Resolving each block would rescan its siblings,
+  const root: BlockPresets = { textAlign: 'left', fontSize: { points: defaults.size }, fontFamily: defaults.family };
+  // One walk keeps the ancestors' styles on a stack. Resolving each block would rescan its siblings,
   // which makes a selection over a long document quadratic.
-  const containers: { readonly end: number; readonly value: string }[] = [];
+  const containers: { readonly end: number; readonly presets: BlockPresets }[] = [];
   doc.nodesBetween(from, to + 1, (node, pos) => {
     while (containers.length && containers[containers.length - 1].end <= pos) containers.pop();
-    const value = containers.length ? containers[containers.length - 1].value : formattingPresets.textAlign.defaultValue;
+    const parent = containers.at(-1)?.presets ?? root;
+    const classes: readonly string[] = node.attrs.classes ?? [];
     if (node.isTextblock) {
-      if (wanted.has(pos)) inherited.set(pos, value);
+      if (wanted.has(pos)) {
+        const scale = node.type.name === 'heading' ? headingScales[node.attrs.level - 1]
+          : node.type.name === 'paragraph' && classes.includes('subtitle') ? subtitleScale : undefined;
+        inherited.set(pos, {
+          textAlign: parent.textAlign,
+          fontSize: scale === undefined ? parent.fontSize : { points: scalePoints(parent.fontSize.points, scale) },
+          fontFamily: node.type.spec.code ? 'monospace' : parent.fontFamily,
+        });
+      }
       return false;
     }
-    containers.push({ end: pos + node.nodeSize, value: presetInClasses('textAlign', node.attrs.classes ?? []) ?? value });
+    containers.push({ end: pos + node.nodeSize, presets: classes.length ? withClasses(parent, classes) : parent });
     return true;
   });
   return inherited;
+}
+
+function presetClassFor(
+  axis: PresetAxisId, choice: PresetChoice, fallback: BlockPresets,
+): string | undefined {
+  const inherited = axis === 'fontSize' ? `${fallback.fontSize.points}pt` : fallback[axis];
+  return choice.value === inherited ? undefined : choice.className;
 }
 
 function replaceClasses(
@@ -151,7 +206,9 @@ function updateSpans(
   });
 }
 
-export function setFormattingPreset(axis: PresetAxisId, value: string): Command {
+export function setFormattingPreset(
+  axis: PresetAxisId, value: string, defaults = defaultMarkdownFonts,
+): Command {
   return (state, dispatch) => {
     const choice = formattingPresets[axis].options.find(option => option.value === value);
     if (!choice || choice.readOnly) {
@@ -162,7 +219,7 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
     const tr = state.tr;
     const span = state.schema.marks.span;
     const blocks = selectedTextBlocks(state.doc, selection);
-    const inherited = axis === 'textAlign' ? inheritedTextAligns(state.doc, blocks) : undefined;
+    const inherited = inheritedBlockPresets(state.doc, blocks, defaults);
     for (const block of blocks) {
       const { node, pos, from, to } = block;
       const useBlock = axis === 'textAlign' || !node.type.allowsMarkType(span)
@@ -170,10 +227,10 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
       if (axis === 'textAlign' && isMarkdownTableCell(node)) {
         continue;
       }
+      const original: readonly string[] = node.attrs.classes;
+      const fallback = inherited.get(pos)!;
+      const className = presetClassFor(axis, choice, useBlock ? fallback : withClasses(fallback, original));
       if (useBlock) {
-        const original: readonly string[] = node.attrs.classes;
-        // An alignment only needs its own class where the block would otherwise inherit another alignment.
-        const className = inherited?.get(pos) === value ? undefined : choice.className;
         const classes = replaceClasses(original, axis, className);
         if (classes !== original) {
           tr.setNodeMarkup(pos, undefined, { ...node.attrs, classes });
@@ -183,7 +240,7 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
         }
       } else if (caret) {
         const mark = span.isInSet(state.storedMarks ?? selection.$from.marks());
-        const classes = changedSpanClasses(mark, axis, choice.className);
+        const classes = changedSpanClasses(mark, axis, className);
         if (classes) {
           tr.removeStoredMark(span);
           if (classes.length) {
@@ -191,7 +248,7 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
           }
         }
       } else {
-        updateSpans(tr, block, span, axis, choice.className);
+        updateSpans(tr, block, span, axis, className);
       }
     }
     if (!tr.docChanged && !tr.storedMarksSet) {
@@ -203,29 +260,32 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
 }
 
 export function currentFormattingPresets(
-  state: EditorState, blocks: readonly SelectedTextBlock[],
+  state: EditorState, blocks: readonly SelectedTextBlock[], defaults = defaultMarkdownFonts,
 ): Record<PresetAxisId, string | null> {
   const { selection, schema } = state;
   const span = schema.marks.span;
   const result: Record<PresetAxisId, string | null> = { textAlign: null, fontSize: null, fontFamily: null };
-  const inherited = inheritedTextAligns(state.doc, blocks);
+  const inherited = inheritedBlockPresets(state.doc, blocks, defaults);
+  const bases = blocks.map(({ node, pos }) => withClasses(inherited.get(pos)!, node.attrs.classes));
+  const caret = selection.empty && !(selection instanceof CellSelection);
   for (const axis of axisIds) {
     let common: string | null | undefined;
     const record = (value: string | null) => {
       common = common === undefined || common === value ? value : null;
     };
-    for (const { node, pos, from, to } of blocks) {
+    for (const [index, { node, from, to }] of blocks.entries()) {
+      const base = bases[index];
       if (axis === 'textAlign') {
-        const alignment = isMarkdownTableCell(node) ? null
-          : presetInClasses(axis, node.attrs.classes) ?? inherited.get(pos) ?? formattingPresets.textAlign.defaultValue;
-        record(alignment);
+        record(isMarkdownTableCell(node) ? null : base.textAlign);
         continue;
       }
-      const base = presetInClasses(axis, node.attrs.classes) ?? formattingPresets[axis].defaultValue;
-      const effective = (mark: Mark | undefined) => presetInClasses(axis, spanClasses(mark)) ?? base;
+      const effective = (mark?: Mark) => {
+        const preset = presetInClasses(axis, spanClasses(mark));
+        return axis === 'fontSize' ? sizeValue(sizeWithPreset(base.fontSize, preset)) : preset ?? base.fontFamily;
+      };
       if (!node.type.allowsMarkType(span)) {
-        record(base);
-      } else if (selection.empty && !(selection instanceof CellSelection)) {
+        record(effective());
+      } else if (caret) {
         record(effective(span.isInSet(state.storedMarks ?? selection.$from.marks())));
       } else {
         let textFound = false;
@@ -236,7 +296,7 @@ export function currentFormattingPresets(
           }
         });
         if (!textFound) {
-          record(base);
+          record(effective());
         }
       }
     }
