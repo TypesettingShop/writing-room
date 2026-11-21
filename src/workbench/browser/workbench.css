@@ -18,7 +18,7 @@ body {
   --vscode-sideBar-foreground: #d1daea;
   --vscode-sideBarSectionHeader-background: #262f40;
   --vscode-panel-background: #181d27;
-  --vscode-panel-border: #313c50;
+  --vscode-panel-border: #4a596e;
   --vscode-panelTitle-activeBorder: #90baff;
   --vscode-statusBar-background: #20334e;
   --vscode-statusBar-foreground: #d8e8ff;
@@ -67,6 +67,7 @@ body {
   padding-inline: 12px;
   background: var(--vscode-titleBar-activeBackground);
   color: var(--vscode-titleBar-activeForeground);
+  box-shadow: inset 0 -1px var(--vscode-titleBar-border);
 }
 
 .workbench-title {
@@ -85,6 +86,7 @@ body {
 .workbench .activitybar {
   background: var(--vscode-activityBar-background);
   color: var(--vscode-activityBar-foreground);
+  box-shadow: inset -1px 0 var(--vscode-activityBar-border);
 }
 
 .workbench .sidebar {
@@ -204,6 +206,7 @@ body {
   justify-content: space-between;
   background: var(--vscode-statusBar-background);
   color: var(--vscode-statusBar-foreground);
+  box-shadow: inset 0 1px var(--vscode-statusBar-border);
   padding-inline: 4px;
   font-size: 12px;
 }

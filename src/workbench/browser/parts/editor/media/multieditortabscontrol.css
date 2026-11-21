@@ -27,7 +27,7 @@
   white-space: nowrap;
   cursor: pointer;
   background: var(--vscode-tab-inactiveBackground, #1c212c);
-  border-right: 1px solid var(--vscode-tab-border, #252c3a);
+  border-right: 1px solid var(--vscode-tab-border, var(--vscode-panel-border));
   user-select: none;
 }
 

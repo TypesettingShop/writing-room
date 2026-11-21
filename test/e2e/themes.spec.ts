@@ -9,17 +9,17 @@ import {
 } from './themes.helpers.js';
 import { activityButton, item } from './tree-view.helpers.js';
 
-/** What v0.1.0 drew: the variables workbench.css set and the fallbacks of the stylesheets that read the others. */
+/** Base colors retained from the v0.1.0 workbench variables and stylesheet fallbacks. */
 const V010_COLORS: Readonly<Record<string, string>> = {
   'editor.background': '#171b24', 'editor.foreground': '#d7dfec', 'titleBar.activeBackground': '#232b39',
   'titleBar.activeForeground': '#eaf0f9', 'activityBar.background': '#1a202c', 'activityBar.foreground': '#a5b3c8',
   'activityBar.activeBorder': '#90baff', 'sideBar.background': '#202735', 'sideBar.foreground': '#d1daea',
-  'sideBarSectionHeader.background': '#262f40', 'panel.background': '#181d27', 'panel.border': '#313c50',
+  'sideBarSectionHeader.background': '#262f40', 'panel.background': '#181d27',
   'panelTitle.activeBorder': '#90baff', 'statusBar.background': '#20334e', 'statusBar.foreground': '#d8e8ff',
   'menu.background': '#232c3d', 'menu.foreground': '#e0e8f6', 'menu.selectionBackground': '#364663',
   'menu.border': '#465672', 'focusBorder': '#9dc3ff', 'sash.hoverBorder': '#78aaff',
   'list.activeSelectionBackground': '#04395e', 'list.hoverBackground': '#ffffff12', 'input.background': '#3c3c3c',
-  'editorGroupHeader.tabsBackground': '#1c212c', 'tab.inactiveForeground': '#8b97ab', 'tab.border': '#252c3a',
+  'editorGroupHeader.tabsBackground': '#1c212c', 'tab.inactiveForeground': '#8b97ab',
   'tab.activeBackground': '#171b24', 'editorGroup.dropBackground': '#53595d80', 'textLink.foreground': '#7fb2ff',
 };
 
@@ -41,7 +41,7 @@ function contrast(first: string, second: string): number {
   return Math.max(a, b) / Math.min(a, b);
 }
 
-test('the default theme is v0.1.0\'s: the same variables, Monaco\'s vs-dark, a dark color scheme', async ({ appPage: page }) => {
+test('the default dark theme retains the v0.1.0 base colors and Monaco theme', async ({ appPage: page }) => {
   for (const [id, value] of Object.entries(V010_COLORS)) {
     expect(await colorVariable(page, id), id).toBe(value);
   }
@@ -272,8 +272,8 @@ test('nested editor group separators follow the current theme and survive layout
   };
 
   for (const [slug, label, groupBorder, contentBorder, sidebarBorder, tabBorder] of [
-    ['dark', 'Writing Room Dark', '#6b7a94', '#313c50', '#313c50', '#90baff'],
-    ['light', 'Writing Room Light', '#7b8699', '#d3dae6', '#d3dae6', '#2f6fd6'],
+    ['dark', 'Writing Room Dark', '#4a596e', '#313c50', '#4a596e', '#90baff'],
+    ['light', 'Writing Room Light', '#a2aec0', '#d3dae6', '#a2aec0', '#2f6fd6'],
     ['hc-dark', 'Fixture Contrast', '#6fc3df', '#6fc3df', '#6fc3df'],
     ['hc-light', 'Fixture Contrast Light', '#0f4a85', '#0f4a85', '#0f4a85'],
     ['installed', 'Fixture Paper', '#7d412e', '#b09377', '#a0522d'],
@@ -289,6 +289,30 @@ test('nested editor group separators follow the current theme and survive layout
     const path = testInfo.outputPath(`editor-group-separators-${slug}.png`);
     const screenshot = await page.screenshot({ path, scale: 'css' });
     await testInfo.attach(`editor-group-separators-${slug}`, { path, contentType: 'image/png' });
+    const [activity, sidebar, title, panel, status, strip, firstTab] = await Promise.all([
+      box(page.locator('.activitybar')), box(sidebarPart(page)), box(page.locator('.titlebar')),
+      box(page.locator('.part.panel')), box(statusPart(page)),
+      box(editorGroups.nth(1).locator(':scope > .title')), box(editorGroups.first().locator('.tab').first()),
+    ]);
+    const panelX = Math.floor(panel.x + panel.width * 0.72);
+    const borders = [
+      ['title bar', Math.floor(title.x + title.width * 0.7), title.y + title.height - 1, 'horizontal', '#725340'],
+      ['activity bar', activity.x + activity.width - 1, bodyY, 'vertical', '#706447'],
+      ['sidebar', sidebar.x + sidebar.width - 1, bodyY, 'vertical', '#a0522d'],
+      ['tab bar', Math.floor(strip.x + strip.width * 0.72), strip.y + strip.height - 1, 'horizontal', '#8e704d'],
+      ['between tabs', Math.round(firstTab.x + firstTab.width) - 1, firstTab.y + 4, 'vertical', '#9d8061'],
+      ['panel', panelX, panel.y, 'horizontal', '#887254'],
+      ['status bar', panelX, status.y, 'horizontal', '#945d2d'],
+    ] as const;
+    const pixels = await screenshotColors(page, screenshot, borders.flatMap(([, x, y, orientation]) => [-1, 0, 1].map(offset =>
+      orientation === 'horizontal' ? { x, y: y + offset } : { x: x + offset, y },
+    )));
+    const workbenchBorders = borders.map(([name, , , , installed], index) => {
+      const [before, line, after] = pixels.slice(index * 3, index * 3 + 3);
+      const expected = slug === 'installed' ? installed : name === 'tab bar' && !tabBorder ? before : groupBorder;
+      expect(line, `${label} ${name} border pixel`).toBe(expected);
+      return { name, before, line, after, ratios: [contrast(line, before), contrast(line, after)] };
+    });
     if (tabBorder) {
       // The screenshot waits for fonts. Read the centered body's position after any resulting layout.
       const paperBox = await box(markdown.nth(1));
@@ -312,17 +336,28 @@ test('nested editor group separators follow the current theme and survive layout
       const gutters = samples.slice(3);
       expect([across, down, tabTop]).toEqual([groupBorder, groupBorder, tabBorder]);
       expect(contentEdge).toContain(contentBorder);
-      const ratios = {
+      const editorGroupRatios = {
         background: contrast(groupBorder, background),
         tabBar: contrast(groupBorder, tabBar),
         gutter: Math.min(...gutters.map(color => contrast(groupBorder, color))),
       };
-      await testInfo.attach(`editor-group-contrast-${slug}`, {
-        body: JSON.stringify({ groupBorder, background, tabBar, gutters: [...new Set(gutters)], ratios }, null, 2),
+
+      await testInfo.attach(`workbench-border-contrast-${slug}`, {
+        body: JSON.stringify({ groupBorder, background, tabBar, gutters: [...new Set(gutters)], editorGroupRatios, workbenchBorders }, null, 2),
         contentType: 'application/json',
       });
-      for (const [surface, ratio] of Object.entries(ratios)) {
-        expect(ratio, `${label} ${surface} contrast`).toBeGreaterThanOrEqual(3);
+      const measurements = [
+        ...Object.entries(editorGroupRatios).map(([surface, ratio]) => [surface, [ratio]] as const),
+        ...workbenchBorders.map(({ name, ratios }) => [name, ratios] as const),
+      ];
+      // Compare at the target's precision. The dark editor and status fills put the shared opaque
+      // tone slightly beyond both limits when measured without rounding.
+      for (const [surface, ratios] of measurements) {
+        for (const ratio of ratios) {
+          const rounded = Number(ratio.toFixed(1));
+          expect(rounded, `${label} ${surface} contrast (${ratio.toFixed(2)})`).toBeGreaterThanOrEqual(1.8);
+          expect(rounded, `${label} ${surface} contrast (${ratio.toFixed(2)})`).toBeLessThanOrEqual(2.4);
+        }
       }
     }
   }

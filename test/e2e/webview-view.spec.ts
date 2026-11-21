@@ -26,7 +26,7 @@ test('resolves an owned view, moves a live view to the panel and restores its JS
   const edge = side.x + side.width - 1;
   expect(edge).toBeLessThan(frame.x + frame.width);
   expect(edge).toBeGreaterThanOrEqual(frame.x);
-  expect(await screenshotColor(page, edge, frame.y + frame.height / 2)).toBe('#313c50');
+  expect(await screenshotColor(page, edge, frame.y + frame.height / 2)).toBe('#4a596e');
   await expect(page.getByRole('heading', { name: 'Webview Counter' })).toHaveAttribute('title', /supplied by the fixture/);
   await expect(page.getByText('No Webview content.')).toBeVisible();
   await increment.click();
