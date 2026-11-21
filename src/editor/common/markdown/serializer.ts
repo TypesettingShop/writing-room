@@ -50,6 +50,19 @@ interface RenderedList extends ListMarker {
 
 const lastListInScope = new WeakMap<MarkdownSerializerState, RenderedList>();
 const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
+// Columns by which the continuation lines of the item being written sit past its content.
+const itemOvershoot = new WeakMap<MarkdownSerializerState, number>();
+
+function skipsPlaceholder(item: Node): boolean {
+  // ProseMirror fills in a paragraph when a Markdown item starts with another block.
+  return item.type.name === 'list_item' && item.childCount > 1 && !item.firstChild!.content.size &&
+    !classSuffix(item.firstChild!.attrs) && !classSuffix(item.attrs);
+}
+
+function restore<T>(map: WeakMap<MarkdownSerializerState, T>, state: MarkdownSerializerState, value?: T): void {
+  if (value === undefined) map.delete(state);
+  else map.set(state, value);
+}
 
 function renderList(
   state: MarkdownSerializerState,
@@ -62,11 +75,23 @@ function renderList(
   const previous = lastListInScope.get(state);
   const adjacent = previous?.parent === parent && previous.index === index - 1 ? previous : undefined;
   const current = separateListMarker(listMarker(node)!, adjacent);
-  const item = node.firstChild;
-  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && item?.childCount === 1;
+  // After a skipped placeholder the list starts on the parent's marker line and inherits its overshoot.
+  const outerOvershoot = itemOvershoot.get(state);
+  const inherited = index === 1 && skipsPlaceholder(parent) ? outerOvershoot ?? 0 : 0;
+  const item = node.firstChild!;
+  const blocks = item.childCount - (skipsPlaceholder(item) ? 1 : 0);
+  // Four columns past the content would turn the class line after the blank line into indented code.
+  const fitsTrailer = indent - firstDelim(current.marker, 0).length + inherited < 4;
+  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1 && fitsTrailer;
+  const outerItem = looseSingleItems.get(state);
   if (needsLooseTrailer) looseSingleItems.set(state, item);
-  state.renderList(node, ' '.repeat(indent), itemIndex => firstDelim(current.marker, itemIndex));
-  if (needsLooseTrailer) looseSingleItems.delete(state);
+  state.renderList(node, ' '.repeat(indent), itemIndex => {
+    const delim = firstDelim(current.marker, itemIndex);
+    itemOvershoot.set(state, indent - delim.length + (itemIndex === 0 ? inherited : 0));
+    return delim;
+  });
+  restore(itemOvershoot, state, outerOvershoot);
+  if (needsLooseTrailer) restore(looseSingleItems, state, outerItem);
   finishBlock(state, node);
   lastListInScope.set(state, { ...current, parent, index });
 }
@@ -213,10 +238,7 @@ const markdownSerializer = new MarkdownSerializer({
     renderList(state, node, parent, index, indent, (marker, item) => String(start + item) + marker + ' ');
   },
   list_item(state, node) {
-    const first = node.firstChild!;
-    // ProseMirror fills in a paragraph when a Markdown item starts with another block.
-    const skipPlaceholder = node.childCount > 1 && !first.content.size &&
-      !classSuffix(first.attrs) && !classSuffix(node.attrs);
+    const skipPlaceholder = skipsPlaceholder(node);
     node.forEach((child, _offset, index) => {
       if (index !== 0 || !skipPlaceholder) state.render(child, node, index);
     });

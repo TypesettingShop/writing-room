@@ -127,6 +127,32 @@ describe('Markdown save normalization', () => {
     expect(parseMarkdown(written).eq(doc)).toBe(true);
   });
 
+  it.each([
+    ['bullet', '- - a\n\n    {.x}', '- - a\n        {.x}', true],
+    ['triple bullet', '- - - a\n\n      {.x}', '- - - a\n            {.x}', true],
+    ['quoted bullet', '> - - a\n>\n>     {.x}', '> - - a\n>         {.x}', true],
+    ['ordered', '- 1. a\n\n     {.x}', '- 1. a\n\n        {.x}', false],
+  ] as const)('keeps the paragraph class of a %s list on its parent marker line', (_name, source, expected, tight) => {
+    const written = canonical(parseMarkdown(source));
+    expect(written).toBe(expected);
+    let list = parseMarkdown(written).firstChild!;
+    while (list.firstChild!.childCount > 1) list = list.firstChild!.child(1);
+    if (list.type.name === 'blockquote') list = list.firstChild!.firstChild!.child(1);
+    expect(list.attrs.tight).toBe(tight);
+    expect(list.firstChild!.childCount).toBe(1);
+    expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
+  });
+
+  it('keeps a loose list loose when its emptied first paragraph is dropped', () => {
+    const doc = parseMarkdown('- a\n\n  b\n  {.x}');
+    const state = EditorState.create({ doc });
+    const saved = serializeMarkdown(state.apply(state.tr.delete(3, 4)).doc);
+    expect(saved).toBe('- b\n\n    {.x}');
+    const list = parseMarkdown(saved).firstChild!;
+    expect(list.attrs.tight).toBe(false);
+    expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
+  });
+
   it('retains marker spellings around edits in the same block', () => {
     const source = '+ _italic_ __strong__ ``code`` old';
     const state = EditorState.create({ doc: parseMarkdown(source) });
