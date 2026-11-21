@@ -3,7 +3,7 @@ import { box, drag, expect, test } from './fixtures.js';
 import { persistedSettings, runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
-import { chooseTheme } from './themes.helpers.js';
+import { chooseTheme, kindClass, openWithThemingFixtures } from './themes.helpers.js';
 
 const richEditor = (scope: Locator) => scope.getByRole('textbox', { name: 'Markdown editor' });
 
@@ -179,6 +179,8 @@ test('fills the editor, saves its layout, and keeps the independent Focus Mode w
   await expect(center).toHaveAttribute('aria-pressed', 'false');
   await expect(width).toBeDisabled();
   await expect(editor).toHaveCSS('max-width', 'none');
+  await expect(group.locator('.markdown-editor-surface')).toHaveCSS('background-image', 'none');
+  await expect(editor).toHaveCSS('border-left-width', '0px');
   expect((await box(editor)).width).toBeGreaterThan(centered);
   expect(await persistedSettings(page)).toMatch(/"markdownEditor\.contentLayout":\s*"fill"/);
   await page.reload();
@@ -194,6 +196,49 @@ test('fills the editor, saves its layout, and keeps the independent Focus Mode w
   await expect(width).toBeEnabled();
   expect((await box(editor)).width).toBe(centered);
   expect(await readWorkspaceText(page, name)).toBe('Centered text');
+});
+
+for (const [theme, kind] of [
+  ['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'],
+  ['Fixture Contrast Light', 'hc-light'], ['Fixture Contrast', 'hc-black'],
+]) {
+  test(`uses visible Markdown gutters in ${theme}`, async ({ page }) => {
+    await openWithThemingFixtures(page, ['color-theme/'], JSON.stringify({ 'workbench.colorTheme': theme }));
+    const group = await openMarkdown(page, 'gutters-theme.md', 'Themed gutter');
+    const editor = richEditor(group);
+    await expect(editor).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => kindClass(page)).toBe(kind);
+    await expect(group.locator('.markdown-editor-surface')).toHaveCSS('background-image', /repeating-linear-gradient\(135deg, /);
+    await expect(editor).toHaveCSS('border-left-width', '1px');
+    await expect(editor).toHaveCSS('border-right-width', '1px');
+    await expect(editor).not.toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
+    await expect(editor).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  });
+}
+
+test('starts typing at the clicked gutter’s line edge or document end', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'gutters.md',
+    'First paragraph\n\nSecond paragraph {.right}\n\n- First item\n- Last item');
+  const editor = richEditor(group);
+  const second = editor.locator('p').nth(1);
+  await expect(second).toBeVisible({ timeout: 20_000 });
+  const paper = await box(editor);
+  const line = await box(second);
+  await page.mouse.click(paper.x - 12, line.y + line.height / 2);
+  await expect(editor).toBeFocused();
+  await page.keyboard.type('Start ');
+  await expect(second).toHaveText('Start Second paragraph');
+  await page.mouse.click(paper.x + paper.width + 12, line.y + line.height / 2);
+  await page.keyboard.type(' end');
+  await expect(second).toHaveText('Start Second paragraph end');
+  const lastItem = editor.locator('li').last();
+  const last = await box(lastItem);
+  await page.mouse.click(paper.x - 12, last.y + last.height / 2);
+  await page.keyboard.type('Start ');
+  await expect(lastItem).toHaveText('Start Last item');
+  await page.mouse.click(paper.x - 12, last.y + last.height + 35);
+  await page.keyboard.type(' below');
+  await expect(lastItem).toHaveText('Start Last item below');
 });
 
 test('keeps split source and WYSIWYG views synchronized on one dirty model', async ({ appPage: page }) => {

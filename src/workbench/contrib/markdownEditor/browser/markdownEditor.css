@@ -63,6 +63,11 @@
 .markdown-editor-surface {
   flex: 1;
   min-height: 0;
+  --markdown-hatch-stripe: color-mix(in srgb, var(--vscode-editor-foreground) 4%, transparent);
+}
+
+:is(.hc-black, .hc-light) .markdown-editor-surface {
+  --markdown-hatch-stripe: color-mix(in srgb, var(--vscode-editor-foreground) 18%, transparent);
 }
 
 .markdown-editor-surface,
@@ -79,6 +84,7 @@
   max-width: var(--markdown-content-width);
   margin: 0 auto;
   padding: 1.25rem 2rem;
+  background: var(--vscode-editor-background);
   outline: none;
   font-size: 1rem;
   line-height: 1.6;
@@ -86,6 +92,16 @@
 
 .markdown-editor-frame.markdown-content-fill .ProseMirror {
   max-width: none;
+}
+
+.markdown-editor-frame:not(.markdown-content-fill) .markdown-editor-surface,
+.markdown-focus-mode .markdown-editor-surface {
+  background-image: repeating-linear-gradient(135deg, var(--markdown-hatch-stripe) 0 4px, transparent 4px 10px);
+}
+
+.markdown-editor-frame:not(.markdown-content-fill) .markdown-editor-surface .ProseMirror,
+.markdown-focus-mode .markdown-editor-surface .ProseMirror {
+  border-inline: 1px solid var(--vscode-editorGroup-border);
 }
 
 .markdown-editor-surface .ProseMirror > :first-child {

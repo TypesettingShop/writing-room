@@ -35,6 +35,7 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
+import { bindMarkdownGutter } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard } from './markdownEditorClipboard.js';
@@ -134,6 +135,7 @@ export class MarkdownEditorPane extends EditorPane {
       contentLayout.set(layout);
     };
     updateContentLayout();
+    this._register(bindMarkdownGutter(this.surface, () => this.view));
     this._register(this.configuration.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration(MARKDOWN_EDITOR_CONTENT_WIDTH) || event.affectsConfiguration(MARKDOWN_EDITOR_CONTENT_LAYOUT)) {
         updateContentLayout();
