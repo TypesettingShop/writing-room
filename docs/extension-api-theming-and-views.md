@@ -2,7 +2,7 @@
 
 테마, 색, 트리 뷰와 상태 표시줄의 지원 범위는 이 페이지에 기록한다. 현재 공개된 API와 기여는 [확장 API](extension-api.md)에 있다.
 
-Decided in: wr-efqx.n9k, wr-lnox, wr-gfge
+Decided in: wr-efqx.n9k, wr-lnox, wr-gfge, wr-qk08
 
 ## 색 테마와 색 레지스트리
 
@@ -12,7 +12,8 @@ Decided in: wr-efqx.n9k, wr-lnox, wr-gfge
 
 - `src/platform/theme/common/colorRegistry.ts`가 색을 등록한다. 색마다 테마 종류 넷(어두움, 밝음, 고대비 어두움, 고대비 밝음)의 기본값을 가진다. 기본값은 16진 색, 다른 색의 id(같은 테마에서 그 색의 값을 따른다), 또는 없음이다. 없으면 컨테이너에 그 변수를 `initial`로 걸어 `workbench.css`가 첫 그림을 위해 둔 어두운 값을 가리고, 스타일시트의 대체값이 쓰인다.
 - 내장 색 205개에는 기본 색, 글, 버튼과 체크박스, 드롭다운과 입력, 배지·스크롤바·진행 표시, 목록과 트리, 액티비티 바, 사이드바, 에디터 그룹과 탭, 패널, 상태 표시줄, 제목 표시줄과 메뉴, 알림과 퀵 인풋, 차트, 에디터의 색이 포함된다. `titleBar.iconForeground`(제목 표시줄의 제품 아이콘)와 `markdownEditor.contentBorder`(Markdown 본문 양옆 테두리)는 Writing Room에서 추가한 이름이다.
-- 테마 파일의 `colors`에서 `editorGroup.border`는 분할된 에디터 그룹 사이의 선을, `markdownEditor.contentBorder`는 가운데 배치와 집중 모드에서 본문 양옆의 선을 지정한다. 내장 라이트에서 두 색은 각각 `#7b8699`와 `#d3dae6`이고, 다크에서는 `#6b7a94`와 `#313c50`이다. 고대비에서 두 색의 기본값은 `contrastBorder`를 따른다.
+- 에디터 그룹 사이(`editorGroup.border`), 액티비티 바(`activityBar.border`), 사이드바(`sideBar.border`), 탭 바 아래(`editorGroupHeader.tabsBorder`), 탭 사이(`tab.border`), 패널(`panel.border`), 제목 표시줄(`titleBar.border`), 상태 표시줄(`statusBar.border`)의 기본색은 내장 라이트에서 `#a2aec0`, 내장 다크에서 `#4a596e`다. 테마 파일의 `colors`에서 각 색을 지정할 수 있다. 일반 라이트·다크 계열에서 `sideBar.border`를 생략하면 `panel.border`를 따른다. 고대비에서는 이 경계들의 기본색으로 `contrastBorder`를 쓰며, 탭 바 아래는 `editorGroupHeader.tabsBorder`를 지정할 때 선이 그려진다.
+- `markdownEditor.contentBorder`는 가운데 배치와 집중 모드에서 Markdown 본문 양옆의 선을 지정한다. 내장 라이트의 기본색은 `#d3dae6`, 내장 다크의 기본색은 `#313c50`이다. 두 색 모두 각 테마의 워크벤치 경계보다 연하다. 고대비 기본색은 `contrastBorder`를 따른다.
 - 색 id는 VS Code의 `colors` 패턴(`^\w+[.\w+]*$`)을 따라야 한다(`isColorIdentifier`). 줄표, 공백, 괄호, 세미콜론이 들어갈 수 없으니 변수 이름이 선언이나 규칙을 끝낼 수 없다.
 - 색 값은 16진 표기 넷만 받는다: `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`(`isHexColor`). 받은 값은 `#rrggbb`나 `#rrggbbaa`의 소문자로 바꿔 둔다.
 - 워크벤치 스타일시트(`src/**/*.css`)가 `var(--vscode-…)`로 읽는 색은 모두 레지스트리에 있고 두 내장 테마에서 값을 가진다. 단위 테스트가 스타일시트를 읽어 대조한다. 색이 아닌 변수(`--vscode-editor-font-family`)만 목록으로 뺀다.
@@ -24,7 +25,7 @@ Decided in: wr-efqx.n9k, wr-lnox, wr-gfge
 | `Writing Room Dark` (기본) | `writing-room-dark` | 어두움 |
 | `Writing Room Light` | `writing-room-light` | 밝음 |
 
-- 어두운 테마는 v0.1.0의 팔레트 그대로다. `workbench.css`가 정의하던 변수 스물한 개와, 아무도 정의하지 않던 변수에 다른 스타일시트가 준 대체값(예: `list.hoverBackground`의 `#ffffff12`)이 그 테마의 값이라 계산된 색이 v0.1.0과 같다. 이 테마에서 Monaco는 v0.1.0처럼 자기의 `vs-dark`를 그대로 쓴다.
+- 어두운 테마의 배경과 전경 등은 v0.1.0 팔레트에서 왔다. `list.hoverBackground`처럼 당시 스타일시트의 대체값이던 색도 포함한다. 구조 경계는 위의 공통 기본색을 쓰고 Monaco는 `vs-dark`를 사용한다.
 - 밝은 테마의 값은 Writing Room이 직접 정했다(VS Code의 테마 파일을 옮기지 않았다).
 - `workbench.css`의 `.workbench` 블록에 남은 변수 스물한 개는 테마 서비스가 서기 전의 첫 그림을 위한 것이며 어두운 테마의 값과 같다(테스트가 지킨다). 그 밖의 하드코딩 색은 변수로 바뀌었다.
 
