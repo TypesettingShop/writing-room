@@ -250,6 +250,53 @@ describe('Markdown save normalization', () => {
     }
   });
 
+  it('keeps the class of a list paragraph that holds only a hard break', () => {
+    const { nodes } = markdownSchema;
+    const paragraph = nodes.paragraph.create({ classes: ['p'] }, nodes.hard_break.create());
+    const doc = nodes.doc.create(null, nodes.bullet_list.create(null, nodes.list_item.create(null, paragraph)));
+    const written = canonical(doc);
+    expect(written).toBe('- []{.p}');
+    const item = parseMarkdown(written).firstChild!.firstChild!;
+    expect(item.attrs.classes).toEqual([]);
+    expect(item.firstChild!.attrs.classes).toEqual(['p']);
+  });
+
+  it.each([
+    ['nested list', '[^1]: - a\n       - b', 'b'],
+    ['second paragraph', '[^1]: - a\n\n       b', 'b'],
+    ['paragraph class trailer', '[^1]: - a\n\n       {.x}', 'a'],
+    ['later item', '[^1]: - a\n     - b\n       - c', 'c'],
+    ['fence in an ordered item', '[^1]: 1. ```\n        b\n        ```', 'b'],
+    ['fence', '[^1]: ```\n      b\n     ```', 'b'],
+  ] as const)('keeps a %s on the first line of a footnote', (_name, source, text) => {
+    const doc = parseMarkdown('ref[^1]\n\n' + source);
+    const written = canonical(doc);
+    expect.soft(written).toBe('ref[^1]\n\n' + source);
+    expect.soft(parseMarkdown(written).eq(doc)).toBe(true);
+
+    const edited = editText(doc, text, 'edited');
+    expect(parseMarkdown(serializeMarkdown(edited)).eq(edited)).toBe(true);
+  });
+
+  it.each([
+    ['quote', '> b\n  >\n  {.x}'],
+    ['fence', '```\n  b\n  ```\n  {.x}'],
+  ] as const)('keeps a styled %s and a following list starting above one in a tight item', (_name, block) => {
+    const doc = parseMarkdown('- a\n  ' + block + '\n  1. c');
+    const state = EditorState.create({ doc });
+    let position = -1;
+    doc.descendants((node, offset) => {
+      if (node.type.name === 'ordered_list') position = offset;
+    });
+    const list = doc.nodeAt(position)!;
+    const edited = state.apply(state.tr.setNodeMarkup(position, null, { ...list.attrs, order: 7 })).doc;
+    const item = parseMarkdown(serializeMarkdown(edited)).firstChild!.firstChild!;
+    expect(item.childCount).toBe(3);
+    expect(item.child(1).attrs.classes).toEqual(['x']);
+    expect(item.child(2).type.name).toBe('ordered_list');
+    expect(item.child(2).attrs.order).toBe(7);
+  });
+
   it('retains marker spellings around edits in the same block', () => {
     const source = '+ _italic_ __strong__ ``code`` old';
     const state = EditorState.create({ doc: parseMarkdown(source) });

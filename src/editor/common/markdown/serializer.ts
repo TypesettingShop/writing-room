@@ -234,7 +234,10 @@ const markdownSerializer = new MarkdownSerializer({
     const itemSuffix = isListItem(parent) && index === 0 ? classSuffix(parent.attrs) : '';
     const suffix = classSuffix(node.attrs);
     const looseTrailer = looseSingleItems.get(state) === parent;
-    if (!node.content.size && suffix && isListItem(parent)) {
+    // Trailing hard breaks write nothing, so such a paragraph is empty in Markdown too.
+    let blank = true;
+    node.forEach(child => { if (child.type.name !== 'hard_break') blank = false; });
+    if (blank && suffix && isListItem(parent)) {
       state.write('[]' + (looseTrailer ? '{}' : suffix));
       if (itemSuffix) state.write(' ' + itemSuffix);
       if (looseTrailer) {
@@ -279,8 +282,11 @@ const markdownSerializer = new MarkdownSerializer({
   },
   ordered_list(state, node, parent, index) {
     const start: number = node.attrs.order;
-    // A list starting above 1 cannot interrupt a paragraph without a blank line.
-    if (start !== 1 && parent.maybeChild(index - 1)?.type.name === 'paragraph') state.write();
+    const previous = parent.maybeChild(index - 1);
+    // A list starting above 1 cannot interrupt a paragraph, including the class line
+    // written after a styled block, without a blank line.
+    if (start !== 1 && previous && (previous.type.name === 'paragraph' ||
+      (previous.type.name !== 'heading' && classSuffix(previous.attrs)))) state.write();
     renderList(state, node, parent, index, (marker, item) => String(start + item) + marker + ' ');
   },
   list_item: renderItemContent,
@@ -300,7 +306,15 @@ const markdownSerializer = new MarkdownSerializer({
     state.write('\n');
   },
   footnote_definition(state, node) {
-    state.wrapBlock('    ', '[^' + node.attrs.label + ']: ', node, () => state.renderContent(node));
+    state.wrapBlock('    ', '[^' + node.attrs.label + ']: ', node, () => node.forEach((child, _offset, index) => {
+      // The definition's first line starts one column past its later lines. Lists and
+      // fences measure their content from that column, so keep the whole block on it.
+      if (index === 0 && ['bullet_list', 'ordered_list', 'code_block'].includes(child.type.name)) {
+        state.wrapBlock(' ', '', child, () => state.render(child, node, index));
+      } else {
+        state.render(child, node, index);
+      }
+    }));
     finishBlock(state, node);
   },
   footnote_reference(state, node) {
