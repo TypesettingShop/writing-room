@@ -96,7 +96,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 #### Markdown editor
 
-- writing-room에서는 `.md`와 `.markdown`의 기본 에디터가 ProseMirror 기반 코어 페인(WYSIWYG)이다. 원문 모드에서는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 두 모드가 저장·dirty·초안을 공유한다. VS Code의 기본 Markdown 편집기는 텍스트 에디터이며, 기준 커밋의 내장 확장은 **Markdown Editor**와 **Markdown Preview**를 각각 선택형 커스텀 에디터로 등록한다. writing-room에서도 Markdown 확장이 제공하는 **Markdown Preview**를 **Reopen Editor With...**에서 선택할 수 있다 (wr-ndsy, wr-h2sa). [마크다운 편집 모드와 저장 형식](markdown-editor.md#편집-모드와-실행-취소)
+- `.md`와 `.markdown`의 기본 에디터는 ProseMirror 기반 코어 페인(WYSIWYG)이다. VS Code의 기본 Markdown 편집기는 텍스트 에디터이며, 기준 커밋의 내장 확장은 **Markdown Editor**(`vscode.markdown.editor`)와 **Markdown Preview**(`vscode.markdown.preview.editor`)를 텍스트 에디터 자리의 선택형(`option`) 커스텀 에디터로 등록한다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 두 모드가 저장·dirty·초안을 공유하고, 확장이 제공하는 **Markdown Preview**도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy, wr-h2sa). [마크다운 편집 모드와 저장 형식](markdown-editor.md#편집-모드와-실행-취소)
 
 #### Monaco editor
 

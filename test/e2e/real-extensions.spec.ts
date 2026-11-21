@@ -20,7 +20,8 @@ const run = promisify(execFile);
 
 async function script(name: string, fake: FakeCache, ...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const env = { ...process.env };
-  // Playwright forces color, which makes Node warn on stderr when the parent shell sets NO_COLOR.
+  // Exercise NO_COLOR in every run. Playwright's FORCE_COLOR would make Node warn on stderr.
+  env.NO_COLOR = '1';
   delete env.FORCE_COLOR;
   try {
     const { stdout, stderr } = await run(
