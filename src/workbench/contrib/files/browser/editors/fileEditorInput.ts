@@ -24,7 +24,7 @@ export interface IFileEditorInputOptions {
  * once the last reference does and it is clean.
  */
 export class FileEditorInput extends EditorInput {
-  static readonly ID = FILE_EDITOR_INPUT_ID;
+  static readonly ID: string = FILE_EDITOR_INPUT_ID;
 
   private reference: Promise<IReference<IResolvedTextEditorModel>> | undefined;
   private restoredDirty: boolean;
@@ -43,6 +43,7 @@ export class FileEditorInput extends EditorInput {
     super();
     this.closeHandler = {
       showConfirm: () => this.isDirty(),
+      sharesDirtyState: other => other instanceof FileEditorInput && isEqual(other.resource, this.target),
       confirm: editors => fileDialogService.showSaveConfirm(editors.map(({ editor }) => editor.getName())),
     };
     this.restoredDirty = options.restoredDirty ?? false;
@@ -151,7 +152,7 @@ export class FileEditorInput extends EditorInput {
   }
 
   override matches(other: EditorInput): boolean {
-    return other === this || (other instanceof FileEditorInput && isEqual(other.resource, this.target));
+    return other === this || (other instanceof FileEditorInput && other.typeId === this.typeId && isEqual(other.resource, this.target));
   }
 
   override dispose(): void {

@@ -248,7 +248,13 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       : this.editors.filter(editor => editor !== (editors as ICloseEditorsFilter).except);
     // The editors as this group holds them: a request may name an input that only matches one.
     const held = [...new Set(requested.flatMap(editor => this.model.findEditor(editor)?.[0] ?? []))];
-    const asking = held.filter(editor => this.shouldConfirmClose(editor));
+    const closing = new Set(held);
+    const asking: EditorInput[] = [];
+    for (const editor of held) {
+      if (this.shouldConfirmClose(editor, closing) && !asking.some(other => editor.closeHandler?.sharesDirtyState?.(other))) {
+        asking.push(editor);
+      }
+    }
     if (asking.length === 0) {
       // Nothing to ask: the editors are gone before this returns, as a close always was.
       return Promise.resolve(this.doCloseEditors(held));
@@ -289,12 +295,17 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     }
   }
 
-  /** Whether closing `editor` here needs its close handler's answer: it wants to ask, and no other group shows it. */
-  private shouldConfirmClose(editor: EditorInput): boolean {
-    if (!editor.closeHandler?.showConfirm()) {
+  /** Whether this close will remove the last tab that holds the editor's unsaved changes. */
+  private shouldConfirmClose(editor: EditorInput, closing: ReadonlySet<EditorInput>): boolean {
+    const handler = editor.closeHandler;
+    if (!handler?.showConfirm()) {
       return false;
     }
-    return !this.groupsView.groups.some(group => group !== this && !group.disposed && group.contains(editor, { matches: true }));
+    return !this.groupsView.groups.some(group => !group.disposed && (
+      (group !== this && group.contains(editor, { matches: true }))
+      || (handler.sharesDirtyState
+        && group.editors.some(other => (group !== this || !closing.has(other)) && handler.sharesDirtyState!(other)))
+    ));
   }
 
   private async closeEditorsAfterConfirm(held: readonly EditorInput[], asking: readonly EditorInput[]): Promise<boolean> {

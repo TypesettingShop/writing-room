@@ -4,7 +4,8 @@ import type { Event } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { basename } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
-import type { IRange, ITextModel } from '../../../../editor/common/model.js';
+import { getTextModelEdit } from '../../../../editor/common/model.js';
+import type { ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import {
   FileOperationError, FileOperationResult, FileSystemProviderErrorCode, IFileService, toFileSystemProviderErrorCode,
@@ -298,7 +299,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
     type MonacoModel = ITextModel & {
       setEOL?(eol: 0 | 1): void;
       pushStackElement?(): void;
-      pushEditOperations?(before: null, edits: { range: IRange; text: string }[], cursor: () => null): unknown;
+      pushEditOperations?(before: null, edits: ISingleEditOperation[], cursor: () => null): unknown;
     };
     const monaco = model as MonacoModel;
     this.ignoreContentChange = true;
@@ -307,25 +308,10 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       if (lineBreak && lineBreak !== model.getEOL() && monaco.setEOL) {
         monaco.setEOL(lineBreak === '\r\n' ? 1 : 0);
       }
-      const eol = model.getEOL();
-      const next = text.replace(/\r\n|\r|\n/g, eol);
-      const current = model.getValue();
-      if (next === current) {
+      const edit = getTextModelEdit(model, text);
+      if (!edit) {
         return;
       }
-      let start = 0;
-      const shorter = Math.min(current.length, next.length);
-      while (start < shorter && current.charCodeAt(start) === next.charCodeAt(start)) {
-        start++;
-      }
-      let end = 0;
-      while (end < shorter - start && current.charCodeAt(current.length - 1 - end) === next.charCodeAt(next.length - 1 - end)) {
-        end++;
-      }
-      const from = model.getPositionAt(start);
-      const to = model.getPositionAt(current.length - end);
-      const range = { startLineNumber: from.lineNumber, startColumn: from.column, endLineNumber: to.lineNumber, endColumn: to.column };
-      const edit = { range, text: next.slice(start, next.length - end) };
       if (monaco.pushEditOperations && monaco.pushStackElement) {
         // As VS Code's model service updates a model: an undoable step of its own.
         monaco.pushStackElement();
