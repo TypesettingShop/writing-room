@@ -7,6 +7,7 @@ import {
   chooseTheme, colorVariable, editorBackground, kindClass, newUntitled, openThemePicker, openWithThemingFixtures,
   persistedSettings, recordRequests, rgb, themingFixtureLocation, workbench,
 } from './themes.helpers.js';
+import { activityButton, item } from './tree-view.helpers.js';
 
 /** What v0.1.0 drew: the variables workbench.css set and the fallbacks of the stylesheets that read the others. */
 const V010_COLORS: Readonly<Record<string, string>> = {
@@ -150,10 +151,11 @@ test('tab and Explorer selection colors stay readable in high contrast light and
     await chooseTheme(page, theme);
     await expect(tabBar).toHaveCSS('background-color', rgb(bar));
     await expectColors(tabSurface, tab, inactiveTab);
-    await row.focus();
+    await row.press('Home');
     await expect(row).toBeFocused();
     await expectColors(row, rowLabel, focusedRow);
     if (theme === 'Fixture Contrast Light') {
+      await expect(row).toHaveCSS('outline', '1px solid rgb(255, 255, 255)');
       const path = testInfo.outputPath('hc-light-explorer-focused.png');
       const screenshot = await page.screenshot({ path, scale: 'css' });
       const [strip, inactive, boundary, selected] = await Promise.all([
@@ -176,16 +178,56 @@ test('tab and Explorer selection colors stay readable in high contrast light and
     await expect(activeTab).toBeFocused();
     await expect(row).toHaveAttribute('aria-selected', 'true');
     await expectColors(row, rowLabel, blurredRow);
+    const selectionOutline = theme === 'Fixture Contrast Light' ? '#0f4a85'
+      : theme === 'Fixture Contrast' ? '#6fc3df' : undefined;
+    if (selectionOutline) {
+      await expect(row).toHaveCSS('outline', `1px solid ${rgb(selectionOutline)}`);
+      await expect(row).toHaveCSS('outline-offset', '-1px');
+    } else {
+      await expect(row).toHaveCSS('outline-style', 'none');
+    }
     if (theme === 'Fixture Contrast Light') {
       const path = testInfo.outputPath('hc-light-explorer-unfocused.png');
       const screenshot = await page.screenshot({ path, scale: 'css' });
       const { x, y, width, height } = await box(row);
-      const [rowFill] = await screenshotColors(page, screenshot, [{ x: Math.floor(x + width - 8), y: Math.floor(y + height / 2) }]);
+      const sampleX = Math.floor(x + width - 8);
+      const [rowFill, outline, sidebar] = await screenshotColors(page, screenshot, [
+        { x: sampleX, y: Math.floor(y + height / 2) },
+        { x: sampleX, y: Math.floor(y + height) - 1 },
+        { x: sampleX, y: Math.floor(y + height) },
+      ]);
       await testInfo.attach('hc-light-explorer-unfocused', { path, contentType: 'image/png' });
-      expect(rowFill).toBe(blurredRow[0]);
+      expect([rowFill, outline, sidebar]).toEqual([blurredRow[0], '#0f4a85', '#ffffff']);
       expect(contrast(blurredRow[1], rowFill)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(outline, sidebar)).toBeGreaterThanOrEqual(3);
     }
   }
+});
+
+test('high contrast light keeps selected extension tree icons and unfocused selections visible', async ({ page }) => {
+  await openWithThemingFixtures(page, ['color-theme/', 'tree-view/']);
+  await chooseTheme(page, 'Fixture Contrast Light');
+  await activityButton(page, 'Tree Fixture').click();
+  const inbox = item(page, 'Inbox');
+  await inbox.click();
+  await expect(inbox).toHaveAttribute('aria-selected', 'true');
+  await expect(inbox.locator('.codicon-inbox')).toHaveCSS('color', rgb(await colorVariable(page, 'charts.blue')));
+
+  const ideas = item(page, 'Ideas');
+  const icon = ideas.locator('.codicon-lightbulb');
+  await expect(icon).toHaveCSS('color', rgb('#292929'));
+  await ideas.click();
+  await expect(ideas).toBeFocused();
+  await expect(ideas).toHaveAttribute('aria-selected', 'true');
+  await expect(ideas).toHaveCSS('background-color', rgb('#0f4a85'));
+  await expect(icon).toHaveCSS('color', rgb('#ffffff'));
+
+  const tab = page.getByRole('tab', { name: 'Welcome' });
+  await tab.focus();
+  await expect(tab).toBeFocused();
+  await expect(ideas).toHaveAttribute('aria-selected', 'true');
+  await expect(ideas).toHaveCSS('outline', '1px solid rgb(15, 74, 133)');
+  await expect(icon).toHaveCSS('color', rgb('#292929'));
 });
 
 test('nested editor group separators follow the current theme and survive layout restore', async ({ page }, testInfo) => {

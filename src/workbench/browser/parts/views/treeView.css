@@ -26,6 +26,16 @@
   color: var(--vscode-list-activeSelectionForeground);
 }
 
+:is(.hc-light, .hc-black) [role="tree"]:not(:focus-within) > .extension-tree-row[aria-selected="true"] {
+  outline: 1px solid var(--vscode-contrastBorder);
+  outline-offset: -1px;
+}
+
+/* A theme icon without its own color. It stays `icon.foreground` except in high contrast light, whose selection fill is dark. */
+[role="tree"]:focus-within > .extension-tree-row[aria-selected="true"] > .extension-tree-icon {
+  color: var(--vscode-list-activeSelectionIconForeground);
+}
+
 .extension-tree-row:focus-visible {
   outline: 1px solid #80a8ff;
   outline-offset: -1px;
