@@ -72,12 +72,13 @@ function appendChangedRange(ranges: number[], start: number, end: { a: number; b
   ranges.push(start, end.a + overlap - start, end.b + overlap - start);
 }
 
-function sourceChangeMap(before: Node, after: Node, start: number, end: { a: number; b: number }, batch: boolean): StepMap {
+function sourceChangeMap(before: Node, after: Node, start: number, end: { a: number; b: number }, changes: number): StepMap {
   const ranges: number[] = [];
   // When a batch preserves the top-level structure, keep the unchanged positions between its edits.
   // Otherwise the common prefix and suffix are the positions we can confidently map.
-  if (batch && before.childCount === after.childCount) {
+  if (changes > 1 && before.childCount === after.childCount) {
     let aligned = true;
+    let changed = 0;
     before.forEach((block, offset, index) => {
       const updated = after.child(index);
       if (!block.sameMarkup(updated)) {
@@ -87,10 +88,13 @@ function sourceChangeMap(before: Node, after: Node, start: number, end: { a: num
       const from = block.content.findDiffStart(updated.content, offset + 1);
       const to = block.content.findDiffEnd(updated.content, offset + 1 + block.content.size, offset + 1 + updated.content.size);
       if (from !== null && to !== null) {
+        changed++;
         appendChangedRange(ranges, from, to);
       }
     });
-    if (aligned) {
+    // More changed blocks than edits means the blocks moved (one removed, another added), so the
+    // same index no longer holds the same block.
+    if (aligned && changed <= changes) {
       return new StepMap(ranges);
     }
     ranges.length = 0;
@@ -129,35 +133,61 @@ export class MarkdownEditorModel extends Disposable {
     this.sourceDoc = parseSource(this.lastSource);
     this.state = EditorState.create({ doc: this.sourceDoc.doc, plugins: [markdownHistory, ...plugins] });
     this._register(textModel.onDidChangeContent(event => {
-      // A pane opened during another listener's delivery already starts at the live version.
+      // A pane opened during another listener's delivery already starts at the live version. A
+      // write's own event can also arrive after a later change that was already read with it.
       if (event.versionId <= this.version) {
+        this.writingVersions.delete(event.versionId);
         return;
       }
-      // During reentrant delivery the live model may already include a later event.
-      const next = event.versionId === textModel.getVersionId()
-        ? textModel.getValue()
-        : event.changes.reduce((text, change) => text.slice(0, change.rangeOffset) + change.text +
-          text.slice(change.rangeOffset + change.rangeLength), this.lastSource);
-      this.version = event.versionId;
-      const written = this.writingVersions.get(event.versionId);
-      this.writingVersions.delete(event.versionId);
-      if (written && this.matchesWrite(event, written.edit)) {
-        this.lastSource = next;
-      } else {
-        const expected = written?.source.replace(/\r\n|\r|\n/g, event.eol);
-        if (expected === next) {
-          this.lastSource = next;
-        } else {
-          this.readText(event, next, expected);
+      // A listener that changes the model while an earlier change is still being delivered makes a
+      // later version arrive first. Its changes then do not start from lastSource, so read the live
+      // text up to the latest version instead, and let the skipped events go by.
+      const live = textModel.getVersionId();
+      const skipped = event.versionId !== this.version + 1;
+      const upTo = skipped ? live : event.versionId;
+      // A later change can arrive before the event of this model's own write. The rich state then
+      // shows the written text, and that change started from it.
+      let earlier: SourceWrite | undefined;
+      for (const [version, write] of this.writingVersions) {
+        if (version < upTo) {
+          earlier = write;
+          this.writingVersions.delete(version);
         }
       }
-      this.drainDeferredEdits();
+      const earlierText = earlier?.source.replace(/\r\n|\r|\n/g, event.eol);
+      // During reentrant delivery the live model may already include a later event.
+      const next = upTo === live
+        ? textModel.getValue()
+        : event.changes.reduce((text, change) => text.slice(0, change.rangeOffset) + change.text +
+          text.slice(change.rangeOffset + change.rangeLength), earlierText ?? this.lastSource);
+      this.version = upTo;
+      const written = this.writingVersions.get(upTo);
+      this.writingVersions.delete(upTo);
+      try {
+        if (!skipped && written && this.matchesWrite(event, written.edit)) {
+          this.lastSource = next;
+        } else {
+          const expected = written ? written.source.replace(/\r\n|\r|\n/g, event.eol) : earlierText;
+          if (expected === next) {
+            this.lastSource = next;
+          } else {
+            this.readText(skipped ? undefined : event, next, expected);
+          }
+        }
+      } finally {
+        // A failed read must not leave the queued rich edits of every pane waiting.
+        this.drainDeferredEdits();
+      }
     }));
   }
 
   override dispose(): void {
     this.deferred.pending = this.deferred.pending.filter(edit => edit.owner !== this);
     super.dispose();
+    // Another pane's edits queued behind this model's can be ready now.
+    if (!this.textModel.isDisposed()) {
+      this.drainDeferredEdits();
+    }
   }
 
   get canUndo(): boolean {
@@ -209,7 +239,9 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   private shouldDeferEdit(): boolean {
-    return this.deferred.draining || this.deferred.pending.length > 0 || this.version !== this.textModel.getVersionId();
+    // A disposed model has no version to wait for, and a selection change still applies.
+    return this.deferred.draining || this.deferred.pending.length > 0
+      || (!this.textModel.isDisposed() && this.version !== this.textModel.getVersionId());
   }
 
   private runCommand(command: Command, isolate = false): boolean {
@@ -231,7 +263,12 @@ export class MarkdownEditorModel extends Disposable {
     deferred.draining = true;
     try {
       while (deferred.pending[0]?.owner.version === this.textModel.getVersionId()) {
-        deferred.pending.shift()!.run();
+        // The caller that queued the edit has returned, so report a failure and go on with the rest.
+        try {
+          deferred.pending.shift()!.run();
+        } catch (error) {
+          console.error(error);
+        }
       }
     } finally {
       deferred.draining = false;
@@ -260,7 +297,7 @@ export class MarkdownEditorModel extends Disposable {
     if (transaction.scrolledIntoView) {
       rebased.scrollIntoView();
     }
-    for (const key of ['addToHistory', 'uiEvent', 'pointer', 'composition']) {
+    for (const key of ['addToHistory', 'uiEvent', 'paste', 'pointer', 'composition']) {
       const value = transaction.getMeta(key);
       if (value !== undefined) {
         rebased.setMeta(key, value);
@@ -382,7 +419,8 @@ export class MarkdownEditorModel extends Disposable {
     }
   }
 
-  private readText(event: IModelContentChangedEvent, next: string, expectedWrite?: string): void {
+  /** `event` is left out when its changes do not lead from `lastSource` to `next`. */
+  private readText(event: IModelContentChangedEvent | undefined, next: string, expectedWrite?: string): void {
     // If the writer changed the edit, the rich state represents the intended text. The event's
     // ranges describe a different starting text, so use a full parse for the actual result.
     const previous = expectedWrite ?? this.lastSource;
@@ -390,7 +428,7 @@ export class MarkdownEditorModel extends Disposable {
       return;
     }
     const { state } = this;
-    const source = (expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
+    const source = (event && expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
     const doc = source.doc;
     this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });
     this.lastSource = next;
@@ -415,7 +453,7 @@ export class MarkdownEditorModel extends Disposable {
     // only the changed positions.
     const externalMap = this.deferred.pending.length === 0 ? undefined
       : start === null || end === null ? StepMap.empty
-      : sourceChangeMap(state.doc, doc, start, end, event.changes.length > 1);
+      : sourceChangeMap(state.doc, doc, start, end, event?.changes.length ?? 1);
     this.applyTransaction(transaction, true, externalMap);
     this.onStateChange(this.state);
   }

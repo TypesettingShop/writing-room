@@ -198,11 +198,12 @@ export class MarkdownEditorPane extends EditorPane {
         nodeViews: {
           image: (node, view) => markdownImageView(node, view.dom.ownerDocument, input.resource, this.files, this.workspace),
           task_item: (node, view, getPos) => taskItemView(node, view.dom.ownerDocument, checked => {
-            const pos = getPos();
-            if (pos === undefined || input.isReadonly()) return false;
-            const current = view.state.doc.nodeAt(pos);
-            if (current?.type !== node.type) return false;
+            if (getPos() === undefined || input.isReadonly()) return false;
+            // A queued command runs after a pending source change, so find the item in that state.
             return this.runFormattingCommand((state, dispatch) => {
+              const pos = getPos();
+              const current = pos === undefined ? null : state.doc.nodeAt(pos);
+              if (pos === undefined || current?.type !== node.type) return false;
               dispatch?.(state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, checked }));
               return true;
             });

@@ -244,6 +244,96 @@ describe('MarkdownEditorModel', () => {
         expectSource(source);
       }
       expect(sync.canRedo).toBe(false);
+      // A later source edit still reads from the text the queued write left.
+      editLine(model, 3, 7, 7, ' more');
+      expectSource(typed.replace('Middle', 'Middle more'));
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('pairs the rich state with its write when a later change arrives before the write event', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nLast');
+    let sync: MarkdownEditorModel;
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        sync.dispatch(sync.state.tr.insertText('X', 1));
+      }
+    });
+    sync = new MarkdownEditorModel(model, [], () => {});
+    // A listener after the pane edits the model while the pane's queued write is being delivered.
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        editLine(model, 3, 1, 1, 'T');
+      }
+    });
+    try {
+      const expectSource = (source: string) => {
+        expect(model.getValue()).toBe(source);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      };
+      editLine(model, 3, 5, 5, ' ext');
+      expectSource('XFirst\n\nTLast ext');
+      for (const source of ['XFirst\n\nLast ext', 'First\n\nLast ext', 'First\n\nLast']) {
+        expect(sync.undo()).toBe(true);
+        expectSource(source);
+      }
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('applies the rest of the queue when a queued edit fails or its pane closes', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nLast');
+    let first: MarkdownEditorModel;
+    let second: MarkdownEditorModel;
+    second = new MarkdownEditorModel(model, [], () => {});
+    // The second pane has read the change; the first, which has not, queues ahead of it and closes.
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        first.dispatch(first.state.tr.insertText('A', 1));
+        second.runFormattingCommand(() => {
+          throw new Error('failed command');
+        });
+        second.dispatch(second.state.tr.insertText('B', 1));
+        first.dispose();
+      }
+    });
+    first = new MarkdownEditorModel(model, [], () => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      editLine(model, 3, 5, 5, ' ext');
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: 'failed command' }));
+      expect(model.getValue()).toBe('BFirst\n\nLast ext');
+      second.dispatch(second.state.tr.insertText('C', 1));
+      expect(model.getValue()).toBe('CBFirst\n\nLast ext');
+    } finally {
+      error.mockRestore();
+      second.dispose();
+      model.dispose();
+    }
+  });
+
+  it('drops a queued edit in a batch that moves the blocks instead of moving it to another block', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'Alpha\n\nBravo\n\nCharlie');
+    let sync: MarkdownEditorModel;
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        const end = sync.state.doc.child(0).nodeSize + sync.state.doc.child(1).nodeSize - 1;
+        sync.dispatch(sync.state.tr.insertText('X', end));
+      }
+    });
+    sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 1 }, text: '' },
+        { range: { startLineNumber: 5, startColumn: 8, endLineNumber: 5, endColumn: 8 }, text: '\n\nDelta' },
+      ]);
+      expect(model.getValue()).not.toContain('CharlieX');
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
     } finally {
       sync.dispose();
       model.dispose();
@@ -385,6 +475,34 @@ describe('MarkdownEditorModel', () => {
       expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
       expect(sync.undo()).toBe(true);
       expect(model.getValue()).toBe('First\n\nMiddle\n\nLast');
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('reads the live text when a later source version arrives before an earlier one', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nMiddle\n\nLast');
+    // Two listeners change the model on the same version: the later one's change (v4) is delivered
+    // while the earlier one's (v3) is still waiting, and its changes start from v3.
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        editLine(model, 3, 4, 4, 'Z ');
+      }
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        editLine(model, 3, 4, 4, 'q');
+      }
+    });
+    try {
+      editLine(model, 5, 5, 5, ' ext');
+      expect(model.getValue()).toBe('First\n\nMidqZ dle\n\nLast ext');
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('First\n\nMiddle\n\nLast ext');
       expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
     } finally {
       sync.dispose();
