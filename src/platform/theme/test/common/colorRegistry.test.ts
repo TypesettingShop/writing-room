@@ -59,6 +59,23 @@ test('both built-in kinds give every color the tree view reads', () => {
   }
 });
 
+test('high contrast light gives the tab bar and lists light fills, or a dark selection with white text and icons', () => {
+  const expected: Readonly<Record<string, string>> = {
+    'editorGroupHeader.tabsBackground': '#e9edf4', 'tab.inactiveBackground': '#e9edf4', 'tab.activeBorderTop': '#0f4a85',
+    'list.activeSelectionBackground': '#0f4a85', 'list.activeSelectionForeground': '#ffffff',
+    'list.activeSelectionIconForeground': '#ffffff', 'list.inactiveSelectionBackground': '#e4e9f1',
+    'list.hoverBackground': '#0f4a851a', 'list.dropBackground': '#0f4a8533',
+  };
+  for (const [id, value] of Object.entries(expected)) {
+    expect(colorRegistry.resolve(id, ColorScheme.HIGH_CONTRAST_LIGHT), id).toBe(value);
+  }
+  // Outside high contrast light the selected row's icon keeps the plain icon color.
+  for (const scheme of [ColorScheme.DARK, ColorScheme.LIGHT, ColorScheme.HIGH_CONTRAST_DARK]) {
+    expect(colorRegistry.resolve('list.activeSelectionIconForeground', scheme), scheme)
+      .toBe(colorRegistry.resolve('icon.foreground', scheme));
+  }
+});
+
 test('registers about 150 colors with valid defaults', () => {
   const colors = colorRegistry.getColors().filter(color => !color.extensionId);
   expect(colors.length).toBeGreaterThanOrEqual(150);

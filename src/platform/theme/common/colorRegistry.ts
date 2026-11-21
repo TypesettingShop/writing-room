@@ -244,18 +244,18 @@ color('scrollbarSlider.activeBackground', '#7a87a077', '#64708577', 'focusBorder
 color('progressBar.background', '#78aaff', '#2f6fd6', 'contrastBorder', 'contrastBorder', 'Progress bar background.');
 
 // Lists and trees
-color('list.activeSelectionBackground', '#04395e', '#cfe0fa', null, null, 'Background of the selected item when the list is focused.');
-color('list.activeSelectionForeground', '#ffffff', '#1f2633', null, null, 'Foreground of the selected item when the list is focused.');
-color('list.activeSelectionIconForeground', null, null, null, null, 'Icon foreground of the selected item when the list is focused.');
-color('list.inactiveSelectionBackground', '#37373d', '#e4e9f1', null, null, 'Background of the selected item when the list is not focused.');
+color('list.activeSelectionBackground', '#04395e', '#cfe0fa', null, '#0f4a85', 'Background of the selected item when the list is focused.');
+color('list.activeSelectionForeground', '#ffffff', '#1f2633', null, '#ffffff', 'Foreground of the selected item when the list is focused.');
+color('list.activeSelectionIconForeground', 'icon.foreground', 'icon.foreground', 'icon.foreground', 'list.activeSelectionForeground', 'Icon foreground of the selected item when the list is focused.');
+color('list.inactiveSelectionBackground', '#37373d', '#e4e9f1', null, '#e4e9f1', 'Background of the selected item when the list is not focused.');
 color('list.inactiveSelectionForeground', 'foreground', 'foreground', 'foreground', 'foreground', 'Foreground of the selected item when the list is not focused.');
-color('list.hoverBackground', '#ffffff12', '#e8eef7', null, null, 'Background of list items under the mouse.');
+color('list.hoverBackground', '#ffffff12', '#e8eef7', null, '#0f4a851a', 'Background of list items under the mouse.');
 color('list.hoverForeground', 'foreground', 'foreground', 'foreground', 'foreground', 'Foreground of list items under the mouse.');
 color('list.focusBackground', '#2a3446', '#e1e8f3', null, null, 'Background of the focused item when the list is focused.');
 color('list.focusForeground', null, null, null, null, 'Foreground of the focused item when the list is focused.');
 color('list.focusOutline', 'focusBorder', 'focusBorder', 'contrastActiveBorder', 'contrastActiveBorder', 'Outline of the focused item when the list is focused.');
 color('list.inactiveFocusOutline', null, null, null, null, 'Outline of the focused item when the list is not focused.');
-color('list.dropBackground', '#383b3d', '#d6e4f7', null, null, 'Background of a list item while something is dragged over it.');
+color('list.dropBackground', '#383b3d', '#d6e4f7', null, '#0f4a8533', 'Background of a list item while something is dragged over it.');
 color('list.highlightForeground', '#7fb2ff', '#1f63c9', 'focusBorder', 'focusBorder', 'Foreground of the matched characters when filtering a list.');
 color('list.focusHighlightForeground', 'list.highlightForeground', 'list.highlightForeground', 'list.highlightForeground', 'list.highlightForeground', 'Foreground of the matched characters in the focused item.');
 color('list.errorForeground', '#f48a7a', '#c4342d', null, '#b5200d', 'Foreground of list items with errors.');
@@ -287,14 +287,14 @@ color('sideBarSectionHeader.border', null, null, 'contrastBorder', 'contrastBord
 // Editor groups and tabs
 color('editorGroup.border', '#6b7a94', '#7b8699', 'contrastBorder', 'contrastBorder', 'Border between editor groups.');
 color('editorGroup.dropBackground', '#53595d80', '#9db5d866', null, '#0f4a8533', 'Background of an editor group while an editor is dragged over it.');
-color('editorGroupHeader.tabsBackground', '#1c212c', '#e9edf4', null, null, 'Background of the tabs bar.');
+color('editorGroupHeader.tabsBackground', '#1c212c', '#e9edf4', null, '#e9edf4', 'Background of the tabs bar.');
 color('editorGroupHeader.tabsBorder', null, null, null, null, 'Border below the tabs bar.');
 color('editorGroupHeader.noTabsBackground', 'editor.background', 'editor.background', 'editor.background', 'editor.background', 'Background of the title of a group without tabs.');
 color('tab.activeBackground', 'editor.background', 'editor.background', 'editor.background', 'editor.background', 'Background of the active tab.');
 color('tab.activeForeground', '#eaf0f9', '#1f2633', '#ffffff', '#292929', 'Foreground of the active tab.');
 color('tab.activeBorder', null, null, null, null, 'Border below the active tab.');
-color('tab.activeBorderTop', '#90baff', '#2f6fd6', null, null, 'Border above the active tab.');
-color('tab.inactiveBackground', '#1c212c', '#e9edf4', null, null, 'Background of inactive tabs.');
+color('tab.activeBorderTop', '#90baff', '#2f6fd6', null, 'contrastBorder', 'Border above the active tab.');
+color('tab.inactiveBackground', '#1c212c', '#e9edf4', null, '#e9edf4', 'Background of inactive tabs.');
 color('tab.inactiveForeground', '#8b97ab', '#5a6577', '#ffffff', '#292929', 'Foreground of inactive tabs.');
 color('tab.border', '#252c3a', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Border between tabs.');
 color('tab.hoverBackground', null, null, null, null, 'Background of tabs under the mouse.');
