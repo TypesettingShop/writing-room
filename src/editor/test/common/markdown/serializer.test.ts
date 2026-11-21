@@ -104,6 +104,15 @@ describe('Markdown save normalization', () => {
     expect(parseMarkdown(written).toJSON()).toEqual(doc.toJSON());
   });
 
+  it.each(['\\+', '1\\.', '1\\)'])('keeps the literal marker %s on the first Setext line', marker => {
+    const source = marker + '\nsecond\n===';
+    const doc = parseMarkdown(source);
+    expect(doc.firstChild?.type.name).toBe('heading');
+    expect(doc.firstChild?.firstChild?.text).toBe(marker.replace('\\', ''));
+    expect(canonical(doc)).toBe(source);
+    expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
+  });
+
   it('retains unchanged blocks and their separators through a transaction', () => {
     const source = ' 첫째   \r\n\r\n\r\nmiddle\r\n\r\n' +
       '~~~ spaced-info\r\ncode\r\n~~~\r\n\r\n' +

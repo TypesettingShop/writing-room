@@ -409,6 +409,10 @@ const markdownSerializer = new MarkdownSerializer({
     if (atBlockStart || afterBreak) {
       // Also protect ordered-list parentheses and Setext markers at line boundaries.
       value = value.replace(/^(\d{1,9})\)(?=[ \t])/, '$1\\)').replace(/^=(?==*[ \t]*$)/, '\\=');
+      if (parent.type.name === 'heading' && (!next || isLineBreak(next))) {
+        // A marker on its own line can start an empty list before a Setext heading.
+        value = value.replace(/^\+$/, '\\+').replace(/^(\d{1,9})([.)])$/, '$1\\$2');
+      }
     }
     if (index === 0 || afterBreak) value = value.replace(/^[ \t]+/, escapeBoundaryWhitespace);
     if (!next || isLineBreak(next)) value = value.replace(/[ \t]+$/, escapeBoundaryWhitespace);
