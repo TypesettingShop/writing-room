@@ -78,7 +78,7 @@ test('updates a choice from context and runs the command with the selected menu 
   }
 });
 
-test('shows a choice fallback only while its condition holds and a dash for no value', async () => {
+test('shows checked, fixed and context-supplied choice labels in priority order', async () => {
   const disposables = new DisposableStore();
   const toolbarMenu = MenuId.for('test.toolbar.fallback');
   const submenu = MenuId.for('test.toolbar.fallback.options');
@@ -87,10 +87,12 @@ test('shows a choice fallback only while its condition holds and a dash for no v
   try {
     const context = disposables.add(new ContextKeyService());
     const size = context.createKey<string | null>('test.size', 'legacy');
+    const sizeLabel = context.createKey<string | null>('test.size.label', '14.5 pt');
     const menus = new MenuService({ _serviceBrand: undefined, executeCommand: vi.fn() }, new NullKeybindingService());
     disposables.add(MenuRegistry.appendMenuItem(toolbarMenu, {
       submenu, title: 'Size', select: true, group: '5_font',
       selectFallback: [{ label: 'Custom', when: ContextKeyExpr.equals('test.size', 'legacy') }],
+      selectLabelKey: 'test.size.label',
     }));
     disposables.add(MenuRegistry.appendMenuItem(submenu, {
       command: { id: 'test.setSize', title: '12 pt', toggled: ContextKeyExpr.equals('test.size', '12pt') }, args: ['12pt'],
@@ -103,11 +105,21 @@ test('shows a choice fallback only while its condition holds and a dash for no v
     expect(choices().getAttribute('aria-description')).toBe('Custom');
     size.set(null);
     await Promise.resolve();
-    expect(choices().textContent).toBe('—');
-    expect(choices().hasAttribute('aria-description')).toBe(false);
+    expect(choices().textContent).toBe('14.5 pt');
+    expect(choices().getAttribute('aria-description')).toBe('14.5 pt');
+    sizeLabel.set('15 pt');
+    await Promise.resolve();
+    expect(choices().textContent).toBe('15 pt');
+    expect(choices().getAttribute('aria-description')).toBe('15 pt');
     size.set('12pt');
     await Promise.resolve();
     expect(choices().textContent).toBe('12 pt');
+    expect(choices().getAttribute('aria-description')).toBe('12 pt');
+    size.set(null);
+    sizeLabel.set(null);
+    await Promise.resolve();
+    expect(choices().textContent).toBe('—');
+    expect(choices().hasAttribute('aria-description')).toBe(false);
   } finally {
     disposables.dispose();
     container.remove();

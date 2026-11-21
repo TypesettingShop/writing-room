@@ -1,11 +1,14 @@
 import type { Locator, Page } from '@playwright/test';
 import { box, drag, expect, test } from './fixtures.js';
-import { persistedSettings, runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
+import {
+  openSettings, persistedSettings, replaceText, runCommand, saveSettings, settingsKey, startWithMarkdownSource,
+} from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { chooseTheme, kindClass, openWithThemingFixtures } from './themes.helpers.js';
 
 const richEditor = (scope: Locator) => scope.getByRole('textbox', { name: 'Markdown editor' });
+const markdownFontEntry = /\/markdownEditorFonts(?:-[\w-]+\.css|\.ts)(?:\?.*)?$/;
 
 async function openMarkdown(page: Page, name: string, text: string): Promise<Locator> {
   await waitForStorage(page);
@@ -425,6 +428,207 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   await expect(editor.getByRole('heading')).toHaveCount(1);
 });
 
+test('checks concrete body defaults and updates an open pane when typography settings are saved', async ({ appPage: page }) => {
+  const name = 'font-defaults.md';
+  const headings = Array.from({ length: 6 }, (_, index) => `${'#'.repeat(index + 1)} Heading ${index + 1}`);
+  const source = ['Body text', ...headings, 'Subtitle {.subtitle}', '- List item', '> Quote'].join('\n\n');
+  const group = await openMarkdown(page, name, source);
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const size = toolbar.getByRole('button', { name: 'Size', exact: true });
+  const font = toolbar.getByRole('button', { name: 'Font', exact: true });
+  const sizeMenu = page.getByRole('menu', { name: 'Size' });
+  const fontMenu = page.getByRole('menu', { name: 'Font' });
+  const body = editor.getByText('Body text', { exact: true });
+
+  for (const text of ['Body text', 'List item', 'Quote']) {
+    const block = editor.getByText(text, { exact: true });
+    await block.click();
+    await expect(block).toHaveCSS('font-size', '16px');
+    await expect(size).toHaveText('12 pt');
+    await expect(font).toHaveText('Noto Sans KR');
+  }
+
+  const titleSizes = [24, 18, 14, 12, 10, 9, 16];
+  for (const [index, points] of titleSizes.entries()) {
+    const title = index < 6 ? editor.getByRole('heading', { level: index + 1 }) : editor.locator('p.subtitle');
+    await title.click();
+    expect(await title.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(points * 4 / 3);
+    await expect(size).toHaveText(`${points} pt`);
+    await size.click();
+    await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName(`${points} pt`);
+    await page.keyboard.press('Escape');
+  }
+
+  const smallHeading = editor.getByRole('heading', { level: 3 });
+  await smallHeading.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await size.click();
+  await sizeMenu.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
+  await expect(smallHeading).toHaveClass('size-18pt');
+  await size.click();
+  await sizeMenu.getByRole('menuitemradio', { name: '14 pt', exact: true }).click();
+  await expect(smallHeading).not.toHaveClass('size-18pt');
+
+  await body.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await font.click();
+  await expect(fontMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Noto Sans KR');
+  await page.keyboard.press('Escape');
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('12 pt');
+  await sizeMenu.getByRole('menuitemradio', { name: '14 pt', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('Body text {.size-14pt}');
+  await size.click();
+  await sizeMenu.getByRole('menuitemradio', { name: '12 pt', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(source);
+
+  await group.getByRole('button', { name: 'Split Editor Right' }).click();
+  await openSettings(page);
+  await replaceText(page, '{"markdownEditor.fontSize": 11, "markdownEditor.fontFamily": "noto-serif-kr"}');
+  await saveSettings(page);
+
+  await expect(size).toHaveText('11 pt');
+  await expect(font).toHaveText('Noto Serif KR');
+  expect(await body.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(44 / 3);
+  await expect(body).toHaveCSS('font-family', /^"Noto Serif KR",/);
+  await smallHeading.click();
+  await expect(smallHeading).toHaveCSS('font-size', '16px');
+  await expect(size).toHaveText('12 pt');
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('12 pt');
+  await page.keyboard.press('Escape');
+  await body.click();
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('11 pt');
+  await page.keyboard.press('Escape');
+  await font.click();
+  await expect(fontMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Noto Serif KR');
+  expect(await readWorkspaceText(page, name)).toBe(source);
+});
+
+test('uses monospace for inline code and regular weight for subtitles', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'code-and-subtitle-fonts.md', [
+    'Body `plain`',
+    'Styled `block` {.font-noto-serif-kr}',
+    '[`span`]{.font-nanum-gothic}',
+    'Subtitle {.subtitle}',
+    '```\nfenced\n```\n\n{.font-noto-serif-kr}',
+  ].join('\n\n'));
+  const editor = richEditor(group);
+  for (const sample of ['plain', 'block', 'span']) {
+    await expect(editor.locator('p code').getByText(sample, { exact: true })).toHaveCSS('font-family', 'monospace');
+  }
+  await expect(editor.locator('p.subtitle')).toHaveCSS('font-weight', '400');
+  await expect(editor.locator('pre > code')).toHaveCSS('font-family', /^"Noto Serif KR",/);
+});
+
+test('loads the four bundled Korean fonts at both weights with external requests blocked', async ({ page, baseURL }, testInfo) => {
+  const origin = new URL(baseURL!).origin;
+  const external: string[] = [];
+  const fontStyleRequests: string[] = [];
+  let releaseFontStyles!: () => void;
+  const allowFontStyles = new Promise<void>(resolve => { releaseFontStyles = resolve; });
+  await page.route(/^https?:/, async route => {
+    const url = route.request().url();
+    const { origin: requestOrigin, pathname } = new URL(url);
+    if (requestOrigin !== origin) {
+      external.push(url);
+      await route.abort('internetdisconnected');
+      return;
+    }
+    // Production loads one CSS chunk. Vite's dev server loads the module that injects the CSS.
+    if (markdownFontEntry.test(pathname)) {
+      fontStyleRequests.push(pathname);
+      await allowFontStyles;
+    }
+    await route.continue();
+  });
+  // The dev server serves each module separately and fills the default 250-entry resource timing buffer,
+  // after which the font requests would not be recorded at all.
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(100_000));
+  const familyAssets = () => page.evaluate(() => performance.getEntriesByType('resource')
+    .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming)
+    .filter(entry => /(?:noto-(?:sans|serif)-kr|nanum-(?:gothic|myeongjo))-.*\.woff2$/.test(entry.name))
+    .map(entry => ({ path: new URL(entry.name).pathname, bytes: entry.encodedBodySize })));
+  const families = [
+    ['Noto Sans KR', 'Noto Sans KR'],
+    ['Noto Serif KR', 'Noto Serif KR'],
+    ['나눔고딕', 'Nanum Gothic'],
+    ['나눔명조', 'Nanum Myeongjo'],
+  ];
+  let group: Locator;
+  try {
+    await page.goto('/');
+    expect(fontStyleRequests).toEqual([]);
+    expect(await familyAssets()).toEqual([]);
+    expect(await page.evaluate(names => [...document.fonts]
+      .filter(face => names.includes(face.family.replace(/["']/g, ''))).length, families.map(([, name]) => name))).toBe(0);
+
+    group = await openMarkdown(page, 'webfonts.md', '한글 가나다 **굵은 한글**');
+    await expect(richEditor(group).locator('p')).toHaveText('한글 가나다 굵은 한글');
+    await expect.poll(() => fontStyleRequests.length).toBe(1);
+    expect(await familyAssets()).toEqual([]);
+  } finally {
+    releaseFontStyles();
+  }
+  const paragraph = richEditor(group).locator('p');
+  const font = group.getByRole('button', { name: 'Font', exact: true });
+  const choose = (name: string) => page.getByRole('menuitemradio', { name, exact: true }).click();
+  for (const [label, family] of families) {
+    if (label !== 'Noto Sans KR') {
+      await paragraph.click();
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Shift+End');
+      await font.click();
+      await choose(label);
+    }
+    expect(await paragraph.evaluate(node => getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''))).toBe(family);
+    await expect.poll(() => page.evaluate(name => [...document.fonts]
+      .filter(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded' && face.display === 'swap')
+      .map(face => face.weight), family)).toEqual(expect.arrayContaining(['400', '700']));
+
+    if (label === 'Noto Sans KR') {
+      const initial = await familyAssets();
+      expect(initial.length).toBeGreaterThan(0);
+      expect(initial.every(entry => entry.path.includes('noto-sans-kr') && entry.bytes > 0)).toBe(true);
+      await testInfo.attach('first-markdown-font-requests', {
+        body: JSON.stringify({ requests: initial, totalBytes: initial.reduce((total, entry) => total + entry.bytes, 0) }),
+        contentType: 'application/json',
+      });
+    }
+  }
+  await group.getByRole('button', { name: 'Split Editor Right' }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toHaveCount(2);
+  expect(fontStyleRequests).toHaveLength(1);
+  expect(external).toEqual([]);
+});
+
+test('loads bundled webfonts when the workbench restores a Markdown editor', async ({ appPage: page }) => {
+  // Routing disables the HTTP cache so the restored document must load the font entry again.
+  await page.route(markdownFontEntry, route => route.continue());
+  const name = 'restore-webfonts.md';
+  const text = '복원할 문서';
+  const firstFontEntry = page.waitForResponse(markdownFontEntry);
+  const group = await openMarkdown(page, name, text);
+  const paragraph = richEditor(group).getByText(text, { exact: true });
+  await expect(paragraph).toBeVisible();
+  await expect(selectedTab(group)).toHaveText(name);
+  expect((await firstFontEntry).ok()).toBe(true);
+
+  const [fontEntry] = await Promise.all([page.waitForResponse(markdownFontEntry), page.reload()]);
+  expect(fontEntry.ok()).toBe(true);
+  await expect(selectedTab(group)).toHaveText(name);
+  await expect(paragraph).toBeVisible();
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some(face =>
+    face.family.replace(/["']/g, '') === 'Noto Sans KR' && face.weight === '400' && face.status === 'loaded',
+  ))).toBe(true);
+});
+
 test('saves paragraph alignment and inline size and font presets and restores their appearance', async ({ page }) => {
   await page.addInitScript(key => {
     if (localStorage.getItem(key) === null) {
@@ -469,7 +673,7 @@ test('saves paragraph alignment and inline size and font presets and restores th
     ['Noto Sans KR', 'Noto Sans KR'], ['Noto Serif KR', 'Noto Serif KR'],
     ['나눔명조', 'Nanum Myeongjo'], ['나눔고딕', 'Nanum Gothic'], ['monospace', 'monospace'],
   ];
-  await expect(menu.getByRole('menuitemradio')).toHaveCount(1 + families.length);
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(families.length);
   const primaryFamily = (element: Locator) => element.evaluate(node =>
     getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''));
   for (const [label, family] of families) {
@@ -1045,7 +1249,7 @@ test('renders absolute point sizes and still scales authored legacy sizes relati
   await expect(size).toHaveText('Custom');
   await size.click();
   const menu = page.getByRole('menu', { name: 'Size' });
-  await expect(menu.getByRole('menuitemradio')).toHaveText(['Default', ...points.map(point => `${point} pt`)]);
+  await expect(menu.getByRole('menuitemradio')).toHaveText(points.map(point => `${point} pt`));
   await page.keyboard.press('Escape');
   await title.click();
   await page.keyboard.press('Home');
@@ -1055,7 +1259,7 @@ test('renders absolute point sizes and still scales authored legacy sizes relati
   await expect(title).toHaveCSS('font-size', '24px');
   await expect(size).toHaveText('18 pt');
   await size.click();
-  await menu.getByRole('menuitemradio', { name: 'Default', exact: true }).click();
+  await menu.getByRole('menuitemradio', { name: '24 pt', exact: true }).click();
   await expect(title).toHaveCSS('font-size', '32px');
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+ArrowLeft');

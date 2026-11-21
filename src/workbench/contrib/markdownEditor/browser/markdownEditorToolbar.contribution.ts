@@ -16,7 +16,7 @@ import {
   isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_LAYOUT, MARKDOWN_EDITOR_CONTENT_WIDTH, markdownContentWidth,
   MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext,
   MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
-  MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorInlineFormattingContext,
+  MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorFontSizeLabelContext, MarkdownEditorInlineFormattingContext,
   MarkdownEditorInlineMarkContexts, MarkdownEditorLinkContext, MarkdownEditorModeContext,
   MarkdownEditorTextAlignContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
@@ -101,7 +101,7 @@ interface FormattingPicker<T> {
   readonly commandTitle: string;
   readonly options: readonly { readonly label: string; readonly value: T; readonly labelClass?: string }[];
   readonly parse: (arg: unknown) => T | undefined;
-  readonly createCommand: (value: T) => Command;
+  readonly createCommand: (value: T, pane: MarkdownEditorPane) => Command;
   readonly keybinding?: readonly Omit<IKeybindingRule, 'id'>[];
 }
 
@@ -110,13 +110,14 @@ interface FormattingChoice<T> extends FormattingPicker<T> {
   readonly order: number;
   readonly title: string;
   readonly selectFallback?: readonly IMenuSelectFallback[];
+  readonly selectLabelKey?: string;
   readonly selected: (value: T) => ContextKeyExpression;
 }
 
 function registerChoice<T>(choice: FormattingChoice<T>): void {
-  const { group, order, title, commandId, options, selected, selectFallback } = choice;
+  const { group, order, title, commandId, options, selected, selectFallback, selectLabelKey } = choice;
   const submenu = MenuId.for(`${toolbar.id}.${commandId}`);
-  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true, selectFallback });
+  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true, selectFallback, selectLabelKey });
   for (const [index, option] of options.entries()) {
     MenuRegistry.appendMenuItem(submenu, {
       order: index,
@@ -145,12 +146,12 @@ function registerFormattingPicker<T>({ commandId, commandTitle, options, parse, 
       if (arg === undefined) {
         const picked = await accessor.get(IQuickInputService).pick(options, { title: `Markdown ${commandTitle}` });
         if (picked && getMarkdownPane(groups) === pane && pane.formattingState === state) {
-          pane.runFormattingCommand(createCommand(picked.value));
+          pane.runFormattingCommand(createCommand(picked.value, pane));
         }
       } else {
         const value = parse(arg);
         if (value !== undefined) {
-          pane.runFormattingCommand(createCommand(value));
+          pane.runFormattingCommand(createCommand(value, pane));
         }
       }
     }
@@ -216,12 +217,14 @@ for (const [axis, title, commandTitle, group, order, context] of [
       label: option.label, value: option.value, labelClass: axis === 'fontFamily' ? option.className : undefined,
     })),
     // Legacy classes stay readable without a menu entry; a mixed selection (null) keeps the dash.
-    selectFallback: options.filter(option => option.hidden).map(option => ({
-      label: axis === 'fontSize' ? 'Custom' : option.label, when: context.isEqualTo(option.value),
-    })),
+    selectFallback: axis === 'fontFamily' ? options.filter(option => option.hidden).map(option => ({
+      label: option.label, when: context.isEqualTo(option.value),
+    })) : undefined,
+    selectLabelKey: axis === 'fontSize' ? MarkdownEditorFontSizeLabelContext.key : undefined,
     selected: value => context.isEqualTo(value),
-    parse: arg => options.find(option => option.value === arg)?.value,
-    createCommand: value => setFormattingPreset(axis, value),
+    // Existing keybindings can still reset an axis with the old argument.
+    parse: arg => arg === 'default' ? arg : options.find(option => option.value === arg)?.value,
+    createCommand: (value, pane) => pane.formattingPresetCommand(axis, value),
   });
 }
 

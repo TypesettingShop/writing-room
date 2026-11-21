@@ -50,6 +50,9 @@ class MenuInfo {
         for (const { when } of item.selectFallback ?? []) {
           this.collectKeys(when);
         }
+        if (item.selectLabelKey) {
+          this.keys.add(item.selectLabelKey);
+        }
         this.collect(item.submenu);
       }
     }

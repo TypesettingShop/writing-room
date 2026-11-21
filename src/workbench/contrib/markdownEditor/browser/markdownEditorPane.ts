@@ -29,11 +29,13 @@ import { TextFileEditorModel } from '../../../services/textfile/common/textFileE
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import { SAVE_FILE_COMMAND_ID } from '../../files/browser/fileCommands.js';
 import {
-  defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_CONTENT_LAYOUT,
-  MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, markdownContentWidth,
-  MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext, isMarkdownContentWidth,
-  MARKDOWN_EDITOR_FONT_FAMILY, MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
-  MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
+  defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, defaultMarkdownFonts,
+  defaultMarkdownHeadingSizes, defaultMarkdownSubtitleSize, isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_LAYOUT,
+  MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FONT_FAMILY,
+  MARKDOWN_EDITOR_FONT_SIZE, MARKDOWN_EDITOR_TYPEWRITER, markdownContentWidth, MarkdownEditorCanRedoContext,
+  MarkdownEditorCanUndoContext, MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext,
+  MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext, resolveMarkdownFontDefaults,
+  scaleMarkdownTitleSize,
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
@@ -42,6 +44,8 @@ import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelectio
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard } from './markdownEditorClipboard.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
+import { setFormattingPreset } from './markdownEditorPresets.js';
+import type { PresetAxisId } from './markdownEditorPresets.js';
 import { markdownImageView } from './markdownEditorImages.js';
 import { markdownListKeys, taskItemView } from './markdownEditorLists.js';
 import { markdownTablePlugins, moveMarkdownTableCell } from './markdownEditorTables.js';
@@ -73,6 +77,7 @@ export class MarkdownEditorPane extends EditorPane {
   private committingComposition = false;
   private scrollFrame: number | undefined;
   private scoped: IContextKeyService | undefined;
+  private fontDefaults = defaultMarkdownFonts;
   private updateToolbarContext = () => {};
 
   constructor(
@@ -107,7 +112,7 @@ export class MarkdownEditorPane extends EditorPane {
         mode.reset();
       }
       writable.set(this.formattingState !== undefined);
-      updateFormatting(this.view && this.sync?.state);
+      updateFormatting(this.view && this.sync?.state, this.fontDefaults);
       undo.set(this.canUndo);
       redo.set(this.canRedo);
     };
@@ -115,17 +120,28 @@ export class MarkdownEditorPane extends EditorPane {
       MenuWorkbenchToolBar, { element: toolbar, ariaLabel: 'Markdown formatting' }, MenuId.MarkdownEditorToolbar, scoped,
     ));
     const updateFonts = () => {
-      const families = this.configuration.getValue<Partial<Record<'serif' | 'sans', unknown>>>(MARKDOWN_EDITOR_FONT_FAMILY);
+      const familySetting = this.configuration.getValue(MARKDOWN_EDITOR_FONT_FAMILY);
+      this.fontDefaults = resolveMarkdownFontDefaults(this.configuration.getValue(MARKDOWN_EDITOR_FONT_SIZE), familySetting);
+      const { size, family } = this.fontDefaults;
+      this.frame.style.setProperty('--markdown-body-font-size', `${size}pt`);
+      for (const [index, headingSize] of defaultMarkdownHeadingSizes.entries()) {
+        this.frame.style.setProperty(`--markdown-h${index + 1}-font-size`, `${scaleMarkdownTitleSize(headingSize, size)}pt`);
+      }
+      this.frame.style.setProperty('--markdown-subtitle-font-size', `${scaleMarkdownTitleSize(defaultMarkdownSubtitleSize, size)}pt`);
+      this.frame.style.setProperty('--markdown-editor-font-family', `var(--markdown-font-${family})`);
+      const families = typeof familySetting === 'object' && familySetting !== null
+        ? familySetting as Partial<Record<'serif' | 'sans', unknown>> : undefined;
       const css = parent.ownerDocument.defaultView?.CSS;
       for (const name of ['serif', 'sans'] as const) {
         const value = families?.[name];
         const supported = typeof value === 'string' && css?.supports('font-family', value);
         this.frame.style.setProperty(`--markdown-editor-font-${name}`, supported ? value : defaultMarkdownFontFamilies[name]);
       }
+      this.updateToolbarContext();
     };
     updateFonts();
     this._register(this.configuration.onDidChangeConfiguration(event => {
-      if (event.affectsConfiguration(MARKDOWN_EDITOR_FONT_FAMILY)) {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_FONT_FAMILY) || event.affectsConfiguration(MARKDOWN_EDITOR_FONT_SIZE)) {
         updateFonts();
       }
     }));
@@ -204,6 +220,8 @@ export class MarkdownEditorPane extends EditorPane {
     if (!(input instanceof MarkdownEditorInput)) {
       return;
     }
+    // Keep opening the editor while the browser fetches the font definitions.
+    void import('./markdownEditorFonts.js').catch(error => console.warn('Could not load Markdown webfonts.', error));
     this.session.add(input.onWillDispose(() => this.clearInput()));
 
     try {
@@ -445,6 +463,10 @@ export class MarkdownEditorPane extends EditorPane {
     // Opening quick input moves focus and can finish composition, invalidating an earlier snapshot.
     this.commitComposition();
     return this.formattingState;
+  }
+
+  formattingPresetCommand(axis: PresetAxisId, value: string): Command {
+    return setFormattingPreset(axis, value, this.fontDefaults);
   }
 
   runFormattingCommand(command: Command): boolean {

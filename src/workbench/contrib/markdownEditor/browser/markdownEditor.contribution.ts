@@ -21,10 +21,11 @@ import { isTextFileResource } from '../../../services/textfile/common/textfiles.
 import { FileEditorInput } from '../../files/browser/editors/fileEditorInput.js';
 import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
 import {
-  defaultMarkdownFontFamilies, getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE,
+  getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE,
   defaultMarkdownFocusWidth, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FONT_FAMILY,
   defaultMarkdownContentLayout, MARKDOWN_EDITOR_CONTENT_LAYOUT, MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_TYPEWRITER,
-  markdownContentLayouts, markdownContentWidth, MarkdownEditorModeContext,
+  defaultMarkdownFonts, MARKDOWN_EDITOR_FONT_SIZE, markdownContentLayouts, markdownContentWidth,
+  MarkdownEditorModeContext, markdownFontFamilies, markdownFontSizes,
 } from '../common/markdownEditor.js';
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
@@ -76,15 +77,24 @@ configurationRegistry.registerConfiguration({
       default: 'wysiwyg',
       description: 'Controls how Markdown files open by default. Editor associations take precedence.',
     },
+    [MARKDOWN_EDITOR_FONT_SIZE]: {
+      type: 'integer',
+      enum: markdownFontSizes,
+      default: defaultMarkdownFonts.size,
+      description: 'Default body size in points in the visual Markdown editor. Headings scale with this size.',
+    },
     [MARKDOWN_EDITOR_FONT_FAMILY]: {
-      type: 'object',
-      default: defaultMarkdownFontFamilies,
+      type: ['string', 'object'],
+      default: defaultMarkdownFonts.family,
+      pattern: `^(?:${markdownFontFamilies.map(({ value }) => value).join('|')})$`,
       additionalProperties: false,
       properties: {
         serif: { type: 'string', description: 'CSS font-family list for the legacy font-serif class.' },
         sans: { type: 'string', description: 'CSS font-family list for the legacy font-sans class.' },
       },
-      description: 'Controls the font families used by the legacy font-serif and font-sans Markdown classes.',
+      description: 'Default body font in the visual Markdown editor. Choose '
+        + markdownFontFamilies.map(({ value }) => value).join(', ')
+        + '. A legacy object sets the font-serif and font-sans class stacks and uses Noto Sans KR for body text.',
     },
   },
 });

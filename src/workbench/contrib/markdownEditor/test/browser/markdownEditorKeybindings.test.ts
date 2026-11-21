@@ -1,11 +1,18 @@
+import { EditorState, TextSelection } from 'prosemirror-state';
+import type { Command } from 'prosemirror-state';
 import { expect, test } from 'vitest';
 import { formatKeybinding } from '../../../../../base/common/keybindingLabels.js';
 import { parseKeybinding } from '../../../../../base/common/keybindingParser.js';
+import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
+import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
+import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { KeybindingResolver, ResultKind } from '../../../../../platform/keybinding/common/keybindingResolver.js';
 import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import '../../../../browser/actions/layoutActions.js';
 import '../../../../browser/parts/editor/editorCommands.js';
+import { MarkdownEditorPane } from '../../browser/markdownEditorPane.js';
+import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import '../../browser/markdownEditorToolbar.contribution.js';
 import {
   MarkdownEditorFocusContext, MarkdownEditorInlineFormattingContext, MarkdownEditorModeContext,
@@ -57,4 +64,24 @@ test.each([
     editor.dispose();
     root.dispose();
   }
+});
+
+test.each([
+  ['markdownEditor.setFontSize', '### Line {.size-36pt .keep}', '### Line {.keep}', 1, 5],
+  ['markdownEditor.setFontFamily', 'A [line]{.font-mono} Z {.font-serif}', 'A line Z {.font-serif}', 3, 7],
+])('runs %s with the legacy default argument', async (id, source, expected, from, to) => {
+  const doc = parseMarkdown(source);
+  let state = EditorState.create({ doc, selection: TextSelection.create(doc, from, to) });
+  const pane: MarkdownEditorPane = Object.assign(Object.create(MarkdownEditorPane.prototype), {
+    getFormattingStateForQuickInput: () => state,
+    runFormattingCommand: (command: Command) => command(state, tr => { state = state.apply(tr); }),
+  });
+  const handler = CommandsRegistry.getCommand(id)!.handler;
+  await handler({
+    get(service) {
+      expect(service).toBe(IEditorGroupsService);
+      return { activeGroup: { activeEditorPane: pane } } as never;
+    },
+  }, 'default');
+  expect(serializeMarkdown(state.doc)).toBe(expected);
 });
