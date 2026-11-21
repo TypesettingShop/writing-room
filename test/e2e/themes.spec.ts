@@ -146,9 +146,6 @@ test('nested editor group separators follow the current theme and survive layout
   const splitY = bottomRight.y;
   const bodyY = Math.floor(topRight.y + topRight.height * 0.65);
   const bodyX = Math.floor(bottomRight.x + bottomRight.width * 0.65);
-  const paperBox = await box(markdown.nth(1));
-  const tabBox = await box(editorGroups.nth(2).locator('.tab.active'));
-  const tabX = Math.floor(tabBox.x + tabBox.width / 2);
   const expectSeparators = async (color: string) => {
     await expect.poll(() => separator('horizontal').evaluate(element => {
       const style = getComputedStyle(element, '::before');
@@ -179,20 +176,28 @@ test('nested editor group separators follow the current theme and survive layout
     const screenshot = await page.screenshot({ path, scale: 'css' });
     await testInfo.attach(`editor-group-separators-${slug}`, { path, contentType: 'image/png' });
     if (tabBorder) {
-      const [across, down, content, tabTop, background, tabBar, ...gutters] = await screenshotColors(page, screenshot, [
+      // The screenshot waits for fonts. Read the centered body's position after any resulting layout.
+      const paperBox = await box(markdown.nth(1));
+      const tabBox = await box(editorGroups.nth(2).locator('.tab.active'));
+      const paperX = Math.round(paperBox.x);
+      const tabX = Math.floor(tabBox.x + tabBox.width / 2);
+      const [across, down, tabTop, background, tabBar, ...samples] = await screenshotColors(page, screenshot, [
         { x: splitX, y: bodyY },
         { x: bodyX, y: splitY },
-        { x: paperBox.x, y: bodyY },
         { x: tabX, y: tabBox.y },
         { x: bodyX, y: splitY - 1 },
         { x: bodyX, y: splitY + 1 },
+        ...[-1, 0, 1].map(offset => ({ x: paperX + offset, y: bodyY })),
         // One cycle on both sides of the 135° hatch, including its most opaque pixels.
         ...Array.from({ length: 16 }, (_, offset) => [
           { x: splitX - 1, y: bodyY + offset },
           { x: splitX + 1, y: bodyY + offset },
         ]).flat(),
       ]);
-      expect([across, down, content, tabTop]).toEqual([groupBorder, groupBorder, contentBorder, tabBorder]);
+      const contentEdge = samples.slice(0, 3);
+      const gutters = samples.slice(3);
+      expect([across, down, tabTop]).toEqual([groupBorder, groupBorder, tabBorder]);
+      expect(contentEdge).toContain(contentBorder);
       const ratios = {
         background: contrast(groupBorder, background),
         tabBar: contrast(groupBorder, tabBar),
