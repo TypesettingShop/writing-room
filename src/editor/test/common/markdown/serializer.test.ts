@@ -15,6 +15,16 @@ function canonical(doc: Node): string {
   return serializeMarkdown(doc, { preserveSource: false });
 }
 
+function editText(doc: Node, text: string, replacement: string): Node {
+  let position = -1;
+  doc.descendants((node, offset) => {
+    if (position === -1 && node.text?.includes(text)) position = offset + node.text.indexOf(text);
+  });
+  expect(position).toBeGreaterThanOrEqual(0);
+  const state = EditorState.create({ doc });
+  return state.apply(state.tr.insertText(replacement, position, position + text.length)).doc;
+}
+
 function normalizedTree(doc: Node): unknown {
   const attrs = { ...doc.attrs };
   if (doc.type.name === 'code_block') delete attrs.markup;
@@ -48,7 +58,7 @@ describe('Markdown save normalization', () => {
   it.each([
     ['Heading\n=======', '# Heading'],
     ['Alpha  \nBeta', 'Alpha\\\nBeta'],
-    ['- parent\n  + child', '- parent\n    + child'],
+    ['- parent\n  + child', '- parent\n  + child'],
     ['7) one\n9) two', '7) one\n8) two'],
     ['- [X] done', '- [x] done'],
     ['    a\n    b', '```\na\nb\n```'],
@@ -94,12 +104,12 @@ describe('Markdown save normalization', () => {
   });
 
   it.each([
-    ['loose bullet', '- a\n\n  {.x}', '- a\n\n    {.x}', false, ['x']],
-    ['loose ordered', '7) a\n\n   {.x}', '7) a\n\n    {.x}', false, ['x']],
-    ['loose task with item classes', '- [x] a {.item}\n\n  {.x .y}', '- [x] a {.item}\n\n    {.x .y}', false, ['x', 'y']],
-    ['tight with a paragraph class', '- a\n  {.x}', '- a\n    {.x}', true, ['x']],
-    ['loose with two items', '- a\n\n  {.x}\n- b', '- a\n    {.x}\n\n- b', false, ['x']],
-    ['loose with two paragraphs', '- a\n\n  {.x}\n\n  b', '- a\n    {.x}\n\n    b', false, ['x']],
+    ['loose bullet', '- a\n\n  {.x}', '- a\n\n  {.x}', false, ['x']],
+    ['loose ordered', '7) a\n\n   {.x}', '7) a\n\n   {.x}', false, ['x']],
+    ['loose task with item classes', '- [x] a {.item}\n\n  {.x .y}', '- [x] a {.item}\n\n  {.x .y}', false, ['x', 'y']],
+    ['tight with a paragraph class', '- a\n  {.x}', '- a\n  {.x}', true, ['x']],
+    ['loose with two items', '- a\n\n  {.x}\n- b', '- a\n  {.x}\n\n- b', false, ['x']],
+    ['loose with two paragraphs', '- a\n\n  {.x}\n\n  b', '- a\n  {.x}\n\n  b', false, ['x']],
     ['plain loose', '- a\n\n- b', '- a\n\n- b', false, []],
     ['plain tight', '- a\n- b', '- a\n- b', true, []],
   ] as const)('preserves %s list spacing and paragraph classes on save', (_name, source, expected, tight, classes) => {
@@ -123,34 +133,168 @@ describe('Markdown save normalization', () => {
   it('retains the blank line inside a quoted loose list with a paragraph class', () => {
     const doc = parseMarkdown('> - a\n>\n>   {.x}');
     const written = canonical(doc);
-    expect(written).toBe('> - a\n>\n>     {.x}');
+    expect(written).toBe('> - a\n>\n>   {.x}');
     expect(parseMarkdown(written).eq(doc)).toBe(true);
   });
 
   it.each([
-    ['bullet', '- - a\n\n    {.x}', '- - a\n        {.x}', true],
-    ['triple bullet', '- - - a\n\n      {.x}', '- - - a\n            {.x}', true],
-    ['quoted bullet', '> - - a\n>\n>     {.x}', '> - - a\n>         {.x}', true],
-    ['ordered', '- 1. a\n\n     {.x}', '- 1. a\n\n        {.x}', false],
-  ] as const)('keeps the paragraph class of a %s list on its parent marker line', (_name, source, expected, tight) => {
-    const written = canonical(parseMarkdown(source));
-    expect(written).toBe(expected);
-    let list = parseMarkdown(written).firstChild!;
-    while (list.firstChild!.childCount > 1) list = list.firstChild!.child(1);
-    if (list.type.name === 'blockquote') list = list.firstChild!.firstChild!.child(1);
+    ['opening fence', '- ```\n    a\n  ```', 'a'],
+    ['nested siblings', '- - a\n    - b', 'b'],
+    ['nested paragraphs', '- - a\n\n    b', 'b'],
+    ['nested loose class trailer', '- - a\n\n    {.x}', 'a'],
+    ['deep loose class trailer', '- - - a\n\n      {.x}', 'a'],
+    ['quoted nested loose class trailer', '> - - a\n>\n>     {.x}', 'a'],
+    ['ordered nested loose class trailer', '- 1. a\n\n     {.x}', 'a'],
+    ['quoted ordered continuations across marker widths',
+      '> 9) - a\n>      - b\n> 10) - c\n>       - d', 'd'],
+  ] as const)('keeps the content column in %s on repeated saves', (_name, source, text) => {
+    const doc = parseMarkdown(source);
+    const written = canonical(doc);
+    const reparsed = parseMarkdown(written);
+    expect.soft(written).toBe(source);
+    expect.soft(reparsed.eq(doc)).toBe(true);
+    expect.soft(canonical(reparsed)).toBe(written);
+
+    const edited = editText(doc, text, 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(source.replace(text, 'edited'));
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it.each([
+    ['tight fence', '- a\n  ```\n  b\n  ```', true, 'code_block'],
+    ['tight quote', '- a\n  > b', true, 'blockquote'],
+    ['loose fence', '- a\n\n  ```\n  b\n  ```', false, 'code_block'],
+    ['loose quote', '- a\n\n  > b', false, 'blockquote'],
+    ['tight fence with classes', '- a\n  ```\n  b\n  ```\n  {.code}', true, 'code_block'],
+    ['tight quote with classes', '- a\n  > b\n  >\n  {.quote}', true, 'blockquote'],
+    ['tight quote with classes before a second quote', '- a\n  > b\n  >\n  {.quote}\n  > c', true, 'blockquote'],
+    ['tight quote before a paragraph', '- a\n  > b\n  >\n  c', true, 'blockquote'],
+    ['tight fence before a paragraph', '- a\n  ```\n  b\n  ```\n  c', true, 'code_block'],
+    ['tight quote in an ordered task', '9) [x] a\n   > b', true, 'blockquote'],
+  ] as const)('preserves block boundaries in a %s on save', (_name, source, tight, block) => {
+    const doc = parseMarkdown(source);
+    const list = doc.firstChild!;
+    const item = list.firstChild!;
     expect(list.attrs.tight).toBe(tight);
-    expect(list.firstChild!.childCount).toBe(1);
-    expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
+    expect(item.child(0).type.name).toBe('paragraph');
+    expect(item.child(1).type.name).toBe(block);
+    expect(item.child(1).textContent).toBe('b');
+
+    const written = canonical(doc);
+    expect.soft(written).toBe(source);
+    expect.soft(parseMarkdown(written).eq(doc)).toBe(true);
+
+    const edited = editText(doc, 'b', 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(source.replace('b', 'edited'));
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
   });
 
   it('keeps a loose list loose when its emptied first paragraph is dropped', () => {
     const doc = parseMarkdown('- a\n\n  b\n  {.x}');
     const state = EditorState.create({ doc });
     const saved = serializeMarkdown(state.apply(state.tr.delete(3, 4)).doc);
-    expect(saved).toBe('- b\n\n    {.x}');
+    expect(saved).toBe('- b\n\n  {.x}');
     const list = parseMarkdown(saved).firstChild!;
     expect(list.attrs.tight).toBe(false);
     expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
+  });
+
+  it('rewrites the legacy class-only paragraph without losing either class owner', () => {
+    const source = '- a\n\n  {.x}\n{.list}';
+    const expected = '- a {.x}\n\n  []{.list}';
+    const doc = parseMarkdown(source);
+    const list = doc.firstChild!;
+    const item = list.firstChild!;
+    expect(list.attrs.tight).toBe(false);
+    expect(list.attrs.classes).toEqual([]);
+    expect(item.attrs.classes).toEqual(['x']);
+    expect(item.childCount).toBe(2);
+    expect(item.child(1).attrs.classes).toEqual(['list']);
+    expect(item.child(1).content.size).toBe(0);
+    expect(serializeMarkdown(doc)).toBe(source);
+    expect.soft(canonical(doc)).toBe(expected);
+    expect.soft(parseMarkdown(canonical(doc)).eq(doc)).toBe(true);
+
+    const edited = editText(doc, 'a', 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(expected.replace('a', 'edited'));
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it.each([
+    ['second paragraph', '- a {.item}\n\n  b\n  {.p}', 'b', '- a {.item}\n\n  []{.p}', false, 1],
+    ['tight first paragraph', '- a {.item}\n  {.p}', 'a', '- []{.p} {.item}', true, 0],
+    ['tight task paragraph', '- [x] a\n  {.p}', 'a', '- [x] []{.p}', true, 0],
+    ['loose ordered task paragraph', '7) [ ] a {.item}\n\n   {.p}',
+      'a', '7) [ ] []{} {.item}\n\n   {.p}', false, 0],
+    ['loose nested paragraph', '> - - a\n>\n>     {.p}', 'a', '> - - []{}\n>\n>     {.p}', false, 0],
+    ['paragraph beside escaped text', '- \\[\\]\\{.literal} {.item}\n\n  b\n  {.p}',
+      'b', '- \\[\\]\\{.literal} {.item}\n\n  []{.p}', false, 1],
+  ] as const)('keeps an emptied %s and its classes after an edit', (_name, source, text, expected, tight, index) => {
+    const edited = editText(parseMarkdown(source), text, '');
+    let list = edited.firstChild!;
+    if (list.type.name === 'blockquote') list = list.firstChild!.firstChild!.child(1);
+    const paragraph = list.firstChild!.child(index);
+    expect(list.attrs.tight).toBe(tight);
+    expect(paragraph.type.name).toBe('paragraph');
+    expect(paragraph.attrs.classes).toEqual(['p']);
+    expect(paragraph.content.size).toBe(0);
+
+    for (const written of [serializeMarkdown(edited), canonical(edited)]) {
+      expect.soft(written).toBe(expected);
+      const reparsed = parseMarkdown(written);
+      expect.soft(reparsed.eq(edited)).toBe(true);
+      expect.soft(canonical(reparsed)).toBe(written);
+    }
+  });
+
+  it('keeps the class of a list paragraph that holds only a hard break', () => {
+    const { nodes } = markdownSchema;
+    const paragraph = nodes.paragraph.create({ classes: ['p'] }, nodes.hard_break.create());
+    const doc = nodes.doc.create(null, nodes.bullet_list.create(null, nodes.list_item.create(null, paragraph)));
+    const written = canonical(doc);
+    expect(written).toBe('- []{.p}');
+    const item = parseMarkdown(written).firstChild!.firstChild!;
+    expect(item.attrs.classes).toEqual([]);
+    expect(item.firstChild!.attrs.classes).toEqual(['p']);
+  });
+
+  it.each([
+    ['nested list', '[^1]: - a\n       - b', 'b'],
+    ['second paragraph', '[^1]: - a\n\n       b', 'b'],
+    ['paragraph class trailer', '[^1]: - a\n\n       {.x}', 'a'],
+    ['later item', '[^1]: - a\n     - b\n       - c', 'c'],
+    ['fence in an ordered item', '[^1]: 1. ```\n        b\n        ```', 'b'],
+    ['fence', '[^1]: ```\n      b\n     ```', 'b'],
+  ] as const)('keeps a %s on the first line of a footnote', (_name, source, text) => {
+    const doc = parseMarkdown('ref[^1]\n\n' + source);
+    const written = canonical(doc);
+    expect.soft(written).toBe('ref[^1]\n\n' + source);
+    expect.soft(parseMarkdown(written).eq(doc)).toBe(true);
+
+    const edited = editText(doc, text, 'edited');
+    expect(parseMarkdown(serializeMarkdown(edited)).eq(edited)).toBe(true);
+  });
+
+  it.each([
+    ['quote', '> b\n  >\n  {.x}'],
+    ['fence', '```\n  b\n  ```\n  {.x}'],
+  ] as const)('keeps a styled %s and a following list starting above one in a tight item', (_name, block) => {
+    const doc = parseMarkdown('- a\n  ' + block + '\n  1. c');
+    const state = EditorState.create({ doc });
+    let position = -1;
+    doc.descendants((node, offset) => {
+      if (node.type.name === 'ordered_list') position = offset;
+    });
+    const list = doc.nodeAt(position)!;
+    const edited = state.apply(state.tr.setNodeMarkup(position, null, { ...list.attrs, order: 7 })).doc;
+    const item = parseMarkdown(serializeMarkdown(edited)).firstChild!.firstChild!;
+    expect(item.childCount).toBe(3);
+    expect(item.child(1).attrs.classes).toEqual(['x']);
+    expect(item.child(2).type.name).toBe('ordered_list');
+    expect(item.child(2).attrs.order).toBe(7);
   });
 
   it('retains marker spellings around edits in the same block', () => {
@@ -180,7 +324,7 @@ describe('Markdown save normalization', () => {
       '{.quote}',
       '',
       '- 항목 {.item}',
-      '    {.paragraph}',
+      '  {.paragraph}',
       '',
       '{.list}',
       '',
@@ -278,7 +422,7 @@ it('writes a nested ordered list starting after one as a list', () => {
   const position = 2 + item.firstChild!.nodeSize;
   const edited = state.apply(state.tr.replaceWith(position, position + nested.nodeSize, changed)).doc;
   const written = canonical(edited);
-  expect(written).toBe('- first\n\n    7. second');
+  expect(written).toBe('- first\n\n  7. second');
   expect(parseMarkdown(written).firstChild!.firstChild!.lastChild!.attrs.order).toBe(7);
 });
 

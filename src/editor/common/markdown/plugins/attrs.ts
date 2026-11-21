@@ -7,6 +7,7 @@ import { wrapMarkdownRule } from '../rules.js';
 
 const classList = /\{(\.[a-z][a-z0-9-]*(?:[ \t]+\.[a-z][a-z0-9-]*)*)\}/;
 const classAtStart = new RegExp(`^${classList.source}`);
+const emptyListParagraph = new RegExp(`^\\[\\](?:${classList.source}|\\{\\})(?:[ \\t]+${classList.source})?$`);
 
 export function isMarkdownClass(name: string): boolean {
   return /^[a-z][a-z0-9-]*$/.test(name);
@@ -92,6 +93,29 @@ function takeSuffix(inline: Token, suffix: ClassSuffix): boolean {
   return true;
 }
 
+function takeEmptyListParagraph(tokens: Token[], index: number, paragraph: Token, item?: Token): boolean {
+  const inline = tokens[index];
+  const checkbox = inline.children?.[0]?.type === 'checkbox_input';
+  const content = checkbox ? inline.content.slice(3).trimStart() : inline.content;
+  const match = emptyListParagraph.exec(content);
+  if (!match || (match[2] && !item)) return false;
+
+  if (!match[1]) {
+    // []{} is only structural when the empty paragraph's classes follow a blank line.
+    const next = tokens[index + 2];
+    const trailer = tokens[index + 3];
+    if (next?.type !== 'paragraph_open' || next.level !== paragraph.level ||
+      !next.map || !paragraph.map || next.map[0] <= paragraph.map[1] ||
+      trailer?.type !== 'inline' || findSuffix(trailer.content)?.from !== 0) return false;
+  }
+
+  if (match[1]) addClasses(paragraph, match[1]);
+  if (match[2]) addClasses(item!, match[2]);
+  inline.content = checkbox ? inline.content.slice(0, 4) : '';
+  inline.children!.length = checkbox ? 1 : 0;
+  return true;
+}
+
 interface BlockScope {
   readonly token?: Token;
   previous?: Token;
@@ -127,7 +151,9 @@ const blockClasses: RuleCore = state => {
       const firstInItem = parentType === 'list_item_open' && parent?.previous === undefined;
       const endsContainer = closesParent && (parentType === 'blockquote_open' || parentType === 'list_item_open');
       const container = owner.type === 'paragraph_open' && (firstInItem || endsContainer) ? parent?.token : undefined;
-      const suffix = findSuffix(token.content);
+      const empty = owner.type === 'paragraph_open' && parentType === 'list_item_open' &&
+        takeEmptyListParagraph(tokens, index, owner, container);
+      const suffix = empty ? undefined : findSuffix(token.content);
       const acceptsEmpty = container || ['heading_open', 'th_open', 'td_open'].includes(owner.type);
       if (suffix && (suffix.from > 0 || acceptsEmpty) && takeSuffix(token, suffix)) {
         if (suffix.afterLineBreak) {
