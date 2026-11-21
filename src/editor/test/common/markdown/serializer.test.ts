@@ -200,6 +200,55 @@ describe('Markdown save normalization', () => {
     expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
   });
 
+  it('rewrites the legacy class-only paragraph without losing either class owner', () => {
+    const source = '- a\n\n  {.x}\n{.list}';
+    const expected = '- a {.x}\n\n  []{.list}';
+    const doc = parseMarkdown(source);
+    const list = doc.firstChild!;
+    const item = list.firstChild!;
+    expect(list.attrs.tight).toBe(false);
+    expect(list.attrs.classes).toEqual([]);
+    expect(item.attrs.classes).toEqual(['x']);
+    expect(item.childCount).toBe(2);
+    expect(item.child(1).attrs.classes).toEqual(['list']);
+    expect(item.child(1).content.size).toBe(0);
+    expect(serializeMarkdown(doc)).toBe(source);
+    expect.soft(canonical(doc)).toBe(expected);
+    expect.soft(parseMarkdown(canonical(doc)).eq(doc)).toBe(true);
+
+    const edited = editText(doc, 'a', 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(expected.replace('a', 'edited'));
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it.each([
+    ['second paragraph', '- a {.item}\n\n  b\n  {.p}', 'b', '- a {.item}\n\n  []{.p}', false, 1],
+    ['tight first paragraph', '- a {.item}\n  {.p}', 'a', '- []{.p} {.item}', true, 0],
+    ['tight task paragraph', '- [x] a\n  {.p}', 'a', '- [x] []{.p}', true, 0],
+    ['loose ordered task paragraph', '7) [ ] a {.item}\n\n   {.p}',
+      'a', '7) [ ] []{} {.item}\n\n   {.p}', false, 0],
+    ['loose nested paragraph', '> - - a\n>\n>     {.p}', 'a', '> - - []{}\n>\n>     {.p}', false, 0],
+    ['paragraph beside escaped text', '- \\[\\]\\{.literal} {.item}\n\n  b\n  {.p}',
+      'b', '- \\[\\]\\{.literal} {.item}\n\n  []{.p}', false, 1],
+  ] as const)('keeps an emptied %s and its classes after an edit', (_name, source, text, expected, tight, index) => {
+    const edited = editText(parseMarkdown(source), text, '');
+    let list = edited.firstChild!;
+    if (list.type.name === 'blockquote') list = list.firstChild!.firstChild!.child(1);
+    const paragraph = list.firstChild!.child(index);
+    expect(list.attrs.tight).toBe(tight);
+    expect(paragraph.type.name).toBe('paragraph');
+    expect(paragraph.attrs.classes).toEqual(['p']);
+    expect(paragraph.content.size).toBe(0);
+
+    for (const written of [serializeMarkdown(edited), canonical(edited)]) {
+      expect.soft(written).toBe(expected);
+      const reparsed = parseMarkdown(written);
+      expect.soft(reparsed.eq(edited)).toBe(true);
+      expect.soft(canonical(reparsed)).toBe(written);
+    }
+  });
+
   it('retains marker spellings around edits in the same block', () => {
     const source = '+ _italic_ __strong__ ``code`` old';
     const state = EditorState.create({ doc: parseMarkdown(source) });

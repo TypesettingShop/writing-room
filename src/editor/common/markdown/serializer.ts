@@ -230,14 +230,26 @@ const markdownSerializer = new MarkdownSerializer({
     finishBlock(state, node, isTightItem(state, parent));
   },
   paragraph(state, node, parent, index) {
-    state.renderInline(node);
     const itemSuffix = isListItem(parent) && index === 0 ? classSuffix(parent.attrs) : '';
-    if (itemSuffix) state.write((node.content.size ? ' ' : '') + itemSuffix);
     const suffix = classSuffix(node.attrs);
+    const looseTrailer = looseSingleItems.get(state) === parent;
+    if (!node.content.size && suffix && isListItem(parent)) {
+      state.write('[]' + (looseTrailer ? '{}' : suffix));
+      if (itemSuffix) state.write(' ' + itemSuffix);
+      if (looseTrailer) {
+        state.closeBlock(node);
+        state.write(suffix);
+      }
+      state.closeBlock(node);
+      return;
+    }
+
+    state.renderInline(node);
+    if (itemSuffix) state.write((node.content.size ? ' ' : '') + itemSuffix);
     if (suffix && node.content.size) {
       if (isListItem(parent) || parent.type.name === 'blockquote') {
         // A lone paragraph in a loose list needs the blank line before its class trailer.
-        if (looseSingleItems.get(state) === parent) state.closeBlock(node);
+        if (looseTrailer) state.closeBlock(node);
         else state.write('\n');
         state.write(suffix);
       } else {
@@ -272,7 +284,8 @@ const markdownSerializer = new MarkdownSerializer({
   },
   list_item: renderItemContent,
   task_item(state, node) {
-    const needsSpace = Boolean(node.firstChild!.content.size || classSuffix(node.attrs));
+    const first = node.firstChild!;
+    const needsSpace = Boolean(first.content.size || classSuffix(first.attrs) || classSuffix(node.attrs));
     state.write((node.attrs.checked ? '[x]' : '[ ]') + (needsSpace ? ' ' : ''));
     renderItemContent(state, node);
   },
