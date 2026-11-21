@@ -72,6 +72,26 @@ describe('Markdown save normalization', () => {
     expect(canonical(parseMarkdown(source))).toBe(expected);
   });
 
+  it.each([
+    ['first\nsecond {.title}\n=\n\nafter', 1, 'soft_break', '==='],
+    ['- first  \n  second {.title}\n  -\n  after\n- tail', 2, 'hard_break', '  ---'],
+  ] as const)('keeps a multiline Setext heading and its adjacent blocks in %j', (source, level, breakType, underline) => {
+    const doc = parseMarkdown(source);
+    const heading = level === 1 ? doc.firstChild! : doc.firstChild!.firstChild!.child(1);
+    expect(heading.type.name).toBe('heading');
+    expect(heading.attrs).toMatchObject({ level, classes: ['title'] });
+    expect(heading.child(1).type.name).toBe(breakType);
+    expect(serializeMarkdown(doc)).toBe(source);
+
+    const edited = editText(doc, 'second', 'edited');
+    for (const [target, written] of [[doc, canonical(doc)], [edited, serializeMarkdown(edited)]] as const) {
+      expect.soft(written.split('\n')).toContain(underline);
+      const reopened = parseMarkdown(written);
+      expect.soft(reopened.toJSON()).toEqual(target.toJSON());
+      expect.soft(canonical(reopened)).toBe(written);
+    }
+  });
+
   it('retains unchanged blocks and their separators through a transaction', () => {
     const source = ' 첫째   \r\n\r\n\r\nmiddle\r\n\r\n' +
       '~~~ spaced-info\r\ncode\r\n~~~\r\n\r\n' +

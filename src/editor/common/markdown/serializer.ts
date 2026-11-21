@@ -101,6 +101,14 @@ function endsWithParagraphLine(block: Node | null): boolean {
     (block.type.name !== 'heading' && classSuffix(block.attrs))));
 }
 
+function usesSetext(node: Node): boolean {
+  if (node.attrs.level > 2) return false;
+  for (let index = 0; index < node.childCount - 1; index++) {
+    if (isLineBreak(node.child(index))) return true;
+  }
+  return false;
+}
+
 function renderList(
   state: MarkdownSerializerState,
   node: Node,
@@ -168,11 +176,13 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       const previousType = previous.type.name;
       const childType = child.type.name;
       const previousHasClasses = Boolean(classSuffix(previous.attrs));
-      // A table cannot interrupt a nested list, so its rows would continue the list's last paragraph.
-      const tableStartsBlock = previousType !== 'table' && previousType !== 'bullet_list' &&
-        previousType !== 'ordered_list';
-      const startsWithoutBlankLine = childType === 'code_block' || childType === 'heading' ||
-        childType === 'horizontal_rule' || (childType === 'table' && tableStartsBlock) ||
+      // Tables and Setext text can be consumed by the preceding table or nested list.
+      const previousIsTableOrList = previousType === 'table' || previousType === 'bullet_list' ||
+        previousType === 'ordered_list';
+      const setextNeedsBlankLine = childType === 'heading' && usesSetext(child) &&
+        (endsWithParagraphLine(previous) || previousIsTableOrList || previousType === 'blockquote');
+      const startsWithoutBlankLine = childType === 'code_block' || (childType === 'heading' && !setextNeedsBlankLine) ||
+        childType === 'horizontal_rule' || (childType === 'table' && !previousIsTableOrList) ||
         (childType === 'blockquote' && (previousType !== 'blockquote' || previousHasClasses));
       const paragraphFollowsWithoutBlankLine = childType === 'paragraph' && (previousType === 'heading' ||
         (!previousHasClasses && (previousType === 'code_block' || previousType === 'blockquote' ||
@@ -316,9 +326,17 @@ const markdownSerializer = new MarkdownSerializer({
     state.closeBlock(node);
   },
   heading(state, node) {
+    const suffix = classSuffix(node.attrs);
+    if (usesSetext(node)) {
+      state.renderInline(node);
+      if (suffix) state.write(' ' + suffix);
+      state.write('\n');
+      state.write(node.attrs.level === 1 ? '===' : '---');
+      state.closeBlock(node);
+      return;
+    }
     state.write('#'.repeat(node.attrs.level) + ' ');
     state.renderInline(node, false);
-    const suffix = classSuffix(node.attrs);
     if (suffix) state.write((node.content.size ? ' ' : '') + suffix);
     // A terminal hash after space would otherwise become an ATX closing marker.
     const output = state as MarkdownSerializerState & { out: string };
