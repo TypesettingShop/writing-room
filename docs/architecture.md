@@ -24,6 +24,7 @@ writing-room(v0.2.0)은 VS Code 워크벤치를 참고해 처음부터 직접 �
 | 뷰 컨테이너 위치 | `src/vs/workbench/services/views/browser/viewDescriptorService.ts` | `src/workbench/services/views/browser/viewDescriptorService.ts` | [레이아웃](vscode-workbench-layout.md) |
 | 에디터 파트 | `src/vs/workbench/browser/parts/editor/editorPart.ts` | `src/workbench/browser/parts/editor/editorPart.ts` | [에디터 그룹](vscode-editor-groups.md) |
 | 에디터 그룹과 모델 | `src/vs/workbench/browser/parts/editor/editorGroupView.ts`, `src/vs/workbench/common/editor/editorGroupModel.ts` | `src/workbench/browser/parts/editor/editorGroupView.ts`, `src/workbench/common/editor/editorGroupModel.ts` | [에디터 그룹](vscode-editor-groups.md) |
+| Markdown 에디터 | `extensions/markdown-language-features/package.json`의 `vscode.markdown.editor` | `src/workbench/contrib/markdownEditor/browser/markdownEditorPane.ts` | [기본 에디터와 미리보기](#markdown-editor) |
 | 탭 | `src/vs/workbench/browser/parts/editor/multiEditorTabsControl.ts` | `src/workbench/browser/parts/editor/multiEditorTabsControl.ts` | [에디터 그룹](vscode-editor-groups.md) |
 | 에디터 드롭 대상 | `src/vs/workbench/browser/parts/editor/editorDropTarget.ts` | `src/workbench/browser/parts/editor/editorDropTarget.ts` | [에디터 그룹](vscode-editor-groups.md) |
 | 커맨드 레지스트리 | `src/vs/platform/commands/common/commands.ts` | `src/platform/commands/common/commands.ts` | [메뉴와 커맨드](vscode-menus-commands.md) |
@@ -95,7 +96,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 #### Markdown editor
 
-- `.md`와 `.markdown`은 ProseMirror 기반 코어 페인(WYSIWYG)으로 열린다. VS Code는 Markdown을 텍스트 편집기로 열고 렌더링은 확장의 미리 보기에 맡긴다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 저장·dirty·초안이 한 모델에 남으며, 확장이 제공하는 Markdown Preview도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy)
+- `.md`와 `.markdown`의 기본 에디터는 ProseMirror 기반 코어 페인(WYSIWYG)이다. VS Code의 기본 Markdown 편집기는 텍스트 에디터이며, 기준 커밋의 내장 확장은 **Markdown Editor**(`vscode.markdown.editor`)와 **Markdown Preview**(`vscode.markdown.preview.editor`)를 텍스트 에디터 자리의 선택형(`option`) 커스텀 에디터로 등록한다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 두 모드가 저장·dirty·초안을 공유하고, 확장이 제공하는 **Markdown Preview**도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy, wr-h2sa). [마크다운 편집 모드와 저장 형식](markdown-editor.md#편집-모드와-실행-취소)
 
 #### Monaco editor
 
@@ -212,4 +213,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa
