@@ -27,10 +27,12 @@
 }
 
 .explorer-row[aria-selected="true"] {
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
   background: var(--vscode-list-inactiveSelectionBackground, #37373d);
 }
 
 .explorer-tree:focus-within .explorer-row[aria-selected="true"] {
+  color: var(--vscode-list-activeSelectionForeground, inherit);
   background: var(--vscode-list-activeSelectionBackground, #04395e);
 }
 

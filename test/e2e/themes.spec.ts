@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import { box, expect, screenshotColors, test } from './fixtures.js';
 import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
@@ -114,6 +115,77 @@ test('an id given in the manifest is the setting\'s value; the built-in light th
   await expect(statusPart(page)).toHaveCSS('background-color', rgb('#dde8f8'));
   await newUntitled(page);
   await expect.poll(() => editorBackground(page)).toBe(rgb('#fbfcfe'));
+});
+
+test('tab and Explorer selection colors stay readable in high contrast light and follow theme overrides', async ({ page }, testInfo) => {
+  await openWithThemingFixtures(page, ['color-theme/']);
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'contrast.txt', 'Check the tab bar and selected file.');
+  const row = treeItem(page, 'contrast.txt');
+  await row.dblclick();
+  await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+  const left = groups(page).first();
+  const right = groups(page).last();
+  await expect(groups(page)).toHaveCount(2);
+  const tab = left.getByRole('tab', { name: 'Welcome' });
+  const tabSurface = tab.locator('..');
+  const tabBar = left.locator(':scope > .title');
+  const rowLabel = row.locator('.explorer-label');
+  const activeTab = right.getByRole('tab', { name: 'contrast.txt' });
+  await expect(tab).toHaveAttribute('aria-selected', 'false');
+  await expect(row).toHaveAttribute('aria-selected', 'true');
+  await expect(activeTab).toHaveAttribute('aria-selected', 'true');
+
+  const expectColors = async (background: Locator, text: Locator, [fill, ink]: readonly [string, string]) => {
+    await expect(background).toHaveCSS('background-color', rgb(fill));
+    await expect(text).toHaveCSS('color', rgb(ink));
+  };
+  for (const [theme, bar, inactiveTab, focusedRow, blurredRow] of [
+    ['Fixture Contrast Light', '#e9edf4', ['#e9edf4', '#292929'], ['#0f4a85', '#ffffff'], ['#e4e9f1', '#292929']],
+    ['Fixture Contrast', '#1c212c', ['#1c212c', '#ffffff'], ['#04395e', '#ffffff'], ['#37373d', '#ffffff']],
+    ['Writing Room Light', '#e9edf4', ['#e9edf4', '#5a6577'], ['#cfe0fa', '#1f2633'], ['#e4e9f1', '#2b3443']],
+    ['Writing Room Dark', '#1c212c', ['#1c212c', '#8b97ab'], ['#04395e', '#ffffff'], ['#37373d', '#d1daea']],
+    ['Fixture Paper', '#f0e3ce', ['#e9d8bc', '#382719'], ['#684832', '#fff4e0'], ['#e1caaa', '#4a3022']],
+  ] as const) {
+    await chooseTheme(page, theme);
+    await expect(tabBar).toHaveCSS('background-color', rgb(bar));
+    await expectColors(tabSurface, tab, inactiveTab);
+    await row.focus();
+    await expect(row).toBeFocused();
+    await expectColors(row, rowLabel, focusedRow);
+    if (theme === 'Fixture Contrast Light') {
+      const path = testInfo.outputPath('hc-light-explorer-focused.png');
+      const screenshot = await page.screenshot({ path, scale: 'css' });
+      const [strip, inactive, boundary, selected] = await Promise.all([
+        box(left.locator('.tabs-container')), box(tabSurface), box(right), box(row),
+      ]);
+      const [stripFill, tabFill, line, rowFill] = await screenshotColors(page, screenshot, [
+        { x: Math.floor(strip.x + strip.width - 8), y: strip.y + 4 },
+        { x: Math.floor(inactive.x + 4), y: inactive.y + 4 },
+        { x: boundary.x, y: strip.y + 4 },
+        { x: Math.floor(selected.x + selected.width - 8), y: Math.floor(selected.y + selected.height / 2) },
+      ]);
+      await testInfo.attach('hc-light-explorer-focused', { path, contentType: 'image/png' });
+      expect([stripFill, tabFill, line, rowFill]).toEqual([bar, inactiveTab[0], '#0f4a85', focusedRow[0]]);
+      expect(contrast(line, stripFill)).toBeGreaterThanOrEqual(3);
+      expect(contrast(inactiveTab[1], tabFill)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(focusedRow[1], rowFill)).toBeGreaterThanOrEqual(4.5);
+    }
+
+    await activeTab.focus();
+    await expect(activeTab).toBeFocused();
+    await expect(row).toHaveAttribute('aria-selected', 'true');
+    await expectColors(row, rowLabel, blurredRow);
+    if (theme === 'Fixture Contrast Light') {
+      const path = testInfo.outputPath('hc-light-explorer-unfocused.png');
+      const screenshot = await page.screenshot({ path, scale: 'css' });
+      const { x, y, width, height } = await box(row);
+      const [rowFill] = await screenshotColors(page, screenshot, [{ x: Math.floor(x + width - 8), y: Math.floor(y + height / 2) }]);
+      await testInfo.attach('hc-light-explorer-unfocused', { path, contentType: 'image/png' });
+      expect(rowFill).toBe(blurredRow[0]);
+      expect(contrast(blurredRow[1], rowFill)).toBeGreaterThanOrEqual(4.5);
+    }
+  }
 });
 
 test('nested editor group separators follow the current theme and survive layout restore', async ({ page }, testInfo) => {
