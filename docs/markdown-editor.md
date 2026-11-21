@@ -55,8 +55,13 @@
   `markdownEditor.fontFamily`에서 제어한다. `.font-mono`도 고정폭 글꼴로
   표시된다.
 - 크기와 서체에서 **Default**를 고르면 해당 범위의 프리셋 클래스를 지운다.
-  문단의 정렬 버튼은 `.center`나 `.right`를 쓰고 **Align Left**는 정렬
-  클래스를 지운다. 기존 `.justify`는 읽기와 렌더링만 지원한다.
+- 정렬 버튼은 문단에 적용된 정렬을 표시한다. 문단에 정렬 클래스가 없으면
+  정렬이 지정된 가장 가까운 상위 블록(인용문, 목록 항목 등)의 값을 상속하며,
+  기본값은 왼쪽이다. 상속값과 같은 버튼을 누르면 문단에 이미 붙은 정렬 클래스를
+  지운다. 다른 정렬을 고르면 문단에 클래스를 저장한다. 예를 들어 `{.center}`
+  인용문 안에서 **Align Left**는 문단에 `{.left}`를 저장하고, **Align Center**를
+  누르면 그 클래스를 지워 가운데 정렬을 상속한다. 기존 `.justify`는 읽기와
+  렌더링만 지원한다.
 - 클래스 이름은 소문자로 시작하고 뒤에 소문자, 숫자, 하이픈을 쓸 수 있다. 여러
   클래스는 공백으로 나눈다. 사용자 클래스와 입력 순서가 저장된다.
 - 줄 끝의 클래스 목록 앞에는 공백을 둔다. `글자{.class}`나 `![그림](a.png){.class}`처럼
@@ -150,4 +155,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob

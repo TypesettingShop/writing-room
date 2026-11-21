@@ -131,6 +131,8 @@ describe('Markdown class presets', () => {
     const state = selectTextBlocks(source, 'First');
     expect(write(state)).toBe(source);
     expect(presets(state).textAlign).toBe('center');
+    // The inherited alignment needs no class of its own.
+    expect(setFormattingPreset('textAlign', 'center')(state)).toBe(false);
 
     const left = apply(state, setFormattingPreset('textAlign', 'left'));
     const saved = write(left);
@@ -146,6 +148,7 @@ describe('Markdown class presets', () => {
 
   it('reads the nearest list alignment, a direct override and mixed selections', () => {
     const source = '- Parent {.right}\n    - Middle {.left}\n        - Inherited\n        - Direct\n            {.left .center}';
+    expect(write(selectTextBlocks(source, 'Parent'))).toBe(source);
     expect(presets(selectTextBlocks(source, 'Parent')).textAlign).toBe('right');
     expect(presets(selectTextBlocks(source, 'Inherited')).textAlign).toBe('left');
     expect(presets(selectTextBlocks(source, 'Direct')).textAlign).toBe('center');
@@ -153,6 +156,17 @@ describe('Markdown class presets', () => {
     const left = apply(selectTextBlocks(source, 'Direct'), setFormattingPreset('textAlign', 'left'));
     expect(write(left)).toBe(source.split('\n').slice(0, -1).join('\n'));
     expect(presets(left).textAlign).toBe('left');
+    const right = write(apply(selectTextBlocks(source, 'Middle', 'Direct'), setFormattingPreset('textAlign', 'right')));
+    for (const text of ['Middle', 'Inherited', 'Direct']) {
+      expect(presets(selectTextBlocks(right, text)).textAlign).toBe('right');
+    }
+
+    // A block after an aligned container inherits from the container's parent again.
+    const after = '> Quoted\n\n{.center}\n\nAfter';
+    expect(presets(selectTextBlocks(after, 'Quoted', 'After')).textAlign).toBeNull();
+    const both = apply(selectTextBlocks(after, 'Quoted', 'After'), setFormattingPreset('textAlign', 'left'));
+    expect(write(both)).toBe('> Quoted\n> {.left}\n\n{.center}\n\nAfter');
+    expect(presets(both).textAlign).toBe('left');
     expect(presets(selectTextBlocks('> Justified {.justify}', 'Justified')).textAlign).toBe('justify');
   });
 

@@ -78,13 +78,31 @@ function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string
   return effective;
 }
 
-function inheritedTextAlign(doc: Node, pos: number): string {
-  const $pos = doc.resolve(pos);
-  for (let depth = $pos.depth; depth > 0; depth--) {
-    const value = presetInClasses('textAlign', $pos.node(depth).attrs.classes ?? []);
-    if (value !== undefined) return value;
+/** The alignment each block inherits from its nearest aligned ancestor, keyed by the block's position. */
+function inheritedTextAligns(doc: Node, blocks: readonly SelectedTextBlock[]): Map<number, string> {
+  const inherited = new Map<number, string>();
+  if (!blocks.length) return inherited;
+  let from = blocks[0].pos;
+  let to = from;
+  for (const { pos } of blocks) {
+    from = Math.min(from, pos);
+    to = Math.max(to, pos);
   }
-  return formattingPresets.textAlign.defaultValue;
+  const wanted = new Set(blocks.map(({ pos }) => pos));
+  // One walk keeps the ancestors' alignments on a stack. Resolving each block would rescan its siblings,
+  // which makes a selection over a long document quadratic.
+  const containers: { readonly end: number; readonly value: string }[] = [];
+  doc.nodesBetween(from, to + 1, (node, pos) => {
+    while (containers.length && containers[containers.length - 1].end <= pos) containers.pop();
+    const value = containers.length ? containers[containers.length - 1].value : formattingPresets.textAlign.defaultValue;
+    if (node.isTextblock) {
+      if (wanted.has(pos)) inherited.set(pos, value);
+      return false;
+    }
+    containers.push({ end: pos + node.nodeSize, value: presetInClasses('textAlign', node.attrs.classes ?? []) ?? value });
+    return true;
+  });
+  return inherited;
 }
 
 function replaceClasses(
@@ -143,7 +161,9 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
     const caret = selection.empty && !(selection instanceof CellSelection);
     const tr = state.tr;
     const span = state.schema.marks.span;
-    for (const block of selectedTextBlocks(state.doc, selection)) {
+    const blocks = selectedTextBlocks(state.doc, selection);
+    const inherited = axis === 'textAlign' ? inheritedTextAligns(state.doc, blocks) : undefined;
+    for (const block of blocks) {
       const { node, pos, from, to } = block;
       const useBlock = axis === 'textAlign' || !node.type.allowsMarkType(span)
         || (!caret && from === 0 && to === node.content.size);
@@ -152,9 +172,8 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
       }
       if (useBlock) {
         const original: readonly string[] = node.attrs.classes;
-        // Left only needs an explicit class when the block would inherit another alignment.
-        const className = axis === 'textAlign' && value === 'left' && inheritedTextAlign(state.doc, pos) === 'left'
-          ? undefined : choice.className;
+        // An alignment only needs its own class where the block would otherwise inherit another alignment.
+        const className = inherited?.get(pos) === value ? undefined : choice.className;
         const classes = replaceClasses(original, axis, className);
         if (classes !== original) {
           tr.setNodeMarkup(pos, undefined, { ...node.attrs, classes });
@@ -189,6 +208,7 @@ export function currentFormattingPresets(
   const { selection, schema } = state;
   const span = schema.marks.span;
   const result: Record<PresetAxisId, string | null> = { textAlign: null, fontSize: null, fontFamily: null };
+  const inherited = inheritedTextAligns(state.doc, blocks);
   for (const axis of axisIds) {
     let common: string | null | undefined;
     const record = (value: string | null) => {
@@ -197,7 +217,7 @@ export function currentFormattingPresets(
     for (const { node, pos, from, to } of blocks) {
       if (axis === 'textAlign') {
         const alignment = isMarkdownTableCell(node) ? null
-          : presetInClasses(axis, node.attrs.classes) ?? inheritedTextAlign(state.doc, pos);
+          : presetInClasses(axis, node.attrs.classes) ?? inherited.get(pos) ?? formattingPresets.textAlign.defaultValue;
         record(alignment);
         continue;
       }

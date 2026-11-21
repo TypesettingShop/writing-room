@@ -138,7 +138,7 @@ function registerFormattingPicker<T>({ commandId, commandTitle, options, parse, 
     override async run(accessor: ServicesAccessor, arg?: unknown): Promise<void> {
       const groups = accessor.get(IEditorGroupsService);
       const pane = getMarkdownPane(groups);
-      const state = pane?.formattingState;
+      const state = pane?.getFormattingStateForQuickInput();
       if (!pane || !state) {
         return;
       }
