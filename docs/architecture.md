@@ -93,6 +93,10 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Editor groups, editor and docking
 
+#### Markdown editor
+
+- `.md`와 `.markdown`은 ProseMirror 기반 코어 페인(WYSIWYG)으로 열린다. VS Code는 Markdown을 텍스트 편집기로 열고 렌더링은 확장의 미리 보기에 맡긴다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 저장·dirty·초안이 한 모델에 남으며, 확장이 제공하는 Markdown Preview도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy)
+
 #### Monaco editor
 
 - 에디터는 VS Code처럼 `src/vs/editor`를 내장하지 않고 같은 코드를 독립 실행형으로 묶은 `monaco-editor` 패키지를 쓴다. 패키지를 임포트하는 파일은 `src/editor/browser/monaco.ts` 하나이며 `loadMonaco()`가 처음 열리는 텍스트 에디터에서 지연 로드한다 — 워크벤치의 첫 페인트가 수 MB의 패키지와 워커를 기다리지 않게 한다 (wr-cla6.36n)
@@ -208,4 +212,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy

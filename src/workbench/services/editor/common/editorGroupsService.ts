@@ -67,6 +67,8 @@ export interface IEditorMoveOptions {
 export interface IEditorReplacement {
   readonly editor: EditorInput;
   readonly replacement: EditorInput;
+  /** Whether to inherit the old pane's view state when none was supplied. Defaults to true. */
+  readonly inheritViewState?: boolean;
   /** How the replacement opens; by default with the replaced editor's view state. */
   readonly options?: IEditorOpenOptions;
 }

@@ -24,12 +24,18 @@ interface ISerializedFileEditorInput {
  * its draft backup's, read when the editor shows.
  */
 export class FileEditorInputSerializer implements IEditorSerializer {
+  protected readonly inputType: typeof FileEditorInput = FileEditorInput;
+
+  private handles(editor: EditorInput): editor is FileEditorInput {
+    return editor instanceof FileEditorInput && editor.typeId === this.inputType.ID;
+  }
+
   canSerialize(editor: EditorInput): boolean {
-    return editor instanceof FileEditorInput;
+    return this.handles(editor);
   }
 
   serialize(editor: EditorInput): string | undefined {
-    if (!(editor instanceof FileEditorInput)) {
+    if (!this.handles(editor)) {
       return undefined;
     }
     const value: ISerializedFileEditorInput = editor.isDirty()
@@ -62,7 +68,7 @@ export class FileEditorInputSerializer implements IEditorSerializer {
     if (!isTextFileScheme(uri.scheme)) {
       return undefined;
     }
-    return instantiationService.createInstance(FileEditorInput, uri, { restoredDirty: backup === true });
+    return instantiationService.createInstance(this.inputType, uri, { restoredDirty: backup === true });
   }
 }
 
@@ -87,7 +93,7 @@ export class FileEditorResolverContribution extends Disposable {
       { canSupportResource: resource => isTextFileResource(resource, fileService) },
       ({ resource, options }) => {
         const open = groups.groups.flatMap(group => group.editors)
-          .find((editor): editor is FileEditorInput => editor instanceof FileEditorInput && isEqual(editor.resource, resource));
+          .find((editor): editor is FileEditorInput => editor instanceof FileEditorInput && editor.typeId === FileEditorInput.ID && isEqual(editor.resource, resource));
         return { editor: open ?? instantiationService.createInstance(FileEditorInput, resource, {}), options };
       },
     ));

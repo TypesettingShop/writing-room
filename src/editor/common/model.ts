@@ -92,3 +92,39 @@ export interface ITextModel {
 export function isTooLargeForSyncing(model: ITextModel): boolean {
   return model.getValueLength() > MODEL_SYNC_LIMIT;
 }
+
+/** One edit of the differing span, in the model's EOL format, or no edit for identical text. */
+export function getTextModelEdit(model: ITextModel, text: string): ISingleEditOperation | undefined {
+  const next = text.replace(/\r\n|\r|\n/g, model.getEOL());
+  const current = model.getValue();
+  if (next === current) {
+    return undefined;
+  }
+  const shorter = Math.min(current.length, next.length);
+  let start = 0;
+  while (start < shorter && current.charCodeAt(start) === next.charCodeAt(start)) {
+    start++;
+  }
+  let suffix = 0;
+  while (suffix < shorter - start && current.charCodeAt(current.length - 1 - suffix) === next.charCodeAt(next.length - 1 - suffix)) {
+    suffix++;
+  }
+
+  // A single Monaco position cannot represent the gap inside a CRLF.
+  const splitsLineEnding = (value: string, offset: number) => value[offset - 1] === '\r' && value[offset] === '\n';
+  if (splitsLineEnding(current, start) || splitsLineEnding(next, start)) {
+    start--;
+  }
+  if (splitsLineEnding(current, current.length - suffix) || splitsLineEnding(next, next.length - suffix)) {
+    suffix--;
+  }
+  const from = model.getPositionAt(start);
+  const to = model.getPositionAt(current.length - suffix);
+  return {
+    range: {
+      startLineNumber: from.lineNumber, startColumn: from.column,
+      endLineNumber: to.lineNumber, endColumn: to.column,
+    },
+    text: next.slice(start, next.length - suffix),
+  };
+}

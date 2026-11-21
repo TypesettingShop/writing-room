@@ -7,6 +7,7 @@ import './browser/parts/editor/editor.contribution.js';
 
 // Commands, menus and keybindings
 import './browser/parts/titlebar/menubar.contribution.js';
+import './browser/parts/editor/editorHistory.contribution.js';
 import './contrib/quickaccess/browser/quickAccess.contribution.js';
 
 // Extensions
@@ -23,6 +24,7 @@ import './contrib/output/browser/output.contribution.js';
 import './services/themes/browser/themes.contribution.js';
 import './contrib/search/browser/search.contribution.js';
 import './contrib/customEditor/browser/customEditor.contribution.js';
+import './contrib/markdownEditor/browser/markdownEditor.contribution.js';
 
 // Preferences
 import './contrib/preferences/browser/preferences.contribution.js';

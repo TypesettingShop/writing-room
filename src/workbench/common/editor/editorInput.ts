@@ -19,6 +19,8 @@ export enum ConfirmResult {
  * that shows it.
  */
 export interface IEditorCloseHandler {
+  /** Another tab whose lifetime also keeps these unsaved changes open. */
+  sharesDirtyState?(other: EditorInput): boolean;
   /** Whether closing now needs an answer, such as while there are unsaved changes. */
   showConfirm(): boolean;
   /** Asks about `editors`, all of this input's kind. Only `CANCEL` keeps them open. */

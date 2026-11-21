@@ -5,13 +5,14 @@ import type { IResourceEditorInput } from '../../../../../platform/editor/common
 import type { IReference, IResolvedTextEditorModel, ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { FILE_EDITOR_INPUT_ID } from '../../../../common/editor.js';
 import type { GroupIdentifier } from '../../../../common/editor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
 import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../../../common/editor/editorInput.js';
 import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 
-export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
+export { FILE_EDITOR_INPUT_ID };
 
 export interface IFileEditorInputOptions {
   /** Restored with a draft: dirty until its model says otherwise. */
@@ -24,7 +25,7 @@ export interface IFileEditorInputOptions {
  * once the last reference does and it is clean.
  */
 export class FileEditorInput extends EditorInput {
-  static readonly ID = FILE_EDITOR_INPUT_ID;
+  static readonly ID: string = FILE_EDITOR_INPUT_ID;
 
   private reference: Promise<IReference<IResolvedTextEditorModel>> | undefined;
   private restoredDirty: boolean;
@@ -43,6 +44,7 @@ export class FileEditorInput extends EditorInput {
     super();
     this.closeHandler = {
       showConfirm: () => this.isDirty(),
+      sharesDirtyState: other => other instanceof FileEditorInput && isEqual(other.resource, this.target),
       confirm: editors => fileDialogService.showSaveConfirm(editors.map(({ editor }) => editor.getName())),
     };
     this.restoredDirty = options.restoredDirty ?? false;
@@ -151,7 +153,7 @@ export class FileEditorInput extends EditorInput {
   }
 
   override matches(other: EditorInput): boolean {
-    return other === this || (other instanceof FileEditorInput && isEqual(other.resource, this.target));
+    return other === this || (other instanceof FileEditorInput && other.typeId === this.typeId && isEqual(other.resource, this.target));
   }
 
   override dispose(): void {
