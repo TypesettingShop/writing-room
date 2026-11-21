@@ -59,6 +59,7 @@ const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
 type ListSerializerState = MarkdownSerializerState & {
   closed: Node | null;
   inTightList: boolean;
+  atBlank(): boolean;
   flushClose(size?: number): void;
 };
 
@@ -102,7 +103,7 @@ function renderList(
   node.forEach((child, _offset, itemIndex) => {
     if (itemIndex && node.attrs.tight) listState.flushClose(1);
     const delim = firstDelim(current.marker, itemIndex);
-    const sharesMarkerLine = isListItem(parent) && !listState.closed && !state.atBlank();
+    const sharesMarkerLine = isListItem(parent) && !listState.closed && !listState.atBlank();
     const firstLine = needsRuleMarkerBreak(child, current.marker, sharesMarkerLine)
       ? delim.trimEnd() + '\n' : delim;
     state.wrapBlock(' '.repeat(delim.length), firstLine, node, () => state.render(child, node, itemIndex));
