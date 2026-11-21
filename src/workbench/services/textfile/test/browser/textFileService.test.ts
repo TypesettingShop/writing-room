@@ -225,6 +225,42 @@ describe('text file models', () => {
     expect(model.isDirty()).toBe(false);
   });
 
+  test('compares exact saved text across rich versions and skips reading text of a different length', async () => {
+    const original = 'Paragraph\n\n'.repeat(100);
+    await files.writeFile(file('/rich.md'), bytes(original));
+    // Model each rich undo as a fresh version, as when it writes a new edit into Monaco.
+    models = new TestModelService();
+    const { service } = createService();
+    const { model, textModel } = await resolve(service, '/rich.md');
+    const getValue = vi.spyOn(textModel, 'getValue');
+    const replaceHead = (endColumn: number, text: string) => model.applyRichEditorEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn },
+      text,
+    });
+    const dirtyChanges: boolean[] = [];
+    model.onDidChangeDirty(() => dirtyChanges.push(model.isDirty()));
+
+    replaceHead(1, '!');
+    expect(model.isDirty()).toBe(true);
+    expect(getValue).not.toHaveBeenCalled();
+
+    const gate = new DeferredPromise<void>();
+    provider.gate = gate.p;
+    const saving = model.save();
+    await settle();
+    expect(model.isSaving()).toBe(true);
+    replaceHead(2, '?');
+    provider.gate = undefined;
+    await gate.complete();
+    expect(await saving).toBe(true);
+    expect(await readFile('/rich.md')).toBe('!' + original);
+    expect(model.isDirty()).toBe(true);
+
+    replaceHead(2, '!');
+    expect(model.isDirty()).toBe(false);
+    expect(dirtyChanges).toEqual([true, false]);
+  });
+
   test('asks before overwriting a file another writer saved first, and keeps both sides until answered', async () => {
     await files.writeFile(file('/a.txt'), bytes('base'));
     const { service } = createService();
