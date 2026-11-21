@@ -74,16 +74,19 @@ export class CompositeDragAndDropObserver {
 
   registerTarget(element: HTMLElement, target: CompositeDropTarget): IDisposable {
     const registrations = new DisposableStore();
+    const onDragOver = (event: DragEvent) => {
+      const item = this.getItem(element, event);
+      if (item && target.onDragOver(event, item)) {
+        event.preventDefault();
+        event.dataTransfer!.dropEffect = 'move';
+      } else {
+        target.onDragLeave();
+      }
+    };
+    // Set the operation on entry, including when the pointer moves between children of this target.
+    registrations.add(addDisposableListener(element, 'dragenter', onDragOver));
     const observer = registrations.add(new DragAndDropObserver(element, {
-      onDragOver: event => {
-        const item = this.getItem(element, event);
-        if (item && target.onDragOver(event, item)) {
-          event.preventDefault();
-          event.dataTransfer!.dropEffect = 'move';
-        } else {
-          target.onDragLeave();
-        }
-      },
+      onDragOver,
       onDragLeave: () => target.onDragLeave(),
       onDrop: event => {
         const item = this.getItem(element, event);
