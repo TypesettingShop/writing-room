@@ -248,6 +248,56 @@ describe('Markdown save normalization', () => {
     expect(parseMarkdown(saved).eq(edited)).toBe(true);
   });
 
+  it.each([
+    ['tight heading and following paragraph', '- lead\n  # heading {.heading}\n  tail', true,
+      ['paragraph', 'heading', 'paragraph']],
+    ['tight rule and its class trailer', '- lead\n  ***\n  {.rule}', true,
+      ['paragraph', 'horizontal_rule']],
+    ['tight dash rule after a task paragraph with classes',
+      '9) [x] lead {.item}\n   {.p}\n   - - - -\n   {.rule}\n10) tail', true, ['paragraph', 'horizontal_rule']],
+    ['tight dash rule after a quote with classes', '- > lead\n  >\n  {.quote}\n  - - -\n  {.rule}', true,
+      ['paragraph', 'blockquote', 'horizontal_rule']],
+    ['tight table before a heading', '- lead\n  | h |\n  | --- |\n  | b |\n  # tail', true,
+      ['paragraph', 'table', 'heading']],
+    ['tight table after a quote', '- > lead\n  >\n  | h |\n  | --- |\n  | b |', true,
+      ['paragraph', 'blockquote', 'table']],
+    ['loose heading', '- lead\n\n  # heading', false, ['paragraph', 'heading']],
+    ['loose dash rule with a class', '- lead\n\n  ---\n\n  {.rule}', false, ['paragraph', 'horizontal_rule']],
+    ['loose table with a class', '- lead\n\n  | h |\n  | --- |\n  | b |\n\n  {.table}', false, ['paragraph', 'table']],
+  ] as const)('preserves the list block boundaries for a %s', (_name, source, tight, blockTypes) => {
+    const doc = parseMarkdown(source);
+    const list = doc.firstChild!;
+    const item = list.firstChild!;
+    expect(list.attrs.tight).toBe(tight);
+    expect(Array.from({ length: item.childCount }, (_, index) => item.child(index).type.name)).toEqual(blockTypes);
+
+    const normalized = canonical(doc);
+    expect.soft(normalized).toBe(source);
+    expect.soft(parseMarkdown(normalized).eq(doc)).toBe(true);
+
+    const edited = editText(doc, 'lead', 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(source.replace('lead', 'edited'));
+    const reparsed = parseMarkdown(saved);
+    expect.soft(reparsed.eq(edited)).toBe(true);
+    expect.soft(canonical(reparsed)).toBe(saved);
+  });
+
+  it('keeps a Setext heading distinct from a paragraph followed by a dash rule', () => {
+    const heading = parseMarkdown('- lead\n  ---');
+    expect(heading.firstChild!.firstChild!.child(1).type.name).toBe('heading');
+    expect(canonical(heading)).toBe('- ## lead');
+    expect(parseMarkdown(canonical(heading)).eq(heading)).toBe(true);
+
+    const rule = parseMarkdown('- lead\n  - ---\n  {.rule}');
+    const item = rule.firstChild!.firstChild!;
+    expect(item.attrs.classes).toEqual([]);
+    expect(item.firstChild!.attrs.classes).toEqual([]);
+    expect(item.child(1).attrs.classes).toEqual(['rule']);
+    expect.soft(canonical(rule)).toBe('- lead\n  - - - -\n  {.rule}');
+    expect(parseMarkdown(canonical(rule)).eq(rule)).toBe(true);
+  });
+
   it('keeps a loose list loose when its emptied first paragraph is dropped', () => {
     const doc = parseMarkdown('- a\n\n  b\n  {.x}');
     const state = EditorState.create({ doc });

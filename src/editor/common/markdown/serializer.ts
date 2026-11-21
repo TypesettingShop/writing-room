@@ -133,15 +133,18 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       const previous = item.child(index - 1);
       const previousType = previous.type.name;
       const childType = child.type.name;
-      if (childType === 'code_block' ||
-        (childType === 'blockquote' && (previousType !== 'blockquote' || classSuffix(previous.attrs)))) {
-        // Both blocks can interrupt a paragraph without making the list loose.
+      const previousHasClasses = Boolean(classSuffix(previous.attrs));
+      const startsWithoutBlankLine = childType === 'code_block' || childType === 'heading' ||
+        childType === 'horizontal_rule' || (childType === 'table' && previousType !== 'table') ||
+        (childType === 'blockquote' && (previousType !== 'blockquote' || previousHasClasses));
+      const paragraphFollowsWithoutBlankLine = childType === 'paragraph' && (previousType === 'heading' ||
+        (!previousHasClasses && (previousType === 'code_block' || previousType === 'blockquote' ||
+          previousType === 'horizontal_rule')));
+      if (startsWithoutBlankLine || paragraphFollowsWithoutBlankLine) {
         listState.flushClose(1);
-      } else if (childType === 'paragraph' && !classSuffix(previous.attrs) &&
-        (previousType === 'code_block' || previousType === 'blockquote' || previousType === 'horizontal_rule')) {
-        listState.flushClose(1);
-        // End the quote explicitly so the next paragraph cannot be a lazy continuation.
-        if (previousType === 'blockquote') state.write('>\n');
+        // Paragraphs and tables can be lazy continuations of a quote.
+        if (previousType === 'blockquote' && !previousHasClasses &&
+          (childType === 'paragraph' || childType === 'table')) state.write('>\n');
       }
     }
     state.render(child, item, index);
@@ -286,9 +289,18 @@ const markdownSerializer = new MarkdownSerializer({
     state.closeBlock(node);
   },
   code_block: writeCodeBlock,
-  horizontal_rule(state, node, parent) {
-    state.write(node.attrs.markup ?? '---');
-    finishBlock(state, node, isTightItem(state, parent));
+  horizontal_rule(state, node, parent, index) {
+    const tight = isTightItem(state, parent);
+    let markup: string = node.attrs.markup ?? '---';
+    if (tight && /^-{3,}$/.test(markup) && index > (skipsPlaceholder(parent) ? 1 : 0)) {
+      const previous = parent.child(index - 1);
+      // Space the dashes so the preceding paragraph or class trailer cannot become a Setext heading.
+      if (previous.type.name === 'paragraph' || (previous.type.name !== 'heading' && classSuffix(previous.attrs))) {
+        markup = [...markup].join(' ');
+      }
+    }
+    state.write(markup);
+    finishBlock(state, node, tight);
   },
   bullet_list(state, node, parent, index) {
     renderList(state, node, parent, index, marker => marker + ' ');
