@@ -104,6 +104,62 @@ describe('Markdown save normalization', () => {
     expect(parseMarkdown(written).toJSON()).toEqual(doc.toJSON());
   });
 
+  it.each([
+    ['c', 'a\nb\n==='],
+    ['b', 'a\nc\n==='],
+  ])('keeps a Setext heading after deleting the text of line %s', (line, expected) => {
+    const doc = parseMarkdown('a\nb\nc\n===\n\nafter');
+    let position = -1;
+    doc.descendants((node, offset) => {
+      if (position === -1 && node.text === line) position = offset;
+    });
+    const state = EditorState.create({ doc });
+    const edited = state.apply(state.tr.delete(position, position + 1)).doc;
+    const written = serializeMarkdown(edited);
+    expect(written).toBe(expected + '\n\nafter');
+    const reopened = parseMarkdown(written);
+    expect(reopened.firstChild?.type.name).toBe('heading');
+    expect(reopened.childCount).toBe(2);
+  });
+
+  it('writes the lines of a level-three heading on one line', () => {
+    const { heading, soft_break: softBreak } = markdownSchema.nodes;
+    const doc = markdownSchema.node('doc', null, [
+      heading.create({ level: 3 }, [markdownSchema.text('a'), softBreak.create(), markdownSchema.text('b')]),
+    ]);
+    expect(canonical(doc)).toBe('### a b');
+  });
+
+  it.each(['+', '1.', '1)'])('keeps the paragraph %s from starting an empty list', text => {
+    const doc = parseMarkdown(text.replace(/([+.)])$/, '\\$1'));
+    expect(doc.firstChild?.type.name).toBe('paragraph');
+    expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
+  });
+
+  it.each(['+', '1.'])('keeps %s before expelled emphasis whitespace on the first Setext line', marker => {
+    const em = markdownSchema.marks.em.create();
+    const doc = markdownSchema.node('doc', null, [markdownSchema.nodes.heading.create({ level: 1 }, [
+      markdownSchema.text(marker), markdownSchema.text(' x', [em]),
+      markdownSchema.nodes.soft_break.create(), markdownSchema.text('b'),
+    ])]);
+    const reopened = parseMarkdown(canonical(doc));
+    expect(reopened.firstChild?.type.name).toBe('heading');
+    expect(reopened.firstChild?.textContent).toBe(marker + ' x\nb');
+  });
+
+  it('separates a Setext heading from a reference definition in a tight item', () => {
+    const { bullet_list: list, list_item: item, paragraph, raw_block: raw, heading, soft_break: softBreak } =
+      markdownSchema.nodes;
+    const doc = markdownSchema.node('doc', null, [list.create({ tight: true }, [item.create(null, [
+      paragraph.create(null, markdownSchema.text('p')),
+      raw.create({ source: '[a]: /b' }),
+      heading.create({ level: 1 }, [markdownSchema.text('"t"'), softBreak.create(), markdownSchema.text('second')]),
+    ])])]);
+    const reopened = parseMarkdown(canonical(doc)).firstChild!.firstChild!;
+    expect(reopened.child(1).attrs.source).toBe('[a]: /b');
+    expect(reopened.child(2).textContent).toBe('"t"\nsecond');
+  });
+
   it.each(['\\+', '1\\.', '1\\)'])('keeps the literal marker %s on the first Setext line', marker => {
     const source = marker + '\nsecond\n===';
     const doc = parseMarkdown(source);

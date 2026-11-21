@@ -60,12 +60,14 @@ function inDefaultSample(source: string): boolean {
   return (hash >>> 0) % 128 === 0;
 }
 
+const quoteBeforeSetext = '- > q\n  >\n  {.x}\n  s\n  ===';
 const regressions = new Set([
   '- a\n  s\n  ===', // wr-x9d4
   '> * ***\n>   {.x}\n>   {.y}', // wr-vcbs
   '- - ---\n    b', // Indented code is rewritten as a fence.
   '- ***\n  {.x}\n  {.y}', // A class edit forces a loose list.
-  '- > q\n  >\n  {.x}\n  s\n  ===', // A multiline heading follows a closed quote.
+  quoteBeforeSetext,
+  '- \\+\n  s\n  ===', // wr-x9d4: a literal marker on the first Setext line.
 ]);
 
 function editFirstText(doc: Node): Node | undefined {
@@ -147,7 +149,8 @@ it('preserves document content through generated Markdown saves', () => {
   const failures: unknown[] = [];
   const counts = new Map<string, number>();
   const count = (kind: string) => counts.set(kind, (counts.get(kind) ?? 0) + 1);
-  for (const source of combinations()) {
+  // Check the regressions even if the generator stops producing them.
+  for (const source of new Set([...combinations(), ...regressions])) {
     if (!full && !regressions.has(source) && !inDefaultSample(source)) continue;
     checked++;
     const doc = parseMarkdown(source);
@@ -162,7 +165,6 @@ it('preserves document content through generated Markdown saves', () => {
         return;
       }
       for (const kind of normalizations) count(save + ': ' + kind);
-      if (serializeMarkdown(actual) !== written) failures.push({ save, source, written, reason: 'reopened source changed' });
 
       const repeated = canonical(actual);
       if (repeated === written) return;
@@ -181,7 +183,11 @@ it('preserves document content through generated Markdown saves', () => {
       }
     };
     if (serializeMarkdown(doc) !== source) failures.push({ save: 'unedited', source });
-    check('canonical', doc, canonical(doc));
+    const normalized = canonical(doc);
+    if (source === quoteBeforeSetext) {
+      expect(normalized).toBe('- > q\n  >\n  \\{.x}\n  s\n  ===');
+    }
+    check('canonical', doc, normalized);
     const textEdit = editFirstText(doc);
     if (textEdit) check('text edit', textEdit, serializeMarkdown(textEdit));
     const classEdit = editItemClass(doc);

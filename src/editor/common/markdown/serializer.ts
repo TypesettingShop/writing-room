@@ -101,12 +101,31 @@ function endsWithParagraphLine(block: Node | null): boolean {
     (block.type.name !== 'heading' && classSuffix(block.attrs))));
 }
 
+function headingContent(node: Node): Node {
+  // An empty line ends a Setext heading. Drop breaks at either end and collapse runs, keeping a hard break.
+  const children: Node[] = [];
+  node.forEach(child => {
+    const previous = children.at(-1);
+    if (isLineBreak(child) && (!previous || isLineBreak(previous))) {
+      if (previous && child.type.name === 'hard_break') children[children.length - 1] = child;
+      return;
+    }
+    children.push(child);
+  });
+  while (children.length && isLineBreak(children.at(-1)!)) children.pop();
+  // An ATX heading ends at its line break, so levels without a Setext form keep the words on one line.
+  const lines = node.attrs.level > 2
+    ? children.map(child => isLineBreak(child) ? node.type.schema.text(' ', child.marks) : child)
+    : children;
+  const unchanged = lines.length === node.childCount && lines.every((child, index) => child === node.child(index));
+  return unchanged ? node : node.type.create(node.attrs, lines, node.marks);
+}
+
 function usesSetext(node: Node): boolean {
   if (node.attrs.level > 2) return false;
-  for (let index = 0; index < node.childCount - 1; index++) {
-    if (isLineBreak(node.child(index))) return true;
-  }
-  return false;
+  let lineBreak = false;
+  headingContent(node).forEach(child => { if (isLineBreak(child)) lineBreak = true; });
+  return lineBreak;
 }
 
 function renderList(
@@ -176,11 +195,13 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       const previousType = previous.type.name;
       const childType = child.type.name;
       const previousHasClasses = Boolean(classSuffix(previous.attrs));
-      // Tables and Setext text can be consumed by the preceding table or nested list.
+      // Tables and Setext text can be consumed by the preceding table or nested list. Setext text
+      // can also become the title of a preceding reference definition.
       const previousIsTableOrList = previousType === 'table' || previousType === 'bullet_list' ||
         previousType === 'ordered_list';
       const setext = childType === 'heading' && usesSetext(child);
-      const setextNeedsBlankLine = setext && (endsWithParagraphLine(previous) || previousIsTableOrList);
+      const setextNeedsBlankLine = setext && (endsWithParagraphLine(previous) || previousIsTableOrList ||
+        previousType === 'raw_block');
       const startsWithoutBlankLine = childType === 'code_block' || (childType === 'heading' && !setextNeedsBlankLine) ||
         childType === 'horizontal_rule' || (childType === 'table' && !previousIsTableOrList) ||
         (childType === 'blockquote' && (previousType !== 'blockquote' || previousHasClasses));
@@ -327,8 +348,9 @@ const markdownSerializer = new MarkdownSerializer({
   },
   heading(state, node) {
     const suffix = classSuffix(node.attrs);
+    const content = headingContent(node);
     if (usesSetext(node)) {
-      state.renderInline(node);
+      state.renderInline(content);
       if (suffix) state.write(' ' + suffix);
       state.write('\n');
       state.write(node.attrs.level === 1 ? '===' : '---');
@@ -336,11 +358,11 @@ const markdownSerializer = new MarkdownSerializer({
       return;
     }
     state.write('#'.repeat(node.attrs.level) + ' ');
-    state.renderInline(node, false);
-    if (suffix) state.write((node.content.size ? ' ' : '') + suffix);
+    state.renderInline(content, false);
+    if (suffix) state.write((content.content.size ? ' ' : '') + suffix);
     // A terminal hash after space would otherwise become an ATX closing marker.
     const output = state as MarkdownSerializerState & { out: string };
-    if (!suffix && node.content.size) output.out = output.out.replace(/([ \t])(#+)$/, '$1\\$2');
+    if (!suffix && content.content.size) output.out = output.out.replace(/([ \t])(#+)$/, '$1\\$2');
     state.closeBlock(node);
   },
   code_block: writeCodeBlock,
@@ -409,8 +431,9 @@ const markdownSerializer = new MarkdownSerializer({
     if (atBlockStart || afterBreak) {
       // Also protect ordered-list parentheses and Setext markers at line boundaries.
       value = value.replace(/^(\d{1,9})\)(?=[ \t])/, '$1\\)').replace(/^=(?==*[ \t]*$)/, '\\=');
-      if (parent.type.name === 'heading' && (!next || isLineBreak(next))) {
-        // A marker on its own line can start an empty list before a Setext heading.
+      if (!next || isLineBreak(next) || /^[ \t]/.test(next.text ?? '')) {
+        // A marker that ends its line starts an empty list item. Whitespace expelled from the
+        // next mark is written after the marker and starts a list item too.
         value = value.replace(/^\+$/, '\\+').replace(/^(\d{1,9})([.)])$/, '$1\\$2');
       }
     }
