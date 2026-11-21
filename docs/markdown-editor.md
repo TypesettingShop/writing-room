@@ -25,6 +25,31 @@
 - 툴바에서 변경한 폭과 배치는 사용자 설정에 저장되며 열려 있는 모든 WYSIWYG
   편집기에 적용된다. 문서 서식은 아래의 Markdown 클래스로 저장된다.
 
+## 기본 크기와 서체
+
+WYSIWYG 본문은 기본적으로 12 pt와 Noto Sans KR로 표시된다. 사용자
+`settings.json`에서 `markdownEditor.fontSize`에 **Size** 목록의 숫자 값을,
+`markdownEditor.fontFamily`에 **Font** 목록의 서체 식별자를 입력한다. 예를
+들어 `"markdownEditor.fontSize": 11`, `"markdownEditor.fontFamily": "noto-serif-kr"`를
+저장하면 열려 있는 WYSIWYG 편집기에도 적용된다.
+
+| 본문 | 제목 1 | 제목 2 | 제목 3 | 제목 4 | 제목 5 | 제목 6 | 부제목 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 12 pt | 24 pt | 18 pt | 14 pt | 12 pt | 10 pt | 9 pt | 16 pt |
+
+본문 기본 크기를 바꾸면 표의 각 제목 크기에 새 본문 크기를 곱하고 12로
+나눈 값을 **Size** 목록에서 가장 가까운 값으로 반올림한다. 두 값의 거리가
+같으면 큰 값을 쓴다. 예를 들어 본문을 14 pt로 바꾸면 제목 6의 계산값
+10.5 pt는 11 pt로 표시된다. 부제목은 보통 굵기(400)와 부제목 색을 쓴다.
+
+서체 식별자는 `noto-sans-kr`, `noto-serif-kr`, `nanum-myeongjo`,
+`nanum-gothic`, `monospace`다. 네 한글 서체는 앱에서 제공한다. WYSIWYG
+편집기를 처음 열면 서체 스타일시트를 가져오고, 브라우저가 글자에 맞는
+조각을 요청한다. 인라인 코드는 고정폭 서체로 표시된다. 등록된 식별자가
+아닌 문자열을 입력하면 본문은 Noto Sans KR을 쓴다. 기존 `serif`·`sans`
+객체를 쓰는 설정은 `.font-serif`와 `.font-sans`에 해당 글꼴 목록을
+적용하고, 본문은 Noto Sans KR을 쓴다.
+
 ## 클래스 속성
 
 문단이나 제목을 꾸미려면 마지막 줄에 클래스 목록을 붙인다. 인용문과 목록 항목의
@@ -46,17 +71,20 @@
 [글자 일부]{.size-18pt .font-noto-serif-kr}
 ```
 
-- **Size**에서 8·9·10·11·12·14·16·18·20·24·28·36·48·72 pt 중 하나를
-  고르면 `{.size-12pt}`처럼 저장된다. 본문과 제목에 같은 절대 크기가 적용된다.
-  기존 `.size-sm`·`.size-lg`·`.size-xl`은 블록 기본 크기에 비례한다. 이 상대
-  크기가 적용된 곳에서는 메뉴를 닫았을 때 **Custom**이 표시된다.
-- **Font**는 `.font-noto-sans-kr`, `.font-noto-serif-kr`,
-  `.font-nanum-myeongjo`, `.font-nanum-gothic`, `.font-monospace` 중
-  선택한 서체의 클래스를 쓴다. 시스템에 설치된 글꼴을 우선 적용하고 없으면
-  대체 목록을 사용한다. 기존 `.font-serif`와 `.font-sans`의 글꼴 목록은
-  `markdownEditor.fontFamily`에서 제어한다. `.font-mono`도 고정폭 글꼴로
-  표시된다.
-- 크기와 서체에서 **Default**를 고르면 해당 범위의 프리셋 클래스를 지운다.
+- **Size** 목록의 값은 8·9·10·11·12·14·16·18·20·24·28·36·48·72 pt다.
+  다른 크기를 고르면 `{.size-18pt}`처럼 절대 크기 클래스를 저장한다.
+  기존 `.size-sm`·`.size-lg`·`.size-xl`은 블록 기본 크기에 비례하며
+  **Size**에 **Custom**으로 표시된다.
+- **Font**에서 다른 서체를 고르면 `.font-noto-sans-kr`,
+  `.font-noto-serif-kr`, `.font-nanum-myeongjo`, `.font-nanum-gothic`,
+  `.font-monospace` 중 해당 클래스를 저장한다. 기존 `.font-serif`와
+  `.font-sans`는 **Serif**와 **Sans Serif**로 표시된다. 기존 `.font-mono`도
+  고정폭 서체로 표시된다.
+- **Size**와 **Font**는 적용된 값을 목록에서 체크한다. 블록 전체에 원래
+  적용될 값을 고르면 그 블록의 해당 서식 클래스를 지운다. 텍스트 일부에서
+  블록의 값을 고르면 그 범위의 인라인 클래스를 지운다. 기존 키바인딩에서
+  `markdownEditor.setFontSize`나 `markdownEditor.setFontFamily`에 넘기던
+  `'default'` 인자도 해당 범위의 클래스를 지워 기본값을 적용한다.
 - 정렬 버튼은 문단에 적용된 정렬을 표시한다. 문단에 정렬 클래스가 없으면
   정렬이 지정된 가장 가까운 상위 블록(인용문, 목록 항목 등)의 값을 상속하며,
   기본값은 왼쪽이다. 상속받은 값과 같은 버튼을 누르면 문단에 이미 붙은 정렬
@@ -158,4 +186,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k
