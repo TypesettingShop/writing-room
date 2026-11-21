@@ -365,8 +365,10 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   await editor.getByText('First').click({ timeout: 20_000 });
-  const style = toolbar.getByRole('button', { name: /^Style/ });
-  await expect(style).toHaveAccessibleName('Style: Body');
+  const style = toolbar.getByRole('button', { name: 'Style', exact: true });
+  await expect(style).toHaveText('Body');
+  await expect(style).toHaveAccessibleDescription('Body');
+  await expect(style).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
   await style.focus();
   await page.keyboard.press('Enter');
   const menu = page.getByRole('menu', { name: 'Style' });
@@ -376,6 +378,7 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   await page.keyboard.press('Enter');
   await expect(style).toBeFocused();
   await expect(editor.getByRole('heading', { name: 'First', level: 2 })).toBeVisible();
+  await expect(style).toHaveText('Heading 2');
   await editor.focus();
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
@@ -413,10 +416,11 @@ test('saves paragraph alignment and inline size and font presets and restores th
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   const paragraph = editor.locator('p.my-class');
   await paragraph.click({ timeout: 20_000 });
-  await toolbar.getByRole('button', { name: 'Align: Left' }).click();
+  const alignment = toolbar.getByRole('button', { name: 'Align', exact: true });
+  await alignment.click();
   await page.getByRole('menuitemradio', { name: 'Center', exact: true }).click();
   await expect(paragraph).toHaveCSS('text-align', 'center');
-  await expect(toolbar.getByRole('button', { name: 'Align: Center' })).toBeVisible();
+  await expect(alignment).toHaveText('Center');
   await page.keyboard.press('ControlOrMeta+Shift+l');
   await expect(paragraph).toHaveCSS('text-align', 'start');
   await page.keyboard.press('ControlOrMeta+Shift+e');
@@ -428,9 +432,9 @@ test('saves paragraph alignment and inline size and font presets and restores th
   for (let index = 0; index < 4; index++) {
     await page.keyboard.press('Shift+ArrowLeft');
   }
-  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await toolbar.getByRole('button', { name: 'Size', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Large', exact: true }).click();
-  await toolbar.getByRole('button', { name: 'Font: Default' }).click();
+  await toolbar.getByRole('button', { name: 'Font', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Serif', exact: true }).click();
   const span = paragraph.locator('span.size-lg.font-serif');
   await expect(span).toHaveText('word');
@@ -531,11 +535,11 @@ test('targets the toolbar’s editor group when another Markdown editor has focu
   await rightEditor.getByText('Right editor').click();
   await expect(rightEditor).toBeFocused();
 
-  await left.getByRole('button', { name: 'Style: Body' }).click();
+  await left.getByRole('button', { name: 'Style', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Heading 2' }).click();
   await expect(leftEditor.getByRole('heading', { name: 'Left editor', level: 2 })).toBeVisible();
   await expect(rightEditor.locator('p')).toHaveText('Right editor');
-  await expect(right.getByRole('button', { name: 'Style: Body' })).toBeVisible();
+  await expect(right.getByRole('button', { name: 'Style', exact: true })).toHaveText('Body');
 });
 
 test('creates, edits and saves a GFM table from the toolbar', async ({ appPage: page }) => {
@@ -900,15 +904,17 @@ test('scales the Markdown size presets relative to headings, subtitles, and body
   await title.click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
-  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  const size = toolbar.getByRole('button', { name: 'Size', exact: true });
+  await size.click();
   await page.getByRole('menuitemradio', { name: labels[2], exact: true }).click();
   await expect(title).toHaveCSS('font-size', '40px');
-  await toolbar.getByRole('button', { name: 'Size: Large' }).click();
+  await expect(size).toHaveText('Large');
+  await size.click();
   await page.getByRole('menuitemradio', { name: labels[1], exact: true }).click();
   await expect(title).toHaveCSS('font-size', '32px');
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+ArrowLeft');
-  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
+  await size.click();
   await page.getByRole('menuitemradio', { name: labels[3], exact: true }).click();
   await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px');
   await page.keyboard.press('ControlOrMeta+s');

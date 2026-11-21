@@ -58,13 +58,15 @@ test('updates a choice from context and runs the command with the selected menu 
       { element: container, ariaLabel: 'Formatting' }, toolbarMenu, context, menus, new BrowserLayoutService(),
     ));
     const choices = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]:not([hidden])')!;
-    expect(choices().getAttribute('aria-label')).toBe('Style: body');
+    expect(choices().getAttribute('aria-label')).toBe('Style');
+    expect(choices().getAttribute('aria-description')).toBe('body');
     choices().focus();
     choices().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
     style.set('heading');
     await Promise.resolve();
-    expect(choices().getAttribute('aria-label')).toBe('Style: heading');
+    expect(choices().getAttribute('aria-label')).toBe('Style');
+    expect(choices().textContent).toBe('heading');
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
     choices().click();
     expect(document.querySelector('[role="menuitemradio"][aria-label="heading"]')?.getAttribute('aria-checked')).toBe('true');
