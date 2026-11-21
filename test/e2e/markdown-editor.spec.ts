@@ -495,6 +495,63 @@ test('checks concrete body defaults and updates an open pane when typography set
   expect(await readWorkspaceText(page, name)).toBe(source);
 });
 
+test('loads the four bundled Korean fonts at both weights with external requests blocked', async ({ page, baseURL }, testInfo) => {
+  const origin = new URL(baseURL!).origin;
+  const external: string[] = [];
+  await page.route(/^https?:/, async route => {
+    const url = route.request().url();
+    if (new URL(url).origin === origin) {
+      await route.continue();
+    } else {
+      external.push(url);
+      await route.abort('internetdisconnected');
+    }
+  });
+  await page.goto('/');
+  const familyAssets = () => page.evaluate(() => performance.getEntriesByType('resource')
+    .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming)
+    .filter(entry => /(?:noto-(?:sans|serif)-kr|nanum-(?:gothic|myeongjo))-.*\.woff2$/.test(entry.name))
+    .map(entry => ({ path: new URL(entry.name).pathname, bytes: entry.encodedBodySize })));
+  expect(await familyAssets()).toEqual([]);
+
+  const group = await openMarkdown(page, 'webfonts.md', '한글 가나다 **굵은 한글**');
+  const paragraph = richEditor(group).locator('p');
+  const font = group.getByRole('button', { name: 'Font', exact: true });
+  const choose = (name: string) => page.getByRole('menuitemradio', { name, exact: true }).click();
+  await expect(paragraph).toHaveText('한글 가나다 굵은 한글');
+
+  const families = [
+    ['Noto Sans KR', 'Noto Sans KR'],
+    ['Noto Serif KR', 'Noto Serif KR'],
+    ['나눔고딕', 'Nanum Gothic'],
+    ['나눔명조', 'Nanum Myeongjo'],
+  ];
+  for (const [label, family] of families) {
+    if (label !== 'Noto Sans KR') {
+      await paragraph.click();
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Shift+End');
+      await font.click();
+      await choose(label);
+    }
+    expect(await paragraph.evaluate(node => getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''))).toBe(family);
+    await expect.poll(() => page.evaluate(name => [...document.fonts]
+      .filter(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded')
+      .map(face => face.weight), family)).toEqual(expect.arrayContaining(['400', '700']));
+
+    if (label === 'Noto Sans KR') {
+      const initial = await familyAssets();
+      expect(initial.length).toBeGreaterThan(0);
+      expect(initial.every(entry => entry.path.includes('noto-sans-kr') && entry.bytes > 0)).toBe(true);
+      await testInfo.attach('first-markdown-font-requests', {
+        body: JSON.stringify({ requests: initial, totalBytes: initial.reduce((total, entry) => total + entry.bytes, 0) }),
+        contentType: 'application/json',
+      });
+    }
+  }
+  expect(external).toEqual([]);
+});
+
 test('saves paragraph alignment and inline size and font presets and restores their appearance', async ({ page }) => {
   await page.addInitScript(key => {
     if (localStorage.getItem(key) === null) {
