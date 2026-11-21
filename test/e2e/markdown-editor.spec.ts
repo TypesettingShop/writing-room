@@ -563,3 +563,18 @@ test('renders and edits an image relative to the Markdown document folder', asyn
   await page.keyboard.press('ControlOrMeta+s');
   await expect.poll(() => readWorkspaceText(page, name)).toContain('![Edited description](assets/pixel.svg)');
 });
+
+test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'copy.md', '## Heading\n\nOne **bold** [link](https://example.test/)');
+  const editor = richEditor(group);
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  const data = await editor.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    element.dispatchEvent(new ClipboardEvent('copy', { clipboardData, cancelable: true, bubbles: true }));
+    return { markdown: clipboardData.getData('text/plain'), html: clipboardData.getData('text/html') };
+  });
+  expect(data.markdown).toBe('## Heading\n\nOne **bold** [link](https://example.test/)');
+  expect(data.html).toContain('<strong>bold</strong>');
+  expect(data.html).toContain('<a href="https://example.test/">link</a>');
+});
