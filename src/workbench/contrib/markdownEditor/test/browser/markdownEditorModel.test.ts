@@ -211,4 +211,55 @@ describe('MarkdownEditorModel', () => {
       model.dispose();
     }
   });
+
+  it('matches the model after a rich edit made while an earlier change is still being delivered', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nMiddle\n\nLast');
+    let sync: MarkdownEditorModel | undefined;
+    model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        sync!.dispatch(sync!.state.tr.insertText('X', 1));
+      }
+    });
+    sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      editLine(model, 5, 5, 5, ' ext');
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+      editLine(model, 3, 7, 7, ' more');
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('parses the whole file again when the written text differs from the restored source', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nMiddle\n\nLast');
+    // A writer that changes what it is given, as Monaco does when it trims auto-indentation.
+    const sync = new MarkdownEditorModel(model, [], () => {},
+      edit => model.applyEdits([{ ...edit, text: (edit.text ?? '') + '!' }]));
+    try {
+      editLine(model, 5, 5, 5, ' ext');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('First\n\nMiddle\n\nLast!');
+      editLine(model, 3, 7, 7, ' more');
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps untouched blocks while typing prose punctuation in a paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '첫 문단\n\n가격은 50% 할인/정가… “인용”·끝\n\n# 제목\n');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const heading = sync.state.doc.child(2);
+      editLine(model, 3, 4, 4, ' 오늘');
+      expect(sync.state.doc.child(2)).toBe(heading);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
 });

@@ -11,6 +11,8 @@ import type { IModelContentChangedEvent, ISingleEditOperation, ITextModel } from
 
 interface SourceDocument {
   readonly doc: Node;
+  /** The text `doc` and `paragraphIndices` describe. */
+  readonly text: string;
   readonly paragraphIndices: ReadonlyMap<number, number>;
   /** The parser's source provenance is built on demand for a document updated one block at a time. */
   readonly incrementalText?: string;
@@ -22,8 +24,10 @@ interface SourceSnapshot {
 }
 
 const markdownHistory = history({ newGroupDelay: 500 });
-// Exclude Markdown delimiters and indentation before parsing a line outside its document context.
-const plainParagraph = /^[\p{L}\p{N}][\p{L}\p{M}\p{N} .,!?;:'"()-]*$/u;
+// Exclude most Markdown delimiters and indentation before parsing a line outside its document context.
+// Markdown syntax is ASCII, so prose punctuation and symbols beyond ASCII stay plain text. A line that
+// still parses as another block (`1. item`, `1) item`) fails the markup check in updatePlainParagraph.
+const plainParagraph = /^[\p{L}\p{N}](?:[\p{L}\p{M}\p{N} .,!?;:'"()%\/@=+-]|(?![\x00-\x7f])[\p{P}\p{S}])*$/u;
 
 function parseSource(text: string): SourceDocument {
   const { doc, blocks } = parseMarkdownWithSource(text);
@@ -39,7 +43,7 @@ function parseSource(text: string): SourceDocument {
       }
     }
   });
-  return { doc, paragraphIndices };
+  return { doc, text, paragraphIndices };
 }
 
 /** One pane's ProseMirror state, synchronized with the shared text file. */
@@ -49,7 +53,9 @@ export class MarkdownEditorModel extends Disposable {
   private lastSource: string;
   // History's replacement slices hold these fragments while the external changes can be undone.
   private readonly snapshots = new WeakMap<Fragment, SourceSnapshot>();
-  private readonly writingVersions = new Set<number>();
+  // Each version this model is writing, with the count of text reads when the write started.
+  private readonly writingVersions = new Map<number, number>();
+  private textReads = 0;
   private serializerProvenance: {
     readonly source: SourceDocument;
     readonly parsed: Node;
@@ -72,7 +78,11 @@ export class MarkdownEditorModel extends Disposable {
         ? textModel.getValue()
         : event.changes.reduce((text, change) => text.slice(0, change.rangeOffset) + change.text +
           text.slice(change.rangeOffset + change.rangeLength), this.lastSource);
-      if (this.writingVersions.delete(event.versionId)) {
+      const reads = this.writingVersions.get(event.versionId);
+      this.writingVersions.delete(event.versionId);
+      // A change delivered late during the write replaced the state the write came from. Read the
+      // written text too, so the state matches the model again.
+      if (reads !== undefined && reads === this.textReads) {
         this.lastSource = next;
       } else {
         this.readText(event, next);
@@ -144,7 +154,15 @@ export class MarkdownEditorModel extends Disposable {
     if (this.serializerProvenance?.source !== source) {
       const parsed = parseMarkdownWithSource(source.incrementalText).doc;
       const identities = new Map<Node, Node>();
-      source.doc.forEach((node, _offset, index) => identities.set(node, parsed.child(index)));
+      // Only a block the full parse reads the same way can take that parse's spelling.
+      if (parsed.childCount === source.doc.childCount) {
+        source.doc.forEach((node, _offset, index) => {
+          const block = parsed.child(index);
+          if (node.eq(block)) {
+            identities.set(node, block);
+          }
+        });
+      }
       this.serializerProvenance = { source, parsed, identities };
     }
     const { parsed, identities } = this.serializerProvenance;
@@ -156,7 +174,7 @@ export class MarkdownEditorModel extends Disposable {
   private writeText(edit: ISingleEditOperation): void {
     const model = this.textModel;
     const version = model.getVersionId() + 1;
-    this.writingVersions.add(version);
+    this.writingVersions.set(version, this.textReads);
     try {
       this.writeEdit(edit);
     } finally {
@@ -179,6 +197,7 @@ export class MarkdownEditorModel extends Disposable {
     if (next === previous) {
       return;
     }
+    this.textReads++;
     const { state } = this;
     const source = this.updatePlainParagraph(event, next) ?? parseSource(next);
     const doc = source.doc;
@@ -206,8 +225,10 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   private updatePlainParagraph(event: IModelContentChangedEvent, next: string): SourceDocument | undefined {
-    const { doc, paragraphIndices } = this.sourceDoc;
-    if (this.state.doc.content !== doc.content || event.isFlush || event.changes.length !== 1) {
+    const { doc, text: sourceText, paragraphIndices } = this.sourceDoc;
+    // Patch only a tree that describes the model's previous text; anything else gets a full parse.
+    if (this.state.doc.content !== doc.content || sourceText !== this.lastSource || event.isFlush ||
+        event.changes.length !== 1) {
       return;
     }
     const { range, rangeOffset, rangeLength, text } = event.changes[0];
@@ -239,6 +260,6 @@ export class MarkdownEditorModel extends Disposable {
         oldBlock.textContent !== before.trimEnd() || newBlock.textContent !== after.trimEnd()) {
       return;
     }
-    return { doc: doc.copy(doc.content.replaceChild(index, newBlock)), paragraphIndices, incrementalText: next };
+    return { doc: doc.copy(doc.content.replaceChild(index, newBlock)), text: next, paragraphIndices, incrementalText: next };
   }
 }
