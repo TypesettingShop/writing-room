@@ -18,7 +18,7 @@ import {
   MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
   MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorFontSizeLabelContext, MarkdownEditorInlineFormattingContext,
   MarkdownEditorInlineMarkContexts, MarkdownEditorLinkContext, MarkdownEditorModeContext,
-  MarkdownEditorTextAlignContext, MarkdownEditorWritableContext,
+  MarkdownEditorTextAlignContext, MarkdownEditorWritableContext, markdownSelectionFormattingGroup,
 } from '../common/markdownEditor.js';
 import { blockStyleKey, blockStyles, parseBlockStyle, setBlockStyle } from './markdownEditorBlockStyles.js';
 import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from './markdownEditorInline.js';
@@ -29,6 +29,7 @@ import { MarkdownEditorPane } from './markdownEditorPane.js';
 import { formattingPresets, setFormattingPreset } from './markdownEditorPresets.js';
 
 const toolbar = MenuId.MarkdownEditorToolbar;
+const selectionToolbox = MenuId.MarkdownEditorSelection;
 const wysiwyg = MarkdownEditorModeContext.isEqualTo('wysiwyg');
 const writable = MarkdownEditorWritableContext.isEqualTo(true);
 const editorFocus = ContextKeyExpr.and(MarkdownEditorFocusContext.isEqualTo(true), writable);
@@ -108,6 +109,7 @@ interface FormattingPicker<T> {
 interface FormattingChoice<T> extends FormattingPicker<T> {
   readonly group: string;
   readonly order: number;
+  readonly selectionOrder: number;
   readonly title: string;
   readonly selectFallback?: readonly IMenuSelectFallback[];
   readonly selectLabelKey?: string;
@@ -117,7 +119,9 @@ interface FormattingChoice<T> extends FormattingPicker<T> {
 function registerChoice<T>(choice: FormattingChoice<T>): void {
   const { group, order, title, commandId, options, selected, selectFallback, selectLabelKey } = choice;
   const submenu = MenuId.for(`${toolbar.id}.${commandId}`);
-  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true, selectFallback, selectLabelKey });
+  const item = { submenu, group, order, title, when: wysiwyg, select: true, selectFallback, selectLabelKey };
+  MenuRegistry.appendMenuItem(toolbar, item);
+  MenuRegistry.appendMenuItem(selectionToolbox, { ...item, group: markdownSelectionFormattingGroup, order: choice.selectionOrder });
   for (const [index, option] of options.entries()) {
     MenuRegistry.appendMenuItem(submenu, {
       order: index,
@@ -164,7 +168,7 @@ function getMarkdownPane(groups: IEditorGroupsService): MarkdownEditorPane | und
 }
 
 registerChoice({
-  group: '2_style', order: 0, title: 'Style',
+  group: '2_style', order: 0, selectionOrder: 4, title: 'Style',
   commandId: 'markdownEditor.setBlockType', commandTitle: 'Set Block Style',
   options: blockStyles,
   selected: value => MarkdownEditorBlockTypeContext.isEqualTo(blockStyleKey(value)),
@@ -211,7 +215,7 @@ for (const [axis, title, commandTitle, group, order, context] of [
 ] as const) {
   const { options } = formattingPresets[axis];
   registerChoice({
-    group, order, title, commandTitle,
+    group, order, selectionOrder: 5 + order, title, commandTitle,
     commandId: 'markdownEditor.set' + axis[0].toUpperCase() + axis.slice(1),
     options: options.filter(option => !option.hidden).map(option => ({
       label: option.label, value: option.value, labelClass: axis === 'fontFamily' ? option.className : undefined,
@@ -242,6 +246,7 @@ function registerInlineAction(
   order: number,
   toggled: ContextKeyExpression,
   run: (accessor: ServicesAccessor) => void | Promise<void>,
+  inSelectionToolbox = false,
 ): void {
   registerAction2(class extends Action2 {
     constructor() {
@@ -255,10 +260,11 @@ function registerInlineAction(
       return run(accessor);
     }
   });
-  MenuRegistry.appendMenuItem(toolbar, {
-    group: '3_inline', order, when: wysiwyg,
-    command: { id, title, icon: { id: icon }, precondition: inlineEnabled, toggled },
-  });
+  const command = { id, title, icon: { id: icon }, precondition: inlineEnabled, toggled };
+  MenuRegistry.appendMenuItem(toolbar, { group: '3_inline', order, when: wysiwyg, command });
+  if (inSelectionToolbox) {
+    MenuRegistry.appendMenuItem(selectionToolbox, { group: markdownSelectionFormattingGroup, order, when: wysiwyg, command });
+  }
 }
 
 for (const [order, [id, title, icon, mark, key]] of ([
@@ -270,7 +276,7 @@ for (const [order, [id, title, icon, mark, key]] of ([
 ] as const).entries()) {
   registerInlineAction(id, title, icon, key, order, MarkdownEditorInlineMarkContexts[mark].isEqualTo(true), accessor => {
     getMarkdownPane(accessor.get(IEditorGroupsService))?.runFormattingCommand(toggleInlineFormat(mark));
-  });
+  }, mark !== 'code');
 }
 
 registerInlineAction(

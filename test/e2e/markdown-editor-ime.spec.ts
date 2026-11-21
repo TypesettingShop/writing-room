@@ -3,7 +3,7 @@ import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 
-for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode switch', 'link', 'image'] as const) {
+for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode switch', 'link', 'image', 'context toolbox'] as const) {
   test(`preserves the final Hangul composition on ${action}`, async ({ appPage: page }) => {
     const name = 'hangul.md';
     await waitForStorage(page);
@@ -35,7 +35,7 @@ for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode sw
     });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Input.imeSetComposition', { text: 'ㅇ', selectionStart: 1, selectionEnd: 1 });
-    await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
+    await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: action === 'context toolbox' ? 0 : 1, selectionEnd: 1 });
     await expect(first).toHaveText('안녕하세요');
 
     let savedFirst = '안녕하세요';
@@ -60,6 +60,18 @@ for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode sw
         await bold.click();
         await expect(bold).toHaveAttribute('aria-pressed', 'true');
         await expect(editor).toBeFocused();
+        break;
+      }
+      case 'context toolbox': {
+        await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('요');
+        await first.click({ button: 'right' });
+        const menu = page.getByRole('menu', { name: 'Markdown selection' });
+        await expect(menu).toBeVisible();
+        await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');
+        await menu.getByRole('menuitemcheckbox', { name: 'Underline' }).click();
+        await expect(first.locator('u.underline')).toHaveText('요');
+        await expect(editor).toBeFocused();
+        savedFirst = '안녕하세[요]{.underline}';
         break;
       }
       case 'window blur':

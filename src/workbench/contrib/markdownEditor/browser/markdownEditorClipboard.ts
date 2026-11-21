@@ -1,6 +1,6 @@
 import { Fragment, Slice } from 'prosemirror-model';
 import type { Mark, Node as ProseMirrorNode } from 'prosemirror-model';
-import type { EditorProps } from 'prosemirror-view';
+import type { EditorProps, EditorView } from 'prosemirror-view';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
@@ -17,6 +17,29 @@ const safeAttributes = new Set([
 const alignments = new Set(['left', 'center', 'right', 'justify']);
 // The schema reads bold and italics from these declarations (Google Docs wraps its HTML in `<b style="font-weight:normal">`).
 const emphasisStyles = ['font-weight', 'font-style'] as const;
+
+/** Supply the browser's clipboard formats to the same paste handler as a keyboard paste. */
+export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean): Promise<void> {
+  const clipboard = view.dom.ownerDocument.defaultView?.navigator.clipboard;
+  if (!clipboard) throw new Error('Clipboard access is unavailable');
+  const data = new DataTransfer();
+  if (clipboard.read) {
+    const formats = ['text/html', 'text/plain', 'text/uri-list'];
+    const items = await clipboard.read();
+    const item = items.find(item => formats.some(type => item.types.includes(type)));
+    if (!item) return;
+    await Promise.all(formats.filter(type => item.types.includes(type)).map(async type => {
+      data.setData(type, await (await item.getType(type)).text());
+    }));
+  } else {
+    data.setData('text/plain', await clipboard.readText());
+  }
+  if (isCurrent() && data.types.length) {
+    // Shift may have been released in the menu after Shift+F10. This paste uses the regular rich mode.
+    view.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', keyCode: 16 }));
+    view.dom.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }
+}
 
 function withContextMarks(fragment: Fragment, marks: readonly Mark[]): Fragment {
   if (!marks.length) return fragment;

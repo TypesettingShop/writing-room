@@ -1,14 +1,14 @@
 import { baseKeymap } from 'prosemirror-commands';
 import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import { TextSelection } from 'prosemirror-state';
+import { NodeSelection, TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Emitter } from '../../../../base/common/event.js';
-import { combinedDisposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { combinedDisposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { clearMonacoUndoHistory } from '../../../../editor/browser/monaco.js';
 import type { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
@@ -43,6 +43,7 @@ import { bindMarkdownGutter } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard } from './markdownEditorClipboard.js';
+import { showMarkdownContextToolbox } from './markdownEditorContextToolbox.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
 import { setFormattingPreset } from './markdownEditorPresets.js';
 import type { PresetAxisId } from './markdownEditorPresets.js';
@@ -67,6 +68,7 @@ export class MarkdownEditorPane extends EditorPane {
   private view: EditorView | undefined;
   private sync: MarkdownEditorModel | undefined;
   private readonly session = this._register(new DisposableStore());
+  private readonly contextToolbox = this._register(new MutableDisposable<IDisposable>());
   private readonly tabModels = new Map<MarkdownEditorInput, { model: MarkdownEditorModel; lifetime: IDisposable }>();
   private readonly historyChanged = this._register(new Emitter<void>());
   readonly onDidChangeHistory = this.historyChanged.event;
@@ -198,6 +200,9 @@ export class MarkdownEditorPane extends EditorPane {
           this.forgetTabModel(editor);
         }
       }));
+      this._register(this.groups.onDidChangeActiveGroup(active => {
+        if (active !== group) this.contextToolbox.clear();
+      }));
     }
     this.error = append(parent, $('.markdown-editor-error', { hidden: '', role: 'alert', tabindex: '-1' }));
   }
@@ -269,7 +274,24 @@ export class MarkdownEditorPane extends EditorPane {
           }
         },
         handleDOMEvents: {
-          keydown: (_view, event) => this.keybindings.dispatchDuringComposition?.(event, compositionCommands) ?? false,
+          keydown: (_view, event) => {
+            if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && this.openContextToolbox()) {
+              event.preventDefault();
+              return true;
+            }
+            return this.keybindings.dispatchDuringComposition?.(event, compositionCommands) ?? false;
+          },
+          mousedown: (_view, event) => {
+            if (event.button !== 2 || event.shiftKey || !this.hasContextToolboxSelection()) return false;
+            // Keep the selected text when the browser would move the caret on a secondary press.
+            event.preventDefault();
+            return true;
+          },
+          contextmenu: (_view, event) => {
+            if (event.shiftKey || !this.openContextToolbox(event)) return false;
+            event.preventDefault();
+            return true;
+          },
           compositionend: () => {
             queueMicrotask(() => {
               if (this.view === view) this.scheduleTypewriter();
@@ -291,10 +313,12 @@ export class MarkdownEditorPane extends EditorPane {
       this.session.add(addDisposableListener(this.surface, 'pointerdown', event => {
         if (event.pointerType !== 'touch') this.commitComposition();
       }, true));
+      this.session.add(addDisposableListener(this.surface, 'scroll', () => this.contextToolbox.clear()));
       this.session.add(input.onWillSave(() => this.commitComposition()));
       this.session.add(addDisposableListener(view.dom.ownerDocument.defaultView!, 'blur', () => this.commitComposition()));
       this.session.add(input.onDidChangeLabel(() => {
         this.commitComposition();
+        if (input.isReadonly()) this.contextToolbox.clear();
         view.setProps({});
         // Unchanged task items keep their node views, so their checkboxes follow the read-only state here.
         for (const checkbox of view.dom.querySelectorAll<HTMLInputElement>('li[data-task-checked] > input[type="checkbox"]')) {
@@ -320,6 +344,7 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   override clearInput(): void {
+    this.contextToolbox.clear();
     this.commitComposition(false);
     this.request++;
     this.pendingFocus = false;
@@ -359,6 +384,33 @@ export class MarkdownEditorPane extends EditorPane {
     }
   }
 
+  private hasContextToolboxSelection(): boolean {
+    const selection = this.formattingState?.selection;
+    return selection !== undefined && !selection.empty && !(selection instanceof NodeSelection);
+  }
+
+  private openContextToolbox(event?: MouseEvent): boolean {
+    this.commitComposition();
+    const view = this.view;
+    const scope = this.scoped;
+    if (!view || !scope || !this.hasContextToolboxSelection()) return false;
+    const group = this.groups.groups.find(group => group.activeEditorPane === this);
+    if (!group) return false;
+    this.contextToolbox.clear();
+    const { selection } = view.state;
+    const hit = event && view.posAtCoords({ left: event.clientX, top: event.clientY });
+    const nearSelection = event && hit && selection.from <= hit.pos && hit.pos <= selection.to;
+    const bounds = nearSelection
+      ? { left: event.clientX, bottom: event.clientY } : view.coordsAtPos(selection.head);
+    this.groups.activateGroup(group);
+    view.focus();
+    const isCurrent = () => this.view === view && view.editable && this.groups.activeGroup.activeEditorPane === this;
+    this.contextToolbox.value = this.instantiation.invokeFunction(
+      showMarkdownContextToolbox, view, scope, { x: bounds.left, y: bounds.bottom }, isCurrent,
+    );
+    return this.contextToolbox.value !== undefined;
+  }
+
   private scheduleTypewriter(): void {
     if (!this.typewriter || !this.view || this.view.composing || this.scrollFrame !== undefined) return;
     this.scrollFrame = this.surface.ownerDocument.defaultView?.requestAnimationFrame(() => {
@@ -392,6 +444,9 @@ export class MarkdownEditorPane extends EditorPane {
     ], state => {
       if (this.input === input) {
         const previous = this.view?.state;
+        if (previous && (previous.doc !== state.doc || !previous.selection.eq(state.selection))) {
+          this.contextToolbox.clear();
+        }
         this.view?.updateState(state);
         if (!this.pointerSelection && (previous?.doc !== state.doc || previous?.selection.head !== state.selection.head)) {
           this.scheduleTypewriter();

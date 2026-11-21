@@ -14,6 +14,7 @@ export interface MenuAction {
   readonly labelClass?: string;
   readonly keybinding?: { getLabel(): string | null; getAriaLabel(): string | null };
   readonly groups?: readonly MenuGroup[];
+  readonly radioItems?: boolean;
   run?(): unknown;
 }
 
@@ -25,6 +26,8 @@ export interface MenuOptions {
   readonly anchor: MenuAnchor;
   readonly label?: string;
   readonly radioItems?: boolean;
+  readonly horizontalGroup?: string;
+  readonly anchorBelow?: boolean;
   readonly onClose: () => void;
   readonly onNavigate?: (direction: -1 | 1) => void;
   readonly dismissalBoundary?: HTMLElement;
@@ -67,12 +70,14 @@ export async function runMenuAction(action: MenuAction): Promise<void> {
 interface MenuRow {
   readonly button: HTMLButtonElement;
   readonly action: MenuAction;
+  readonly horizontal: boolean;
 }
 
 export class Menu extends Disposable {
   readonly element: HTMLElement;
   private readonly child = this._register(new MutableDisposable<Menu>());
   private childRow: MenuRow | undefined;
+  private lastHorizontalRow: MenuRow | undefined;
   private rows: MenuRow[] = [];
 
   constructor(
@@ -117,9 +122,10 @@ export class Menu extends Disposable {
     const hadFocus = this.element.contains(focused) || Boolean(this.childRow);
     this.closeChild();
     this.rows = [];
+    this.lastHorizontalRow = undefined;
     this.element.replaceChildren();
 
-    for (const [, actions] of groups) {
+    for (const [group, actions] of groups) {
       if (actions.length === 0) {
         continue;
       }
@@ -128,9 +134,14 @@ export class Menu extends Disposable {
         separator.setAttribute('role', 'separator');
         this.element.append(separator);
       }
-      for (const action of actions) {
-        this.appendRow(action);
+      const horizontal = group === this.options.horizontalGroup;
+      const container = horizontal ? this.element.ownerDocument.createElement('div') : this.element;
+      if (horizontal) {
+        container.className = 'wr-menu-horizontal-group';
+        container.setAttribute('role', 'group');
+        this.element.append(container);
       }
+      for (const action of actions) this.appendRow(action, container, horizontal);
     }
     this.position();
     if (hadFocus) {
@@ -157,7 +168,7 @@ export class Menu extends Disposable {
     (enabled.at(last ? -1 : 0)?.button ?? this.element).focus();
   }
 
-  private appendRow(action: MenuAction): void {
+  private appendRow(action: MenuAction, container: HTMLElement, horizontal: boolean): void {
     const document = this.element.ownerDocument;
     const button = document.createElement('button');
     button.type = 'button';
@@ -167,10 +178,12 @@ export class Menu extends Disposable {
     button.setAttribute('aria-disabled', String(action.enabled === false));
     if (action.checked !== undefined) {
       button.setAttribute('aria-checked', String(action.checked));
-      const check = document.createElement('span');
-      check.setAttribute('aria-hidden', 'true');
-      check.textContent = action.checked ? '✓' : '';
-      button.append(check);
+      if (!horizontal) {
+        const check = document.createElement('span');
+        check.setAttribute('aria-hidden', 'true');
+        check.textContent = action.checked ? '✓' : '';
+        button.append(check);
+      }
     }
     const icon = action.icon && renderMenuIcon(document, action.icon);
     if (icon) {
@@ -181,7 +194,7 @@ export class Menu extends Disposable {
     if (action.labelClass) {
       label.classList.add(action.labelClass);
     }
-    button.append(label);
+    if (!horizontal || !icon) button.append(label);
     button.setAttribute('aria-label', action.label);
     const keybinding = action.keybinding?.getLabel();
     if (keybinding) {
@@ -189,20 +202,22 @@ export class Menu extends Disposable {
       shortcut.className = 'wr-menu-shortcut';
       shortcut.textContent = keybinding;
       shortcut.setAttribute('aria-hidden', 'true');
-      button.append(shortcut);
+      if (!horizontal) button.append(shortcut);
       button.setAttribute('aria-description', action.keybinding?.getAriaLabel() ?? keybinding);
     }
+    if (horizontal) button.title = keybinding ? `${action.label} (${keybinding})` : action.label;
     if (action.groups) {
       button.setAttribute('aria-haspopup', 'menu');
       button.setAttribute('aria-expanded', 'false');
       const arrow = document.createElement('span');
-      arrow.className = 'wr-menu-shortcut';
+      arrow.className = horizontal ? 'wr-menu-dropdown-chevron' : 'wr-menu-shortcut';
       arrow.setAttribute('aria-hidden', 'true');
-      arrow.textContent = '›';
+      arrow.textContent = horizontal ? '⌄' : '›';
       button.append(arrow);
     }
-    const row = { button, action };
+    const row = { button, action, horizontal };
     this.rows.push(row);
+    if (horizontal) button.addEventListener('focus', () => { this.lastHorizontalRow = row; });
     button.addEventListener('click', () => this.activate(row));
     button.addEventListener('mouseenter', () => {
       if (action.enabled !== false) {
@@ -212,7 +227,7 @@ export class Menu extends Disposable {
         button.focus({ preventScroll: true });
       }
     });
-    this.element.append(button);
+    container.append(button);
   }
 
   private activate(row: MenuRow): void {
@@ -236,6 +251,8 @@ export class Menu extends Disposable {
         container: this.options.container,
         anchor: row.button,
         label: row.action.label,
+        anchorBelow: row.horizontal,
+        radioItems: row.action.radioItems,
         onClose: this.options.onClose,
         onNavigate: this.options.onNavigate,
       }, row.action.groups ?? [], this);
@@ -255,11 +272,20 @@ export class Menu extends Disposable {
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     const active = this.rows.find(row => row.button === this.element.ownerDocument.activeElement);
+    if (active?.horizontal && (event.key === 'ArrowRight' || event.key === 'ArrowLeft')) {
+      const enabled = this.rows.filter(row => row.horizontal && row.action.enabled !== false);
+      const step = event.key === 'ArrowRight' ? 1 : -1;
+      enabled.at((enabled.indexOf(active) + step) % enabled.length)?.button.focus();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
         this.closeChild();
-        const enabled = this.rows.filter(row => row.action.enabled !== false);
+        const horizontalStop = this.lastHorizontalRow ?? this.rows.find(row => row.horizontal && row.action.enabled !== false);
+        const enabled = this.rows.filter(row => (!row.horizontal || row === horizontalStop) && row.action.enabled !== false);
         const index = active ? enabled.indexOf(active) : -1;
         const next = event.key === 'ArrowDown' ? index + 1 : (index < 0 ? -1 : index - 1);
         if (enabled.length) {
@@ -291,6 +317,9 @@ export class Menu extends Disposable {
       case 'Escape':
         this.options.onClose();
         break;
+      case 'Tab':
+        if (this.options.horizontalGroup || this.options.anchorBelow) this.options.onClose();
+        return;
       default:
         return;
     }
@@ -314,12 +343,13 @@ export class Menu extends Disposable {
     const bounds = 'getBoundingClientRect' in anchor ? anchor.getBoundingClientRect()
       : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
     const { width, height } = this.element.getBoundingClientRect();
-    let x = this.parent ? bounds.right : bounds.left;
-    let y = this.parent ? bounds.top : bounds.bottom;
+    const beside = this.parent && !this.options.anchorBelow;
+    let x = beside ? bounds.right : bounds.left;
+    let y = beside ? bounds.top : bounds.bottom;
     if (x + width > right) {
-      x = this.parent ? bounds.left - width : bounds.right - width;
+      x = beside ? bounds.left - width : bounds.right - width;
     }
-    if (!this.parent && y + height > bottom) {
+    if (!beside && y + height > bottom) {
       y = bounds.top - height;
     }
     this.element.style.left = Math.max(left, Math.min(x, right - width)) + 'px';

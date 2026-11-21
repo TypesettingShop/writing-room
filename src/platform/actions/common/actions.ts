@@ -86,6 +86,7 @@ export class MenuId {
   static readonly EditorTitleContext = new MenuId('EditorTitleContext');
   static readonly EditorContext = new MenuId('EditorContext');
   static readonly MarkdownEditorToolbar = new MenuId('MarkdownEditorToolbar');
+  static readonly MarkdownEditorSelection = new MenuId('MarkdownEditorSelection');
   static readonly ExplorerContext = new MenuId('ExplorerContext');
   static readonly WebviewContext = new MenuId('WebviewContext');
   static readonly ViewTitle = new MenuId('ViewTitle');
@@ -239,6 +240,10 @@ export class SubmenuItemAction {
   readonly label: string;
   readonly enabled = true;
   readonly icon: CommandIcon | undefined;
+
+  get radioItems(): boolean | undefined {
+    return this.item.select;
+  }
 
   constructor(readonly item: ISubmenuItem, readonly groups: MenuActionGroup[]) {
     this.id = item.submenu.id;

@@ -1,9 +1,11 @@
+import { readFileSync } from 'node:fs';
 import type { Locator, Page } from '@playwright/test';
 import { box, drag, expect, test } from './fixtures.js';
 import {
   openSettings, persistedSettings, replaceText, runCommand, saveSettings, settingsKey, startWithMarkdownSource,
 } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
+import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { chooseTheme, kindClass, openWithThemingFixtures } from './themes.helpers.js';
 
@@ -815,6 +817,175 @@ test('applies bold without toggling the sidebar and keeps the workbench shortcut
   await treeItem(page, name).focus();
   await page.keyboard.press('ControlOrMeta+b');
   await expect(sidebar).toBeHidden();
+});
+
+test('opens the Markdown selection toolbox at the selection and shares the toolbar commands and state', async ({ appPage: page }) => {
+  await page.setViewportSize({ width: 750, height: 465 });
+  const name = 'selection-toolbox.md';
+  const group = await openMarkdown(page, name, 'Alpha **beta** {.right}');
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const toolbox = page.getByRole('menu', { name: 'Markdown selection' });
+  const beta = editor.locator('strong', { hasText: 'beta' });
+  await beta.click({ timeout: 20_000 });
+  await page.keyboard.press('End');
+  for (let index = 0; index < 4; index++) await page.keyboard.press('Shift+ArrowLeft');
+  await editor.evaluate(element => {
+    element.addEventListener('contextmenu', event => queueMicrotask(() => {
+      element.setAttribute('data-context-prevented', String(event.defaultPrevented));
+    }), { once: true });
+  });
+  await beta.click({ button: 'right', modifiers: ['Shift'] });
+  await expect(toolbox).toHaveCount(0);
+  await expect(editor).toHaveAttribute('data-context-prevented', 'false');
+  // Shift+right-click is native and may move the caret, so select the word again.
+  await page.keyboard.press('End');
+  for (let index = 0; index < 4; index++) await page.keyboard.press('Shift+ArrowLeft');
+  const word = await box(beta);
+  await beta.click({ button: 'right' });
+  const popup = await box(toolbox);
+  expect(word.x + popup.width).toBeGreaterThan(750);
+  expect(Math.abs(popup.x - word.x)).toBeLessThan(popup.width);
+  expect(Math.abs(popup.y - word.y)).toBeLessThan(popup.height);
+  expect(popup.x).toBeGreaterThanOrEqual(0);
+  expect(popup.y).toBeGreaterThanOrEqual(0);
+  expect(popup.x + popup.width).toBeLessThanOrEqual(750);
+  expect(popup.y + popup.height).toBeLessThanOrEqual(465);
+  const row = toolbox.getByRole('group');
+  expect(await row.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))))
+    .toEqual(['Bold', 'Italic', 'Underline', 'Strikethrough']);
+  await expect(row.getByRole('menuitem')).toHaveText(['Style⌄', 'Size⌄', 'Font⌄']);
+  await expect(toolbox.getByRole('menuitem', { name: /^(Cut|Copy|Paste)$/ })).toHaveText(['Cut', 'Copy', 'Paste']);
+  const bold = row.getByRole('menuitemcheckbox', { name: 'Bold' });
+  await expect(bold).toHaveAttribute('aria-checked', 'true');
+  await expect(bold).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(row.getByRole('menuitemcheckbox', { name: 'Underline' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(toolbox).toHaveCount(0);
+  await expect(editor).toBeFocused();
+  await expect(editor.locator('u.underline')).toHaveText('beta');
+  await expect(toolbar.getByRole('button', { name: 'Underline' })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.press('Shift+F10');
+  await expect(row.getByRole('menuitemcheckbox', { name: 'Underline' })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('ArrowLeft');
+  await expect(row.getByRole('menuitem', { name: 'Font' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(toolbox.getByRole('menuitem', { name: 'Cut' })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(row.getByRole('menuitem', { name: 'Font' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const fonts = page.getByRole('menu', { name: 'Font' });
+  await expect(fonts.getByRole('menuitemradio', { checked: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(fonts).toHaveCount(0);
+  await expect(toolbox).toHaveCount(0);
+  await expect(editor).toBeFocused();
+
+  await beta.click({ button: 'right' });
+  await row.getByRole('menuitem', { name: 'Size' }).click();
+  await page.getByRole('menuitemradio', { name: '24 pt' }).click();
+  await expect(editor.locator('u.underline.size-24pt')).toHaveText('beta');
+  await beta.click({ button: 'right' });
+  await row.getByRole('menuitem', { name: 'Style' }).click();
+  await page.getByRole('menuitemradio', { name: 'Heading 2' }).click();
+  await expect(editor.getByRole('heading', { level: 2 }).locator('u')).toHaveText('beta');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('## Alpha [**beta**]{.underline .size-24pt} {.right}');
+
+  await beta.click();
+  await beta.click({ button: 'right' });
+  await expect(toolbox).toHaveCount(0);
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  const source = group.getByRole('textbox', { name: 'Editor content' });
+  await expect(source).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await group.locator('.view-lines').click({ button: 'right' });
+  await expect(toolbox).toHaveCount(0);
+});
+
+test('keeps the browser context menu for a read-only Markdown selection', async ({ appPage: page }) => {
+  await seedInstalledExtensions(page, [{
+    manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
+    location: extensionFixtureLocation('memfs'),
+  }]);
+  await page.reload();
+  await runCommand(page, 'Open Read-only Markdown Fixture', /^Open Read-only Markdown Fixture$/);
+  const group = groups(page).first();
+  const editor = richEditor(group);
+  const text = editor.getByText('Read-only Markdown');
+  await expect(text).toBeVisible({ timeout: 20_000 });
+  await expect(editor).toHaveAttribute('contenteditable', 'false');
+  await text.evaluate(element => {
+    const selection = document.getSelection()!;
+    selection.selectAllChildren(element);
+    element.addEventListener('contextmenu', event => queueMicrotask(() => {
+      element.setAttribute('data-context-prevented', String(event.defaultPrevented));
+    }), { once: true });
+  });
+  await text.click({ button: 'right' });
+  await expect(text).toHaveAttribute('data-context-prevented', 'false');
+  await expect(page.getByRole('menu', { name: 'Markdown selection' })).toHaveCount(0);
+});
+
+test('cuts, copies and pastes through the Markdown selection toolbox and sanitizes rich paste', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const group = await openMarkdown(page, 'toolbox-clipboard.md', 'First [**word**]{.underline}\n\nReplace this');
+  const editor = richEditor(group);
+  const toolbox = page.getByRole('menu', { name: 'Markdown selection' });
+  const word = editor.locator('u strong');
+  const selectWord = async () => {
+    await word.click({ timeout: 20_000 });
+    await page.keyboard.press('End');
+    for (let index = 0; index < 4; index++) await page.keyboard.press('Shift+ArrowLeft');
+    await word.click({ button: 'right' });
+  };
+  await selectWord();
+  await toolbox.getByRole('menuitem', { name: 'Copy' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('[**word**]{.underline}');
+  await expect(word).toHaveText('word');
+  const copiedHTML = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    return (await item.getType('text/html')).text();
+  });
+  expect(copiedHTML).toContain('<u class="underline"><strong>word</strong></u>');
+  await selectWord();
+  await toolbox.getByRole('menuitem', { name: 'Cut' }).click();
+  await expect(editor.locator('p').first()).toHaveText('First ');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('[**word**]{.underline}');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(word).toHaveText('word');
+
+  const replacement = editor.getByText('Replace this');
+  await replacement.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.evaluate(async () => {
+    const html = '<p><a href="javascript:void(0)" id="foreign">Unsafe URL</a> <u class="keep" title="valid">safe</u></p>';
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob(['plain fallback'], { type: 'text/plain' }),
+    })]);
+  });
+  expect(await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    return (await item.getType('text/html')).text();
+  })).toContain('id="foreign"');
+  await page.keyboard.press('Shift+F10');
+  await toolbox.getByRole('menuitem', { name: 'Paste' }).click();
+  await expect(editor.locator('p').last()).toHaveText('Unsafe URL safe');
+  await expect(editor.getByRole('link', { name: 'Unsafe URL' })).toHaveCount(0);
+  await expect(editor.locator('u.keep.underline')).toHaveText('safe');
+  await expect(editor.locator('#foreign')).toHaveCount(0);
+
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.evaluate(() => navigator.clipboard.writeText('**Markdown**'));
+  await page.keyboard.press('Shift+F10');
+  await toolbox.getByRole('menuitem', { name: 'Paste' }).click();
+  await expect(editor.locator('p').last().locator('strong')).toHaveText('Markdown');
 });
 
 test('prefills, validates, edits and removes a link through the shortcut, toolbar and palette', async ({ appPage: page }) => {

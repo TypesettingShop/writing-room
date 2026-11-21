@@ -90,8 +90,11 @@ class MemFs {
 exports.activate = context => {
   const provider = new MemFs();
   const readonly = new MemFs();
+  readonly.entries.set('/welcome.md', new TextEncoder().encode('Read-only Markdown'));
   context.subscriptions.push(provider.events, readonly.events,
     vscode.workspace.registerFileSystemProvider('memfs', provider, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('memfs-readonly', readonly, { isReadonly: true }),
+    vscode.commands.registerCommand('fixture.memfs.openReadOnlyMarkdown', () =>
+      vscode.commands.executeCommand('vscode.open', vscode.Uri.parse('memfs-readonly:/welcome.md'))),
   );
 };

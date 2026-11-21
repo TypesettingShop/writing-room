@@ -172,7 +172,7 @@ test('a tab context menu reads the pressed tab\'s resource, not the active one',
   }));
   const shown: IContextMenuDelegate[] = [];
   const contextMenu = service(IContextMenuService);
-  const show = vi.spyOn(contextMenu, 'showContextMenu').mockImplementation(delegate => shown.push(delegate));
+  const show = vi.spyOn(contextMenu, 'showContextMenu').mockImplementation(delegate => { shown.push(delegate); });
   disposables.add({ dispose: () => show.mockRestore() });
 
   const group = part.activeGroup;

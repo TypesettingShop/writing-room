@@ -62,6 +62,7 @@ export const MarkdownEditorContentLayoutContext = new RawContextKey<MarkdownCont
   MARKDOWN_EDITOR_CONTENT_LAYOUT, defaultMarkdownContentLayout,
 );
 export const MarkdownEditorWritableContext = new RawContextKey<boolean>('markdownEditor.writable', false);
+export const markdownSelectionFormattingGroup = 'formatting';
 export const MarkdownEditorBlockTypeContext = new RawContextKey<string | null>('markdownEditor.blockType', null);
 export const MarkdownEditorTextAlignContext = new RawContextKey<string | null>('markdownEditor.textAlign', null);
 export const MarkdownEditorFontSizeContext = new RawContextKey<string | null>('markdownEditor.fontSize', null);
