@@ -3,10 +3,10 @@ import type { RuleCore } from 'markdown-it/lib/parser_core.mjs';
 import type { RuleInline } from 'markdown-it/lib/parser_inline.mjs';
 import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs';
 import type Token from 'markdown-it/lib/token.mjs';
+import { wrapMarkdownRule } from '../rules.js';
 
 const classList = /\{(\.[a-z][a-z0-9-]*(?:[ \t]+\.[a-z][a-z0-9-]*)*)\}/;
 const classAtStart = new RegExp(`^${classList.source}`);
-const classAtEnd = /(?:^|\n[ \t]*|[ \t]+)\{(\.[a-z][a-z0-9-]*(?:[ \t]+\.[a-z][a-z0-9-]*)*)\}$/;
 
 export function isMarkdownClass(name: string): boolean {
   return /^[a-z][a-z0-9-]*$/.test(name);
@@ -23,9 +23,15 @@ function addClasses(token: Token, list: string): void {
 }
 
 const insideSpan = new WeakSet<StateInline>();
+const imageLabelEnvironments = new WeakSet<object>();
+
+function isImageLabel(state: StateInline): boolean {
+  return imageLabelEnvironments.has(state.env);
+}
 const inlineSpan: RuleInline = (state, silent) => {
   // In a link label scan the ordinary brackets still need to balance.
-  if (silent || state.src[state.pos] !== '[' || insideSpan.has(state)) return false;
+  if (silent || state.src[state.pos] !== '[' || state.src[state.pos + 1] === '^' ||
+    insideSpan.has(state) || isImageLabel(state)) return false;
   const end = state.md.helpers.parseLinkLabel(state, state.pos);
   if (end <= state.pos + 1 || state.src[end + 1] !== '{') return false;
   const match = classAtStart.exec(state.src.slice(end + 1, state.posMax));
@@ -36,8 +42,11 @@ const inlineSpan: RuleInline = (state, silent) => {
   state.pos++;
   state.posMax = end;
   insideSpan.add(state);
-  state.md.inline.tokenize(state);
-  insideSpan.delete(state);
+  try {
+    state.md.inline.tokenize(state);
+  } finally {
+    insideSpan.delete(state);
+  }
   state.push('class_span_close', 'span', -1);
   state.posMax = limit;
   state.pos = end + 1 + match[0].length;
@@ -50,21 +59,37 @@ const styledBlockTokens = new Set([
   'footnote_reference_open',
 ]);
 
-// The suffix must be literal text from the inline lexer. In particular, a code, escaped
-// character, link or span token never provides the braces of a block attribute.
-function takeSuffix(inline: Token): RegExpExecArray | null {
-  const match = classAtEnd.exec(inline.content);
+interface ClassSuffix {
+  readonly from: number;
+  readonly literal: string;
+  readonly list: string;
+  readonly afterLineBreak: boolean;
+}
+
+function findSuffix(content: string): ClassSuffix | undefined {
+  if (!content.endsWith('}')) return;
+  const open = content.lastIndexOf('{');
+  if (open < 0) return;
+  const match = classAtStart.exec(content.slice(open));
+  if (!match || match[0].length !== content.length - open) return;
+  let from = open;
+  while (content[from - 1] === ' ' || content[from - 1] === '\t') from--;
+  const afterLineBreak = content[from - 1] === '\n';
+  if (from === open && open !== 0 && !afterLineBreak) return;
+  if (afterLineBreak) from--;
+  return { from, literal: afterLineBreak ? match[0] : content.slice(from), list: match[1], afterLineBreak };
+}
+
+// The braces must be literal inline text. Code, escapes, links and spans tokenize separately.
+function takeSuffix(inline: Token, suffix: ClassSuffix): boolean {
   const children = inline.children!;
   const last = children.at(-1);
-  if (!match || last?.type !== 'text') return null;
-  const afterLineBreak = match[0].startsWith('\n');
-  const literal = afterLineBreak ? match[0].trimStart() : match[0];
-  if (!last.content.endsWith(literal)) return null;
-  last.content = last.content.slice(0, -literal.length);
+  if (last?.type !== 'text' || !last.content.endsWith(suffix.literal)) return false;
+  last.content = last.content.slice(0, -suffix.literal.length);
   if (!last.content) children.pop();
-  if (afterLineBreak && ['softbreak', 'hardbreak'].includes(children.at(-1)?.type ?? '')) children.pop();
-  inline.content = inline.content.slice(0, match.index);
-  return match;
+  if (suffix.afterLineBreak && ['softbreak', 'hardbreak'].includes(children.at(-1)?.type ?? '')) children.pop();
+  inline.content = inline.content.slice(0, suffix.from);
+  return true;
 }
 
 interface BlockScope {
@@ -82,12 +107,12 @@ const blockClasses: RuleCore = state => {
     const inline = tokens[index + 1];
     if (token.type === 'paragraph_open' && inline?.type === 'inline' && inline.content.startsWith('{')) {
       const previous = scope.previous;
-      const match = classAtStart.exec(inline.content);
+      const suffix = findSuffix(inline.content);
       const previousRange = previous?.map;
-      if (match?.[0] === inline.content && previous && styledBlockTokens.has(previous.type) && previousRange && token.map &&
-        token.map[0] >= previousRange[1] && takeSuffix(inline)) {
+      if (suffix?.from === 0 && previous && styledBlockTokens.has(previous.type) && previousRange && token.map &&
+        token.map[0] >= previousRange[1] && takeSuffix(inline, suffix)) {
         // A class-only paragraph can address the previous sibling without ambiguity.
-        addClasses(previous, match[1]);
+        addClasses(previous, suffix.list);
         previous.map = [previousRange[0], token.map[1]];
         index += 2;
         continue;
@@ -102,14 +127,15 @@ const blockClasses: RuleCore = state => {
       const firstInItem = parentType === 'list_item_open' && parent?.previous === undefined;
       const endsContainer = closesParent && (parentType === 'blockquote_open' || parentType === 'list_item_open');
       const container = owner.type === 'paragraph_open' && (firstInItem || endsContainer) ? parent?.token : undefined;
-      const match = classAtEnd.exec(token.content);
-      if (match && (match.index > 0 || container || owner.type === 'heading_open' || owner.type === 'th_open' || owner.type === 'td_open') && takeSuffix(token)) {
-        if (match[0].startsWith('\n')) {
-          addClasses(owner, match[1]);
-          const parentSuffix = container && takeSuffix(token);
-          if (parentSuffix) addClasses(container, parentSuffix[1]);
+      const suffix = findSuffix(token.content);
+      const acceptsEmpty = container || ['heading_open', 'th_open', 'td_open'].includes(owner.type);
+      if (suffix && (suffix.from > 0 || acceptsEmpty) && takeSuffix(token, suffix)) {
+        if (suffix.afterLineBreak) {
+          addClasses(owner, suffix.list);
+          const parentSuffix = container && findSuffix(token.content);
+          if (parentSuffix && takeSuffix(token, parentSuffix)) addClasses(container, parentSuffix.list);
         } else {
-          addClasses(container ?? owner, match[1]);
+          addClasses(container ?? owner, suffix.list);
         }
       }
     }
@@ -128,6 +154,17 @@ const blockClasses: RuleCore = state => {
 };
 
 export const markdownAttrs: PluginSimple = markdownIt => {
-  markdownIt.inline.ruler.after('image', 'class_span', inlineSpan);
+  markdownIt.inline.ruler.before('link', 'class_span', inlineSpan);
+  wrapMarkdownRule(markdownIt.inline.ruler, 'image', original => (state, silent) => {
+    if (silent || state.src[state.pos] !== '!' || imageLabelEnvironments.has(state.env)) {
+      return original(state, silent);
+    }
+    imageLabelEnvironments.add(state.env);
+    try {
+      return original(state, silent);
+    } finally {
+      imageLabelEnvironments.delete(state.env);
+    }
+  });
   markdownIt.core.ruler.before('text_join', 'block_classes', blockClasses);
 };

@@ -82,3 +82,12 @@ describe('Markdown classes', () => {
     expect(blocks[0].endLine).toBe(4);
   });
 });
+
+it('keeps class-looking image labels literal and gives explicit spans precedence over shortcut links', () => {
+  const source = '![alt [inside]{.literal}](/img) [text]{.styled} [text]\n\n[text]: /link';
+  const doc = parseMarkdown(source);
+  expect(doc.firstChild!.firstChild!.attrs.alt).toBe('alt [inside]{.literal}');
+  expect(doc.firstChild!.child(2).marks.map(mark => mark.type.name)).toEqual(['span']);
+  expect(doc.firstChild!.lastChild!.marks.map(mark => mark.type.name)).toEqual(['link']);
+  expect(createMarkdownIt().render(source)).toContain('alt="alt [inside]{.literal}"');
+});

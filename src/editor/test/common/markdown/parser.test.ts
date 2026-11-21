@@ -112,3 +112,18 @@ describe('parseMarkdown', () => {
     expect(doc.child(3).attrs.source).toBe('[unused]: /three');
   });
 });
+
+it('distinguishes task markers from reference links and reads tabs and empty tasks', () => {
+  const doc = parseMarkdown('- [x]\t완료\n- [ ]\n- [x]\n\n[x]: /link');
+  doc.firstChild!.forEach((task, _offset, index) => {
+    expect(task.type.name).toBe('task_item');
+    expect(task.attrs.checked).toBe(index !== 1);
+    expect(task.textContent).toBe(index === 0 ? '완료' : '');
+  });
+});
+
+it('reads list tightness when the first item starts with a blockquote', () => {
+  const doc = parseMarkdown('- > quote\n- next');
+  expect(doc.firstChild!.attrs.tight).toBe(true);
+  expect(doc.firstChild!.firstChild!.lastChild!.type.name).toBe('blockquote');
+});

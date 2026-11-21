@@ -7,6 +7,7 @@ import { createMarkdownIt } from './markdownIt.js';
 import type { IMarkdownItOptions } from './markdownIt.js';
 import { getMarkdownClasses } from './plugins/attrs.js';
 import { markdownSchema } from './schema.js';
+import { wrapMarkdownRule } from './rules.js';
 
 export interface IMarkdownSourceBlock {
   readonly from: number;
@@ -25,7 +26,9 @@ export interface IParsedMarkdown {
 type LineRange = [start: number, end: number];
 
 interface IParseEnvironment {
-  ranges: (LineRange | null)[];
+  readonly source: string;
+  readonly lines: number[];
+  readonly ranges: (LineRange | null)[];
   footnotes?: { list?: { content?: string }[] };
 }
 
@@ -42,8 +45,13 @@ function blockAttrs(token: Token) {
 }
 
 function listAttrs(token: Token, tokens: Token[], index: number) {
-  const content = tokens[index + 2];
-  return { ...blockAttrs(token), tight: content?.type === 'paragraph_open' && content.hidden };
+  for (let next = index + 1; next < tokens.length && tokens[next].level > token.level; next++) {
+    const candidate = tokens[next];
+    if (candidate.level === token.level + 2 && candidate.type === 'paragraph_open') {
+      return { ...blockAttrs(token), tight: candidate.hidden };
+    }
+  }
+  return { ...blockAttrs(token), tight: true };
 }
 
 function cellAttrs(token: Token, header: boolean) {
@@ -93,27 +101,21 @@ const tokenSpecs: Record<string, ParseSpec> = {
 };
 
 function adaptBlockRules(markdownIt: MarkdownIt): void {
-  const ruler = markdownIt.block.ruler;
-  // Use markdown-it's registered rules so reference validation and footnote parsing stay in the tokenizer.
-  for (const name of ['reference', 'footnoteDef']) {
-    const rules = ruler.getRules('');
-    if (!ruler.disable([name], true).length) continue;
-    const remaining = ruler.getRules('');
-    const original = rules.find(rule => !remaining.includes(rule))!;
-    ruler.at(name, (state, start, end, silent) => {
-      const tokenIndex = state.tokens.length;
-      if (!original(state, start, end, silent)) return false;
-      if (!silent && name === 'footnoteDef') {
-        state.tokens[tokenIndex].map = [start, state.line];
-      } else if (!silent) {
-        const token = state.push('raw_source', '', 0);
-        token.map = [start, state.line];
-        token.content = state.getLines(start, state.line, state.blkIndent, false);
-      }
-      return true;
-    }, { alt: name === 'footnoteDef' ? ['paragraph', 'reference'] : [] });
-    ruler.enable([name]);
-  }
+  wrapMarkdownRule(markdownIt.block.ruler, 'reference', original => (state, start, end, silent) => {
+    if (!original(state, start, end, silent)) return false;
+    if (!silent) {
+      const token = state.push('raw_source', '', 0);
+      token.map = [start, state.line];
+      token.content = state.getLines(start, state.line, state.blkIndent, false);
+    }
+    return true;
+  });
+  wrapMarkdownRule(markdownIt.block.ruler, 'footnoteDef', original => (state, start, end, silent) => {
+    const index = state.tokens.length;
+    if (!original(state, start, end, silent)) return false;
+    if (!silent) state.tokens[index].map = [start, state.line];
+    return true;
+  }, ['paragraph', 'reference']);
   // Keep definitions in place, including definitions that have no references.
   markdownIt.disable('footnoteTail');
 }
@@ -137,6 +139,7 @@ function adaptTaskItems(tokens: Token[]): void {
 }
 
 function prepareInline(token: Token, env: IParseEnvironment): void {
+  if (token.type === 'text_special') token.type = 'text';
   if (token.type === 'footnote_ref' && token.meta.label == null) {
     token.meta.source = env.footnotes?.list?.[token.meta.id]?.content ?? '';
   }
@@ -144,8 +147,7 @@ function prepareInline(token: Token, env: IParseEnvironment): void {
 }
 
 function isSupported(token: Token, supported: ReadonlySet<string>): boolean {
-  return supported.has(token.type) && (token.type !== 'inline' ||
-    (token.children ?? []).every(child => isSupported(child, supported)));
+  return supported.has(token.type) && (token.children ?? []).every(child => isSupported(child, supported));
 }
 
 function groupTopLevel(tokens: Token[]): Token[][] {
@@ -199,7 +201,6 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
     const env = state.env as IParseEnvironment;
     adaptTaskItems(state.tokens);
     state.tokens.forEach(token => prepareInline(token, env));
-    const lines = state.src.split('\n');
     state.tokens = groupTopLevel(state.tokens).flatMap(group => {
       const first = group[0];
       const range = first.map;
@@ -207,7 +208,9 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
       if (group.every(token => isSupported(token, supported))) return group;
       const raw = new state.Token('raw_source', '', 0);
       // A nested unknown token can depend on its surrounding syntax. Keep the entire outer block.
-      raw.content = range ? lines.slice(...range).join('\n') : group.map(token => token.content).join('');
+      raw.content = range
+        ? env.source.slice(env.lines[range[0]], env.lines[range[1]] ?? env.source.length).replace(/\r\n$|\r$|\n$/, '')
+        : group.map(token => token.content).join('');
       if (!range && !raw.content) {
         throw new Error(`Cannot preserve markdown-it token "${first.type}" without a source range or content`);
       }
@@ -217,12 +220,12 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
   const parser = new MarkdownParser(markdownSchema, markdownIt, tokenSpecs);
 
   return source => {
-    const env: IParseEnvironment = { ranges: [] };
+    const lines = sourceLineStarts(source);
+    const env: IParseEnvironment = { source, lines, ranges: [] };
     const parsed = parser.parse(source, env);
     // ProseMirror transactions copy the document with these same attrs. Keep source
     // provenance off the public schema and out of ProseMirror JSON.
     const doc = parsed.type.create({}, parsed.content);
-    const lines = sourceLineStarts(source);
     const blocks: IMarkdownSourceBlock[] = [];
     if (env.ranges.length !== 0 && env.ranges.length !== doc.childCount) {
       throw new Error('Markdown token groups and document blocks do not match');
