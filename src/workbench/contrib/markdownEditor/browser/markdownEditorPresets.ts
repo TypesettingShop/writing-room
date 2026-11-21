@@ -9,6 +9,7 @@ interface PresetChoice {
   readonly label: string;
   readonly value: string;
   readonly className?: string;
+  readonly readOnly?: boolean;
 }
 
 interface PresetAxis {
@@ -26,7 +27,7 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
       { label: 'Left', value: 'left' },
       { label: 'Center', value: 'center', className: 'center' },
       { label: 'Right', value: 'right', className: 'right' },
-      { label: 'Justify', value: 'justify', className: 'justify' },
+      { label: 'Justify', value: 'justify', className: 'justify', readOnly: true },
     ],
   },
   fontSize: {
@@ -118,7 +119,7 @@ function updateSpans(
 export function setFormattingPreset(axis: PresetAxisId, value: string): Command {
   return (state, dispatch) => {
     const choice = formattingPresets[axis].options.find(option => option.value === value);
-    if (!choice) {
+    if (!choice || choice.readOnly) {
       return false;
     }
     const { selection } = state;

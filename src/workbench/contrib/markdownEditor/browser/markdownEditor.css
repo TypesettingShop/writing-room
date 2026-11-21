@@ -65,6 +65,32 @@
   border-color: var(--vscode-focusBorder);
 }
 
+/* The bundled Codicons have no text alignment glyphs. */
+.markdown-editor-toolbar button[data-menu-group='4_paragraph'] {
+  font-size: 0;
+}
+
+.markdown-editor-toolbar button[data-menu-group='4_paragraph']::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  forced-color-adjust: none;
+  background:
+    linear-gradient(currentColor 0 0) center 2px / 16px 1px no-repeat,
+    linear-gradient(currentColor 0 0) var(--markdown-align-icon-edge, center) 6px / 10px 1px no-repeat,
+    linear-gradient(currentColor 0 0) center 10px / 16px 1px no-repeat,
+    linear-gradient(currentColor 0 0) var(--markdown-align-icon-edge, center) 14px / 10px 1px no-repeat;
+}
+
+.markdown-editor-toolbar button[data-menu-action='markdownEditor.alignLeft'] {
+  --markdown-align-icon-edge: left;
+}
+
+.markdown-editor-toolbar button[data-menu-action='markdownEditor.alignRight'] {
+  --markdown-align-icon-edge: right;
+}
+
 .markdown-editor-surface {
   flex: 1;
   min-height: 0;

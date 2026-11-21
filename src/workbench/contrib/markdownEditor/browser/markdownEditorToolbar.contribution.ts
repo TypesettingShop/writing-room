@@ -93,21 +93,24 @@ for (const [order, [id, title, icon, precondition]] of ([
   });
 }
 
-interface FormattingChoice<T> {
-  readonly group: string;
-  readonly order: number;
-  readonly title: string;
+interface FormattingPicker<T> {
   readonly commandId: string;
   readonly commandTitle: string;
   readonly options: readonly { readonly label: string; readonly value: T }[];
-  readonly selected: (value: T) => ContextKeyExpression;
   readonly parse: (arg: unknown) => T | undefined;
   readonly createCommand: (value: T) => Command;
   readonly keybinding?: readonly Omit<IKeybindingRule, 'id'>[];
 }
 
+interface FormattingChoice<T> extends FormattingPicker<T> {
+  readonly group: string;
+  readonly order: number;
+  readonly title: string;
+  readonly selected: (value: T) => ContextKeyExpression;
+}
+
 function registerChoice<T>(choice: FormattingChoice<T>): void {
-  const { group, order, title, commandId, commandTitle, options, selected, parse, createCommand, keybinding } = choice;
+  const { group, order, title, commandId, options, selected } = choice;
   const submenu = MenuId.for(`${toolbar.id}.${commandId}`);
   MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true });
   for (const [index, option] of options.entries()) {
@@ -117,6 +120,10 @@ function registerChoice<T>(choice: FormattingChoice<T>): void {
       command: { id: commandId, title: option.label, precondition: writable, toggled: selected(option.value) },
     });
   }
+  registerFormattingPicker(choice);
+}
+
+function registerFormattingPicker<T>({ commandId, commandTitle, options, parse, createCommand, keybinding }: FormattingPicker<T>): void {
   registerAction2(class extends Action2 {
     constructor() {
       super({ id: commandId, title: commandTitle, category: 'Markdown', f1: true, precondition: wysiwyg, keybinding });
@@ -164,11 +171,34 @@ registerChoice({
   }] : []),
 });
 
-const alignKeys = [
-  ['left', KeyCode.KeyL], ['center', KeyCode.KeyE], ['right', KeyCode.KeyR], ['justify', KeyCode.KeyJ],
-] as const;
+const alignments = formattingPresets.textAlign.options.filter(option => !option.readOnly);
+registerFormattingPicker({
+  commandId: 'markdownEditor.setTextAlign', commandTitle: 'Set Text Alignment', options: alignments,
+  parse: arg => alignments.find(option => option.value === arg)?.value,
+  createCommand: value => setFormattingPreset('textAlign', value),
+});
+for (const [order, [value, id, title, key]] of ([
+  ['left', 'markdownEditor.alignLeft', 'Align Left', KeyCode.KeyL],
+  ['center', 'markdownEditor.alignCenter', 'Align Center', KeyCode.KeyE],
+  ['right', 'markdownEditor.alignRight', 'Align Right', KeyCode.KeyR],
+] as const).entries()) {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({
+        id, title, category: 'Markdown', f1: true, precondition: ContextKeyExpr.and(wysiwyg, writable),
+        menu: { id: toolbar, group: '4_paragraph', order, when: wysiwyg },
+        toggled: MarkdownEditorTextAlignContext.isEqualTo(value),
+        keybinding: { primary: KeyMod.CtrlCmd | KeyMod.Shift | key, weight: formattingWeight, when: editorFocus },
+      });
+    }
+
+    override run(accessor: ServicesAccessor): void {
+      getMarkdownPane(accessor.get(IEditorGroupsService))?.runFormattingCommand(setFormattingPreset('textAlign', value));
+    }
+  });
+}
+
 for (const [axis, title, commandTitle, group, order, context] of [
-  ['textAlign', 'Align', 'Set Text Alignment', '4_paragraph', 0, MarkdownEditorTextAlignContext],
   ['fontSize', 'Size', 'Set Font Size', '5_font', 0, MarkdownEditorFontSizeContext],
   ['fontFamily', 'Font', 'Set Font Family', '5_font', 1, MarkdownEditorFontFamilyContext],
 ] as const) {
@@ -180,12 +210,6 @@ for (const [axis, title, commandTitle, group, order, context] of [
     selected: value => context.isEqualTo(value),
     parse: arg => options.find(option => option.value === arg)?.value,
     createCommand: value => setFormattingPreset(axis, value),
-    keybinding: axis === 'textAlign' ? alignKeys.map(([args, key]) => ({
-      primary: KeyMod.CtrlCmd | KeyMod.Shift | key,
-      weight: formattingWeight,
-      when: editorFocus,
-      args,
-    })) : undefined,
   });
 }
 

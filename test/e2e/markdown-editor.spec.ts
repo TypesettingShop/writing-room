@@ -416,15 +416,16 @@ test('saves paragraph alignment and inline size and font presets and restores th
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   const paragraph = editor.locator('p.my-class');
   await paragraph.click({ timeout: 20_000 });
-  const alignment = toolbar.getByRole('button', { name: 'Align', exact: true });
-  await alignment.click();
-  await page.getByRole('menuitemradio', { name: 'Center', exact: true }).click();
-  await expect(paragraph).toHaveCSS('text-align', 'center');
-  await expect(alignment).toHaveText('Center');
+  const alignCenter = toolbar.getByRole('button', { name: 'Align Center', exact: true });
+  const alignRight = toolbar.getByRole('button', { name: 'Align Right', exact: true });
+  await alignRight.click();
+  await expect(paragraph).toHaveCSS('text-align', 'right');
+  await expect(alignRight).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('ControlOrMeta+Shift+l');
   await expect(paragraph).toHaveCSS('text-align', 'start');
   await page.keyboard.press('ControlOrMeta+Shift+e');
   await expect(paragraph).toHaveCSS('text-align', 'center');
+  await expect(alignCenter).toHaveAttribute('aria-pressed', 'true');
   await expect(editor).toBeFocused();
 
   await editor.focus();
@@ -453,6 +454,33 @@ test('saves paragraph alignment and inline size and font presets and restores th
   await expect(span).toHaveCSS('font-family', 'Cambria, serif');
   await chooseTheme(page, 'Writing Room Dark');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(167, 182, 203)');
+});
+
+test('clears an alignment from the command palette and leaves existing justify readable', async ({ appPage: page }) => {
+  const name = 'alignment.md';
+  const group = await openMarkdown(page, name, 'Adjust me\n\nJustified {.justify}');
+  const editor = richEditor(group);
+  const left = group.getByRole('button', { name: 'Align Left' });
+  const center = group.getByRole('button', { name: 'Align Center' });
+  const right = group.getByRole('button', { name: 'Align Right' });
+  await editor.getByText('Adjust me').click({ timeout: 20_000 });
+  await center.click();
+  await expect(center).toHaveAttribute('aria-pressed', 'true');
+  await right.click();
+  await expect(right).toHaveAttribute('aria-pressed', 'true');
+  await editor.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('Adjust me {.right}\n\nJustified {.justify}');
+  await runCommand(page, 'Align Left', /^Markdown: Align Left$/);
+  await expect(left).toHaveAttribute('aria-pressed', 'true');
+  await editor.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('Adjust me\n\nJustified {.justify}');
+  const justified = editor.getByText('Justified');
+  await justified.click();
+  await expect(justified).toHaveCSS('text-align', 'justify');
+  for (const action of [left, center, right]) {
+    await expect(action).toHaveAttribute('aria-pressed', 'false');
+  }
+  await expect(group.getByRole('button', { name: /justify/i })).toHaveCount(0);
 });
 
 test('applies bold without toggling the sidebar and keeps the workbench shortcut outside Markdown', async ({ appPage: page }) => {

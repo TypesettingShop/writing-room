@@ -106,6 +106,14 @@ describe('Markdown class presets', () => {
     expect(write(apply(right, setFormattingPreset('textAlign', 'left')))).toBe('Line {.my-class .size-lg}');
   });
 
+  it('reads and preserves authored justify, but only offers other alignments for editing', () => {
+    const state = read('Line {.justify .authored}');
+    expect(presets(state).textAlign).toBe('justify');
+    expect(setFormattingPreset('textAlign', 'justify')(read('Line'))).toBe(false);
+    expect(write(state)).toBe('Line {.justify .authored}');
+    expect(write(apply(state, setFormattingPreset('textAlign', 'center')))).toBe('Line {.authored .center}');
+  });
+
   it('updates only the selected part of a span and preserves the other axes and classes', () => {
     const state = read('A [word]{.authored .size-lg .font-serif} Z {.font-sans}', 4, 6);
     const large = apply(state, setFormattingPreset('fontSize', 'extraLarge'));
