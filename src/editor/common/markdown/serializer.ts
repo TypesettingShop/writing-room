@@ -49,6 +49,7 @@ interface RenderedList extends ListMarker {
 }
 
 const lastListInScope = new WeakMap<MarkdownSerializerState, RenderedList>();
+const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
 
 function renderList(
   state: MarkdownSerializerState,
@@ -61,7 +62,11 @@ function renderList(
   const previous = lastListInScope.get(state);
   const adjacent = previous?.parent === parent && previous.index === index - 1 ? previous : undefined;
   const current = separateListMarker(listMarker(node)!, adjacent);
+  const item = node.firstChild;
+  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && item?.childCount === 1;
+  if (needsLooseTrailer) looseSingleItems.set(state, item);
   state.renderList(node, ' '.repeat(indent), itemIndex => firstDelim(current.marker, itemIndex));
+  if (needsLooseTrailer) looseSingleItems.delete(state);
   finishBlock(state, node);
   lastListInScope.set(state, { ...current, parent, index });
 }
@@ -172,7 +177,9 @@ const markdownSerializer = new MarkdownSerializer({
     const suffix = classSuffix(node.attrs);
     if (suffix && node.content.size) {
       if (isListItem(parent) || parent.type.name === 'blockquote') {
-        state.write('\n');
+        // A lone paragraph in a loose list needs the blank line before its class trailer.
+        if (looseSingleItems.get(state) === parent) state.closeBlock(node);
+        else state.write('\n');
         state.write(suffix);
       } else {
         state.write(' ' + suffix);
