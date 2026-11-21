@@ -122,4 +122,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa

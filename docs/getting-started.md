@@ -53,6 +53,21 @@ npm run dev
 
 - 편집 가능한 WYSIWYG 편집면에서 **Ctrl+B**, **Ctrl+K**, **Ctrl+Shift+E**, **Ctrl+Shift+X**는 Markdown 서식 단축키다. 원문 모드와 편집면 밖에서는 워크벤치의 사이드바, 코드 편집 명령, Explorer, Extensions 단축키를 사용한다.
 
+### 블록 편집과 붙여넣기
+
+- WYSIWYG 툴바에서 글머리 목록, 번호 목록, 작업 목록, 표, 구분선, 이미지를 넣는다. 작업 항목의 체크박스를 눌러 완료 상태를 바꾼다. **Table** 메뉴에서는 행·열을 추가하거나 지우고 열 정렬을 선택한다.
+- 일반 문단과 제목에서 **Tab**과 **Shift+Tab**은 포커스 순서를 따른다. 목록에서는 들여쓰기와 내어쓰기에, 표에서는 다음·이전 셀 이동에 쓰며 편집기에 포커스가 남는다. 코드 블록에서는 커서 줄이나 선택된 줄을 **Tab**으로 네 칸 들여쓰고, **Shift+Tab**으로 줄 시작의 탭 하나 또는 공백 네 칸까지 뺀다.
+- 줄 첫머리에 제목, 목록, 작업 항목, 인용, 코드 펜스, 구분선의 Markdown 표기를 입력하면 블록으로 바뀐다. 굵게·기울임·취소선·인라인 코드도 닫는 기호를 입력하면 적용된다. 직후 **Backspace**로 변환을 되돌린다.
+- 웹에서 복사한 HTML은 제목·목록·링크 등의 문서 구조와 지원하는 서식을 가져온다. 일반 텍스트 클립보드는 Markdown으로 읽는다. **Ctrl+Shift+V**(macOS는 **Cmd+Shift+V**)는 입력한 표기를 그대로 붙인다. 편집기에서 복사하면 Markdown 텍스트와 렌더된 HTML이 함께 클립보드에 들어간다.
+- **Image**에서 주소와 대체 텍스트를 입력한다. 작업 폴더에 있는 이미지는 문서의 폴더를 기준으로 찾는다. 원격 HTTPS 이미지는 **Load image**를 눌러 불러온다. [이미지 표시와 저장 규칙](markdown-editor.md#편집-모드와-실행-취소)
+
+### 분량과 집중 모드
+
+- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 한글 단어는 공백으로 나누며 글자 수는 Unicode 코드 포인트 단위다.
+- Explorer의 **Outline**은 제목 1–6을 계층으로 표시하고 현재 절을 강조한다. 제목을 선택하면 두 모드 모두 해당 위치로 이동한다.
+- WYSIWYG에서 **View → Appearance → Markdown Focus Mode** 또는 **Markdown: Toggle Focus Mode**를 실행하면 본문을 가운데 놓고 사이드바·패널·액티비티 바·상태 표시줄을 숨긴다. 커맨드를 다시 실행하거나 본문에서 **Esc**를 누르면 원래 레이아웃으로 돌아온다.
+- `markdownEditor.focusMode.width`의 기본값은 `72ch`다. `markdownEditor.focusMode.dimOthers`를 끄면 집중 모드에서도 모든 문단이 선명하다. `markdownEditor.typewriterScroll`을 켜면 WYSIWYG에서 타이핑하거나 키보드로 이동할 때 커서 줄을 세로 가운데에 둔다. 타자기 스크롤은 기본으로 꺼져 있다.
+
 ## 사용자 설정 편집하기
 
 **File → Preferences → Open User Settings (JSON)** 또는 팔레트의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. 예를 들어 `{"editor.fontSize": 24}`를 쓰고 **Ctrl+S**(macOS에서는 **Cmd+S**)를 누르면 열린 편집기에 적용한다. Monaco에서 키를 자동 완성하고 값의 오류를 표시한다. 주석과 후행 쉼표를 쓸 수 있다. 지원하는 키와 기본값은 [아키텍처의 Settings 절](architecture.md#settings)에 있다.
@@ -119,4 +134,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa
