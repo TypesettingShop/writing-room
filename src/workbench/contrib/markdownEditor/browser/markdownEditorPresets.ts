@@ -156,7 +156,9 @@ function inheritedBlockPresets(
 function presetClassFor(
   axis: PresetAxisId, choice: PresetChoice, fallback: BlockPresets,
 ): string | undefined {
-  const inherited = axis === 'fontSize' ? `${fallback.fontSize.points}pt` : fallback[axis];
+  // Compare with the value the toolbar reports: a size inherited from a legacy relative class reads as that class,
+  // so an absolute choice there keeps its own class rather than turning into Custom.
+  const inherited = axis === 'fontSize' ? sizeValue(fallback.fontSize) : fallback[axis];
   return choice.value === inherited ? undefined : choice.className;
 }
 

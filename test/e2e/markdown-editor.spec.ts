@@ -507,6 +507,9 @@ test('loads the four bundled Korean fonts at both weights with external requests
       await route.abort('internetdisconnected');
     }
   });
+  // The dev server serves each module separately and fills the default 250-entry resource timing buffer,
+  // after which the font requests would not be recorded at all.
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(100_000));
   await page.goto('/');
   const familyAssets = () => page.evaluate(() => performance.getEntriesByType('resource')
     .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming)

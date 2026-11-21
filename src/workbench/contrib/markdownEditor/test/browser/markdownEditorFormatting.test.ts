@@ -273,6 +273,22 @@ describe('Markdown class presets', () => {
     expect(write(pending)).toBe(source);
     expect(presets(pending).fontSize).toBe('14pt');
     expect(presets(pending).fontFamily).toBe('monospace');
+    // The pending span drops its size class instead of repeating the block's own size.
+    expect(pending.storedMarks?.flatMap(mark => mark.attrs.classes ?? [])).toEqual(['font-mono']);
+  });
+
+  it('keeps an absolute size that equals the points of an inherited legacy size', () => {
+    const defaults = resolveMarkdownFontDefaults(16, 'noto-sans-kr');
+    const state = read('A word Z {.size-sm}', 3, 7);
+    expect(presets(state, defaults).fontSize).toBe('small');
+    const sized = apply(state, setFormattingPreset('fontSize', '14pt', defaults));
+    expect(write(sized)).toBe('A [word]{.size-14pt} Z {.size-sm}');
+    expect(presets(sized, defaults).fontSize).toBe('14pt');
+    const quoted = read('> Quote\n\n{.size-sm}', 2, 7);
+    expect(presets(quoted, defaults).fontSize).toBe('small');
+    const block = apply(quoted, setFormattingPreset('fontSize', '14pt', defaults));
+    expect(block.doc.firstChild!.firstChild!.attrs.classes).toEqual(['size-14pt']);
+    expect(presets(block, defaults).fontSize).toBe('14pt');
   });
 
   it('applies a size and font to upcoming typing without styling the surrounding text', () => {
