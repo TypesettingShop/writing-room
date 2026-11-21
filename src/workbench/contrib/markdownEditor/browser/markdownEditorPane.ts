@@ -1,6 +1,6 @@
 import { baseKeymap } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
-import type { Command } from 'prosemirror-state';
+import type { Command, EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
@@ -22,9 +22,10 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import {
-  MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext, MarkdownEditorModeContext,
-  MarkdownEditorWritableContext,
+  MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
+  MarkdownEditorModeContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
+import { currentBlockStyle } from './markdownEditorBlockStyles.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
@@ -67,11 +68,13 @@ export class MarkdownEditorPane extends EditorPane {
     MarkdownEditorFocusContext.bindTo(surfaceScope).set(true);
     const mode = MarkdownEditorModeContext.bindTo(scoped);
     const writable = MarkdownEditorWritableContext.bindTo(scoped);
+    const blockType = MarkdownEditorBlockTypeContext.bindTo(scoped);
     const undo = MarkdownEditorCanUndoContext.bindTo(scoped);
     const redo = MarkdownEditorCanRedoContext.bindTo(scoped);
     this.updateToolbarContext = () => {
       mode.set(this.view ? 'wysiwyg' : null);
-      writable.set(Boolean(this.view && this.input && !this.input.isReadonly()));
+      writable.set(this.formattingState !== undefined);
+      blockType.set(this.view && this.sync ? currentBlockStyle(this.sync.state) : null);
       undo.set(this.canUndo);
       redo.set(this.canRedo);
     };
@@ -257,8 +260,12 @@ export class MarkdownEditorPane extends EditorPane {
     return this.canRedo && this.sync!.redo();
   }
 
+  get formattingState(): EditorState | undefined {
+    return this.view && this.input && !this.input.isReadonly() ? this.sync?.state : undefined;
+  }
+
   runFormattingCommand(command: Command): boolean {
-    return this.view !== undefined && !this.input?.isReadonly() && (this.sync?.runFormattingCommand(command) ?? false);
+    return this.formattingState !== undefined && this.sync!.runFormattingCommand(command);
   }
 
   resetHistory(): void {

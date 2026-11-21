@@ -194,3 +194,40 @@ test('offers keyboard access to rich-text history and hides the toolbar in sourc
   await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
   await expect(toolbar).toBeHidden();
 });
+
+test('applies block styles from the toolbar, shortcut and command palette', async ({ appPage: page }) => {
+  const name = 'block-styles.md';
+  const group = await openMarkdown(page, name, 'First\n\nSecond');
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  await editor.getByText('First').click({ timeout: 20_000 });
+  const style = toolbar.getByRole('button', { name: /^Style/ });
+  await expect(style).toHaveAccessibleName('Style: Body');
+  await style.focus();
+  await page.keyboard.press('Enter');
+  const menu = page.getByRole('menu', { name: 'Style' });
+  await expect(menu.getByRole('menuitemradio', { name: 'Body' })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(style).toBeFocused();
+  await expect(editor.getByRole('heading', { name: 'First', level: 2 })).toBeVisible();
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('## First\n\nSecond');
+
+  await editor.getByText('Second').click();
+  await page.keyboard.press('ControlOrMeta+Alt+3');
+  await expect(editor.getByRole('heading', { name: 'Second', level: 3 })).toBeVisible();
+  await runCommand(page, 'Set Block Style', /^Markdown: Set Block Style$/);
+  await page.getByRole('option', { name: 'Subtitle' }).click();
+  await expect(editor.locator('p.subtitle')).toHaveText('Second');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('## First\n\nSecond {.subtitle}');
+  await page.reload();
+  await expect(editor.locator('p.subtitle')).toHaveText('Second', { timeout: 20_000 });
+  await expect(editor.getByRole('heading')).toHaveCount(1);
+});

@@ -57,17 +57,18 @@ test('updates a choice from context and runs the command with the selected menu 
     disposables.add(new MenuWorkbenchToolBar(
       { element: container, ariaLabel: 'Formatting' }, toolbarMenu, context, menus, new BrowserLayoutService(),
     ));
-    const select = () => container.querySelector('select')!;
-    expect(select().selectedOptions[0].textContent).toBe('body');
-    select().focus();
-    select().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    const choices = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]:not([hidden])')!;
+    expect(choices().getAttribute('aria-label')).toBe('Style: body');
+    choices().focus();
+    choices().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
     style.set('heading');
     await Promise.resolve();
-    expect(select().selectedOptions[0].textContent).toBe('heading');
+    expect(choices().getAttribute('aria-label')).toBe('Style: heading');
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
-    select().selectedIndex = 1;
-    select().dispatchEvent(new Event('change'));
+    choices().click();
+    expect(document.querySelector('[role="menuitemradio"][aria-label="heading"]')?.getAttribute('aria-checked')).toBe('true');
+    document.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-label="body"]')!.click();
     expect(executeCommand).toHaveBeenCalledWith('test.setStyle', { type: 'body' });
   } finally {
     disposables.dispose();

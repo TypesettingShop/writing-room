@@ -192,7 +192,7 @@ export class MenuItemAction {
     this.enabled = context.contextMatchesRules(item.precondition);
     this.checked = item.toggled && context.contextMatchesRules(item.toggled);
     this.icon = item.icon;
-    this.keybinding = keybindings.lookupKeybinding(item.id);
+    this.keybinding = menuArgs.length ? undefined : keybindings.lookupKeybinding(item.id);
     this.menuContext = item.forwardMenuContext;
   }
 

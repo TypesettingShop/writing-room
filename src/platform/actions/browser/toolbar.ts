@@ -59,7 +59,7 @@ export class MenuWorkbenchToolBar extends Disposable {
     };
 
     // Clicking the open popup's own button closes it; clicking another popup button switches to it.
-    const open = (anchor: HTMLButtonElement, groups: MenuActionGroup[]) => {
+    const open = (anchor: HTMLButtonElement, groups: MenuActionGroup[], label?: string, radioItems?: boolean) => {
       const toggled = anchor === opener;
       close();
       if (toggled) {
@@ -71,6 +71,8 @@ export class MenuWorkbenchToolBar extends Disposable {
       this.popup.value = new Menu({
         container: layoutService.mainContainer,
         anchor,
+        label,
+        radioItems,
         dismissalBoundary: toolbar,
         onClose: close,
       }, groups);
@@ -81,7 +83,7 @@ export class MenuWorkbenchToolBar extends Disposable {
     overflow.addEventListener('click', () => open(overflow, remaining));
 
     let tabStop: string | undefined;
-    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-menu-action]')]
+    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement>('[data-menu-action]')]
       .filter(control => !control.disabled && !control.hidden);
     const setTabStop = (control: HTMLElement | undefined) => {
       tabStop = control?.dataset.menuAction;
@@ -145,37 +147,6 @@ export class MenuWorkbenchToolBar extends Disposable {
     };
 
     const createControl = (action: MenuActionGroup[1][number]) => {
-      if (action instanceof SubmenuItemAction && action.item.select) {
-        const select = document.createElement('select');
-        select.setAttribute('aria-label', action.label);
-        select.title = action.label;
-        const choices = action.groups.flatMap(([, items]) => items.filter(item => item instanceof MenuItemAction));
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = '—';
-        placeholder.disabled = true;
-        placeholder.hidden = true;
-        select.append(placeholder);
-        for (const [index, choice] of choices.entries()) {
-          const option = document.createElement('option');
-          option.value = String(index);
-          option.textContent = choice.label;
-          option.disabled = !choice.enabled;
-          select.append(option);
-        }
-        const selected = choices.findIndex(choice => choice.checked);
-        const currentValue = selected < 0 ? '' : String(selected);
-        select.value = currentValue;
-        select.disabled = choices.every(choice => !choice.enabled);
-        select.addEventListener('change', () => {
-          const choice = choices[select.selectedIndex - 1];
-          select.value = currentValue;
-          if (choice) {
-            void runMenuAction(choice);
-          }
-        });
-        return select;
-      }
       const button = document.createElement('button');
       button.type = 'button';
       button.title = action.label;
@@ -193,8 +164,20 @@ export class MenuWorkbenchToolBar extends Disposable {
       if (action instanceof SubmenuItemAction) {
         button.setAttribute('aria-haspopup', 'menu');
         button.setAttribute('aria-expanded', 'false');
+        if (action.item.select) {
+          const choices = action.groups.flatMap(([, items]) => items);
+          const current = choices.find(item => item instanceof MenuItemAction && item.checked);
+          button.textContent = `${action.label}: ${current?.label ?? '—'}`;
+          button.setAttribute('aria-label', current ? `${action.label}: ${current.label}` : action.label);
+          button.classList.add('wr-menu-toolbar-choices');
+          button.disabled = choices.every(item => !item.enabled);
+          const arrow = renderMenuIcon(document, { id: 'chevron-down' });
+          if (arrow) {
+            button.append(arrow);
+          }
+        }
         button.addEventListener('mousedown', preserveFocusOnLeftPress);
-        button.addEventListener('click', () => open(button, action.groups));
+        button.addEventListener('click', () => open(button, action.groups, action.label, action.item.select));
       } else {
         if (options) {
           button.addEventListener('mousedown', preserveFocusOnLeftPress);

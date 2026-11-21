@@ -23,6 +23,7 @@ export interface MenuOptions {
   readonly container: HTMLElement;
   readonly anchor: MenuAnchor;
   readonly label?: string;
+  readonly radioItems?: boolean;
   readonly onClose: () => void;
   readonly onNavigate?: (direction: -1 | 1) => void;
   readonly dismissalBoundary?: HTMLElement;
@@ -160,7 +161,8 @@ export class Menu extends Disposable {
     const button = document.createElement('button');
     button.type = 'button';
     button.tabIndex = -1;
-    button.setAttribute('role', action.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
+    const checkRole = this.options.radioItems ? 'menuitemradio' : 'menuitemcheckbox';
+    button.setAttribute('role', action.checked === undefined ? 'menuitem' : checkRole);
     button.setAttribute('aria-disabled', String(action.enabled === false));
     if (action.checked !== undefined) {
       button.setAttribute('aria-checked', String(action.checked));

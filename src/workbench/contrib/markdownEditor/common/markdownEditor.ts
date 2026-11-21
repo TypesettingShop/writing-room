@@ -11,6 +11,7 @@ export const MARKDOWN_EDITOR_DEFAULT_MODE = 'markdownEditor.defaultMode';
 export const MarkdownEditorModeContext = new RawContextKey<MarkdownEditorMode | null>('markdownEditorMode', null);
 export const MarkdownEditorFocusContext = new RawContextKey<boolean>('markdownEditorFocus', false);
 export const MarkdownEditorWritableContext = new RawContextKey<boolean>('markdownEditor.writable', false);
+export const MarkdownEditorBlockTypeContext = new RawContextKey<string | null>('markdownEditor.blockType', null);
 export const MarkdownEditorCanUndoContext = new RawContextKey<boolean>('markdownEditorCanUndo', false);
 export const MarkdownEditorCanRedoContext = new RawContextKey<boolean>('markdownEditorCanRedo', false);
 

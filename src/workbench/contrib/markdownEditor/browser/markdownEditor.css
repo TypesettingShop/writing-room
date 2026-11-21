@@ -21,23 +21,18 @@
   min-width: 100%;
 }
 
-.markdown-editor-toolbar :is(button, select):disabled {
+.markdown-editor-toolbar button:disabled {
   color: var(--vscode-disabledForeground);
   cursor: default;
 }
 
-.markdown-editor-toolbar select {
-  font: inherit;
-  color: inherit;
-  background: var(--vscode-menu-background);
-  border: 1px solid var(--vscode-menu-border);
-  border-radius: 4px;
-  padding: 3px;
-}
-
-.markdown-editor-toolbar select:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder);
-  outline-offset: -2px;
+.markdown-editor-toolbar .wr-menu-toolbar-choices {
+  display: flex;
+  min-width: 5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border-color: var(--vscode-menu-border);
 }
 
 .markdown-editor-toolbar button[aria-pressed='true'] {
