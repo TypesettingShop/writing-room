@@ -68,6 +68,7 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 - [lessons/release-monaco-menu-after-click-guard.md](lessons/release-monaco-menu-after-click-guard.md) — Monaco 메뉴의 포인터 보호 구간 뒤에 마우스를 놓는다
 - [lessons/reuse-open-input-that-owns-its-model.md](lessons/reuse-open-input-that-owns-its-model.md) — 모델을 가진 입력은 리소스마다 하나만 만든다
 - [lessons/round-trip-extension-api-values.md](lessons/round-trip-extension-api-values.md) — 확장 API 값의 RPC 왕복을 검증한다
+- [lessons/round-trip-through-reuse-and-rewrite.md](lessons/round-trip-through-reuse-and-rewrite.md) — 저장 왕복 테스트에서 원문 재사용과 다시 쓰기를 각각 실행한다
 - [lessons/separate-saved-preference-from-availability.md](lessons/separate-saved-preference-from-availability.md) — 사용자 선택과 현재 가용성을 별도 상태로 유지한다
 - [lessons/share-validation-between-live-and-restored-values.md](lessons/share-validation-between-live-and-restored-values.md) — API 입력과 저장된 값을 같은 검증기로 되살린다
 - [lessons/test-both-sides-of-extension-release.md](lessons/test-both-sides-of-extension-release.md) — 확장 정리는 메인의 remove와 호스트의 release를 따로 테스트한다
