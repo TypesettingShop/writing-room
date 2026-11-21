@@ -4,11 +4,13 @@ import type { Node } from 'prosemirror-model';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command, Plugin, Transaction } from 'prosemirror-state';
 import { Mapping, StepMap } from 'prosemirror-transform';
+import type { Step } from 'prosemirror-transform';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
+import { getOriginalMarkdown, parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
+import type { IMarkdownSourceBlock, IParsedMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
 import { getTextModelEdit } from '../../../../editor/common/model.js';
-import type { IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
+import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
 
 interface SourceDocument {
   readonly doc: Node;
@@ -72,35 +74,178 @@ function appendChangedRange(ranges: number[], start: number, end: { a: number; b
   ranges.push(start, end.a + overlap - start, end.b + overlap - start);
 }
 
-function sourceChangeMap(before: Node, after: Node, start: number, end: { a: number; b: number }, changes: number): StepMap {
-  const ranges: number[] = [];
-  // When a batch preserves the top-level structure, keep the unchanged positions between its edits.
-  // Otherwise the common prefix and suffix are the positions we can confidently map.
-  if (changes > 1 && before.childCount === after.childCount) {
-    let aligned = true;
-    let changed = 0;
-    before.forEach((block, offset, index) => {
-      const updated = after.child(index);
-      if (!block.sameMarkup(updated)) {
-        aligned = false;
-        return;
-      }
-      const from = block.content.findDiffStart(updated.content, offset + 1);
-      const to = block.content.findDiffEnd(updated.content, offset + 1 + block.content.size, offset + 1 + updated.content.size);
-      if (from !== null && to !== null) {
-        changed++;
-        appendChangedRange(ranges, from, to);
-      }
-    });
-    // More changed blocks than edits means the blocks moved (one removed, another added), so the
-    // same index no longer holds the same block.
-    if (aligned && changed <= changes) {
-      return new StepMap(ranges);
-    }
-    ranges.length = 0;
+class SourceBatchMap extends StepMap {
+  constructor(ranges: number[], private readonly unmatched: readonly { from: number; to: number }[]) {
+    super(ranges);
   }
-  appendChangedRange(ranges, start, end);
-  return new StepMap(ranges);
+
+  conflicts(from: number, to: number): boolean {
+    return this.unmatched.some(gap => from === to
+      ? gap.from <= from && from < gap.to
+      : gap.from < to && from < gap.to);
+  }
+}
+
+interface SourceBlockMatch {
+  readonly block: IMarkdownSourceBlock;
+  readonly intact: boolean;
+}
+
+function sourceBlockMatches(
+  before: IParsedMarkdown, after: IParsedMarkdown, previous: string, next: string, changes: readonly IModelContentChange[],
+): ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null> {
+  const forward = new Map<IMarkdownSourceBlock, SourceBlockMatch | null>();
+  const backward = new Map<IMarkdownSourceBlock, IMarkdownSourceBlock | null>();
+  const ordered = (blocks: readonly IMarkdownSourceBlock[]) =>
+    blocks.every((block, index) => index === 0 || blocks[index - 1].endOffset <= block.startOffset);
+  if (!ordered(before.blocks) || !ordered(after.blocks)) {
+    return forward;
+  }
+  let oldIndex = 0;
+  let newIndex = 0;
+  let oldStart = 0;
+  let newStart = 0;
+  const matchUnchanged = (end: number) => {
+    const shift = newStart - oldStart;
+    // Walk the parser's ranges over the unchanged text in both versions, in source order.
+    while (oldIndex < before.blocks.length && newIndex < after.blocks.length) {
+      const oldBlock = before.blocks[oldIndex];
+      const newBlock = after.blocks[newIndex];
+      const oldEnd = oldBlock.endOffset;
+      const newEnd = newBlock.endOffset - shift;
+      const from = Math.max(oldStart, oldBlock.startOffset, newBlock.startOffset - shift);
+      const to = Math.min(end, oldEnd, newEnd);
+      // Line endings or indentation alone cannot establish that a block survived.
+      if (from < to && /\S/.test(previous.slice(from, to))) {
+        const existing = forward.get(oldBlock);
+        if (existing === undefined) {
+          const intact = from === oldBlock.startOffset && from === newBlock.startOffset - shift && to === oldEnd && to === newEnd;
+          forward.set(oldBlock, { block: newBlock, intact });
+        } else if (existing && existing.block !== newBlock) {
+          forward.set(oldBlock, null);
+        }
+        if (backward.get(newBlock) !== oldBlock) {
+          backward.set(newBlock, backward.has(newBlock) ? null : oldBlock);
+        }
+      }
+      if (oldEnd >= end && newEnd >= end) {
+        break;
+      }
+      if (oldEnd <= newEnd) oldIndex++;
+      if (newEnd <= oldEnd) newIndex++;
+    }
+  };
+
+  // Edits are reported from the end of the old document. Walk them in the opposite order.
+  for (let index = changes.length - 1; index >= 0; index--) {
+    const { rangeOffset, rangeLength, text } = changes[index];
+    const newEnd = newStart + rangeOffset - oldStart;
+    if (rangeOffset < oldStart || previous.slice(oldStart, rangeOffset) !== next.slice(newStart, newEnd) ||
+        !next.startsWith(text, newEnd)) {
+      return new Map();
+    }
+    matchUnchanged(rangeOffset);
+    oldStart = rangeOffset + rangeLength;
+    newStart = newEnd + text.length;
+  }
+  if (previous.slice(oldStart) !== next.slice(newStart)) {
+    return new Map();
+  }
+  matchUnchanged(previous.length);
+  // A split or merge has surviving text in more than one block on at least one side.
+  for (const [oldBlock, match] of forward) {
+    if (match && backward.get(match.block) !== oldBlock) {
+      forward.delete(oldBlock);
+    }
+  }
+  return forward;
+}
+
+function sourceBatchChangeMap(
+  doc: Node, before: IParsedMarkdown, after: IParsedMarkdown,
+  previous: string, next: string, changes: readonly IModelContentChange[],
+): StepMap {
+  const matches = doc.eq(before.doc) ? sourceBlockMatches(before, after, previous, next, changes) : undefined;
+  const oldBlocks = new Map(before.blocks.map(block => [block.from, block]));
+  const newNodes = new Map<number, Node>();
+  after.doc.forEach((node, offset) => newNodes.set(offset, node));
+  const ranges: number[] = [];
+  const unmatched: { from: number; to: number }[] = [];
+  let oldEnd = 0;
+  let newEnd = 0;
+  const appendGap = (oldTo: number, newTo: number) => {
+    if (oldTo !== oldEnd || newTo !== newEnd) {
+      ranges.push(oldEnd, oldTo - oldEnd, newTo - newEnd);
+      unmatched.push({ from: oldEnd, to: oldTo });
+    }
+  };
+  doc.forEach((block, offset) => {
+    const source = oldBlocks.get(offset);
+    const match = source && matches?.get(source);
+    if (!match) {
+      return;
+    }
+    const updated = newNodes.get(match.block.from)!;
+    // Equal containers can still have moved children when the batch edits their source.
+    if (!block.sameMarkup(updated) || (!block.isTextblock && !(match.intact && block.eq(updated)))) {
+      return;
+    }
+    appendGap(offset, match.block.from);
+    const from = block.content.findDiffStart(updated.content, offset + 1);
+    const to = block.content.findDiffEnd(updated.content, offset + 1 + block.content.size, offset + 1 + updated.content.size);
+    if (from !== null && to !== null) {
+      appendChangedRange(ranges, from, to);
+    }
+    oldEnd = offset + block.nodeSize;
+    newEnd = match.block.to;
+  });
+  appendGap(doc.content.size, after.doc.content.size);
+  return unmatched.length ? new SourceBatchMap(ranges, unmatched) : new StepMap(ranges);
+}
+
+function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null {
+  const mapping = remap.slice(start);
+  let firstBatch = start;
+  while (firstBatch < remap.to && !(remap.maps[firstBatch] instanceof SourceBatchMap)) {
+    firstBatch++;
+  }
+  if (firstBatch === remap.to) {
+    return step.map(mapping);
+  }
+  // Steps can map successfully even if they cross an unmatched block or land exactly on
+  // its boundaries. Check the positions requested by the step in each batch's old document.
+  const positions: { pos: number; assoc: number }[] = [];
+  const mapped = step.map({
+    map(pos, assoc = 1) {
+      positions.push({ pos, assoc });
+      return mapping.map(pos, assoc);
+    },
+    mapResult(pos, assoc = 1) {
+      positions.push({ pos, assoc });
+      return mapping.mapResult(pos, assoc);
+    },
+  });
+  if (!mapped) {
+    return null;
+  }
+  for (let index = firstBatch; index < remap.to; index++) {
+    const batch = remap.maps[index];
+    if (!(batch instanceof SourceBatchMap)) {
+      continue;
+    }
+    const before = remap.slice(start, index);
+    let from = Infinity;
+    let to = -Infinity;
+    for (const { pos, assoc } of positions) {
+      const point = before.map(pos, assoc);
+      from = Math.min(from, point);
+      to = Math.max(to, point);
+    }
+    if (batch.conflicts(from, to)) {
+      return null;
+    }
+  }
+  return mapped;
 }
 
 /** One pane's ProseMirror state, synchronized with the shared text file. */
@@ -231,7 +376,7 @@ export class MarkdownEditorModel extends Disposable {
     const before = this.state;
     const mapping = new Mapping();
     this.deferred.pending.push({ owner: this, mapping, run: () => {
-      const rebased = before === this.state ? transaction : this.rebaseTransaction(transaction, mapping);
+      const rebased = before === this.state && mapping.maps.length === 0 ? transaction : this.rebaseTransaction(transaction, mapping);
       if (rebased) {
         this.applyDispatch(rebased, isolate);
       }
@@ -282,7 +427,7 @@ export class MarkdownEditorModel extends Disposable {
     const remap = transaction.mapping.invert();
     remap.appendMapping(over);
     for (let index = 0; index < transaction.steps.length; index++) {
-      const step = transaction.steps[index].map(remap.slice(transaction.steps.length - index));
+      const step = mapDeferredStep(transaction.steps[index], remap, transaction.steps.length - index);
       if (!step || rebased.maybeStep(step).failed) {
         return;
       }
@@ -406,15 +551,18 @@ export class MarkdownEditorModel extends Disposable {
   private applyState(transaction: Transaction, externalMap?: StepMap): void {
     const { state, transactions } = this.state.applyTransaction(transaction);
     this.state = state;
+    this.mapDeferredEdits(transactions, transactions.length ? externalMap : undefined);
+  }
+
+  private mapDeferredEdits(transactions: readonly Transaction[], externalMap?: StepMap): void {
     for (const { owner, mapping } of this.deferred.pending) {
       if (owner === this && mapping) {
-        transactions.forEach((applied, index) => {
-          if (index === 0 && externalMap) {
-            mapping.appendMap(externalMap);
-          } else {
-            mapping.appendMapping(applied.mapping);
-          }
-        });
+        if (externalMap) {
+          mapping.appendMap(externalMap);
+        }
+        for (let index = externalMap ? 1 : 0; index < transactions.length; index++) {
+          mapping.appendMapping(transactions[index].mapping);
+        }
       }
     }
   }
@@ -424,11 +572,29 @@ export class MarkdownEditorModel extends Disposable {
     // If the writer changed the edit, the rich state represents the intended text. The event's
     // ranges describe a different starting text, so use a full parse for the actual result.
     const previous = expectedWrite ?? this.lastSource;
-    if (next === previous) {
+    const hasDeferredMapping = this.deferred.pending.length > 0 && this.deferred.pending.some(edit => edit.owner === this && edit.mapping);
+    const batch = hasDeferredMapping && expectedWrite === undefined && event && !event.isFlush && event.changes.length > 1
+      ? event.changes : undefined;
+    if (next === previous && !batch) {
       return;
     }
     const { state } = this;
-    const source = (event && expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
+    const source = next === previous ? this.sourceDoc
+      : (event && expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
+    let externalMap: StepMap | undefined;
+    if (batch) {
+      const original = getOriginalMarkdown(this.sourceDoc.doc);
+      // A rich write or incremental paragraph edit may have left older parser ranges.
+      const before = original?.source === previous ? original.parsed : parseMarkdownWithSource(previous);
+      const after = next === previous ? before : getOriginalMarkdown(source.doc)!.parsed;
+      externalMap = sourceBatchChangeMap(state.doc, before, after, previous, next, batch);
+    }
+    if (next === previous) {
+      // A batch can replace a paragraph with identical text while a different copy survives.
+      // Rebase over the move without adding a no-op source change to history.
+      this.mapDeferredEdits([], externalMap);
+      return;
+    }
     const doc = source.doc;
     this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });
     this.lastSource = next;
@@ -451,9 +617,13 @@ export class MarkdownEditorModel extends Disposable {
     transaction.setSelection(TextSelection.between(anchor, head));
     // History needs the full replacement above to retain source snapshots. Deferred edits need
     // only the changed positions.
-    const externalMap = this.deferred.pending.length === 0 ? undefined
-      : start === null || end === null ? StepMap.empty
-      : sourceChangeMap(state.doc, doc, start, end, event?.changes.length ?? 1);
+    if (hasDeferredMapping && !externalMap) {
+      const ranges: number[] = [];
+      if (start !== null && end !== null) {
+        appendChangedRange(ranges, start, end);
+      }
+      externalMap = new StepMap(ranges);
+    }
     this.applyTransaction(transaction, true, externalMap);
     this.onStateChange(this.state);
   }

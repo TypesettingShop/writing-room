@@ -317,24 +317,88 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
-  it('drops a queued edit in a batch that moves the blocks instead of moving it to another block', () => {
-    const model = new TestTextModel(URI.parse('file:///draft.md'), 'Alpha\n\nBravo\n\nCharlie');
+  it.each([
+    { last: 'Bravo\n\n_Charlie_', appended: 'Delta', target: 1, expected: 'BravoX\n\n_Charlie_\n\nDelta' },
+    { last: 'Alpha', appended: 'Alpha', target: 1, expected: 'AlphaX\n\nAlpha' },
+    { last: 'Alpha', appended: 'Alpha', target: 0, expected: 'Alpha\n\nAlpha' },
+  ])('tracks the queued edit from paragraph $target when deleting Alpha and appending $appended', ({ last, appended, target, expected }) => {
+    const original = 'Alpha\n\n' + last;
+    const external = last + '\n\n' + appended;
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
     let sync: MarkdownEditorModel;
     model.onDidChangeContent(event => {
       if (event.versionId === 2) {
-        const end = sync.state.doc.child(0).nodeSize + sync.state.doc.child(1).nodeSize - 1;
+        const doc = sync.state.doc;
+        const end = doc.child(target).nodeSize - 1 + (target === 0 ? 0 : doc.firstChild!.nodeSize);
         sync.dispatch(sync.state.tr.insertText('X', end));
       }
     });
     sync = new MarkdownEditorModel(model, [], () => {});
     try {
+      const { lineNumber, column } = model.getPositionAt(original.length);
       model.applyEdits([
         { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 1 }, text: '' },
-        { range: { startLineNumber: 5, startColumn: 8, endLineNumber: 5, endColumn: 8 }, text: '\n\nDelta' },
+        { range: { startLineNumber: lineNumber, startColumn: column, endLineNumber: lineNumber, endColumn: column },
+          text: '\n\n' + appended },
       ]);
-      expect(model.getValue()).not.toContain('CharlieX');
-      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+      const expectSource = (source: string) => {
+        expect(model.getValue()).toBe(source);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      };
+      expectSource(expected);
+      const written = [original, external, expected].filter((source, index, versions) => source !== versions[index - 1]);
+      for (const source of written.slice(0, -1).reverse()) {
+        expect(sync.undo()).toBe(true);
+        expectSource(source);
+      }
+      expect(sync.canUndo).toBe(false);
+      for (const source of written.slice(1)) {
+        expect(sync.redo()).toBe(true);
+        expectSource(source);
+      }
+      expect(sync.canRedo).toBe(false);
     } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
+    { label: 'splits a paragraph', original: 'AlphaBravo\n\nCharlie\n\nDelta', external: 'Alpha\n\nBravo\n\nDelta',
+      changes: [[5, 5, '\n\n'], [12, 21, '']], from: 5, to: 5 },
+    { label: 'joins two paragraphs', original: 'Alpha\n\nBravo\n\nCharlie', external: 'Alpha Bravo\n\nAdded\n\nCharlie',
+      changes: [[5, 7, ' '], [14, 14, 'Added\n\n']], from: 2, to: 2 },
+    { label: 'deletes part of the selection', original: 'Alpha\n\nBravo', external: 'Bravo\n\nCharlie',
+      changes: [[0, 7, ''], [12, 12, '\n\nCharlie']], from: 3, to: 10 },
+    { label: 'inserts another paragraph inside the selection', original: 'Alpha\n\nBravo\n\nCharlie',
+      external: 'Alpha\n\nNew\n\nBravo', changes: [[5, 5, '\n\nNew'], [12, 21, '']], from: 3, to: 10 },
+    { label: 'replaces a list item with identical source', original: '- Alpha\n- Alpha', external: '- Alpha\n- Alpha',
+      changes: [[0, 8, ''], [15, 15, '\n- Alpha']], from: 8, to: 8 },
+    { label: 'keeps only the line ending of a paragraph', original: 'Alpha\n\nBravo', external: 'Zed\n\nBravo',
+      changes: [[0, 4, ''], [4, 5, 'Zed']], from: 6, to: 6 },
+  ] as const)('drops a queued replacement when the source batch $label', ({ original, external, changes, from, to }) => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const listener = model.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        sync.dispatch(sync.state.tr.insertText('X', from, to));
+      }
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      model.applyEdits(changes.map(([start, end, text]) => {
+        const { lineNumber: startLineNumber, column: startColumn } = model.getPositionAt(start);
+        const { lineNumber: endLineNumber, column: endColumn } = model.getPositionAt(end);
+        return { range: { startLineNumber, startColumn, endLineNumber, endColumn }, text };
+      }));
+      expect(model.getValue()).toBe(external);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(external).doc)).toBe(true);
+      if (external !== original) {
+        expect(sync.undo()).toBe(true);
+        expect(model.getValue()).toBe(original);
+      }
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      listener.dispose();
       sync.dispose();
       model.dispose();
     }
