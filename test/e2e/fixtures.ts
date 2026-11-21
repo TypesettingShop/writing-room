@@ -56,6 +56,31 @@ export async function drag(page: Page, x: number, y: number, toX: number, toY: n
   await page.mouse.up();
 }
 
+/** Reads the colors Chromium actually painted at CSS-pixel coordinates in a PNG screenshot. */
+export function screenshotColors(
+  page: Page, png: Buffer, points: readonly { readonly x: number; readonly y: number }[],
+): Promise<string[]> {
+  return page.evaluate(async ({ source, points }) => {
+    const image = new Image();
+    image.src = source;
+    await image.decode();
+    const canvas = new OffscreenCanvas(image.width, image.height);
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    return points.map(({ x, y }) => {
+      const { data } = context.getImageData(x, y, 1, 1);
+      const hex = [data[0], data[1], data[2]].map(value => value.toString(16).padStart(2, '0'));
+      return '#' + hex.join('');
+    });
+  }, { source: 'data:image/png;base64,' + png.toString('base64'), points });
+}
+
+export async function screenshotColor(page: Page, x: number, y: number): Promise<string> {
+  const png = await page.screenshot({ scale: 'css' });
+  const [color] = await screenshotColors(page, png, [{ x: Math.floor(x), y: Math.floor(y) }]);
+  return color;
+}
+
 /** The text Monaco renders in `pane`, one line per visible line, with its non-breaking spaces made plain. */
 export async function renderedText(pane: Locator): Promise<string> {
   // An editor without a model renders no lines at all.

@@ -2,7 +2,7 @@
 
 테마, 색, 트리 뷰와 상태 표시줄의 지원 범위는 이 페이지에 기록한다. 현재 공개된 API와 기여는 [확장 API](extension-api.md)에 있다.
 
-Decided in: wr-efqx.n9k, wr-lnox
+Decided in: wr-efqx.n9k, wr-lnox, wr-gfge
 
 ## 색 테마와 색 레지스트리
 
@@ -11,7 +11,8 @@ Decided in: wr-efqx.n9k, wr-lnox
 ### 색 레지스트리
 
 - `src/platform/theme/common/colorRegistry.ts`가 색을 등록한다. 색마다 테마 종류 넷(어두움, 밝음, 고대비 어두움, 고대비 밝음)의 기본값을 가진다. 기본값은 16진 색, 다른 색의 id(같은 테마에서 그 색의 값을 따른다), 또는 없음이다. 없으면 컨테이너에 그 변수를 `initial`로 걸어 `workbench.css`가 첫 그림을 위해 둔 어두운 값을 가리고, 스타일시트의 대체값이 쓰인다.
-- 내장 색은 204개다: 기본 색, 글, 버튼과 체크박스, 드롭다운과 입력, 배지·스크롤바·진행 표시, 목록과 트리, 액티비티 바, 사이드바, 에디터 그룹과 탭, 패널, 상태 표시줄, 제목 표시줄과 메뉴, 알림과 퀵 인풋, 차트, 에디터. `titleBar.iconForeground`(제목 표시줄의 제품 아이콘)만 Writing Room의 이름이고 나머지는 VS Code의 이름이다.
+- 내장 색 205개에는 기본 색, 글, 버튼과 체크박스, 드롭다운과 입력, 배지·스크롤바·진행 표시, 목록과 트리, 액티비티 바, 사이드바, 에디터 그룹과 탭, 패널, 상태 표시줄, 제목 표시줄과 메뉴, 알림과 퀵 인풋, 차트, 에디터의 색이 포함된다. `titleBar.iconForeground`(제목 표시줄의 제품 아이콘)와 `markdownEditor.contentBorder`(Markdown 본문 양옆 테두리)는 Writing Room에서 추가한 이름이다.
+- 테마 파일의 `colors`에서 `editorGroup.border`는 분할된 에디터 그룹 사이의 선을, `markdownEditor.contentBorder`는 가운데 배치와 집중 모드에서 본문 양옆의 선을 지정한다. 내장 라이트에서 두 색은 각각 `#7b8699`와 `#d3dae6`이고, 다크에서는 `#6b7a94`와 `#313c50`이다. 고대비에서 두 색의 기본값은 `contrastBorder`를 따른다.
 - 색 id는 VS Code의 `colors` 패턴(`^\w+[.\w+]*$`)을 따라야 한다(`isColorIdentifier`). 줄표, 공백, 괄호, 세미콜론이 들어갈 수 없으니 변수 이름이 선언이나 규칙을 끝낼 수 없다.
 - 색 값은 16진 표기 넷만 받는다: `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`(`isHexColor`). 받은 값은 `#rrggbb`나 `#rrggbbaa`의 소문자로 바꿔 둔다.
 - 워크벤치 스타일시트(`src/**/*.css`)가 `var(--vscode-…)`로 읽는 색은 모두 레지스트리에 있고 두 내장 테마에서 값을 가진다. 단위 테스트가 스타일시트를 읽어 대조한다. 색이 아닌 변수(`--vscode-editor-font-family`)만 목록으로 뺀다.
