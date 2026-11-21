@@ -1,0 +1,1 @@
+**Bold** followed by __strong__.
