@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import { footnote } from '@mdit/plugin-footnote';
 import { tasklist } from '@mdit/plugin-tasklist';
+import { markdownAttrs } from './plugins/attrs.js';
 
 export interface IMarkdownItPluginContribution<Options = unknown> {
   readonly id: string;
@@ -16,6 +17,7 @@ export interface IMarkdownItOptions {
 const defaultPlugins: NonNullable<IMarkdownItOptions['plugins']> = [
   { id: 'footnote', plugin: footnote },
   { id: 'tasklist', plugin: tasklist, options: { label: false } },
+  { id: 'classes', plugin: markdownAttrs },
 ];
 
 export function createMarkdownIt(options: IMarkdownItOptions = {}): MarkdownIt {

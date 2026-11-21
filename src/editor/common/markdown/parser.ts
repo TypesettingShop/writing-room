@@ -5,6 +5,7 @@ import { MarkdownParser } from 'prosemirror-markdown';
 import type { ParseSpec } from 'prosemirror-markdown';
 import { createMarkdownIt } from './markdownIt.js';
 import type { IMarkdownItOptions } from './markdownIt.js';
+import { getMarkdownClasses } from './plugins/attrs.js';
 import { markdownSchema } from './schema.js';
 
 export interface IMarkdownSourceBlock {
@@ -37,7 +38,7 @@ const nodesWithClasses: Record<string, string> = {
 };
 
 function blockAttrs(token: Token) {
-  return { classes: token.attrGet('data-markdown-classes')?.split(' ') ?? [] };
+  return { classes: getMarkdownClasses(token) };
 }
 
 function listAttrs(token: Token, tokens: Token[], index: number) {

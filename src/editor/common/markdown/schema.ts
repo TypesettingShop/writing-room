@@ -1,6 +1,7 @@
 import { Schema } from 'prosemirror-model';
 import type { Attrs, MarkSpec, NodeSpec, TagParseRule } from 'prosemirror-model';
 import { schema as basicMarkdownSchema } from 'prosemirror-markdown';
+import { isMarkdownClass } from './plugins/attrs.js';
 
 const classes = { default: [], validate: 'object' } as const;
 const markup = { default: null, validate: 'string|null' } as const;
@@ -10,7 +11,7 @@ function classAttribute(attrs: Attrs): Record<string, string> {
 }
 
 function readClasses(element: HTMLElement): string[] {
-  return (element.getAttribute('class') ?? '').split(/\s+/).filter(name => /^[a-z][a-z0-9-]*$/.test(name));
+  return (element.getAttribute('class') ?? '').split(/\s+/).filter(isMarkdownClass);
 }
 
 function styledBlock(tag: string, spec: NodeSpec = {}): NodeSpec {
