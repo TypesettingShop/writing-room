@@ -3,6 +3,7 @@ import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command, Plugin, Transaction } from 'prosemirror-state';
+import { Mapping, StepMap } from 'prosemirror-transform';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
@@ -22,6 +23,25 @@ interface SourceSnapshot {
   readonly text: string;
   readonly provenance: SourceDocument;
 }
+
+interface SourceWrite {
+  readonly source: string;
+  readonly edit: ISingleEditOperation;
+}
+
+interface DeferredEdit {
+  readonly owner: MarkdownEditorModel;
+  readonly mapping?: Mapping;
+  run(): void;
+}
+
+interface DeferredEdits {
+  pending: DeferredEdit[];
+  draining: boolean;
+}
+
+// Panes share the request order, even when their source listeners run in a different order.
+const deferredByModel = new WeakMap<ITextModel, DeferredEdits>();
 
 const markdownHistory = history({ newGroupDelay: 500 });
 // Exclude most Markdown delimiters and indentation before parsing a line outside its document context.
@@ -46,16 +66,49 @@ function parseSource(text: string): SourceDocument {
   return { doc, text, paragraphIndices };
 }
 
+function appendChangedRange(ranges: number[], start: number, end: { a: number; b: number }): void {
+  // Equal prefixes and suffixes can overlap for repeated text.
+  const overlap = Math.max(0, start - Math.min(end.a, end.b));
+  ranges.push(start, end.a + overlap - start, end.b + overlap - start);
+}
+
+function sourceChangeMap(before: Node, after: Node, start: number, end: { a: number; b: number }, batch: boolean): StepMap {
+  const ranges: number[] = [];
+  // When a batch preserves the top-level structure, keep the unchanged positions between its edits.
+  // Otherwise the common prefix and suffix are the positions we can confidently map.
+  if (batch && before.childCount === after.childCount) {
+    let aligned = true;
+    before.forEach((block, offset, index) => {
+      const updated = after.child(index);
+      if (!block.sameMarkup(updated)) {
+        aligned = false;
+        return;
+      }
+      const from = block.content.findDiffStart(updated.content, offset + 1);
+      const to = block.content.findDiffEnd(updated.content, offset + 1 + block.content.size, offset + 1 + updated.content.size);
+      if (from !== null && to !== null) {
+        appendChangedRange(ranges, from, to);
+      }
+    });
+    if (aligned) {
+      return new StepMap(ranges);
+    }
+    ranges.length = 0;
+  }
+  appendChangedRange(ranges, start, end);
+  return new StepMap(ranges);
+}
+
 /** One pane's ProseMirror state, synchronized with the shared text file. */
 export class MarkdownEditorModel extends Disposable {
   state: EditorState;
   private sourceDoc: SourceDocument;
   private lastSource: string;
+  private version: number;
   // History's replacement slices hold these fragments while the external changes can be undone.
   private readonly snapshots = new WeakMap<Fragment, SourceSnapshot>();
-  // Each version this model is writing, with the count of text reads when the write started.
-  private readonly writingVersions = new Map<number, number>();
-  private textReads = 0;
+  private readonly writingVersions = new Map<number, SourceWrite>();
+  private readonly deferred: DeferredEdits;
   private serializerProvenance: {
     readonly source: SourceDocument;
     readonly parsed: Node;
@@ -69,25 +122,42 @@ export class MarkdownEditorModel extends Disposable {
     private readonly writeEdit: (edit: ISingleEditOperation) => void = edit => textModel.applyEdits([edit]),
   ) {
     super();
+    this.deferred = deferredByModel.get(textModel) ?? { pending: [], draining: false };
+    deferredByModel.set(textModel, this.deferred);
+    this.version = textModel.getVersionId();
     this.lastSource = textModel.getValue();
     this.sourceDoc = parseSource(this.lastSource);
     this.state = EditorState.create({ doc: this.sourceDoc.doc, plugins: [markdownHistory, ...plugins] });
     this._register(textModel.onDidChangeContent(event => {
+      // A pane opened during another listener's delivery already starts at the live version.
+      if (event.versionId <= this.version) {
+        return;
+      }
       // During reentrant delivery the live model may already include a later event.
       const next = event.versionId === textModel.getVersionId()
         ? textModel.getValue()
         : event.changes.reduce((text, change) => text.slice(0, change.rangeOffset) + change.text +
           text.slice(change.rangeOffset + change.rangeLength), this.lastSource);
-      const reads = this.writingVersions.get(event.versionId);
+      this.version = event.versionId;
+      const written = this.writingVersions.get(event.versionId);
       this.writingVersions.delete(event.versionId);
-      // A change delivered late during the write replaced the state the write came from. Read the
-      // written text too, so the state matches the model again.
-      if (reads !== undefined && reads === this.textReads) {
+      if (written && this.matchesWrite(event, written.edit)) {
         this.lastSource = next;
       } else {
-        this.readText(event, next);
+        const expected = written?.source.replace(/\r\n|\r|\n/g, event.eol);
+        if (expected === next) {
+          this.lastSource = next;
+        } else {
+          this.readText(event, next, expected);
+        }
       }
+      this.drainDeferredEdits();
     }));
+  }
+
+  override dispose(): void {
+    this.deferred.pending = this.deferred.pending.filter(edit => edit.owner !== this);
+    super.dispose();
   }
 
   get canUndo(): boolean {
@@ -99,11 +169,11 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   undo(): boolean {
-    return undo(this.state, transaction => this.dispatch(transaction));
+    return this.runCommand(undo);
   }
 
   redo(): boolean {
-    return redo(this.state, transaction => this.dispatch(transaction));
+    return this.runCommand(redo);
   }
 
   resetHistory(): void {
@@ -114,13 +184,108 @@ export class MarkdownEditorModel extends Disposable {
 
   /** A toolbar command is one undo step, separate from the typing on either side of it. */
   runFormattingCommand(command: Command): boolean {
-    return command(this.state, transaction => this.dispatch(transaction, true));
+    return this.runCommand(command, true);
   }
 
   dispatch(transaction: Transaction, isolate = false): void {
+    if (!this.shouldDeferEdit()) {
+      this.applyDispatch(transaction, isolate);
+      return;
+    }
+    if (isHistoryTransaction(transaction)) {
+      // ProseMirror's native beforeinput history handler dispatches a history transaction as well.
+      // Its history state was computed before the pending change, so rerun the command.
+      this.runCommand(transaction.getMeta(markdownHistory).redo ? redo : undo);
+      return;
+    }
+    const before = this.state;
+    const mapping = new Mapping();
+    this.deferred.pending.push({ owner: this, mapping, run: () => {
+      const rebased = before === this.state ? transaction : this.rebaseTransaction(transaction, mapping);
+      if (rebased) {
+        this.applyDispatch(rebased, isolate);
+      }
+    } });
+  }
+
+  private shouldDeferEdit(): boolean {
+    return this.deferred.draining || this.deferred.pending.length > 0 || this.version !== this.textModel.getVersionId();
+  }
+
+  private runCommand(command: Command, isolate = false): boolean {
+    const run = () => command(this.state, transaction => this.applyDispatch(transaction, isolate));
+    if (!this.shouldDeferEdit()) {
+      return run();
+    }
+    this.deferred.pending.push({ owner: this, run });
+    return true;
+  }
+
+  private drainDeferredEdits(): void {
+    const deferred = this.deferred;
+    if (deferred.draining || deferred.pending.length === 0) {
+      return;
+    }
+    // The model can already contain more changes than this listener has received. Record each
+    // external version before applying any rich edit, even when a write reenters delivery.
+    deferred.draining = true;
+    try {
+      while (deferred.pending[0]?.owner.version === this.textModel.getVersionId()) {
+        deferred.pending.shift()!.run();
+      }
+    } finally {
+      deferred.draining = false;
+    }
+  }
+
+  private rebaseTransaction(transaction: Transaction, over: Mapping): Transaction | undefined {
+    const rebased = this.state.tr.setTime(transaction.time);
+    // Each step starts in the document left by the previous step. Pair the inverse of each
+    // original step with its replay so positions inside inserted content survive the mapping.
+    const remap = transaction.mapping.invert();
+    remap.appendMapping(over);
+    for (let index = 0; index < transaction.steps.length; index++) {
+      const step = transaction.steps[index].map(remap.slice(transaction.steps.length - index));
+      if (!step || rebased.maybeStep(step).failed) {
+        return;
+      }
+      remap.appendMap(step.getMap(), transaction.steps.length - 1 - index);
+    }
+    if (transaction.selectionSet) {
+      rebased.setSelection(transaction.selection.map(rebased.doc, remap.slice()));
+    }
+    if (transaction.storedMarksSet) {
+      rebased.setStoredMarks(transaction.storedMarks);
+    }
+    if (transaction.scrolledIntoView) {
+      rebased.scrollIntoView();
+    }
+    for (const key of ['addToHistory', 'uiEvent', 'pointer', 'composition']) {
+      const value = transaction.getMeta(key);
+      if (value !== undefined) {
+        rebased.setMeta(key, value);
+      }
+    }
+    for (const plugin of this.plugins) {
+      const value = transaction.getMeta(plugin);
+      if (value === undefined) {
+        continue;
+      }
+      if (plugin.spec.isInputRules) {
+        const from = over.map(value.from, 1);
+        const to = Math.max(from, over.map(value.to, -1));
+        rebased.setMeta(plugin, { ...value, transform: rebased, from, to });
+      } else {
+        rebased.setMeta(plugin, value);
+      }
+    }
+    return rebased;
+  }
+
+  private applyDispatch(transaction: Transaction, isolate: boolean): void {
     isolate ||= transaction.getMeta('uiEvent') === 'paste' || transaction.getMeta('uiEvent') === 'drop';
     const previousDoc = this.state.doc;
-    this.state = this.applyTransaction(transaction, isolate);
+    this.applyTransaction(transaction, isolate);
     if (previousDoc !== this.state.doc) {
       const fromHistory = isHistoryTransaction(transaction);
       const snapshot = fromHistory ? this.snapshots.get(this.state.doc.content) : undefined;
@@ -135,7 +300,7 @@ export class MarkdownEditorModel extends Disposable {
       }
       const edit = getTextModelEdit(this.textModel, source);
       if (edit) {
-        this.writeText(edit);
+        this.writeText(edit, source);
       }
     }
     this.onStateChange(this.state);
@@ -171,10 +336,10 @@ export class MarkdownEditorModel extends Disposable {
     return serializeMarkdown(parsed.copy(Fragment.fromArray(blocks)));
   }
 
-  private writeText(edit: ISingleEditOperation): void {
+  private writeText(edit: ISingleEditOperation, source: string): void {
     const model = this.textModel;
     const version = model.getVersionId() + 1;
-    this.writingVersions.set(version, this.textReads);
+    this.writingVersions.set(version, { source, edit });
     try {
       this.writeEdit(edit);
     } finally {
@@ -184,22 +349,48 @@ export class MarkdownEditorModel extends Disposable {
     }
   }
 
-  private applyTransaction(transaction: Transaction, isolate: boolean): EditorState {
-    if (!isolate || !transaction.docChanged) {
-      return this.state.apply(transaction);
+  private matchesWrite(event: IModelContentChangedEvent, edit: ISingleEditOperation): boolean {
+    if (event.isFlush || event.changes.length !== 1 || event.changes[0].text !== edit.text) {
+      return false;
     }
-    const state = this.state.apply(closeHistory(transaction));
-    return state.apply(closeHistory(state.tr));
+    const { range } = event.changes[0];
+    return range.startLineNumber === edit.range.startLineNumber && range.startColumn === edit.range.startColumn
+      && range.endLineNumber === edit.range.endLineNumber && range.endColumn === edit.range.endColumn;
   }
 
-  private readText(event: IModelContentChangedEvent, next: string): void {
-    const previous = this.lastSource;
+  private applyTransaction(transaction: Transaction, isolate: boolean, externalMap?: StepMap): void {
+    isolate &&= transaction.docChanged;
+    this.applyState(isolate ? closeHistory(transaction) : transaction, externalMap);
+    if (isolate) {
+      this.applyState(closeHistory(this.state.tr));
+    }
+  }
+
+  private applyState(transaction: Transaction, externalMap?: StepMap): void {
+    const { state, transactions } = this.state.applyTransaction(transaction);
+    this.state = state;
+    for (const { owner, mapping } of this.deferred.pending) {
+      if (owner === this && mapping) {
+        transactions.forEach((applied, index) => {
+          if (index === 0 && externalMap) {
+            mapping.appendMap(externalMap);
+          } else {
+            mapping.appendMapping(applied.mapping);
+          }
+        });
+      }
+    }
+  }
+
+  private readText(event: IModelContentChangedEvent, next: string, expectedWrite?: string): void {
+    // If the writer changed the edit, the rich state represents the intended text. The event's
+    // ranges describe a different starting text, so use a full parse for the actual result.
+    const previous = expectedWrite ?? this.lastSource;
     if (next === previous) {
       return;
     }
-    this.textReads++;
     const { state } = this;
-    const source = this.updatePlainParagraph(event, next) ?? parseSource(next);
+    const source = (expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
     const doc = source.doc;
     this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });
     this.lastSource = next;
@@ -220,7 +411,12 @@ export class MarkdownEditorModel extends Disposable {
     const anchor = transaction.doc.resolve(map(state.selection.anchor));
     const head = transaction.doc.resolve(map(state.selection.head));
     transaction.setSelection(TextSelection.between(anchor, head));
-    this.state = this.applyTransaction(transaction, true);
+    // History needs the full replacement above to retain source snapshots. Deferred edits need
+    // only the changed positions.
+    const externalMap = this.deferred.pending.length === 0 ? undefined
+      : start === null || end === null ? StepMap.empty
+      : sourceChangeMap(state.doc, doc, start, end, event.changes.length > 1);
+    this.applyTransaction(transaction, true, externalMap);
     this.onStateChange(this.state);
   }
 

@@ -4,6 +4,7 @@ import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
 import type { ITextModel } from '../../../../../editor/common/model.js';
 import { IModelService } from '../../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
@@ -18,6 +19,7 @@ import { InstantiationService } from '../../../../../platform/instantiation/comm
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import type { IWorkspaceContextService as IWorkspace } from '../../../../../platform/workspace/common/workspace.js';
+import { MarkdownEditorModel } from '../../../../contrib/markdownEditor/browser/markdownEditorModel.js';
 import { TextModelResolverService } from '../../../textmodelResolver/common/textModelResolverService.js';
 import { IUntitledTextEditorService, UntitledTextEditorService } from '../../../untitled/common/untitledTextEditorService.js';
 import { BrowserTextFileService } from '../../browser/textFileService.js';
@@ -259,6 +261,58 @@ describe('text file models', () => {
     replaceHead(2, '!');
     expect(model.isDirty()).toBe(false);
     expect(dirtyChanges).toEqual([true, false]);
+  });
+
+  test('saves and reopens the exact source of a rich undo after a reentrant source edit', async () => {
+    const original = 'First\n=====\n\n\nMiddle\n\nLast';
+    const external = original + ' 외부';
+    const typed = external.replace('Middle', 'XMiddle');
+    const path = '/rich.md';
+    await files.writeFile(file(path), bytes(original));
+    const { service } = createService();
+    const { model, textModel } = await resolve(service, path);
+    let sync: MarkdownEditorModel;
+    disposables.add(textModel.onDidChangeContent(event => {
+      if (event.versionId === 2) {
+        sync.dispatch(sync.state.tr.insertText('X', sync.state.doc.firstChild!.nodeSize + 1));
+      }
+    }));
+    sync = disposables.add(new MarkdownEditorModel(textModel, [], () => {}, edit => model.applyRichEditorEdit(edit)));
+    const expectSource = (source: string, dirty: boolean) => {
+      expect(textModel.getValue()).toBe(source);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      expect(model.isDirty()).toBe(dirty);
+    };
+    append(textModel, ' 외부');
+    expectSource(typed, true);
+    expect(sync.undo()).toBe(true);
+    expectSource(external, true);
+    expect(sync.undo()).toBe(true);
+    expectSource(original, false);
+    expect(Array.from((await files.readFile(file(path))).value)).toEqual(Array.from(bytes(original)));
+
+    expect(sync.redo()).toBe(true);
+    expectSource(external, true);
+    expect(await model.save()).toBe(true);
+    expectSource(external, false);
+    expect(Array.from((await files.readFile(file(path))).value)).toEqual(Array.from(bytes(external)));
+    expect(sync.redo()).toBe(true);
+    expectSource(typed, true);
+    expect(sync.undo()).toBe(true);
+    expectSource(external, false);
+    expect(sync.redo()).toBe(true);
+    expectSource(typed, true);
+    expect(await model.save()).toBe(true);
+    expectSource(typed, false);
+    expect(Array.from((await files.readFile(file(path))).value)).toEqual(Array.from(bytes(typed)));
+
+    sync.dispose();
+    model.dispose();
+    const reopened = await resolve(service, path);
+    const rich = disposables.add(new MarkdownEditorModel(reopened.textModel, [], () => {}));
+    expect(reopened.textModel.getValue()).toBe(typed);
+    expect(rich.state.doc.eq(parseMarkdownWithSource(typed).doc)).toBe(true);
+    expect(reopened.model.isDirty()).toBe(false);
   });
 
   test('asks before overwriting a file another writer saved first, and keeps both sides until answered', async () => {
