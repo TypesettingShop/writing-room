@@ -13,6 +13,7 @@ export const treeMime = 'application/x-writing-room-tree';
 /**
  * Calls `end` on the source's `dragend`, Escape, or `pagehide`.
  * Wayland can move focus away from the window while a native drag is still in progress.
+ * Firefox can deliver `mousemove` just after `dragstart`.
  */
 function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
   const window = source.ownerDocument.defaultView!;
