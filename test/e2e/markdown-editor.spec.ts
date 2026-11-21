@@ -146,6 +146,10 @@ test('applies a shared Markdown content width on Enter and blur and restores it 
   await input.fill('60');
   await input.press('Enter');
   await expect(widthInput(group)).toHaveValue('60');
+  await input.press('Shift+Tab');
+  await expect(rightGroup.getByRole('toolbar', { name: 'Markdown formatting' }).locator('button[tabindex="0"]')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(input).toBeFocused();
   expect(await maxWidth(left)).toBeCloseTo(initialWidth * 0.75, 0);
   expect(await maxWidth(right)).toBe(await maxWidth(left));
   for (const invalid of ['0', '-30', '60.5', '401', '']) {

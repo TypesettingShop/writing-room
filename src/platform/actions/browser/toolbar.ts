@@ -128,7 +128,7 @@ export class MenuWorkbenchToolBar extends Disposable {
 
     let tabStop: string | undefined;
     const inputs = new Map<string, ReturnType<typeof createNumberInput>>();
-    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement | HTMLInputElement>('[data-menu-action]')]
+    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement>('button[data-menu-action]')]
       .filter(control => !control.disabled && !control.hidden);
     const setTabStop = (control: HTMLElement | undefined) => {
       tabStop = control?.dataset.menuAction;
@@ -138,14 +138,14 @@ export class MenuWorkbenchToolBar extends Disposable {
     };
     if (options) {
       toolbar.addEventListener('focusin', event => {
-        if (event.target instanceof HTMLElement) {
+        if (event.target instanceof HTMLButtonElement) {
           setTabStop(event.target);
         }
       });
       toolbar.addEventListener('keydown', event => {
         const available = controls();
         const index = available.findIndex(control => control === event.target);
-        if (index < 0 || available[index].tagName === 'INPUT') {
+        if (index < 0) {
           return;
         }
         const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
@@ -209,10 +209,12 @@ export class MenuWorkbenchToolBar extends Disposable {
       }
       const available = controls();
       const focused = available.find(control => control.dataset.menuAction === focusedId);
+      const tab = focused ?? available.find(control => control.dataset.menuAction === tabStop) ?? available[0];
       if (options) {
-        setTabStop(focused ?? available.find(control => control.dataset.menuAction === tabStop) ?? available[0]);
+        setTabStop(tab);
       }
-      (focused ?? (focusedId && options ? available.find(control => control.tabIndex === 0) : undefined))
+      const focusedInput = focusedId && inputs.get(focusedId)?.control;
+      (focused ?? (focusedId && options && (!focusedInput || focusedInput.disabled) ? tab : undefined))
         ?.focus({ preventScroll: true });
     };
 
