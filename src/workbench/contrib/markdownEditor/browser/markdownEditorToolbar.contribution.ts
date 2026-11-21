@@ -3,6 +3,7 @@ import { TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
@@ -11,6 +12,7 @@ import type { IKeybindingRule } from '../../../../platform/keybinding/common/key
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import {
+  isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_WIDTH, markdownContentWidth, MarkdownEditorContentWidthContext,
   MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
   MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorInlineFormattingContext,
   MarkdownEditorInlineMarkContexts, MarkdownEditorLinkContext, MarkdownEditorModeContext,
@@ -29,6 +31,35 @@ const wysiwyg = MarkdownEditorModeContext.isEqualTo('wysiwyg');
 const writable = MarkdownEditorWritableContext.isEqualTo(true);
 const editorFocus = ContextKeyExpr.and(MarkdownEditorFocusContext.isEqualTo(true), writable);
 const formattingWeight = KeybindingWeight.WorkbenchContrib + 1;
+
+const setContentWidthId = 'markdownEditor.setContentWidth';
+MenuRegistry.appendMenuItem(toolbar, {
+  group: '7_layout', order: 2, when: wysiwyg,
+  command: { id: setContentWidthId, title: 'Content Width (characters)' },
+  numberInput: { valueKey: MarkdownEditorContentWidthContext.key, min: markdownContentWidth.min, max: markdownContentWidth.max },
+});
+registerAction2(class extends Action2 {
+  constructor() {
+    super({ id: setContentWidthId, title: 'Set Content Width', category: 'Markdown', f1: true, precondition: wysiwyg });
+  }
+
+  override async run(accessor: ServicesAccessor, value?: unknown): Promise<void> {
+    const configuration = accessor.get(IConfigurationService);
+    if (value === undefined) {
+      const current = configuration.getValue(MARKDOWN_EDITOR_CONTENT_WIDTH);
+      const input = await accessor.get(IQuickInputService).input({
+        title: 'Set Content Width',
+        value: String(isMarkdownContentWidth(current) ? current : markdownContentWidth.defaultValue),
+        validateInput: text => isMarkdownContentWidth(text.trim() ? Number(text) : NaN)
+          ? undefined : `Enter a whole number from ${markdownContentWidth.min} to ${markdownContentWidth.max}.`,
+      });
+      value = input === undefined ? undefined : Number(input);
+    }
+    if (isMarkdownContentWidth(value)) {
+      await configuration.updateValue(MARKDOWN_EDITOR_CONTENT_WIDTH, value);
+    }
+  }
+});
 
 for (const [order, [id, title, icon, precondition]] of ([
   ['undo', 'Undo', 'discard', MarkdownEditorCanUndoContext.isEqualTo(true)],

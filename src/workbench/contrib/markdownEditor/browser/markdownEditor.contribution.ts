@@ -23,7 +23,7 @@ import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
 import {
   defaultMarkdownFontFamilies, getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE,
   defaultMarkdownFocusWidth, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FONT_FAMILY,
-  MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorModeContext,
+  MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_TYPEWRITER, markdownContentWidth, MarkdownEditorModeContext,
 } from '../common/markdownEditor.js';
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
@@ -41,6 +41,13 @@ configurationRegistry.registerConfiguration({
   id: 'markdownEditor',
   title: 'Markdown Editor',
   properties: {
+    [MARKDOWN_EDITOR_CONTENT_WIDTH]: {
+      type: 'integer',
+      default: markdownContentWidth.defaultValue,
+      minimum: markdownContentWidth.min,
+      maximum: markdownContentWidth.max,
+      description: 'Maximum width in characters for centered visual Markdown outside Focus Mode.',
+    },
     [MARKDOWN_EDITOR_FOCUS_WIDTH]: {
       type: 'string',
       default: defaultMarkdownFocusWidth,

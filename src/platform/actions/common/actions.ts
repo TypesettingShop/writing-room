@@ -39,6 +39,13 @@ interface IMenuEntry {
 export interface IMenuItem extends IMenuEntry {
   readonly command: ICommandAction;
   readonly args?: readonly unknown[];
+  readonly numberInput?: IMenuNumberInput;
+}
+
+export interface IMenuNumberInput {
+  readonly valueKey: string;
+  readonly min: number;
+  readonly max: number;
 }
 
 export interface ISubmenuItem extends IMenuEntry {
@@ -162,7 +169,8 @@ class MenuRegistryImpl {
 
 export const MenuRegistry = new MenuRegistryImpl();
 
-export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>;
+export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>
+  & Partial<Pick<IContextKeyService, 'getContextKeyValue'>>;
 
 export class MenuCommandContext {
   constructor(readonly menu: MenuId, readonly scope: IMenuContext) {}
@@ -186,6 +194,7 @@ export class MenuItemAction {
     keybindings: IKeybindingService,
     private readonly commandService: ICommandService,
     private readonly menuArgs: readonly unknown[] = [],
+    readonly numberInput?: IMenuNumberInput,
   ) {
     this.id = item.id;
     this.label = commandTitle(item.title);

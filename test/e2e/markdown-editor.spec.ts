@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { box, drag, expect, test } from './fixtures.js';
-import { runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
+import { persistedSettings, runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { chooseTheme } from './themes.helpers.js';
@@ -121,6 +121,48 @@ test('keeps Source mode available while rich Markdown is loading and after the r
   await page.keyboard.press('ControlOrMeta+Shift+m');
   await expect(group.getByRole('button', { name: 'Switch to WYSIWYG' })).toBeVisible();
   await expect(group.locator('.view-lines')).toContainText(source);
+});
+
+test('applies a shared Markdown content width on Enter and blur and restores it after reload', async ({ page }) => {
+  await page.addInitScript(key => {
+    if (localStorage.getItem(key) === null) {
+      localStorage.setItem('writing-room:storage:version', '2');
+      localStorage.setItem(key, JSON.stringify({ 'markdownEditor.contentWidth': '60' }));
+    }
+  }, settingsKey);
+  await page.goto('/');
+  const name = 'content-width.md';
+  const group = await openMarkdown(page, name, 'Shared width');
+  const left = richEditor(group);
+  const maxWidth = (editor: Locator) => editor.evaluate(element => Number.parseFloat(getComputedStyle(element).maxWidth));
+  const widthInput = (scope: Locator) => scope.getByRole('spinbutton', { name: 'Content Width (characters)' });
+  await expect(widthInput(group)).toHaveValue('80', { timeout: 20_000 });
+  const initialWidth = await maxWidth(left);
+  await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+  const rightGroup = groups(page).nth(1);
+  const right = richEditor(rightGroup);
+  const input = widthInput(rightGroup);
+  await expect(input).toHaveValue('80');
+  await input.fill('60');
+  await input.press('Enter');
+  await expect(widthInput(group)).toHaveValue('60');
+  expect(await maxWidth(left)).toBeCloseTo(initialWidth * 0.75, 0);
+  expect(await maxWidth(right)).toBe(await maxWidth(left));
+  for (const invalid of ['0', '-30', '60.5', '401', '']) {
+    await input.fill(invalid);
+    await input.press('Enter');
+    await expect(input).toHaveValue('60');
+  }
+  await input.fill('72');
+  await right.click();
+  await expect(input).toHaveValue('72');
+  await expect(widthInput(group)).toHaveValue('72');
+  expect(await persistedSettings(page)).toMatch(/"markdownEditor\.contentWidth":\s*72/);
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('Shared width');
+  await page.reload();
+  await expect(widthInput(group)).toHaveValue('72', { timeout: 20_000 });
+  await expect(input).toHaveValue('72');
 });
 
 test('keeps split source and WYSIWYG views synchronized on one dirty model', async ({ appPage: page }) => {

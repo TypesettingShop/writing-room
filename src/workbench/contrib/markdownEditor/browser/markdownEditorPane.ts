@@ -27,7 +27,8 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import {
-  defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH,
+  defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM,
+  MARKDOWN_EDITOR_FOCUS_WIDTH, markdownContentWidth, MarkdownEditorContentWidthContext, isMarkdownContentWidth,
   MARKDOWN_EDITOR_FONT_FAMILY, MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
   MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
@@ -118,6 +119,19 @@ export class MarkdownEditorPane extends EditorPane {
     this._register(this.configuration.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration(MARKDOWN_EDITOR_FONT_FAMILY)) {
         updateFonts();
+      }
+    }));
+    const contentWidth = MarkdownEditorContentWidthContext.bindTo(scoped);
+    const updateContentWidth = () => {
+      const value = this.configuration.getValue(MARKDOWN_EDITOR_CONTENT_WIDTH);
+      const width = isMarkdownContentWidth(value) ? value : markdownContentWidth.defaultValue;
+      this.frame.style.setProperty('--markdown-content-width', `${width}ch`);
+      contentWidth.set(width);
+    };
+    updateContentWidth();
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_CONTENT_WIDTH)) {
+        updateContentWidth();
       }
     }));
     const updateWritingPreferences = () => {
