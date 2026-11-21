@@ -95,7 +95,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 #### Markdown editor
 
-- writing-room은 `.md`와 `.markdown`의 기본 편집기로 ProseMirror 기반 코어 페인을 등록한다. 원문 모드는 같은 텍스트 파일 모델을 Monaco에서 보여 주며, 확장이 제공하는 Markdown Preview도 **Reopen Editor With...**에서 선택할 수 있다 (wr-ndsy).
+- `.md`와 `.markdown`은 ProseMirror 기반 코어 페인(WYSIWYG)으로 열린다. VS Code는 Markdown을 텍스트 편집기로 열고 렌더링은 확장의 미리 보기에 맡긴다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 저장·dirty·초안이 한 모델에 남으며, 확장이 제공하는 Markdown Preview도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy)
 
 #### Monaco editor
 

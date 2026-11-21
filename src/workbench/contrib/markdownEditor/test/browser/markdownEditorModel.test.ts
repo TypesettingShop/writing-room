@@ -88,4 +88,25 @@ describe('MarkdownEditorModel', () => {
       model.dispose();
     }
   });
+
+  it('redoes an external spelling change exactly after undoing the typing that followed it', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '# First\n\n* a\n* b\n');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      model.setValue('First\n=====\n\n- a\n- b\n');
+      sync.dispatch(sync.state.tr.insertText('!', sync.state.doc.content.size - 2).setTime(5000));
+      const typed = model.getValue();
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('First\n=====\n\n- a\n- b\n');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('# First\n\n* a\n* b\n');
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe('First\n=====\n\n- a\n- b\n');
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(typed);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
 });

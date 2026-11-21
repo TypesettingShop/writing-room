@@ -1,8 +1,8 @@
-import type { ITextModel } from '../common/model.js';
 // The one file that imports `monaco-editor`. The package is large and has workers of its own, so it
 // is loaded on demand: the first text editor that opens pays for it, the first paint does not.
 import type * as Monaco from 'monaco-editor';
 import type { KeyCodeChord } from '../../base/common/keybindings.js';
+import type { ITextModel } from '../common/model.js';
 import { announceEditorLoaded } from '../../platform/theme/browser/editorThemeHook.js';
 import { installCodeActionStateOrder } from './codeActionStateOrder.js';
 import { editorTextModelResolver } from './textModelServiceHook.js';

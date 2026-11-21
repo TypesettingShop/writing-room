@@ -73,11 +73,17 @@ export class MarkdownEditorModel extends Disposable {
     const previousDoc = this.state.doc;
     this.state = this.applyTransaction(transaction, isolate);
     if (previousDoc !== this.state.doc) {
-      const snapshot = isHistoryTransaction(transaction) ? this.snapshots.get(this.state.doc.content) : undefined;
+      const fromHistory = isHistoryTransaction(transaction);
+      const snapshot = fromHistory ? this.snapshots.get(this.state.doc.content) : undefined;
       if (snapshot) {
         this.sourceDoc = snapshot.provenance;
       }
       const source = snapshot?.text ?? serializeMarkdown(this.sourceDoc.copy(this.state.doc.content));
+      if (fromHistory && !snapshot) {
+        // Undoing later typing rebuilds the fragment an external change produced. A redo of that
+        // change starts from this fragment and has to find the text and provenance written here.
+        this.snapshots.set(this.state.doc.content, { text: source, provenance: this.sourceDoc });
+      }
       const edit = getTextModelEdit(this.textModel, source);
       if (edit) {
         const previousVersion = this.writingVersion;
