@@ -10,12 +10,14 @@ const editorMime = 'application/x-writing-room-editor';
 /** The marker type of a drag of extension tree items. */
 export const treeMime = 'application/x-writing-room-tree';
 
-/** Calls `end` however a drag from `source` ends: its `dragend`, Escape, or the window losing focus or the page. */
+/**
+ * Calls `end` on the source's `dragend`, Escape, or `pagehide`.
+ * Wayland can move focus away from the window while a native drag is still in progress.
+ */
 function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
   const window = source.ownerDocument.defaultView!;
   session.add(addDisposableListener(source, 'dragend', end));
   session.add(addDisposableListener(window, 'pagehide', end));
-  session.add(addDisposableListener(window, 'blur', end));
   session.add(addDisposableListener(window, 'keydown', event => {
     if (event.key === 'Escape') {
       end();
@@ -74,19 +76,16 @@ export class CompositeDragAndDropObserver {
 
   registerTarget(element: HTMLElement, target: CompositeDropTarget): IDisposable {
     const registrations = new DisposableStore();
-    const onDragOver = (event: DragEvent) => {
-      const item = this.getItem(element, event);
-      if (item && target.onDragOver(event, item)) {
-        event.preventDefault();
-        event.dataTransfer!.dropEffect = 'move';
-      } else {
-        target.onDragLeave();
-      }
-    };
-    // Set the operation on entry, including when the pointer moves between children of this target.
-    registrations.add(addDisposableListener(element, 'dragenter', onDragOver));
     const observer = registrations.add(new DragAndDropObserver(element, {
-      onDragOver,
+      onDragOver: event => {
+        const item = this.getItem(element, event);
+        if (item && target.onDragOver(event, item)) {
+          event.preventDefault();
+          event.dataTransfer!.dropEffect = 'move';
+        } else {
+          target.onDragLeave();
+        }
+      },
       onDragLeave: () => target.onDragLeave(),
       onDrop: event => {
         const item = this.getItem(element, event);
@@ -149,7 +148,7 @@ export class EditorDragAndDropObserver {
 
   private readonly transfer = LocalSelectionTransfer.getInstance<DraggedEditorItem>();
   private readonly _onDidEndDrag = new Emitter<void>();
-  /** Fires once when the drag ends: drop, `dragend`, Escape, blur or page hide. */
+  /** Fires once when the drag ends: drop, `dragend`, Escape or `pagehide`. */
   readonly onDidEndDrag = this._onDidEndDrag.event;
   private readonly session = new DisposableStore();
   private source: HTMLElement | undefined;

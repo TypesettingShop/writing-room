@@ -472,6 +472,9 @@ test.describe('upload and download', () => {
     expect(over.taken).toEqual([true, true]);
     await expect(treeItem(page, 'inbox')).toHaveAttribute(DROP_TARGET_ATTRIBUTE);
     await expect(explorerTree(page)).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    // Blur clears the marker. The drop still resolves the folder under the pointer.
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+    await expect(treeItem(page, 'inbox')).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
     const drop = await dragFiles(treeItem(page, 'inbox'), ['drop'], [{ name: 'in.md', text: 'into inbox' }, { name: 'raw.bin', bytes: binary }]);
     expect(drop.taken).toEqual([true]);
     await expect(treeItem(page, 'inbox')).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);

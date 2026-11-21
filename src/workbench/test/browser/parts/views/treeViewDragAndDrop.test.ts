@@ -82,7 +82,7 @@ afterEach(() => {
   disposables.dispose();
 });
 
-test('Escape ends a tree drag: no mark, no payload, a cancelled handleDrag and a released host value', async () => {
+test.each(['Escape', 'pagehide'])('%s ends a tree drag, clearing its mark, payload and host value', end => {
   register('tree', 'e');
   const { row, content } = pane('tree');
   const data = transfer();
@@ -93,7 +93,11 @@ test('Escape ends a tree drag: no mark, no payload, a cancelled handleDrag and a
   expect(dispatch(row, 'dragover', data).defaultPrevented).toBe(true);
   expect(row.classList.contains('drop-target')).toBe(true);
 
-  dispatch(window, 'keydown', undefined, { key: 'Escape' });
+  if (end === 'Escape') {
+    dispatch(window, 'keydown', undefined, { key: 'Escape' });
+  } else {
+    dispatch(window, end);
+  }
   expect(row.classList.contains('drop-target')).toBe(false);
   expect(LocalSelectionTransfer.getInstance().hasData(DraggedTreeItems.prototype)).toBe(false);
   expect(tokens[0].isCancellationRequested).toBe(true);
@@ -103,7 +107,7 @@ test('Escape ends a tree drag: no mark, no payload, a cancelled handleDrag and a
   expect(TreeDragAndDropObserver.INSTANCE.getDraggedItem(data as unknown as DragEvent, content)).toBeUndefined();
 });
 
-test('a dropped tree drag reaches the target tree with the source values, and the source ends without cancelling', async () => {
+test('window blur preserves a tree drag and its source values through drop', async () => {
   register('source', 'e');
   register('target', 'e', { dropMimeTypes: ['application/vnd.test'] });
   const from = pane('source');
@@ -111,7 +115,12 @@ test('a dropped tree drag reaches the target tree with the source values, and th
   const data = transfer();
   dispatch(from.row, 'dragstart', data);
   expect(dispatch(to.row, 'dragover', data).defaultPrevented).toBe(true);
-  dispatch(to.row, 'drop', data);
+
+  window.dispatchEvent(new Event('blur'));
+  data.dropEffect = 'none';
+  expect(dispatch(to.row, 'dragover', data).defaultPrevented).toBe(true);
+  expect(data.dropEffect).toBe('copy');
+  expect(dispatch(to.row, 'drop', data).defaultPrevented).toBe(true);
   await vi.waitFor(() => expect(drops).toHaveLength(1));
   expect(drops[0]).toEqual(['row', [
     { mimeType: 'application/vnd.code.tree.source', value: JSON.stringify({ id: 'source', itemHandles: ['row'] }) },
