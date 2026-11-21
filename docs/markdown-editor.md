@@ -112,10 +112,11 @@
 다음 명령을 실행한다.
 
 ```sh
-MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.property.test.ts
+MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.property.test.ts --disableConsoleIntercept
 ```
 
 테스트는 무편집 원문, 정규화, 텍스트 편집 저장, 클래스 편집 저장을 검사한다.
+전체 실행은 검사한 입력 수와 저장 경로별 정규화 횟수를 출력한다.
 들여쓴 코드의 펜스 표기와 클래스 경계를 지키기 위해 촘촘한 목록이 느슨해지는
 경우만 모델 속성 차이로 허용한다. 문서 트리와 클래스 순서, 인라인 서식과
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
