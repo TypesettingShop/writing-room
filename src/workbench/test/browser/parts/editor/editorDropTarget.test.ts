@@ -16,7 +16,7 @@ import { getSplitDirection } from '../../../../browser/parts/editor/editorDropTa
 import { EditorPane } from '../../../../browser/parts/editor/editorPane.js';
 import { EditorPart } from '../../../../browser/parts/editor/editorPart.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
-import { GroupDirection, IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
+import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import '../../../../workbench.web.main.js';
 
 const { UP, DOWN, LEFT, RIGHT } = GroupDirection;
@@ -300,6 +300,28 @@ describe('dropping on a group body', () => {
     expect(part.activeGroup).toBe(right);
   });
 
+  test('window blur preserves the drag of a group dropped on an edge', () => {
+    placeGroup(right);
+    const strip = left.element.querySelector<HTMLElement>('[role="tablist"]')!;
+    const target = bodyOf(right);
+    const point = { clientX: 990, clientY: 300 };
+    const data = transfer();
+    dispatch(strip, 'dragstart', data);
+    dispatch(target, 'dragenter', data, point);
+    expect(overlay()?.getAttribute('data-editor-drop-position')).toBe('right');
+
+    window.dispatchEvent(new Event('blur'));
+    data.dropEffect = 'none';
+    expect(dispatch(target, 'dragover', data, point).defaultPrevented).toBe(true);
+    expect(data.dropEffect).toBe('move');
+    expect(overlay()?.getAttribute('data-editor-drop-position')).toBe('right');
+    expect(dispatch(overlay()!.parentElement!, 'drop', data, point).defaultPrevented).toBe(true);
+
+    expect(part.getGroups(GroupsOrder.GRID_APPEARANCE)).toEqual([right, left]);
+    expect([right.editors, left.editors]).toEqual([[c], [a, b]]);
+    expect(overlay()).toBeNull();
+  });
+
   test('a group\'s only tab and a group over itself get no overlay, and their drops do nothing', () => {
     placeGroup(right);
     for (const source of [tabOf(right, 'c'), right.element.querySelector<HTMLElement>('[role="tablist"]')!]) {
@@ -316,13 +338,13 @@ describe('dropping on a group body', () => {
     expect(right.editors).toEqual([c]);
   });
 
-  test('the overlay and the payload go on Escape, and the next drop finds nothing', () => {
+  test.each(['Escape', 'pagehide'])('the overlay and the payload go on %s, and the next drop finds nothing', end => {
     placeGroup(right);
     const data = transfer();
     dispatch(tabOf(left, 'a'), 'dragstart', data);
     dispatch(bodyOf(right), 'dragenter', data, { clientX: 500, clientY: 300 });
     const overlayElement = overlay()!.parentElement!;
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    window.dispatchEvent(end === 'Escape' ? new KeyboardEvent('keydown', { key: 'Escape' }) : new Event(end));
     expect(overlay()).toBeNull();
     expect(LocalSelectionTransfer.getInstance().hasData(DraggedEditorIdentifier.prototype)).toBe(false);
     dispatch(overlayElement, 'drop', data, { clientX: 500, clientY: 300 });
@@ -368,6 +390,26 @@ describe('dropping on a group body', () => {
 });
 
 describe('the strip', () => {
+  test('window blur preserves the drag of a tab reordered within its strip', () => {
+    const data = transfer();
+    const target = tabOf(left, 'b');
+    const point = { clientX: 80 };
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect);
+    dispatch(tabOf(left, 'a'), 'dragstart', data);
+    expect(dispatch(target, 'dragenter', data, point).defaultPrevented).toBe(true);
+    expect(target.getAttribute('data-tab-drop-position')).toBe('after');
+
+    window.dispatchEvent(new Event('blur'));
+    data.dropEffect = 'none';
+    expect(dispatch(target, 'dragover', data, point).defaultPrevented).toBe(true);
+    expect(data.dropEffect).toBe('move');
+    expect(dispatch(target, 'drop', data, point).defaultPrevented).toBe(true);
+
+    expect(left.editors).toEqual([b, a]);
+    expect(target.hasAttribute('data-tab-drop-position')).toBe(false);
+    expect(LocalSelectionTransfer.getInstance().hasData(DraggedEditorIdentifier.prototype)).toBe(false);
+  });
+
   test('marks the hovered half and drops a tab from another group there, uncorrected', () => {
     const data = transfer();
     dispatch(tabOf(right, 'c'), 'dragstart', data);
