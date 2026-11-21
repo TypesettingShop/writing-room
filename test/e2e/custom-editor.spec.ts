@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect as baseExpect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { treeItem } from './explorer.helpers.js';
 import {
@@ -7,6 +8,10 @@ import {
   waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
 import manifest from '../fixtures/extensions/custom-editor/package.json' with { type: 'json' };
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 const editorStateKey = 'writing-room:storage:1:memento/workbench.parts.editor';
 

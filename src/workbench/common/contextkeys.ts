@@ -5,6 +5,8 @@ import { ILanguageService } from '../../editor/common/languages/language.js';
 import { IModelService } from '../../editor/common/services/model.js';
 import { RawContextKey } from '../../platform/contextkey/common/contextkey.js';
 import type { IContextKey, IContextKeyService } from '../../platform/contextkey/common/contextkey.js';
+import { getMarkdownEditorMode, MarkdownEditorModeContext } from '../contrib/markdownEditor/common/markdownEditor.js';
+import type { MarkdownEditorMode } from '../contrib/markdownEditor/common/markdownEditor.js';
 import type { EditorInput } from './editor/editorInput.js';
 
 export const SideBarVisibleContext = new RawContextKey<boolean>('sideBarVisible', false);
@@ -131,6 +133,7 @@ export class ResourceContextKey extends Disposable {
 export class ActiveEditorContextKeys extends Disposable {
   private readonly resource: ResourceContextKey;
   private readonly readonly: IContextKey<boolean>;
+  private readonly mode: IContextKey<MarkdownEditorMode | null>;
   private readonly dirty: IContextKey<boolean>;
   private readonly dirtyListener = this._register(new MutableDisposable());
 
@@ -147,6 +150,7 @@ export class ActiveEditorContextKeys extends Disposable {
     super();
     this.resource = this._register(new ResourceContextKey(contextKeyService, modelService, languageService));
     this.readonly = ActiveEditorReadonlyContext.bindTo(contextKeyService);
+    this.mode = MarkdownEditorModeContext.bindTo(contextKeyService);
     this.dirty = ActiveEditorDirtyContext.bindTo(contextKeyService);
   }
 
@@ -156,6 +160,7 @@ export class ActiveEditorContextKeys extends Disposable {
     } else {
       this.resource.reset();
     }
+    this.mode.set(getMarkdownEditorMode(editor));
     this.readonly.set(editor?.isReadonly() ?? false);
     this.dirty.set(editor?.isDirty() ?? false);
     this.dirtyListener.value = editor?.onDidChangeDirty(() => this.dirty.set(editor.isDirty()));

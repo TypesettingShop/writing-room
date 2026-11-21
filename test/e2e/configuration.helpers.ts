@@ -49,3 +49,15 @@ export async function saveSettings(page: Page): Promise<void> {
 }
 
 export const persistedSettings = (page: Page) => page.evaluate(key => localStorage.getItem(key), settingsKey);
+
+/** Keeps Monaco as the default in suites that exercise its Markdown language features. */
+export async function startWithMarkdownSource(page: Page): Promise<void> {
+  await page.addInitScript(key => {
+    if (window.top === window && /^https?:$/.test(location.protocol) && localStorage.getItem(key) === null) {
+      if (localStorage.getItem('writing-room:storage:version') === null) {
+        localStorage.setItem('writing-room:storage:version', '2');
+      }
+      localStorage.setItem(key, JSON.stringify({ 'markdownEditor.defaultMode': 'source' }));
+    }
+  }, settingsKey);
+}

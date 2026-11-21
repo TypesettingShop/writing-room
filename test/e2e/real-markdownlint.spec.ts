@@ -4,6 +4,7 @@
 // formatting, settings, the workspace's configuration file, the output channel, a command, a reload and removal.
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { problemNames, problemsStatus, openProblemsCommand } from './diagnostics.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { waitForStorage, writeWorkspaceFile } from './files.helpers.js';
@@ -15,6 +16,10 @@ import {
   installFromGallery, installedExtensions, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
 } from './real-extensions.helpers.js';
 import { outputView } from './window-ui.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 test.use({ viewport: { width: 1280, height: 800 } });
 

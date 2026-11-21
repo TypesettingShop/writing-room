@@ -2,11 +2,16 @@ import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import type { IExtensionManifest } from '../../src/platform/extensions/common/extensions.js';
 import { expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { explorerTree, rowNames, treeItem } from './explorer.helpers.js';
 import {
   expectEditorText, groups, quickInputBox, quickPick, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 const manifest = JSON.parse(readFileSync(new URL('../fixtures/extensions/documents/package.json', import.meta.url), 'utf8')) as IExtensionManifest;
 

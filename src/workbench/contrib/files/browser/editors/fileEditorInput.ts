@@ -5,13 +5,12 @@ import type { IResourceEditorInput } from '../../../../../platform/editor/common
 import type { IReference, IResolvedTextEditorModel, ITextEditorModel } from '../../../../../editor/common/services/resolverService.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { FILE_EDITOR_INPUT_ID } from '../../../../common/editor.js';
 import type { GroupIdentifier } from '../../../../common/editor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
 import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../../../common/editor/editorInput.js';
 import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
-
-export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
 
 export interface IFileEditorInputOptions {
   /** Restored with a draft: dirty until its model says otherwise. */

@@ -17,6 +17,7 @@ import type { Locator, Page } from '@playwright/test';
 import { createServer as devServer, preview as previewServer } from 'vite';
 import { openForwardingProxy } from '../fixtures/forwarding-proxy.mjs';
 import { expect as baseExpect, collectPageErrors, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { chooseOption, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { activeGroup, editorText } from './language-basics.helpers.js';
@@ -31,6 +32,10 @@ import {
   installFromGallery, openExtensions, realPin, requireRealExtensions, routeFixtureGallery, uninstallButton,
 } from './real-extensions.helpers.js';
 import { expectSymbolsOpen, openFromPalette, symbolRow, symbolsField } from './workspace-symbols.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 // The extension starts a language server in a nested Worker and the preview loads two frames and a service worker;
 // on a busy machine each of these takes seconds.

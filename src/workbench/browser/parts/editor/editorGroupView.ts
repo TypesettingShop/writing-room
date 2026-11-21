@@ -267,7 +267,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
   }
 
   async replaceEditors(editors: readonly IEditorReplacement[]): Promise<void> {
-    for (const { editor, replacement, options } of editors) {
+    for (const { editor, replacement, options, inheritViewState = true } of editors) {
       const existing = this.model.findEditor(editor)?.[0];
       if (!existing || this._disposed) {
         continue;
@@ -277,7 +277,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
       const active = this.model.isActive(existing);
       // The replacement goes in front of the editor, which then leaves without a question: it is
       // replaced, not closed by the user.
-      const viewState = options?.viewState ?? this.getViewState(existing);
+      const viewState = options?.viewState ?? (inheritViewState ? this.getViewState(existing) : undefined);
       const shown = this.openEditor(replacement, {
         ...options,
         viewState,

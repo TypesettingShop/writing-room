@@ -3,11 +3,16 @@ import { test as base } from '@playwright/test';
 import { treeItem } from './explorer.helpers.js';
 import { waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import { expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import {
   activeEditor, activeGroup, blockCommentKey, changeLanguage, editorText, installLanguageFixture, languageStatus, message, newUntitled, openEditorContextMenu, openWithLanguageFixtures, pasteText,
   recordRequests, runCommand, toggleBlockCommentUntil, tokenScopes,
 } from './language-basics.helpers.js';
 import { savedIdentifiers } from './packages.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 test.describe('language registry and language mode', () => {
   test('shows the language of the active text editor and changes it from the status bar', async ({ page }) => {

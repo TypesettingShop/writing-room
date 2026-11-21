@@ -5,10 +5,11 @@ import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
-import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
+import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -22,6 +23,7 @@ export class MarkdownEditorPane extends EditorPane {
   private surface!: HTMLElement;
   private error!: HTMLElement;
   private view: EditorView | undefined;
+  private sync: MarkdownEditorModel | undefined;
   private readonly session = this._register(new DisposableStore());
   private request = 0;
   private pendingFocus = false;
@@ -35,9 +37,10 @@ export class MarkdownEditorPane extends EditorPane {
     this.error = append(parent, $('.markdown-editor-error', { hidden: '', role: 'alert', tabindex: '-1' }));
   }
 
-  override async setInput(input: EditorInput, options: IEditorOptions | undefined): Promise<void> {
+  override async setInput(input: EditorInput, options: ITextEditorOptions | undefined): Promise<void> {
     if (this.view && input === this.input) {
-      await super.setInput(input, options);
+      void super.setInput(input, options);
+      this.applySelection(options?.selection);
       return;
     }
     const focus = this.view?.hasFocus() ?? this.pendingFocus;
@@ -58,7 +61,7 @@ export class MarkdownEditorPane extends EditorPane {
       if (!textEditorModel || textEditorModel.isDisposed()) {
         throw new Error('the file has no text model.');
       }
-      const sync = this.session.add(new MarkdownEditorModel(textEditorModel, [keymap(baseKeymap)], state => {
+      const sync = this.sync = this.session.add(new MarkdownEditorModel(textEditorModel, [keymap(baseKeymap)], state => {
         this.view?.updateState(state);
       }));
       const view = this.view = new EditorView(this.surface, {
@@ -95,6 +98,7 @@ export class MarkdownEditorPane extends EditorPane {
       });
       this.session.add(toDisposable(() => view.destroy()));
       this.session.add(input.onDidChangeLabel(() => view.setProps({})));
+      this.applySelection(options?.selection);
     } catch (error) {
       if (request !== this.request) {
         return;
@@ -113,10 +117,28 @@ export class MarkdownEditorPane extends EditorPane {
     this.pendingFocus = false;
     this.session.clear();
     this.view = undefined;
+    this.sync = undefined;
     this.surface.hidden = false;
     this.error.hidden = true;
     this.error.textContent = '';
     super.clearInput();
+  }
+
+  getSourceSelection(): ITextEditorSelection | undefined {
+    const sync = this.sync;
+    if (sync) {
+      const { doc, selection } = sync.state;
+      return toSourceSelection(sync.textModel, doc, selection.from, selection.to);
+    }
+    return undefined;
+  }
+
+  private applySelection(selection: ITextEditorSelection | undefined): void {
+    const sync = this.sync;
+    if (sync && selection) {
+      const next = toMarkdownSelection(sync.textModel, sync.state.doc, selection);
+      sync.dispatch(sync.state.tr.setSelection(next).scrollIntoView());
+    }
   }
 
   override layout({ width, height }: Dimension): void {
