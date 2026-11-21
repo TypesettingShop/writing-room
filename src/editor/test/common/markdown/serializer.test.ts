@@ -177,6 +177,8 @@ describe('Markdown save normalization', () => {
       'bullet_list', 1, true],
     ['loose list with a rule class', '-\n  ---\n\n  {.old}\n\n- tail', '-\n  ---\n\n  {.old}\n\n- tail',
       '-\n  ---\n\n  {.rule}\n\n- tail', 'bullet_list', 2, false],
+    ['two nested dash markers in a loose item', '- text\n\n  - -\n      ---', '- text\n\n  - -\n      ---',
+      '- text\n\n  - -\n      ---\n      {.rule}', 'bullet_list', 1, true],
   ] as const)('keeps the first rule inside its item (%s)', (_name, source, expected, editedSource, listType, count, tight) => {
     const doc = parseMarkdown(source);
     let rulePosition = -1;
@@ -261,6 +263,9 @@ describe('Markdown save normalization', () => {
       ['paragraph', 'table', 'heading']],
     ['tight table after a quote', '- > lead\n  >\n  | h |\n  | --- |\n  | b |', true,
       ['paragraph', 'blockquote', 'table']],
+    ['tight item with adjacent bullet lists', '- lead\n  - one\n  * two', true, ['paragraph', 'bullet_list', 'bullet_list']],
+    ['tight item with adjacent ordered lists', '- lead\n  1. one\n  1) two', true,
+      ['paragraph', 'ordered_list', 'ordered_list']],
     ['loose heading', '- lead\n\n  # heading', false, ['paragraph', 'heading']],
     ['loose dash rule with a class', '- lead\n\n  ---\n\n  {.rule}', false, ['paragraph', 'horizontal_rule']],
     ['loose table with a class', '- lead\n\n  | h |\n  | --- |\n  | b |\n\n  {.table}', false, ['paragraph', 'table']],
@@ -296,6 +301,58 @@ describe('Markdown save normalization', () => {
     expect(item.child(1).attrs.classes).toEqual(['rule']);
     expect.soft(canonical(rule)).toBe('- lead\n  - - - -\n  {.rule}');
     expect(parseMarkdown(canonical(rule)).eq(rule)).toBe(true);
+  });
+
+  function tightenFirstList(doc: Node): Node {
+    const state = EditorState.create({ doc });
+    return state.apply(state.tr.setNodeMarkup(0, undefined, { ...doc.firstChild!.attrs, tight: true })).doc;
+  }
+
+  it.each([
+    ['bullet list', '- lead\n  - sub\n\n  | h |\n  | --- |'],
+    ['ordered list', '- lead\n  1. sub\n\n  | h |\n  | --- |'],
+    ['list ending in a quote', '- lead\n  - > sub\n\n  | h |\n  | --- |'],
+  ] as const)('keeps a table after a tight nested %s out of its last paragraph', (_name, source) => {
+    const doc = tightenFirstList(parseMarkdown(source));
+    const saved = canonical(doc);
+    expect.soft(saved).toBe(source);
+    const item = parseMarkdown(saved).firstChild!.firstChild!;
+    expect(item.child(1).textContent).toBe('sub');
+    expect(item.lastChild!.type.name).toBe('table');
+  });
+
+  it.each([
+    ['paragraph', '- text\n\n  *\n    ***'],
+    ['task paragraph', '- [ ] text\n\n  -\n    ---'],
+    ['rule class trailer', '- ***\n  {.rule}\n\n  -\n    ---'],
+  ] as const)('ends a tight %s before a nested list that moves its rule off the marker line', (_name, source) => {
+    const doc = tightenFirstList(parseMarkdown(source));
+    const saved = canonical(doc);
+    expect.soft(saved).toBe(source);
+    // An item that starts with a blank line cannot interrupt a paragraph, so the outer list may become loose.
+    expect(parseMarkdown(saved).firstChild!.firstChild!.eq(doc.firstChild!.firstChild!)).toBe(true);
+  });
+
+  it.each([
+    ['three dash items', '- -\n    -', '- -\n    - '],
+    ['four asterisk items', '* *\n    * *', '* *\n    * * '],
+    ['three dash items in an ordered item', '1. -\n     - -', '1. -\n     - - '],
+  ] as const)('keeps empty nested items from forming a rule (%s)', (_name, source, expected) => {
+    const doc = parseMarkdown(source);
+    expect(doc.firstChild!.type.name).not.toBe('horizontal_rule');
+    const saved = canonical(doc);
+    expect.soft(saved).toBe(expected);
+    expect(parseMarkdown(saved).eq(doc)).toBe(true);
+  });
+
+  it.each([
+    ['ordered rule chain', '1. - -\n       ---'],
+    ['asterisk rule chain', '* - -\n      ---'],
+    ['ordered empty chain', '1. - - '],
+  ] as const)('keeps two nested dash markers on one line under another marker (%s)', (_name, source) => {
+    const doc = parseMarkdown(source);
+    expect(canonical(doc)).toBe(source);
+    expect(parseMarkdown(canonical(doc)).eq(doc)).toBe(true);
   });
 
   it('keeps a loose list loose when its emptied first paragraph is dropped', () => {

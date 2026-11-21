@@ -54,6 +54,8 @@ interface RenderedList extends ListMarker {
 
 const lastListInScope = new WeakMap<MarkdownSerializerState, RenderedList>();
 const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
+// The written marker of the list whose items are being rendered.
+const renderingMarkers = new WeakMap<MarkdownSerializerState, string>();
 // prosemirror-markdown's list renderer uses one continuation indent for the
 // whole list. Keep its block-closing behavior while choosing the indent per item.
 type ListSerializerState = MarkdownSerializerState & {
@@ -69,14 +71,34 @@ function skipsPlaceholder(item: Node): boolean {
     !classSuffix(item.firstChild!.attrs) && !classSuffix(item.attrs);
 }
 
-function needsRuleMarkerBreak(item: Node, marker: string, sharesMarkerLine: boolean): boolean {
+function isBareItem(item: Node): boolean {
+  // An item holding only an empty, unstyled paragraph writes nothing after its marker.
+  return item.type.name === 'list_item' && item.childCount === 1 && !item.firstChild!.content.size &&
+    !classSuffix(item.firstChild!.attrs) && !classSuffix(item.attrs);
+}
+
+/**
+ * `run` counts the identical markers on the line up to this item's marker. It is 0 when
+ * the list starts its own line.
+ */
+function needsRuleMarkerBreak(item: Node, marker: string, run: number, nested = false): boolean {
+  // Three identical markers with nothing after them form a rule (for example, "- - -").
+  if (nested && isBareItem(item)) return run >= 3;
   if (!skipsPlaceholder(item)) return false;
   const first = item.child(1);
-  // A rule on the marker line can consume the marker itself (for example, "- ---").
-  if (first.type.name === 'horizontal_rule') return (first.attrs.markup ?? '---')[0] === marker;
-  // A nested chain ending in such a rule can leave three identical bare markers on a line.
-  return sharesMarkerLine && first.type.name === 'bullet_list' && first.attrs.bullet === marker &&
-    needsRuleMarkerBreak(first.firstChild!, marker, true);
+  if (first.type.name === 'horizontal_rule') {
+    // A rule on the marker line can consume the marker itself (for example, "- ---"). A nested
+    // list moves such a rule to its next line, which leaves only the markers behind.
+    return (first.attrs.markup ?? '---')[0] === marker && (!nested || run >= 3);
+  }
+  return run > 0 && first.type.name === 'bullet_list' && first.attrs.bullet === marker &&
+    needsRuleMarkerBreak(first.firstChild!, marker, run + 1, true);
+}
+
+function endsWithParagraphLine(block: Node | null): boolean {
+  // Paragraphs and class trailers written on their own line are paragraph text.
+  return Boolean(block && (block.type.name === 'paragraph' ||
+    (block.type.name !== 'heading' && classSuffix(block.attrs))));
 }
 
 function renderList(
@@ -90,24 +112,35 @@ function renderList(
   const adjacent = previous?.parent === parent && previous.index === index - 1 ? previous : undefined;
   const current = separateListMarker(listMarker(node)!, adjacent);
   const listState = state as ListSerializerState;
-  if (listState.closed?.type === node.type) listState.flushClose(3);
-  else if (listState.inTightList) listState.flushClose(1);
-
   const item = node.firstChild!;
+  // A changed marker already ends the previous list. Blank lines would make a tight parent item loose.
+  if (listState.closed?.type === node.type && !listState.inTightList) {
+    listState.flushClose(3);
+  } else if (endsWithParagraphLine(listState.closed) && needsRuleMarkerBreak(item, current.marker, 0)) {
+    // An item that starts with a blank line cannot interrupt a paragraph, so end the paragraph first.
+    listState.flushClose(2);
+  } else if (listState.inTightList) {
+    listState.flushClose(1);
+  }
+
   const blocks = item.childCount - (skipsPlaceholder(item) ? 1 : 0);
   const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1;
   const outerItem = looseSingleItems.get(state);
   const outerTight = listState.inTightList;
   if (needsLooseTrailer) looseSingleItems.set(state, item);
+  const parentMarker = renderingMarkers.get(state);
+  renderingMarkers.set(state, current.marker);
   listState.inTightList = node.attrs.tight;
   node.forEach((child, _offset, itemIndex) => {
     if (itemIndex && node.attrs.tight) listState.flushClose(1);
     const delim = firstDelim(current.marker, itemIndex);
     const sharesMarkerLine = isListItem(parent) && !listState.closed && !listState.atBlank();
-    const firstLine = needsRuleMarkerBreak(child, current.marker, sharesMarkerLine)
-      ? delim.trimEnd() + '\n' : delim;
+    const run = sharesMarkerLine ? (parentMarker === current.marker ? 2 : 1) : 0;
+    const firstLine = needsRuleMarkerBreak(child, current.marker, run) ? delim.trimEnd() + '\n' : delim;
     state.wrapBlock(' '.repeat(delim.length), firstLine, node, () => state.render(child, node, itemIndex));
   });
+  if (parentMarker === undefined) renderingMarkers.delete(state);
+  else renderingMarkers.set(state, parentMarker);
   listState.inTightList = outerTight;
   if (needsLooseTrailer) {
     if (outerItem) looseSingleItems.set(state, outerItem);
@@ -135,8 +168,11 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       const previousType = previous.type.name;
       const childType = child.type.name;
       const previousHasClasses = Boolean(classSuffix(previous.attrs));
+      // A table cannot interrupt a nested list, so its rows would continue the list's last paragraph.
+      const tableStartsBlock = previousType !== 'table' && previousType !== 'bullet_list' &&
+        previousType !== 'ordered_list';
       const startsWithoutBlankLine = childType === 'code_block' || childType === 'heading' ||
-        childType === 'horizontal_rule' || (childType === 'table' && previousType !== 'table') ||
+        childType === 'horizontal_rule' || (childType === 'table' && tableStartsBlock) ||
         (childType === 'blockquote' && (previousType !== 'blockquote' || previousHasClasses));
       const paragraphFollowsWithoutBlankLine = childType === 'paragraph' && (previousType === 'heading' ||
         (!previousHasClasses && (previousType === 'code_block' || previousType === 'blockquote' ||
@@ -294,11 +330,8 @@ const markdownSerializer = new MarkdownSerializer({
     const tight = isTightItem(state, parent);
     let markup: string = node.attrs.markup ?? '---';
     if (tight && /^-{3,}$/.test(markup) && index > (skipsPlaceholder(parent) ? 1 : 0)) {
-      const previous = parent.child(index - 1);
       // Space the dashes so the preceding paragraph or class trailer cannot become a Setext heading.
-      if (previous.type.name === 'paragraph' || (previous.type.name !== 'heading' && classSuffix(previous.attrs))) {
-        markup = [...markup].join(' ');
-      }
+      if (endsWithParagraphLine(parent.child(index - 1))) markup = [...markup].join(' ');
     }
     state.write(markup);
     finishBlock(state, node, tight);
@@ -311,8 +344,7 @@ const markdownSerializer = new MarkdownSerializer({
     const previous = parent.maybeChild(index - 1);
     // A list starting above 1 cannot interrupt a paragraph, including the class line
     // written after a styled block, without a blank line.
-    if (start !== 1 && previous && (previous.type.name === 'paragraph' ||
-      (previous.type.name !== 'heading' && classSuffix(previous.attrs)))) state.write();
+    if (start !== 1 && endsWithParagraphLine(previous)) state.write();
     renderList(state, node, parent, index, (marker, item) => String(start + item) + marker + ' ');
   },
   list_item: renderItemContent,
