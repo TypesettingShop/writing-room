@@ -39,14 +39,18 @@ export const insertMarkdownTable: Command = (state, dispatch) => {
   if (tablePosition($from) || tablePosition($to)) return false;
   const node = table.create(null, [true, false].map(header => table_row.create(null,
     Array.from({ length: 2 }, () => table_cell.create({ header })))));
-  const tr = state.tr.replaceSelectionWith(node);
-  let pos: number | undefined;
-  tr.doc.nodesBetween(tr.mapping.map(state.selection.from, -1), tr.mapping.map(state.selection.to, 1), (candidate, offset) => {
-    if (candidate === node) pos = offset;
-    return pos === undefined;
+  // The table may land before or after the caret's paragraph, outside the old selection, so look
+  // for it in the range the insertion step wrote.
+  const tr = state.tr.replaceSelectionWith(node, false);
+  let inserted: { node: Node; pos: number } | undefined;
+  tr.mapping.maps.at(-1)?.forEach((_from, _to, newFrom, newTo) => {
+    tr.doc.nodesBetween(newFrom, newTo, (candidate, pos) => {
+      if (!inserted && candidate.type === table) inserted = { node: candidate, pos };
+      return !inserted && !candidate.isTextblock;
+    });
   });
-  if (pos === undefined) return false;
-  dispatch?.(selectCell(tr, node, pos, 0, 0));
+  if (!inserted) return false;
+  dispatch?.(selectCell(tr, inserted.node, inserted.pos, 0, 0));
   return true;
 };
 

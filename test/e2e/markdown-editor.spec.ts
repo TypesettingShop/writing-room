@@ -638,6 +638,26 @@ test('focus mode restores part sizes and keeps a previously hidden part hidden',
   await expect(sidebar).toBeVisible();
 });
 
+test('focus mode yields to layout commands and lets Escape close quick input first', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'focus-yield.md', 'Text');
+  const editor = richEditor(group);
+  const sidebar = page.locator('[id="workbench.parts.sidebar"]');
+  const statusbar = page.locator('[id="workbench.parts.statusbar"]');
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(statusbar).toBeHidden();
+  await runCommand(page, 'Toggle Status Bar Visibility', /^View: Toggle Status Bar Visibility$/);
+  await expect(statusbar).toBeVisible();
+  await page.keyboard.press('F1');
+  await expect(page.getByRole('combobox')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('combobox')).toBeHidden();
+  await expect(sidebar).toBeHidden();
+  await editor.click();
+  await page.keyboard.press('Escape');
+  await expect(sidebar).toBeVisible();
+  await expect(statusbar).toBeVisible();
+});
+
 test('typewriter scrolling centers the first, middle and newly written last line', async ({ page }) => {
   await page.addInitScript(key => {
     localStorage.setItem('writing-room:storage:version', '2');
@@ -705,4 +725,21 @@ test('scales the Markdown size presets relative to headings, subtitles, and body
   await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-xl}');
   await page.reload();
   await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
+});
+
+test('uses Tab to indent code and lets Tab leave ordinary Markdown text', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'code-tab.md', 'Ordinary paragraph\n\n```\nfirst\nsecond\n```');
+  const editor = richEditor(group);
+  const code = editor.locator('pre');
+  await code.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeFocused();
+  expect(await code.textContent()).toBe('first\n    second');
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor).toBeFocused();
+  expect(await code.textContent()).toBe('first\nsecond');
+  await editor.getByText('Ordinary paragraph').click();
+  await page.keyboard.press('Tab');
+  await expect(editor).not.toBeFocused();
 });

@@ -9,10 +9,11 @@ function markRule(expression: RegExp, type: MarkType): InputRule {
   return new InputRule(expression, (state, match, start, end) => {
     const from = start + match[1].length;
     if (!state.doc.resolve(from).parent.type.allowsMarkType(type)) return null;
-    const inherited = state.doc.resolve(from).marks();
-    const mark = type.create({ markup: match[2] });
-    const text = state.schema.text(match[3], mark.addToSet(inherited));
-    return state.tr.replaceWith(from, end, text).removeStoredMark(type);
+    // Only the marker characters are removed, so links, images and breaks inside the span stay.
+    const marker = match[2].length;
+    const contentEnd = end - (marker - 1);
+    const tr = state.tr.delete(contentEnd, end).delete(from, from + marker);
+    return tr.addMark(from, contentEnd - marker, type.create({ markup: match[2] })).removeStoredMark(type);
   }, { inCodeMark: false });
 }
 

@@ -8,7 +8,7 @@ import type { BrandedService, ServicesAccessor } from '../../../../platform/inst
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
-import { getMarkdownEditorMode, MarkdownEditorModeContext } from '../common/markdownEditor.js';
+import { getMarkdownEditorMode, MarkdownEditorFocusContext, MarkdownEditorModeContext } from '../common/markdownEditor.js';
 
 const ID = 'markdownEditor.toggleFocusMode';
 const focusMode = new RawContextKey<boolean>('markdownEditor.focusMode', false);
@@ -82,7 +82,11 @@ registerAction2(class extends Action2 {
   constructor() {
     super({
       id: 'markdownEditor.exitFocusMode', title: 'Exit Markdown Focus Mode', precondition: active,
-      keybinding: { primary: KeyCode.Escape, weight: KeybindingWeight.WorkbenchContrib },
+      // Only from the writing surface, so Escape still closes quick input, menus and dialogs first.
+      keybinding: {
+        primary: KeyCode.Escape, weight: KeybindingWeight.WorkbenchContrib,
+        when: ContextKeyExpr.and(active, MarkdownEditorFocusContext.isEqualTo(true)),
+      },
     });
   }
   override run(accessor: ServicesAccessor): void {

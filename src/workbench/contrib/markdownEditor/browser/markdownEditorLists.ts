@@ -53,6 +53,14 @@ export const markdownListKeys: Record<string, Command> = {
         && items.includes($from.node(-1).type) && $from.node(-1).childCount === 1) {
       return liftListItem(items)(state, dispatch);
     }
+    const item = $from.node(-1);
+    if (state.selection.empty && $from.parentOffset === 0 && $from.parent.content.size
+        && items.includes(item.type) && $from.index(-1) === 0) {
+      // At the start of an item, the new empty item goes above so the text keeps its checked state and classes.
+      const empty = item.type.create(item.type === task_item ? { checked: false } : null, markdownSchema.nodes.paragraph.create());
+      dispatch?.(state.tr.insert($from.before(-1), empty).scrollIntoView());
+      return true;
+    }
     return splitListItemKeepMarks(items, { checked: false })(state, dispatch);
   },
 };

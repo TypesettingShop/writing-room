@@ -161,7 +161,7 @@
 }
 
 .markdown-focus-mode .markdown-editor-surface .ProseMirror {
-  max-width: var(--markdown-focus-width, 72ch);
+  max-width: var(--markdown-focus-width);
 }
 
 .markdown-focus-mode .markdown-dim-others .ProseMirror

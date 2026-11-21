@@ -33,6 +33,7 @@ import {
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
+import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard } from './markdownEditorClipboard.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
 import { markdownImageView } from './markdownEditorImages.js';
@@ -60,6 +61,7 @@ export class MarkdownEditorPane extends EditorPane {
   private request = 0;
   private pendingFocus = false;
   private typewriter = false;
+  private pointerSelection = false;
   private scrollFrame: number | undefined;
   private scoped: IContextKeyService | undefined;
   private updateToolbarContext = () => {};
@@ -188,6 +190,7 @@ export class MarkdownEditorPane extends EditorPane {
         attributes: { role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true' },
         ...markdownClipboard,
         handleScrollToSelection: () => {
+          if (this.pointerSelection) return false;
           this.scheduleTypewriter();
           return this.typewriter;
         },
@@ -206,7 +209,13 @@ export class MarkdownEditorPane extends EditorPane {
         },
         dispatchTransaction: transaction => {
           if (!transaction.docChanged || !input.isReadonly()) {
-            sync.dispatch(transaction);
+            // A click or drag only moves the selection; centering it would move the text under the pointer.
+            this.pointerSelection = !transaction.docChanged && transaction.getMeta('pointer') === true;
+            try {
+              sync.dispatch(transaction);
+            } finally {
+              this.pointerSelection = false;
+            }
           }
         },
         handleDOMEvents: {
@@ -222,6 +231,10 @@ export class MarkdownEditorPane extends EditorPane {
       this.session.add(toDisposable(() => view.destroy()));
       this.session.add(input.onDidChangeLabel(() => {
         view.setProps({});
+        // Unchanged task items keep their node views, so their checkboxes follow the read-only state here.
+        for (const checkbox of view.dom.querySelectorAll<HTMLInputElement>('li[data-task-checked] > input[type="checkbox"]')) {
+          checkbox.disabled = input.isReadonly();
+        }
         this.updateHistoryContext();
       }));
       this.frame.hidden = false;
@@ -284,12 +297,15 @@ export class MarkdownEditorPane extends EditorPane {
     const undo: Command = () => { this.undo(); return true; };
     const redo: Command = () => { this.redo(); return true; };
     const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, Backspace: undoInputRule });
+    const codeKeys = keymap({ Tab: indentMarkdownCode(false), 'Shift-Tab': indentMarkdownCode(true) });
     const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
-    const model = new MarkdownEditorModel(textModel, [markdownInputRules, markdownActiveBlock, keys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
+    const model = new MarkdownEditorModel(textModel, [markdownInputRules, markdownActiveBlock, keys, codeKeys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
       if (this.input === input) {
         const previous = this.view?.state;
         this.view?.updateState(state);
-        if (previous?.doc !== state.doc || previous?.selection.head !== state.selection.head) this.scheduleTypewriter();
+        if (!this.pointerSelection && (previous?.doc !== state.doc || previous?.selection.head !== state.selection.head)) {
+          this.scheduleTypewriter();
+        }
         this.updateHistoryContext();
       }
     }, resolved instanceof TextFileEditorModel ? edit => resolved.applyRichEditorEdit(edit) : undefined);

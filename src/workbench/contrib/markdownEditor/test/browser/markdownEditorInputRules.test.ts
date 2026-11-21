@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { undoInputRule } from 'prosemirror-inputrules';
-import { EditorState } from 'prosemirror-state';
+import { EditorState, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { describe, expect, it } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
+import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
 import { markdownInputRules } from '../../browser/markdownEditorInputRules.js';
 
 interface RuleCase {
@@ -56,6 +57,29 @@ describe('Markdown typing shortcuts', () => {
       if (mark) expect(block.firstChild?.marks[0]?.type.name).toBe(mark);
       expect(undoInputRule(view.state, tr => view.dispatch(tr))).toBe(true);
       expect(view.state.doc.textContent).toBe(beforeUndo ?? input);
+    } finally {
+      view.destroy();
+    }
+  });
+});
+
+describe('Markdown mark shortcuts over inline content', () => {
+  it('keeps links, images and line breaks inside the converted span', () => {
+    const source = parseMarkdown('[world](https://x.test/) ![i](x.png) y\\\nz').firstChild!;
+    const { schema } = source.type;
+    const [link, , image, , lineBreak] = Array.from({ length: source.childCount }, (_, index) => source.child(index));
+    const doc = schema.node('doc', null, [schema.node('paragraph', null, [
+      schema.text('**a '), link, schema.text(' '), image, lineBreak, schema.text('b*'),
+    ])]);
+    const view = new EditorView(null, {
+      state: EditorState.create({ doc, selection: TextSelection.atEnd(doc), plugins: [markdownInputRules] }),
+    });
+    try {
+      const { from, to } = view.state.selection;
+      const insert = () => view.state.tr.insertText('*', from, to);
+      expect(view.someProp('handleTextInput', handler => handler(view, from, to, '*', insert))).toBe(true);
+      view.state.doc.check();
+      expect(serializeMarkdown(view.state.doc)).toBe('**a [world](https://x.test/) ![i](x.png)\\\nb**');
     } finally {
       view.destroy();
     }

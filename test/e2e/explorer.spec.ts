@@ -385,7 +385,7 @@ test.describe('with the files fixture extension', () => {
   test('a view the extension adds to the Explorer container shows below the file tree', async ({ appPage: page }) => {
     const sidebar = part(page, 'sidebar');
     await expect(sidebar.getByRole('region', { name: 'Files Fixture View' })).toBeVisible();
-    await expect(sidebar.getByRole('heading')).toContainText(['Explorer', 'workspace', 'Files Fixture View']);
+    await expect(sidebar.getByRole('heading')).toHaveText(['Explorer', 'workspace', 'Files Fixture View', 'Outline']);
     await expect(sidebar.getByRole('region', { name: 'workspace' }).getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
   });
 });

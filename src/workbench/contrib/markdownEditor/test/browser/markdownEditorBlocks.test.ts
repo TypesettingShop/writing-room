@@ -4,7 +4,8 @@ import type { Command } from 'prosemirror-state';
 import { expect, it } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
-import { setMarkdownList } from '../../browser/markdownEditorLists.js';
+import { indentMarkdownCode } from '../../browser/markdownEditorBlockStyles.js';
+import { markdownListKeys, setMarkdownList } from '../../browser/markdownEditorLists.js';
 import { editMarkdownTable, insertMarkdownTable } from '../../browser/markdownEditorTables.js';
 
 function apply(state: EditorState, command: Command): EditorState {
@@ -34,4 +35,51 @@ it('saves table row and column operations as a rectangular GFM table', () => {
   const source = serializeMarkdown(result.doc);
   expect(source).toBe('|  |  |\n| --- | --- |\n|  |  |');
   expect(parseMarkdown(source).eq(result.doc)).toBe(true);
+});
+
+it('inserts a table beside or inside a paragraph wherever the caret is', () => {
+  for (const [source, position, expected] of [
+    ['Hello', 6, 'Hello\n\n|  |  |\n| --- | --- |\n|  |  |'],
+    ['Hello', 1, '|  |  |\n| --- | --- |\n|  |  |\n\nHello'],
+    ['a **bold** b', 5, 'a **bo**\n\n|  |  |\n| --- | --- |\n|  |  |\n\n**ld** b'],
+  ] as const) {
+    const doc = parseMarkdown(source);
+    const result = apply(EditorState.create({ doc, selection: TextSelection.create(doc, position) }), insertMarkdownTable);
+    expect(serializeMarkdown(result.doc)).toBe(expected);
+    expect(result.selection.$head.parent.type.name).toBe('table_cell');
+    expect([result.selection.$head.index(-2), result.selection.$head.index(-1)]).toEqual([0, 0]);
+  }
+});
+
+it('opens an empty item above when Enter is pressed at the start of an item', () => {
+  for (const [source, expected] of [
+    ['- [x] Done task', '- [ ]\n- [x] Done task'],
+    ['- Item {.important}', '- \n- Item {.important}'],
+  ] as const) {
+    const doc = parseMarkdown(source);
+    let position = 0;
+    doc.descendants((node, pos) => {
+      if (!position && node.isTextblock) position = pos + 1;
+    });
+    const result = apply(EditorState.create({ doc, selection: TextSelection.create(doc, position) }), markdownListKeys.Enter);
+    expect(serializeMarkdown(result.doc)).toBe(expected);
+  }
+});
+
+
+it('indents selected code lines and excludes the line at the selection end', () => {
+  const doc = parseMarkdown('```\none\ntwo\nthree\n```');
+  const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 9) });
+  const indented = apply(state, indentMarkdownCode(false));
+  expect(indented.doc.textContent).toBe('    one\n    two\nthree');
+  expect(apply(indented, indentMarkdownCode(true)).doc.eq(doc)).toBe(true);
+});
+
+it('outdents one literal tab or up to four spaces and lets non-code blocks use Tab normally', () => {
+  const doc = parseMarkdown('Body\n\n```\n\tfirst\n  second\n     third\n```');
+  const start = doc.firstChild!.nodeSize + 1;
+  const selection = TextSelection.create(doc, start, doc.content.size - 1);
+  const outdented = apply(EditorState.create({ doc, selection }), indentMarkdownCode(true));
+  expect(outdented.doc.lastChild!.textContent).toBe('first\nsecond\n third');
+  expect(indentMarkdownCode(false)(EditorState.create({ doc }))).toBe(false);
 });

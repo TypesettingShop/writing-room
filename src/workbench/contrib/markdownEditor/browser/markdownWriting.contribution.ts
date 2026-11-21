@@ -1,4 +1,5 @@
 import type { Node } from 'prosemirror-model';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IStandaloneCodeEditor } from '../../../../editor/browser/monaco.js';
 import { parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
@@ -21,6 +22,8 @@ interface WritingState {
   readonly to: number;
   readonly head: number;
   readonly selected: boolean;
+  /** Brings a pending source reparse up to date before positions are used. */
+  sync?(): void;
   reveal(position: number): void;
 }
 
@@ -92,6 +95,9 @@ class MarkdownWritingContribution extends Disposable {
   private headings: readonly MarkdownHeading[] = [];
   private active = -1;
   private status = '';
+  /** Edits to the document being followed recount after typing pauses; a new document counts at once. */
+  private readonly recount = this._register(new RunOnceScheduler(() => this.refresh(), 300));
+  private immediate = true;
 
   constructor(
     @IEditorService private readonly editors: IEditorService,
@@ -104,6 +110,8 @@ class MarkdownWritingContribution extends Disposable {
         id: 'workbench.views.markdownOutline', name: 'Outline',
         renderBody: (parent: HTMLElement) => {
           const outline = new MarkdownOutline(parent, index => {
+            this.state?.sync?.();
+            if (this.recount.isScheduled()) this.refresh();
             const heading = this.headings[index];
             if (heading) this.state?.reveal(heading.position);
           });
@@ -120,6 +128,7 @@ class MarkdownWritingContribution extends Disposable {
   }
 
   private followEditor(): void {
+    this.immediate = true;
     this.reading.clear();
     this.sourceControl.clear();
     this.sourceListeners.clear();
@@ -144,6 +153,7 @@ class MarkdownWritingContribution extends Disposable {
         control = nextControl;
         this.sourceControl.clear();
         const followModel = () => {
+          this.immediate = true;
           this.sourceListeners.clear();
           if (nextControl) this.followSource(nextControl);
           else this.update(undefined);
@@ -168,7 +178,11 @@ class MarkdownWritingContribution extends Disposable {
     let version = -1;
     let parsed: ReturnType<typeof parseMarkdownWithSource>;
     let positions: ReturnType<typeof sourceWritingPositions>;
+    // Parsing the whole source is the expensive part, so typing reparses only after a pause.
+    const reparse = new RunOnceScheduler(() => update(), 300);
+    this.sourceListeners.add(reparse);
     const update = () => {
+      reparse.cancel();
       if (version !== model.getVersionId()) {
         version = model.getVersionId();
         parsed = parseMarkdownWithSource(model.getValue());
@@ -178,8 +192,12 @@ class MarkdownWritingContribution extends Disposable {
       const from = selection ? positions.toDocument(model.getOffsetAt(selection.getStartPosition())) : 0;
       const to = selection ? positions.toDocument(model.getOffsetAt(selection.getEndPosition())) : from;
       const head = selection ? positions.toDocument(model.getOffsetAt(selection.getPosition())) : from;
+      this.immediate = true;
       this.update({
         doc: parsed.doc, from, to, head, selected: selection ? !selection.isEmpty() : false,
+        sync: () => {
+          if (version !== model.getVersionId()) update();
+        },
         reveal: position => {
           const source = model.getPositionAt(positions.toSource(position));
           control.setPosition(source);
@@ -188,18 +206,41 @@ class MarkdownWritingContribution extends Disposable {
         },
       });
     };
-    this.sourceListeners.add(model.onDidChangeContent(update));
-    this.sourceListeners.add(control.onDidChangeCursorSelection(update));
+    this.sourceListeners.add(model.onDidChangeContent(() => reparse.schedule()));
+    this.sourceListeners.add(control.onDidChangeCursorSelection(() => {
+      if (version === model.getVersionId()) update();
+      else reparse.schedule();
+    }));
     update();
   }
 
   private update(state: WritingState | undefined): void {
     this.state = state;
+    const immediate = this.immediate || !state || !this.counts;
+    this.immediate = false;
+    if (state?.doc === this.cachedDoc) {
+      this.render();
+    } else if (immediate) {
+      this.refresh();
+    } else {
+      this.recount.schedule();
+      this.render();
+    }
+  }
+
+  private refresh(): void {
+    const { state } = this;
     if (state?.doc !== this.cachedDoc) {
+      this.recount.cancel();
       this.cachedDoc = state?.doc;
       this.counts = state && markdownCounts(state.doc);
       this.headings = state ? markdownHeadings(state.doc) : [];
     }
+    this.render();
+  }
+
+  private render(): void {
+    const { state } = this;
     this.active = state ? currentMarkdownHeading(this.headings, state.head) : -1;
     for (const outline of this.outlineViews) outline.render(this.headings, this.active);
     if (!state || !this.counts) {

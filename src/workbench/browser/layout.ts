@@ -131,7 +131,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
     const state = options?.transient ? this.transientHidden : options?.automatic ? this.automaticHidden : this.layoutState;
     const key = hiddenKey[part];
     const wasHidden = state[key] ?? false;
-    if (wasHidden === hidden) {
+    // A person showing a part ends its temporary override instead of only changing the saved choice.
+    const clearsTransient = !hidden && !options?.transient && !options?.automatic && !!this.transientHidden[key];
+    if (wasHidden === hidden && !clearsTransient) {
       return;
     }
     const view = this.getPart(part);
@@ -141,6 +143,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
     const wasVisible = this.isVisible(part);
     // Set visibility before running the grid layout so a newly hidden part keeps its previous size.
     state[key] = hidden;
+    if (clearsTransient) {
+      this.transientHidden[key] = false;
+    }
     const visible = this.isVisible(part);
     if (visible === wasVisible) {
       return;
@@ -152,6 +157,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
         this.grid.setViewVisible(view, visible);
       } catch (error) {
         state[key] = wasHidden;
+        if (clearsTransient) {
+          this.transientHidden[key] = true;
+        }
         throw error;
       }
       if (moveFocus) {
