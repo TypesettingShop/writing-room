@@ -115,3 +115,47 @@
 .markdown-editor-surface .markdown-image button {
   margin-inline-start: 0.4em;
 }
+
+.markdown-outline {
+  overflow: auto;
+  height: 100%;
+}
+
+.markdown-outline ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.markdown-outline li > ul {
+  padding-inline-start: 12px;
+}
+
+.markdown-outline button {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 3px 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.markdown-outline button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.markdown-outline button[aria-current] {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.markdown-outline p {
+  margin: 8px;
+  color: var(--vscode-descriptionForeground);
+}

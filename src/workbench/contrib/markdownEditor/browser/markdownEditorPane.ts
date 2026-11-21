@@ -1,6 +1,7 @@
 import { baseKeymap } from 'prosemirror-commands';
 import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
+import { TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { $, append } from '../../../../base/browser/dom.js';
@@ -270,6 +271,19 @@ export class MarkdownEditorPane extends EditorPane {
 
   redo(): boolean {
     return this.canRedo && this.sync!.redo();
+  }
+
+  get writingState(): EditorState | undefined {
+    return this.view && this.sync?.state;
+  }
+
+  readonly onDidChangeWritingState = this.historyChanged.event;
+
+  revealWritingPosition(position: number): void {
+    if (this.sync && this.view) {
+      this.sync.dispatch(this.sync.state.tr.setSelection(TextSelection.create(this.sync.state.doc, position)).scrollIntoView());
+      this.view.focus();
+    }
   }
 
   get formattingState(): EditorState | undefined {

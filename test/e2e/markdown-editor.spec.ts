@@ -578,3 +578,31 @@ test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage
   expect(data.html).toContain('<strong>bold</strong>');
   expect(data.html).toContain('<a href="https://example.test/">link</a>');
 });
+
+test('updates word counts and navigates the outline in visual and source Markdown', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'outline.md', '# First\n\n한글 **문장**\n\n### Nested\n\nCaption {.subtitle}\n\n## Last');
+  const editor = richEditor(group);
+  const outline = page.getByRole('region', { name: 'Outline' });
+  const count = page.getByText(/^6 words · /);
+  await expect(count).toBeVisible();
+  await expect(outline.getByRole('button')).toHaveText(['First', 'Nested', 'Last']);
+  await outline.getByRole('button', { name: 'Nested' }).click();
+  await expect(outline.getByRole('button', { name: 'Nested' })).toHaveAttribute('aria-current', 'location');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('Shift+End');
+  await expect(page.getByText('Selection · 1 word · 6 characters · 6 without spaces')).toBeVisible();
+  await page.keyboard.type('Renamed');
+  await expect(outline.getByRole('button', { name: 'Renamed' })).toHaveAttribute('aria-current', 'location');
+
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  const source = group.getByRole('textbox', { name: 'Editor content' });
+  await expect(source).toBeFocused();
+  await expect(count).toBeVisible();
+  await outline.getByRole('button', { name: 'Last' }).click();
+  await expect(outline.getByRole('button', { name: 'Last' })).toHaveAttribute('aria-current', 'location');
+  await expect(source).toBeFocused();
+  await page.keyboard.press('Shift+End');
+  await expect(page.getByText('Selection · 1 word · 4 characters · 4 without spaces')).toBeVisible();
+  await page.keyboard.type('Final');
+  await expect(outline.getByRole('button', { name: 'Final' })).toHaveAttribute('aria-current', 'location');
+});
