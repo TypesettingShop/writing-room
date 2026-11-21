@@ -1,9 +1,9 @@
 import type { Locator, Page } from '@playwright/test';
 import { box, drag, expect, test } from './fixtures.js';
-import { runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
+import { persistedSettings, runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
-import { chooseTheme } from './themes.helpers.js';
+import { chooseTheme, kindClass, openWithThemingFixtures } from './themes.helpers.js';
 
 const richEditor = (scope: Locator) => scope.getByRole('textbox', { name: 'Markdown editor' });
 
@@ -121,6 +121,150 @@ test('keeps Source mode available while rich Markdown is loading and after the r
   await page.keyboard.press('ControlOrMeta+Shift+m');
   await expect(group.getByRole('button', { name: 'Switch to WYSIWYG' })).toBeVisible();
   await expect(group.locator('.view-lines')).toContainText(source);
+});
+
+test('applies a shared Markdown content width on Enter and blur and restores it after reload', async ({ page }) => {
+  await page.addInitScript(key => {
+    if (localStorage.getItem(key) === null) {
+      localStorage.setItem('writing-room:storage:version', '2');
+      localStorage.setItem(key, JSON.stringify({ 'markdownEditor.contentWidth': '60' }));
+    }
+  }, settingsKey);
+  await page.goto('/');
+  const name = 'content-width.md';
+  const group = await openMarkdown(page, name, 'Shared width');
+  const left = richEditor(group);
+  const maxLineWidth = (editor: Locator) => editor.evaluate(element => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.maxWidth) - [
+      style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth,
+    ].reduce((sum, length) => sum + Number.parseFloat(length), 0);
+  });
+  const widthInput = (scope: Locator) => scope.getByRole('spinbutton', { name: 'Content Width (characters)' });
+  await expect(widthInput(group)).toHaveValue('80', { timeout: 20_000 });
+  const expectedWidth = await left.evaluate(element => {
+    const probe = element.ownerDocument.createElement('div');
+    probe.style.cssText = 'position: absolute; visibility: hidden; width: 80ch';
+    const { fontFamily, fontSize, fontWeight, fontStyle } = getComputedStyle(element);
+    Object.assign(probe.style, { fontFamily, fontSize, fontWeight, fontStyle });
+    element.after(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    return width;
+  });
+  expect((await box(left.locator('p'))).width).toBeCloseTo(expectedWidth, 1);
+  await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+  const rightGroup = groups(page).nth(1);
+  const right = richEditor(rightGroup);
+  const input = widthInput(rightGroup);
+  await expect(input).toHaveValue('80');
+  await input.fill('60');
+  await input.press('Enter');
+  await expect(widthInput(group)).toHaveValue('60');
+  await input.press('Shift+Tab');
+  await expect(rightGroup.getByRole('toolbar', { name: 'Markdown formatting' }).locator('button[tabindex="0"]')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(input).toBeFocused();
+  expect(await maxLineWidth(left)).toBeCloseTo(expectedWidth * 0.75, 1);
+  expect(await maxLineWidth(right)).toBe(await maxLineWidth(left));
+  for (const invalid of ['0', '-30', '60.5', '401', '']) {
+    await input.fill(invalid);
+    await input.press('Enter');
+    await expect(input).toHaveValue('60');
+  }
+  await input.fill('72');
+  await right.click();
+  await expect(input).toHaveValue('72');
+  await expect(widthInput(group)).toHaveValue('72');
+  expect(await persistedSettings(page)).toMatch(/"markdownEditor\.contentWidth":\s*72/);
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('Shared width');
+  await page.reload();
+  await expect(widthInput(group)).toHaveValue('72', { timeout: 20_000 });
+  await expect(input).toHaveValue('72');
+});
+
+test('fills the editor, saves its layout, and keeps the independent Focus Mode width', async ({ appPage: page }) => {
+  const name = 'content-layout.md';
+  const group = await openMarkdown(page, name, 'Centered text');
+  const editor = richEditor(group);
+  const width = group.getByRole('spinbutton', { name: 'Content Width (characters)' });
+  const center = group.getByRole('button', { name: 'Center Content' });
+  const fill = group.getByRole('button', { name: 'Fill Editor Width' });
+  await expect(center).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+  const centered = (await box(editor)).width;
+  await fill.click();
+  await expect(fill).toHaveAttribute('aria-pressed', 'true');
+  await expect(center).toHaveAttribute('aria-pressed', 'false');
+  await expect(width).toBeDisabled();
+  await expect(editor).toHaveCSS('max-width', 'none');
+  await expect(group.locator('.markdown-editor-surface')).toHaveCSS('background-image', 'none');
+  await expect(editor).toHaveCSS('border-left-width', '0px');
+  expect((await box(editor)).width).toBeGreaterThan(centered);
+  expect(await persistedSettings(page)).toMatch(/"markdownEditor\.contentLayout":\s*"fill"/);
+  await page.reload();
+  await expect(fill).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+  await expect(width).toBeDisabled();
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(editor).not.toHaveCSS('max-width', 'none');
+  expect((await box(editor)).width).toBeLessThan(centered);
+  await editor.press('Escape');
+  await expect(editor).toHaveCSS('max-width', 'none');
+  await runCommand(page, 'Center Content', /^Markdown: Center Content$/);
+  await expect(center).toHaveAttribute('aria-pressed', 'true');
+  await expect(width).toBeEnabled();
+  expect((await box(editor)).width).toBe(centered);
+  expect(await readWorkspaceText(page, name)).toBe('Centered text');
+});
+
+for (const [theme, kind] of [
+  ['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'],
+  ['Fixture Contrast Light', 'hc-light'], ['Fixture Contrast', 'hc-black'],
+]) {
+  test(`uses visible Markdown gutters in ${theme}`, async ({ page }) => {
+    await openWithThemingFixtures(page, ['color-theme/'], JSON.stringify({ 'workbench.colorTheme': theme }));
+    const group = await openMarkdown(page, 'gutters-theme.md', 'Themed gutter');
+    const editor = richEditor(group);
+    await expect(editor).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => kindClass(page)).toBe(kind);
+    await expect(group.locator('.markdown-editor-surface')).toHaveCSS('background-image', /repeating-linear-gradient\(135deg, /);
+    await expect(editor).toHaveCSS('border-left-width', '1px');
+    await expect(editor).toHaveCSS('border-right-width', '1px');
+    await expect(editor).not.toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
+    await expect(editor).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  });
+}
+
+test('starts typing at the clicked gutter’s line edge or document end', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'gutters.md',
+    'First paragraph\n\nSecond paragraph {.right}\n\n- First item\n- Last item');
+  const editor = richEditor(group);
+  const second = editor.locator('p').nth(1);
+  await expect(second).toBeVisible({ timeout: 20_000 });
+  const paper = await box(editor);
+  const line = await box(second);
+  await page.mouse.click(paper.x - 12, line.y + line.height / 2);
+  await expect(editor).toBeFocused();
+  await page.keyboard.type('Start ');
+  await expect(second).toHaveText('Start Second paragraph');
+  await page.mouse.click(paper.x + paper.width + 12, line.y + line.height / 2);
+  await page.keyboard.type(' end');
+  await expect(second).toHaveText('Start Second paragraph end');
+  const lastItem = editor.locator('li').last();
+  const last = await box(lastItem);
+  await page.mouse.click(paper.x - 12, last.y + last.height / 2);
+  await page.keyboard.type('Start ');
+  await expect(lastItem).toHaveText('Start Last item');
+  await page.mouse.click(paper.x - 12, last.y + last.height + 35);
+  await page.keyboard.type(' below');
+  await expect(lastItem).toHaveText('Start Last item below');
+  // Shift extends from the caret, here at the document end, to the clicked line's start.
+  await page.keyboard.down('Shift');
+  await page.mouse.click(paper.x - 12, line.y + line.height / 2);
+  await page.keyboard.up('Shift');
+  await page.keyboard.type('Replaced');
+  await expect(second).toHaveText('Replaced');
+  await expect(editor.locator('li')).toHaveCount(0);
 });
 
 test('keeps split source and WYSIWYG views synchronized on one dirty model', async ({ appPage: page }) => {
@@ -247,8 +391,10 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   await editor.getByText('First').click({ timeout: 20_000 });
-  const style = toolbar.getByRole('button', { name: /^Style/ });
-  await expect(style).toHaveAccessibleName('Style: Body');
+  const style = toolbar.getByRole('button', { name: 'Style', exact: true });
+  await expect(style).toHaveText('Body');
+  await expect(style).toHaveAccessibleDescription('Body');
+  await expect(style).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
   await style.focus();
   await page.keyboard.press('Enter');
   const menu = page.getByRole('menu', { name: 'Style' });
@@ -258,6 +404,7 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
   await page.keyboard.press('Enter');
   await expect(style).toBeFocused();
   await expect(editor.getByRole('heading', { name: 'First', level: 2 })).toBeVisible();
+  await expect(style).toHaveText('Heading 2');
   await editor.focus();
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
@@ -290,19 +437,22 @@ test('saves paragraph alignment and inline size and font presets and restores th
   }, settingsKey);
   await page.goto('/');
   const name = 'presets.md';
-  const group = await openMarkdown(page, name, 'One word {.my-class}\n\nSubheading {.subtitle .font-sans}');
+  const legacy = 'Subheading {.subtitle .font-sans}\n\nLegacy serif {.font-serif}\n\nLegacy mono {.font-mono}';
+  const group = await openMarkdown(page, name, `One word {.my-class}\n\n${legacy}`);
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
   const paragraph = editor.locator('p.my-class');
   await paragraph.click({ timeout: 20_000 });
-  await toolbar.getByRole('button', { name: 'Align: Left' }).click();
-  await page.getByRole('menuitemradio', { name: 'Center', exact: true }).click();
-  await expect(paragraph).toHaveCSS('text-align', 'center');
-  await expect(toolbar.getByRole('button', { name: 'Align: Center' })).toBeVisible();
+  const alignCenter = toolbar.getByRole('button', { name: 'Align Center', exact: true });
+  const alignRight = toolbar.getByRole('button', { name: 'Align Right', exact: true });
+  await alignRight.click();
+  await expect(paragraph).toHaveCSS('text-align', 'right');
+  await expect(alignRight).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('ControlOrMeta+Shift+l');
   await expect(paragraph).toHaveCSS('text-align', 'start');
   await page.keyboard.press('ControlOrMeta+Shift+e');
   await expect(paragraph).toHaveCSS('text-align', 'center');
+  await expect(alignCenter).toHaveAttribute('aria-pressed', 'true');
   await expect(editor).toBeFocused();
 
   await editor.focus();
@@ -310,27 +460,75 @@ test('saves paragraph alignment and inline size and font presets and restores th
   for (let index = 0; index < 4; index++) {
     await page.keyboard.press('Shift+ArrowLeft');
   }
-  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
-  await page.getByRole('menuitemradio', { name: 'Large', exact: true }).click();
-  await toolbar.getByRole('button', { name: 'Font: Default' }).click();
-  await page.getByRole('menuitemradio', { name: 'Serif', exact: true }).click();
-  const span = paragraph.locator('span.size-lg.font-serif');
+  await toolbar.getByRole('button', { name: 'Size', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
+  const font = toolbar.getByRole('button', { name: 'Font', exact: true });
+  await font.click();
+  const menu = page.getByRole('menu', { name: 'Font' });
+  const families = [
+    ['Noto Sans KR', 'Noto Sans KR'], ['Noto Serif KR', 'Noto Serif KR'],
+    ['나눔명조', 'Nanum Myeongjo'], ['나눔고딕', 'Nanum Gothic'], ['monospace', 'monospace'],
+  ];
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(1 + families.length);
+  const primaryFamily = (element: Locator) => element.evaluate(node =>
+    getComputedStyle(node).fontFamily.split(',')[0].replace(/["']/g, ''));
+  for (const [label, family] of families) {
+    expect(await primaryFamily(menu.getByRole('menuitemradio', { name: label, exact: true }).getByText(label))).toBe(family);
+  }
+  await menu.getByRole('menuitemradio', { name: 'Noto Serif KR', exact: true }).click();
+  await expect(font).toHaveText('Noto Serif KR');
+  expect(await primaryFamily(font.getByText('Noto Serif KR'))).toBe('Noto Serif KR');
+  const span = paragraph.locator('span.size-18pt.font-noto-serif-kr');
   await expect(span).toHaveText('word');
-  await expect(span).toHaveCSS('font-size', '20px');
-  await expect(span).toHaveCSS('font-family', 'Cambria, serif');
+  await expect(span).toHaveCSS('font-size', '24px');
+  expect(await primaryFamily(span)).toBe('Noto Serif KR');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(90, 101, 119)');
   await expect(editor.locator('.subtitle')).toHaveCSS('font-family', 'system-ui, sans-serif');
+  await expect(editor.locator('.font-serif')).toHaveCSS('font-family', 'Cambria, serif');
+  await expect(editor.locator('.font-mono')).toHaveCSS('font-family', 'monospace');
+  await editor.getByText('Legacy serif').click();
+  await expect(font).toHaveText('Serif');
+  await editor.getByText('Legacy mono').click();
+  await expect(font).toHaveText('monospace');
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
   expect(await readWorkspaceText(page, name)).toBe(
-    'One [word]{.size-lg .font-serif} {.my-class .center}\n\nSubheading {.subtitle .font-sans}',
+    `One [word]{.size-18pt .font-noto-serif-kr} {.my-class .center}\n\n${legacy}`,
   );
   await page.reload();
   await expect(paragraph).toHaveCSS('text-align', 'center', { timeout: 20_000 });
   await expect(span).toHaveText('word');
-  await expect(span).toHaveCSS('font-family', 'Cambria, serif');
+  expect(await primaryFamily(span)).toBe('Noto Serif KR');
   await chooseTheme(page, 'Writing Room Dark');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(167, 182, 203)');
+});
+
+test('clears an alignment from the command palette and leaves existing justify readable', async ({ appPage: page }) => {
+  const name = 'alignment.md';
+  const justifiedSource = 'Justified {.center .justify}';
+  const group = await openMarkdown(page, name, `Adjust me\n\n${justifiedSource}`);
+  const editor = richEditor(group);
+  const left = group.getByRole('button', { name: 'Align Left' });
+  const center = group.getByRole('button', { name: 'Align Center' });
+  const right = group.getByRole('button', { name: 'Align Right' });
+  await editor.getByText('Adjust me').click({ timeout: 20_000 });
+  await center.click();
+  await expect(center).toHaveAttribute('aria-pressed', 'true');
+  await right.click();
+  await expect(right).toHaveAttribute('aria-pressed', 'true');
+  await editor.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(`Adjust me {.right}\n\n${justifiedSource}`);
+  await runCommand(page, 'Align Left', /^Markdown: Align Left$/);
+  await expect(left).toHaveAttribute('aria-pressed', 'true');
+  await editor.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(`Adjust me\n\n${justifiedSource}`);
+  const justified = editor.getByText('Justified');
+  await justified.click();
+  await expect(justified).toHaveCSS('text-align', 'justify');
+  for (const action of [left, center, right]) {
+    await expect(action).toHaveAttribute('aria-pressed', 'false');
+  }
+  await expect(group.getByRole('button', { name: /justify/i })).toHaveCount(0);
 });
 
 test('applies bold without toggling the sidebar and keeps the workbench shortcut outside Markdown', async ({ appPage: page }) => {
@@ -413,11 +611,11 @@ test('targets the toolbar’s editor group when another Markdown editor has focu
   await rightEditor.getByText('Right editor').click();
   await expect(rightEditor).toBeFocused();
 
-  await left.getByRole('button', { name: 'Style: Body' }).click();
+  await left.getByRole('button', { name: 'Style', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Heading 2' }).click();
   await expect(leftEditor.getByRole('heading', { name: 'Left editor', level: 2 })).toBeVisible();
   await expect(rightEditor.locator('p')).toHaveText('Right editor');
-  await expect(right.getByRole('button', { name: 'Style: Body' })).toBeVisible();
+  await expect(right.getByRole('button', { name: 'Style', exact: true })).toHaveText('Body');
 });
 
 test('creates, edits and saves a GFM table from the toolbar', async ({ appPage: page }) => {
@@ -756,15 +954,17 @@ test('keeps the typewriter viewport in place when dragging across table cells', 
   await expect(editor.locator('.selectedCell')).toHaveCount(8);
 });
 
-test('scales the Markdown size presets relative to headings, subtitles, and body text', async ({ appPage: page }) => {
+test('renders absolute point sizes and still scales authored legacy sizes relative to each block', async ({ appPage: page }) => {
   const name = 'relative-size.md';
-  const labels = ['Small', 'Default', 'Large', 'Extra Large'];
+  const points = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
   const prefixes = [...Array.from({ length: 6 }, (_, index) => '#'.repeat(index + 1) + ' '), '', ''];
   const blocks = prefixes.flatMap((prefix, index) => ['size-sm', '', 'size-lg', 'size-xl'].map((preset, variant) => {
     const classes = [index === 6 ? 'subtitle' : '', preset].filter(Boolean).map(name => '.' + name).join(' ');
     return `${prefix}Example ${index} ${variant}${classes ? ' {' + classes + '}' : ''}`;
   }));
-  const group = await openMarkdown(page, name, blocks.join('\n\n'));
+  const group = await openMarkdown(page, name, [
+    ...blocks, ...points.map(point => `# Point size {.size-${point}pt}`),
+  ].join('\n\n'));
   const editor = richEditor(group);
   await expect(editor.getByText('Example 0 1', { exact: true })).toBeVisible({ timeout: 20_000 });
   const sizes = await editor.locator(':scope > :is(h1,h2,h3,h4,h5,h6,p)').evaluateAll(elements =>
@@ -776,27 +976,46 @@ test('scales the Markdown size presets relative to headings, subtitles, and body
     expect(row[1]).toBeLessThan(row[2]);
     expect(row[2]).toBeLessThan(row[3]);
   }
+  const pointPixels = await editor.getByRole('heading', { name: 'Point size' }).evaluateAll(elements =>
+    elements.map(element => Number.parseFloat(getComputedStyle(element).fontSize)));
+  expect(pointPixels).toHaveLength(points.length);
+  points.forEach((point, index) => expect(pointPixels[index]).toBeCloseTo(point * 4 / 3, 3));
 
   const title = editor.getByRole('heading', { name: 'Example 0 1' });
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const size = toolbar.getByRole('button', { name: 'Size', exact: true });
+  await editor.getByRole('heading', { name: 'Example 0 0' }).click();
+  await expect(size).toHaveText('Custom');
+  // A selection across differently sized blocks has no single size, so it shows the dash rather than Custom.
+  await page.keyboard.press('Home');
+  await title.click({ modifiers: ['Shift'] });
+  await expect(size).toHaveText('—');
+  await editor.getByRole('heading', { name: 'Example 0 0' }).click();
+  await expect(size).toHaveText('Custom');
+  await size.click();
+  const menu = page.getByRole('menu', { name: 'Size' });
+  await expect(menu.getByRole('menuitemradio')).toHaveText(['Default', ...points.map(point => `${point} pt`)]);
+  await page.keyboard.press('Escape');
   await title.click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
-  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
-  await page.getByRole('menuitemradio', { name: labels[2], exact: true }).click();
-  await expect(title).toHaveCSS('font-size', '40px');
-  await toolbar.getByRole('button', { name: 'Size: Large' }).click();
-  await page.getByRole('menuitemradio', { name: labels[1], exact: true }).click();
+  await size.click();
+  await menu.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
+  await expect(title).toHaveCSS('font-size', '24px');
+  await expect(size).toHaveText('18 pt');
+  await size.click();
+  await menu.getByRole('menuitemradio', { name: 'Default', exact: true }).click();
   await expect(title).toHaveCSS('font-size', '32px');
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+ArrowLeft');
-  await toolbar.getByRole('button', { name: 'Size: Default' }).click();
-  await page.getByRole('menuitemradio', { name: labels[3], exact: true }).click();
-  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px');
+  await size.click();
+  await menu.getByRole('menuitemradio', { name: '36 pt', exact: true }).click();
+  await expect(title.locator('.size-36pt')).toHaveCSS('font-size', '48px');
   await page.keyboard.press('ControlOrMeta+s');
-  await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-xl}');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-36pt}');
+  expect(await readWorkspaceText(page, name)).toContain('# Example 0 0 {.size-sm}');
   await page.reload();
-  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
+  await expect(title.locator('.size-36pt')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
 });
 
 test('uses Tab to indent code and lets Tab leave ordinary Markdown text', async ({ appPage: page }) => {

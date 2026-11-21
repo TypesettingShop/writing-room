@@ -29,12 +29,15 @@ import { TextFileEditorModel } from '../../../services/textfile/common/textFileE
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import { SAVE_FILE_COMMAND_ID } from '../../files/browser/fileCommands.js';
 import {
-  defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH,
+  defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_CONTENT_LAYOUT,
+  MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, markdownContentWidth,
+  MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext, isMarkdownContentWidth,
   MARKDOWN_EDITOR_FONT_FAMILY, MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
   MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
+import { bindMarkdownGutter } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard } from './markdownEditorClipboard.js';
@@ -124,6 +127,24 @@ export class MarkdownEditorPane extends EditorPane {
     this._register(this.configuration.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration(MARKDOWN_EDITOR_FONT_FAMILY)) {
         updateFonts();
+      }
+    }));
+    const contentWidth = MarkdownEditorContentWidthContext.bindTo(scoped);
+    const contentLayout = MarkdownEditorContentLayoutContext.bindTo(scoped);
+    const updateContentLayout = () => {
+      const value = this.configuration.getValue(MARKDOWN_EDITOR_CONTENT_WIDTH);
+      const width = isMarkdownContentWidth(value) ? value : markdownContentWidth.defaultValue;
+      const layout = this.configuration.getValue(MARKDOWN_EDITOR_CONTENT_LAYOUT) === 'fill' ? 'fill' : defaultMarkdownContentLayout;
+      this.frame.style.setProperty('--markdown-content-width', `${width}ch`);
+      this.frame.classList.toggle('markdown-content-fill', layout === 'fill');
+      contentWidth.set(width);
+      contentLayout.set(layout);
+    };
+    updateContentLayout();
+    this._register(bindMarkdownGutter(this.surface, () => this.view));
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_CONTENT_WIDTH) || event.affectsConfiguration(MARKDOWN_EDITOR_CONTENT_LAYOUT)) {
+        updateContentLayout();
       }
     }));
     const updateWritingPreferences = () => {

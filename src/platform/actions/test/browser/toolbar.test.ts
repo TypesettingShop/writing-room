@@ -58,18 +58,56 @@ test('updates a choice from context and runs the command with the selected menu 
       { element: container, ariaLabel: 'Formatting' }, toolbarMenu, context, menus, new BrowserLayoutService(),
     ));
     const choices = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]:not([hidden])')!;
-    expect(choices().getAttribute('aria-label')).toBe('Style: body');
+    expect(choices().getAttribute('aria-label')).toBe('Style');
+    expect(choices().getAttribute('aria-description')).toBe('body');
     choices().focus();
     choices().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
     style.set('heading');
     await Promise.resolve();
-    expect(choices().getAttribute('aria-label')).toBe('Style: heading');
+    expect(choices().getAttribute('aria-label')).toBe('Style');
+    expect(choices().textContent).toBe('heading');
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Another action');
     choices().click();
     expect(document.querySelector('[role="menuitemradio"][aria-label="heading"]')?.getAttribute('aria-checked')).toBe('true');
     document.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-label="body"]')!.click();
     expect(executeCommand).toHaveBeenCalledWith('test.setStyle', { type: 'body' });
+  } finally {
+    disposables.dispose();
+    container.remove();
+  }
+});
+
+test('shows a choice fallback only while its condition holds and a dash for no value', async () => {
+  const disposables = new DisposableStore();
+  const toolbarMenu = MenuId.for('test.toolbar.fallback');
+  const submenu = MenuId.for('test.toolbar.fallback.options');
+  const container = document.createElement('div');
+  document.body.append(container);
+  try {
+    const context = disposables.add(new ContextKeyService());
+    const size = context.createKey<string | null>('test.size', 'legacy');
+    const menus = new MenuService({ _serviceBrand: undefined, executeCommand: vi.fn() }, new NullKeybindingService());
+    disposables.add(MenuRegistry.appendMenuItem(toolbarMenu, {
+      submenu, title: 'Size', select: true, group: '5_font',
+      selectFallback: [{ label: 'Custom', when: ContextKeyExpr.equals('test.size', 'legacy') }],
+    }));
+    disposables.add(MenuRegistry.appendMenuItem(submenu, {
+      command: { id: 'test.setSize', title: '12 pt', toggled: ContextKeyExpr.equals('test.size', '12pt') }, args: ['12pt'],
+    }));
+    disposables.add(new MenuWorkbenchToolBar(
+      { element: container, ariaLabel: 'Formatting' }, toolbarMenu, context, menus, new BrowserLayoutService(),
+    ));
+    const choices = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]:not([hidden])')!;
+    expect(choices().textContent).toBe('Custom');
+    expect(choices().getAttribute('aria-description')).toBe('Custom');
+    size.set(null);
+    await Promise.resolve();
+    expect(choices().textContent).toBe('—');
+    expect(choices().hasAttribute('aria-description')).toBe(false);
+    size.set('12pt');
+    await Promise.resolve();
+    expect(choices().textContent).toBe('12 pt');
   } finally {
     disposables.dispose();
     container.remove();

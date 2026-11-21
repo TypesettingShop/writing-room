@@ -3,6 +3,8 @@ import { TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import type { IMenuSelectFallback } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
@@ -11,6 +13,8 @@ import type { IKeybindingRule } from '../../../../platform/keybinding/common/key
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import {
+  isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_LAYOUT, MARKDOWN_EDITOR_CONTENT_WIDTH, markdownContentWidth,
+  MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext,
   MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
   MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorInlineFormattingContext,
   MarkdownEditorInlineMarkContexts, MarkdownEditorLinkContext, MarkdownEditorModeContext,
@@ -30,6 +34,58 @@ const writable = MarkdownEditorWritableContext.isEqualTo(true);
 const editorFocus = ContextKeyExpr.and(MarkdownEditorFocusContext.isEqualTo(true), writable);
 const formattingWeight = KeybindingWeight.WorkbenchContrib + 1;
 
+const setContentWidthId = 'markdownEditor.setContentWidth';
+// Only plain decimal digits: Number() alone would also take '0x3c' or '6e1' as 60.
+const parseContentWidth = (text: string) => /^\d+$/.test(text.trim()) ? Number(text) : NaN;
+MenuRegistry.appendMenuItem(toolbar, {
+  group: '7_layout', order: 2, when: wysiwyg,
+  command: {
+    id: setContentWidthId, title: 'Content Width (characters)',
+    precondition: MarkdownEditorContentLayoutContext.isEqualTo('center'),
+  },
+  numberInput: { valueKey: MarkdownEditorContentWidthContext.key, min: markdownContentWidth.min, max: markdownContentWidth.max },
+});
+registerAction2(class extends Action2 {
+  constructor() {
+    super({ id: setContentWidthId, title: 'Set Content Width', category: 'Markdown', f1: true, precondition: wysiwyg });
+  }
+
+  override async run(accessor: ServicesAccessor, value?: unknown): Promise<void> {
+    const configuration = accessor.get(IConfigurationService);
+    if (value === undefined) {
+      const current = configuration.getValue(MARKDOWN_EDITOR_CONTENT_WIDTH);
+      const input = await accessor.get(IQuickInputService).input({
+        title: 'Set Content Width',
+        value: String(isMarkdownContentWidth(current) ? current : markdownContentWidth.defaultValue),
+        validateInput: text => isMarkdownContentWidth(parseContentWidth(text))
+          ? undefined : `Enter a whole number from ${markdownContentWidth.min} to ${markdownContentWidth.max}.`,
+      });
+      value = input === undefined ? undefined : parseContentWidth(input);
+    }
+    if (isMarkdownContentWidth(value)) {
+      await configuration.updateValue(MARKDOWN_EDITOR_CONTENT_WIDTH, value);
+    }
+  }
+});
+
+for (const [order, [layout, id, title, icon]] of ([
+  ['center', 'markdownEditor.centerContent', 'Center Content', 'layout-centered'],
+  ['fill', 'markdownEditor.fillContent', 'Fill Editor Width', 'layout-panel-justify'],
+] as const).entries()) {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({
+        id, title, category: 'Markdown', icon: { id: icon }, f1: true, precondition: wysiwyg,
+        toggled: MarkdownEditorContentLayoutContext.isEqualTo(layout), menu: { id: toolbar, group: '7_layout', order, when: wysiwyg },
+      });
+    }
+
+    override run(accessor: ServicesAccessor): Promise<void> {
+      return accessor.get(IConfigurationService).updateValue(MARKDOWN_EDITOR_CONTENT_LAYOUT, layout);
+    }
+  });
+}
+
 for (const [order, [id, title, icon, precondition]] of ([
   ['undo', 'Undo', 'discard', MarkdownEditorCanUndoContext.isEqualTo(true)],
   ['redo', 'Redo', 'redo', MarkdownEditorCanRedoContext.isEqualTo(true)],
@@ -40,30 +96,40 @@ for (const [order, [id, title, icon, precondition]] of ([
   });
 }
 
-interface FormattingChoice<T> {
-  readonly group: string;
-  readonly order: number;
-  readonly title: string;
+interface FormattingPicker<T> {
   readonly commandId: string;
   readonly commandTitle: string;
-  readonly options: readonly { readonly label: string; readonly value: T }[];
-  readonly selected: (value: T) => ContextKeyExpression;
+  readonly options: readonly { readonly label: string; readonly value: T; readonly labelClass?: string }[];
   readonly parse: (arg: unknown) => T | undefined;
   readonly createCommand: (value: T) => Command;
   readonly keybinding?: readonly Omit<IKeybindingRule, 'id'>[];
 }
 
+interface FormattingChoice<T> extends FormattingPicker<T> {
+  readonly group: string;
+  readonly order: number;
+  readonly title: string;
+  readonly selectFallback?: readonly IMenuSelectFallback[];
+  readonly selected: (value: T) => ContextKeyExpression;
+}
+
 function registerChoice<T>(choice: FormattingChoice<T>): void {
-  const { group, order, title, commandId, commandTitle, options, selected, parse, createCommand, keybinding } = choice;
+  const { group, order, title, commandId, options, selected, selectFallback } = choice;
   const submenu = MenuId.for(`${toolbar.id}.${commandId}`);
-  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true });
+  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true, selectFallback });
   for (const [index, option] of options.entries()) {
     MenuRegistry.appendMenuItem(submenu, {
       order: index,
       args: [option.value],
-      command: { id: commandId, title: option.label, precondition: writable, toggled: selected(option.value) },
+      command: {
+        id: commandId, title: option.label, labelClass: option.labelClass, precondition: writable, toggled: selected(option.value),
+      },
     });
   }
+  registerFormattingPicker(choice);
+}
+
+function registerFormattingPicker<T>({ commandId, commandTitle, options, parse, createCommand, keybinding }: FormattingPicker<T>): void {
   registerAction2(class extends Action2 {
     constructor() {
       super({ id: commandId, title: commandTitle, category: 'Markdown', f1: true, precondition: wysiwyg, keybinding });
@@ -111,11 +177,34 @@ registerChoice({
   }] : []),
 });
 
-const alignKeys = [
-  ['left', KeyCode.KeyL], ['center', KeyCode.KeyE], ['right', KeyCode.KeyR], ['justify', KeyCode.KeyJ],
-] as const;
+const alignments = formattingPresets.textAlign.options.filter(option => !option.readOnly);
+registerFormattingPicker({
+  commandId: 'markdownEditor.setTextAlign', commandTitle: 'Set Text Alignment', options: alignments,
+  parse: arg => alignments.find(option => option.value === arg)?.value,
+  createCommand: value => setFormattingPreset('textAlign', value),
+});
+for (const [order, [value, id, title, key]] of ([
+  ['left', 'markdownEditor.alignLeft', 'Align Left', KeyCode.KeyL],
+  ['center', 'markdownEditor.alignCenter', 'Align Center', KeyCode.KeyE],
+  ['right', 'markdownEditor.alignRight', 'Align Right', KeyCode.KeyR],
+] as const).entries()) {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({
+        id, title, category: 'Markdown', f1: true, precondition: ContextKeyExpr.and(wysiwyg, writable),
+        menu: { id: toolbar, group: '4_paragraph', order, when: wysiwyg },
+        toggled: MarkdownEditorTextAlignContext.isEqualTo(value),
+        keybinding: { primary: KeyMod.CtrlCmd | KeyMod.Shift | key, weight: formattingWeight, when: editorFocus },
+      });
+    }
+
+    override run(accessor: ServicesAccessor): void {
+      getMarkdownPane(accessor.get(IEditorGroupsService))?.runFormattingCommand(setFormattingPreset('textAlign', value));
+    }
+  });
+}
+
 for (const [axis, title, commandTitle, group, order, context] of [
-  ['textAlign', 'Align', 'Set Text Alignment', '4_paragraph', 0, MarkdownEditorTextAlignContext],
   ['fontSize', 'Size', 'Set Font Size', '5_font', 0, MarkdownEditorFontSizeContext],
   ['fontFamily', 'Font', 'Set Font Family', '5_font', 1, MarkdownEditorFontFamilyContext],
 ] as const) {
@@ -123,16 +212,16 @@ for (const [axis, title, commandTitle, group, order, context] of [
   registerChoice({
     group, order, title, commandTitle,
     commandId: 'markdownEditor.set' + axis[0].toUpperCase() + axis.slice(1),
-    options,
+    options: options.filter(option => !option.hidden).map(option => ({
+      label: option.label, value: option.value, labelClass: axis === 'fontFamily' ? option.className : undefined,
+    })),
+    // Legacy classes stay readable without a menu entry; a mixed selection (null) keeps the dash.
+    selectFallback: options.filter(option => option.hidden).map(option => ({
+      label: axis === 'fontSize' ? 'Custom' : option.label, when: context.isEqualTo(option.value),
+    })),
     selected: value => context.isEqualTo(value),
     parse: arg => options.find(option => option.value === arg)?.value,
     createCommand: value => setFormattingPreset(axis, value),
-    keybinding: axis === 'textAlign' ? alignKeys.map(([args, key]) => ({
-      primary: KeyMod.CtrlCmd | KeyMod.Shift | key,
-      weight: formattingWeight,
-      when: editorFocus,
-      args,
-    })) : undefined,
   });
 }
 

@@ -2,12 +2,56 @@ import { Menu, renderMenuIcon, runMenuAction } from '../../../base/browser/ui/me
 import { Disposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { ILayoutService } from '../../layout/browser/layoutService.js';
 import { IMenuService, MenuItemAction, SubmenuItemAction } from '../common/actions.js';
-import type { IMenuContext, MenuActionGroup, MenuId } from '../common/actions.js';
+import type { IMenuContext, IMenuNumberInput, MenuActionGroup, MenuId } from '../common/actions.js';
 
 function preserveFocusOnLeftPress(event: MouseEvent): void {
   if (event.button === 0) {
     event.preventDefault();
   }
+}
+
+function createNumberInput(document: Document, { min, max }: IMenuNumberInput) {
+  const control = document.createElement('input');
+  control.className = 'wr-menu-toolbar-number';
+  control.type = 'number';
+  control.min = String(min);
+  control.max = String(max);
+  control.required = true;
+  let action: MenuItemAction;
+  let committed = '';
+  const apply = () => {
+    const value = control.valueAsNumber;
+    const changed = control.validity.valid && value !== Number(committed);
+    control.value = committed;
+    if (!control.disabled && changed) {
+      void action.run(value).catch(error => console.error(error));
+    }
+  };
+  control.addEventListener('blur', apply);
+  control.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Enter') {
+        apply();
+      } else {
+        control.value = committed;
+      }
+    }
+  });
+  return {
+    control,
+    update(next: MenuItemAction, value: number | undefined) {
+      action = next;
+      control.title = action.label;
+      control.setAttribute('aria-label', action.label);
+      const current = value === undefined ? '' : String(value);
+      if (current !== committed || !action.enabled) {
+        control.value = committed = current;
+      }
+      control.disabled = !action.enabled;
+    },
+  };
 }
 
 export class MenuWorkbenchToolBar extends Disposable {
@@ -83,7 +127,8 @@ export class MenuWorkbenchToolBar extends Disposable {
     overflow.addEventListener('click', () => open(overflow, remaining));
 
     let tabStop: string | undefined;
-    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement>('[data-menu-action]')]
+    const inputs = new Map<string, ReturnType<typeof createNumberInput>>();
+    const controls = () => [...toolbar.querySelectorAll<HTMLButtonElement>('button[data-menu-action]')]
       .filter(control => !control.disabled && !control.hidden);
     const setTabStop = (control: HTMLElement | undefined) => {
       tabStop = control?.dataset.menuAction;
@@ -93,7 +138,7 @@ export class MenuWorkbenchToolBar extends Disposable {
     };
     if (options) {
       toolbar.addEventListener('focusin', event => {
-        if (event.target instanceof HTMLElement) {
+        if (event.target instanceof HTMLButtonElement) {
           setTabStop(event.target);
         }
       });
@@ -123,26 +168,58 @@ export class MenuWorkbenchToolBar extends Disposable {
 
       const active = document.activeElement as HTMLElement | null;
       const focusedId = toolbar.contains(active) ? active?.dataset.menuAction : undefined;
+      const primary = actions.filter(([group]) => options || group === 'navigation');
+      const nextControls = [];
+      const inputIds = new Set<string>();
+      for (const [group, items] of primary) {
+        for (const action of items) {
+          let control: HTMLButtonElement | HTMLInputElement;
+          if (options && action instanceof MenuItemAction && action.numberInput) {
+            let input = inputs.get(action.id);
+            if (!input) {
+              input = createNumberInput(document, action.numberInput);
+              // A click inside the toolbar does not dismiss its popup, so moving to the input closes it here.
+              input.control.addEventListener('focus', close);
+              inputs.set(action.id, input);
+            }
+            inputIds.add(action.id);
+            input.update(action, contextKeyService.getContextKeyValue?.<number>(action.numberInput.valueKey));
+            control = input.control;
+          } else {
+            control = createControl(action);
+          }
+          control.dataset.menuAction = action.id;
+          control.dataset.menuGroup = group;
+          nextControls.push(control);
+        }
+      }
+      for (const id of inputs.keys()) {
+        if (!inputIds.has(id)) {
+          inputs.delete(id);
+        }
+      }
+      // Keep the active input in place when selection context rebuilds the surrounding buttons.
+      const next = new Set<Element>(nextControls);
       for (const control of [...toolbar.children]) {
-        if (control !== overflow) {
+        if (control !== overflow && !next.has(control)) {
           control.remove();
         }
       }
-      const primary = actions.filter(([group]) => options || group === 'navigation');
-      for (const [group, items] of primary) {
-        for (const action of items) {
-          const control = createControl(action);
-          control.dataset.menuAction = action.id;
-          control.dataset.menuGroup = group;
-          toolbar.insertBefore(control, overflow);
+      let anchor: HTMLElement = overflow;
+      for (const control of nextControls.reverse()) {
+        if (control.nextElementSibling !== anchor) {
+          toolbar.insertBefore(control, anchor);
         }
+        anchor = control;
       }
       const available = controls();
       const focused = available.find(control => control.dataset.menuAction === focusedId);
+      const tab = focused ?? available.find(control => control.dataset.menuAction === tabStop) ?? available[0];
       if (options) {
-        setTabStop(focused ?? available.find(control => control.dataset.menuAction === tabStop) ?? available[0]);
+        setTabStop(tab);
       }
-      (focused ?? (focusedId && options ? available.find(control => control.tabIndex === 0) : undefined))
+      const focusedInput = focusedId && inputs.get(focusedId)?.control;
+      (focused ?? (focusedId && options && (!focusedInput || focusedInput.disabled) ? tab : undefined))
         ?.focus({ preventScroll: true });
     };
 
@@ -174,8 +251,18 @@ export class MenuWorkbenchToolBar extends Disposable {
         if (action.item.select) {
           const choices = action.groups.flatMap(([, items]) => items);
           const current = choices.find(item => item instanceof MenuItemAction && item.checked);
-          button.textContent = `${action.label}: ${current?.label ?? '—'}`;
-          button.setAttribute('aria-label', current ? `${action.label}: ${current.label}` : action.label);
+          const value = document.createElement('span');
+          const fallback = action.item.selectFallback?.find(({ when }) => contextKeyService.contextMatchesRules(when));
+          const label = current?.label ?? fallback?.label;
+          value.className = 'wr-menu-toolbar-choice-label';
+          value.textContent = label ?? '—';
+          if (current instanceof MenuItemAction && current.labelClass) {
+            value.classList.add(current.labelClass);
+          }
+          button.replaceChildren(value);
+          if (label) {
+            button.setAttribute('aria-description', label);
+          }
           button.classList.add('wr-menu-toolbar-choices');
           button.disabled = choices.every(item => !item.enabled);
           const arrow = renderMenuIcon(document, { id: 'chevron-down' });

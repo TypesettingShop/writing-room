@@ -42,6 +42,11 @@ test.each([
     // The palette runs the bare command, so a key bound only with arguments must not label it.
     expect(resolver.lookupKeybinding('markdownEditor.setBlockType')).toBeUndefined();
     expect(resolver.lookupKeybinding('markdownEditor.setTextAlign')).toBeUndefined();
+    for (const [key, id] of [['l', 'alignLeft'], ['e', 'alignCenter'], ['r', 'alignRight']]) {
+      expect(resolve(`${modifier}+shift+${key}`)).toMatchObject({
+        kind: ResultKind.KbFound, rule: { id: `markdownEditor.${id}` },
+      });
+    }
     inline.set(false);
     expect(resolve(`${modifier}+b`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.toggleBold' } });
     expect(resolve(`${modifier}+k`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.editLink' } });

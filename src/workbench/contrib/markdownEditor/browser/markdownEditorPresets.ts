@@ -9,6 +9,9 @@ interface PresetChoice {
   readonly label: string;
   readonly value: string;
   readonly className?: string;
+  readonly legacyClassName?: string;
+  readonly readOnly?: boolean;
+  readonly hidden?: boolean;
 }
 
 interface PresetAxis {
@@ -18,7 +21,11 @@ interface PresetAxis {
 
 export type PresetAxisId = 'textAlign' | 'fontSize' | 'fontFamily';
 
+const pointSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+
 // Both UI and transactions use this table. Markdown persists the resulting generic classes.
+// Within an axis the options follow the order of their equal-specificity rules in markdownTheme.css, so when a
+// block carries several classes of one axis the last listed option is the one that renders.
 export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
   textAlign: {
     defaultValue: 'left',
@@ -26,25 +33,30 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
       { label: 'Left', value: 'left' },
       { label: 'Center', value: 'center', className: 'center' },
       { label: 'Right', value: 'right', className: 'right' },
-      { label: 'Justify', value: 'justify', className: 'justify' },
+      { label: 'Justify', value: 'justify', className: 'justify', readOnly: true },
     ],
   },
   fontSize: {
     defaultValue: 'default',
     options: [
-      { label: 'Small', value: 'small', className: 'size-sm' },
       { label: 'Default', value: 'default' },
-      { label: 'Large', value: 'large', className: 'size-lg' },
-      { label: 'Extra Large', value: 'extraLarge', className: 'size-xl' },
+      { label: 'Small', value: 'small', className: 'size-sm', hidden: true },
+      { label: 'Large', value: 'large', className: 'size-lg', hidden: true },
+      { label: 'Extra Large', value: 'extraLarge', className: 'size-xl', hidden: true },
+      ...pointSizes.map(size => ({ label: `${size} pt`, value: `${size}pt`, className: `size-${size}pt` })),
     ],
   },
   fontFamily: {
     defaultValue: 'default',
     options: [
       { label: 'Default', value: 'default' },
-      { label: 'Serif', value: 'serif', className: 'font-serif' },
-      { label: 'Sans Serif', value: 'sans', className: 'font-sans' },
-      { label: 'Monospace', value: 'monospace', className: 'font-mono' },
+      { label: 'Serif', value: 'serif', className: 'font-serif', hidden: true },
+      { label: 'Sans Serif', value: 'sans', className: 'font-sans', hidden: true },
+      { label: 'Noto Sans KR', value: 'noto-sans-kr', className: 'font-noto-sans-kr' },
+      { label: 'Noto Serif KR', value: 'noto-serif-kr', className: 'font-noto-serif-kr' },
+      { label: '나눔명조', value: 'nanum-myeongjo', className: 'font-nanum-myeongjo' },
+      { label: '나눔고딕', value: 'nanum-gothic', className: 'font-nanum-gothic' },
+      { label: 'monospace', value: 'monospace', className: 'font-monospace', legacyClassName: 'font-mono' },
     ],
   },
 };
@@ -56,17 +68,18 @@ function presetForClass(axis: PresetAxisId, name: string): string | undefined {
   if (axis === 'textAlign' && name === 'left') {
     return 'left';
   }
-  return formattingPresets[axis].options.find(option => option.className === name)?.value;
+  return formattingPresets[axis].options.find(option => option.className === name || option.legacyClassName === name)?.value;
 }
 
 function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string | undefined {
-  for (const name of classes) {
-    const value = presetForClass(axis, name);
-    if (value !== undefined) {
-      return value;
+  // The table follows the CSS rule order, so the last present option is the rendered one, whatever the authored order.
+  let effective: string | undefined;
+  for (const { className, legacyClassName, value } of formattingPresets[axis].options) {
+    if ((className && classes.includes(className)) || (legacyClassName && classes.includes(legacyClassName))) {
+      effective = value;
     }
   }
-  return undefined;
+  return effective;
 }
 
 function replaceClasses(
@@ -118,7 +131,7 @@ function updateSpans(
 export function setFormattingPreset(axis: PresetAxisId, value: string): Command {
   return (state, dispatch) => {
     const choice = formattingPresets[axis].options.find(option => option.value === value);
-    if (!choice) {
+    if (!choice || choice.readOnly) {
       return false;
     }
     const { selection } = state;

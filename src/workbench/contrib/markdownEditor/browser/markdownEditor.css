@@ -26,13 +26,38 @@
   cursor: default;
 }
 
+.markdown-editor-toolbar .wr-menu-toolbar-number {
+  box-sizing: border-box;
+  width: 4.25rem;
+  padding: 3px 4px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+}
+
+.markdown-editor-toolbar .wr-menu-toolbar-number:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.markdown-editor-toolbar .wr-menu-toolbar-number:disabled {
+  color: var(--vscode-disabledForeground);
+}
+
 .markdown-editor-toolbar .wr-menu-toolbar-choices {
   display: flex;
   min-width: 5rem;
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  border-color: var(--vscode-menu-border);
+  white-space: nowrap;
+}
+
+.markdown-editor-toolbar .wr-menu-toolbar-choices:enabled:is(:hover, :focus-visible, [aria-expanded='true']) {
+  background: var(--vscode-menu-selectionBackground);
+  border-color: var(--vscode-focusBorder);
 }
 
 .markdown-editor-toolbar button[aria-pressed='true'] {
@@ -40,9 +65,40 @@
   border-color: var(--vscode-focusBorder);
 }
 
+/* The bundled Codicons have no text alignment glyphs. */
+.markdown-editor-toolbar button[data-menu-group='4_paragraph'] {
+  font-size: 0;
+}
+
+.markdown-editor-toolbar button[data-menu-group='4_paragraph']::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  forced-color-adjust: none;
+  background:
+    linear-gradient(currentColor 0 0) center 2px / 16px 1px no-repeat,
+    linear-gradient(currentColor 0 0) var(--markdown-align-icon-edge, center) 6px / 10px 1px no-repeat,
+    linear-gradient(currentColor 0 0) center 10px / 16px 1px no-repeat,
+    linear-gradient(currentColor 0 0) var(--markdown-align-icon-edge, center) 14px / 10px 1px no-repeat;
+}
+
+.markdown-editor-toolbar button[data-menu-action='markdownEditor.alignLeft'] {
+  --markdown-align-icon-edge: left;
+}
+
+.markdown-editor-toolbar button[data-menu-action='markdownEditor.alignRight'] {
+  --markdown-align-icon-edge: right;
+}
+
 .markdown-editor-surface {
   flex: 1;
   min-height: 0;
+  --markdown-hatch-stripe: color-mix(in srgb, var(--vscode-editor-foreground) 4%, transparent);
+}
+
+:is(.hc-black, .hc-light) .markdown-editor-surface {
+  --markdown-hatch-stripe: color-mix(in srgb, var(--vscode-editor-foreground) 18%, transparent);
 }
 
 .markdown-editor-surface,
@@ -54,14 +110,31 @@
 }
 
 .markdown-editor-surface .ProseMirror {
+  --markdown-content-padding-inline: 2rem;
+  --markdown-content-border-width: 1px;
   box-sizing: border-box;
   min-height: 100%;
-  max-width: 80ch;
+  max-width: calc(var(--markdown-content-width) + 2 * (var(--markdown-content-padding-inline) + var(--markdown-content-border-width)));
   margin: 0 auto;
-  padding: 1.25rem 2rem;
+  padding: 1.25rem var(--markdown-content-padding-inline);
+  background: var(--vscode-editor-background);
   outline: none;
   font-size: 1rem;
   line-height: 1.6;
+}
+
+.markdown-editor-frame.markdown-content-fill .ProseMirror {
+  max-width: none;
+}
+
+.markdown-editor-frame:not(.markdown-content-fill) .markdown-editor-surface,
+.markdown-focus-mode .markdown-editor-surface {
+  background-image: repeating-linear-gradient(135deg, var(--markdown-hatch-stripe) 0 4px, transparent 4px 10px);
+}
+
+.markdown-editor-frame:not(.markdown-content-fill) .markdown-editor-surface .ProseMirror,
+.markdown-focus-mode .markdown-editor-surface .ProseMirror {
+  border-inline: var(--markdown-content-border-width) solid var(--vscode-editorGroup-border);
 }
 
 .markdown-editor-surface .ProseMirror > :first-child {

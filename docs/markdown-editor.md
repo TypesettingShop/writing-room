@@ -11,6 +11,18 @@
 - 모드를 전환한 순간의 마크다운이 새 이력의 시작점이 된다. 그 뒤 첫 편집을 실행 취소하면 전환 순간의 텍스트로 돌아온다. 원문 모드로 전환할 때 같은 파일을 보여 주는 Monaco 창도 새 이력의 시작점을 공유한다. 새로고침은 탭 모드와 초안을 복원한다.
 - 이미지의 상대 경로는 문서 폴더를 기준으로 읽는다. 작업 폴더 안의 이미지는 파일 서비스로 읽어 보여 주고, 작업 폴더 밖의 경로나 지원하지 않는 형식은 대체 텍스트와 사유를 보여 준다. HTTPS 이미지는 이미지마다 **Load image** 버튼을 눌러야 요청하며 referrer를 보내지 않는다. HTTP 이미지는 요청하지 않고 대체 텍스트를 보여 준다. 어느 경우든 저장할 때 원래 주소를 유지한다.
 
+## 본문 폭과 배치
+
+- `markdownEditor.contentWidth`는 가운데 배치에서 글줄의 최대 폭을 정한다.
+  좌우 안쪽 여백(패딩)과 경계선을 제외한 폭이다. 단위는 `ch`다. 기본값
+  `80`은 편집기 기본 글꼴에서 숫자 `0`의 폭을 80배 한 길이다. 20–400
+  사이의 정수를 받으며, 창이 좁으면 표시 영역에 맞춰 줄어든다.
+- `markdownEditor.contentLayout`은 `center`(기본)에서 본문을 가운데 놓는다.
+  `fill`은 편집기 폭을 채우고 툴바의 폭 입력을 비활성화한다. 집중 모드의
+  폭은 `markdownEditor.focusMode.width`로 정한다.
+- 툴바에서 바꾼 폭과 배치는 사용자 설정에 저장되며 열린 모든 WYSIWYG
+  편집기에 적용된다. 문서 서식은 아래의 Markdown 클래스로 저장된다.
+
 ## 클래스 속성
 
 문단이나 제목을 꾸미려면 마지막 줄에 클래스 목록을 붙인다. 인용문과 목록 항목의
@@ -24,14 +36,27 @@
 
 > 인용 {.right}
 
-- 항목 {.size-lg}
+- 항목 {.size-12pt}
 
 | 셀 {.center} |
 | --- |
 
-[글자 일부]{.size-lg .font-serif}
+[글자 일부]{.size-18pt .font-noto-serif-kr}
 ```
 
+- **Size**는 8·9·10·11·12·14·16·18·20·24·28·36·48·72 pt를 고르고
+  `{.size-12pt}`처럼 저장한다. 본문과 제목에 같은 절대 크기가 적용된다.
+  기존 `.size-sm`·`.size-lg`·`.size-xl`은 블록 기본 크기에 대한 상대
+  크기로 표시되며, 메뉴를 닫으면 해당 값은 **Custom**으로 표시된다.
+- **Font**는 `.font-noto-sans-kr`, `.font-noto-serif-kr`,
+  `.font-nanum-myeongjo`, `.font-nanum-gothic`, `.font-monospace` 중
+  선택한 서체의 클래스를 쓴다. 설치된 글꼴을 우선 쓰고 없으면 대체 목록을
+  사용한다. 기존 `.font-serif`와 `.font-sans`의 목록은
+  `markdownEditor.fontFamily`에서 제어한다. `.font-mono`도 고정폭 글꼴로
+  표시된다.
+- 크기와 서체에서 **Default**를 고르면 해당 범위의 프리셋 클래스를 지운다.
+  문단의 정렬 버튼은 `.center`나 `.right`를 쓰고 **Align Left**는 정렬
+  클래스를 지운다. 기존 `.justify`는 읽기와 렌더링만 지원한다.
 - 클래스 이름은 소문자로 시작하고 뒤에 소문자, 숫자, 하이픈을 쓸 수 있다. 여러
   클래스는 공백으로 나눈다. 사용자 클래스와 입력 순서가 저장된다.
 - 줄 끝의 클래스 목록 앞에는 공백을 둔다. `글자{.class}`나 `![그림](a.png){.class}`처럼
@@ -125,4 +150,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f

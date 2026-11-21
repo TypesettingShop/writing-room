@@ -46,7 +46,8 @@ npm run dev
 
 - WYSIWYG 본문 위 툴바에서 서식을 바꾼다. **Tab**으로 툴바에 들어가고 좌우 화살표로 버튼을 이동한다. **Enter**로 버튼이나 드롭다운을 열고, 드롭다운 안에서는 위아래 화살표와 **Enter**로 선택한다. **Esc**로 메뉴를 닫는다.
 - **Style**에서 본문, 제목 1–6, 부제목, 인용, 코드 블록을 고른다. 부제목은 `{.subtitle}`을 붙인 문단으로 저장하며 개요에 들어가지 않는다. 선택한 블록의 스타일이 서로 다르면 **Style**에 대시가 표시된다. **Ctrl+Alt+0**은 본문, **Ctrl+Alt+1–6**은 해당 단계의 제목을 적용한다. macOS에서는 **Cmd+Option**을 쓴다.
-- **Align**, **Size**, **Font**는 Markdown 클래스 프리셋을 적용한다. **Ctrl+Shift+L/E/R/J**는 왼쪽/가운데/오른쪽/양쪽 정렬이다. 크기와 글꼴은 블록 전체를 선택하면 블록에, 텍스트 일부를 선택하면 해당 범위에 적용된다. 일부 선택에서 **Default**는 인라인 재정의를 지워 블록의 값을 상속한다. `markdownEditor.fontFamily`의 `serif`와 `sans`에 CSS 글꼴 목록을 설정할 수 있다.
+- 정렬 버튼 셋과 **Size**, **Font**는 Markdown 클래스 프리셋을 적용한다. **Align Left**는 정렬 클래스를 지우고 **Align Center**와 **Align Right**는 `{.center}`와 `{.right}`를 붙인다. **Ctrl+Shift+L/E/R**은 왼쪽/가운데/오른쪽 정렬이다. 이미 있는 `{.justify}`는 그대로 읽고 저장하며, 그 블록에서는 세 버튼 모두 눌리지 않는다. **Size**는 8–72pt 중에서 고르고 `{.size-12pt}`처럼 저장한다. **Font**는 Noto Sans KR, Noto Serif KR, 나눔명조, 나눔고딕, monospace 중에서 고르고 `{.font-noto-serif-kr}`처럼 저장한다. 크기와 글꼴은 블록 전체를 선택하면 블록에, 텍스트 일부를 선택하면 해당 범위에 적용된다. 일부 선택에서 **Default**는 인라인 재정의를 지워 블록의 값을 상속한다. 기존 `size-sm`·`size-lg`·`size-xl`은 **Size**에 **Custom**으로, `font-serif`·`font-sans`는 **Font**에 **Serif**·**Sans Serif**로 표시되며 드롭다운에는 없다. 이 두 클래스의 CSS 글꼴 목록은 `markdownEditor.fontFamily`의 `serif`와 `sans`에 설정할 수 있다.
+- 본문은 기본으로 가운데에 놓이고 좌우 빈 공간에는 빗금이 그려진다. 빈 공간을 누르면 왼쪽은 그 줄의 시작, 오른쪽은 그 줄의 끝, 본문 아래는 문서 끝에 커서가 간다. 툴바의 **Content Width (characters)** 칸에 20–400 사이의 글자 수를 넣고 **Enter**를 누르거나 칸을 벗어나면 `markdownEditor.contentWidth`(기본 `80`)에 저장되어 열린 모든 Markdown 편집기에 적용된다. **Center Content**와 **Fill Editor Width**는 `markdownEditor.contentLayout`(`center` 또는 `fill`)을 바꾸며, 전체 채우기에서는 폭 칸이 비활성화된다. 집중 모드는 이 두 설정 대신 `markdownEditor.focusMode.width`를 쓴다.
 - 굵게는 **Ctrl+B**, 기울임은 **Ctrl+I**, 취소선은 **Ctrl+Shift+X**, 인라인 코드는 **Ctrl+E**, 링크 편집은 **Ctrl+K**다. macOS에서는 **Cmd**를 쓴다. 링크의 기존 URL은 입력창에 채워지며, 빈 값으로 수락하면 링크를 제거한다. 선택 없이 새 링크를 만들면 URL이 링크 텍스트가 된다. 툴바 작업은 **Markdown** 카테고리의 커맨드 팔레트에서도 실행할 수 있다.
 
 #### Deviations from VS Code
@@ -134,4 +135,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f

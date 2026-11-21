@@ -25,6 +25,7 @@ export interface ICommandAction {
   readonly title: CommandTitle;
   readonly category?: CommandTitle;
   readonly icon?: CommandIcon;
+  readonly labelClass?: string;
   readonly precondition?: ContextKeyExpression;
   readonly toggled?: ContextKeyExpression;
   readonly forwardMenuContext?: MenuId;
@@ -39,6 +40,19 @@ interface IMenuEntry {
 export interface IMenuItem extends IMenuEntry {
   readonly command: ICommandAction;
   readonly args?: readonly unknown[];
+  readonly numberInput?: IMenuNumberInput;
+}
+
+export interface IMenuNumberInput {
+  readonly valueKey: string;
+  readonly min: number;
+  readonly max: number;
+}
+
+/** A label a select submenu shows when no listed choice is checked but `when` holds. */
+export interface IMenuSelectFallback {
+  readonly label: string;
+  readonly when: ContextKeyExpression | undefined;
 }
 
 export interface ISubmenuItem extends IMenuEntry {
@@ -47,6 +61,7 @@ export interface ISubmenuItem extends IMenuEntry {
   readonly title: CommandTitle;
   readonly icon?: CommandIcon;
   readonly select?: boolean;
+  readonly selectFallback?: readonly IMenuSelectFallback[];
 }
 
 export function isIMenuItem(item: IMenuItem | ISubmenuItem): item is IMenuItem {
@@ -162,7 +177,8 @@ class MenuRegistryImpl {
 
 export const MenuRegistry = new MenuRegistryImpl();
 
-export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>;
+export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>
+  & Partial<Pick<IContextKeyService, 'getContextKeyValue'>>;
 
 export class MenuCommandContext {
   constructor(readonly menu: MenuId, readonly scope: IMenuContext) {}
@@ -177,6 +193,7 @@ export class MenuItemAction {
   readonly enabled: boolean;
   readonly checked: boolean | undefined;
   readonly icon: CommandIcon | undefined;
+  readonly labelClass: string | undefined;
   readonly keybinding: ResolvedKeybinding | undefined;
   private menuContext: MenuId | undefined;
 
@@ -186,12 +203,14 @@ export class MenuItemAction {
     keybindings: IKeybindingService,
     private readonly commandService: ICommandService,
     private readonly menuArgs: readonly unknown[] = [],
+    readonly numberInput?: IMenuNumberInput,
   ) {
     this.id = item.id;
     this.label = commandTitle(item.title);
     this.enabled = context.contextMatchesRules(item.precondition);
     this.checked = item.toggled && context.contextMatchesRules(item.toggled);
     this.icon = item.icon;
+    this.labelClass = item.labelClass;
     this.keybinding = menuArgs.length ? undefined : keybindings.lookupKeybinding(item.id);
     this.menuContext = item.forwardMenuContext;
   }

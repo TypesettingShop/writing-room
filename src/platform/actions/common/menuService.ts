@@ -43,7 +43,13 @@ class MenuInfo {
       if (isIMenuItem(item)) {
         this.collectKeys(item.command.precondition);
         this.collectKeys(item.command.toggled);
+        if (item.numberInput) {
+          this.keys.add(item.numberInput.valueKey);
+        }
       } else {
+        for (const { when } of item.selectFallback ?? []) {
+          this.collectKeys(when);
+        }
         this.collect(item.submenu);
       }
     }
@@ -70,7 +76,7 @@ class MenuInfo {
         }
         let action: MenuItemAction | SubmenuItemAction;
         if (isIMenuItem(item)) {
-          action = new MenuItemAction(item.command, context, keys, commands, item.args);
+          action = new MenuItemAction(item.command, context, keys, commands, item.args, item.numberInput);
         } else {
           const children = actionsFor(item.submenu, menus);
           if (children.length === 0) {

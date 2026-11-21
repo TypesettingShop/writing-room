@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +9,7 @@ import { ContextKeyService } from '../../../../../platform/contextkey/browser/co
 import { blockStyles, currentBlockStyle, selectedTextBlocks, setBlockStyle } from '../../browser/markdownEditorBlockStyles.js';
 import { bindMarkdownFormattingContext } from '../../browser/markdownEditorFormattingContext.js';
 import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from '../../browser/markdownEditorInline.js';
-import { currentFormattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
+import { currentFormattingPresets, formattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
 
 function read(source: string, from = 1, to = from): EditorState {
   const doc = parseMarkdown(source);
@@ -106,6 +107,33 @@ describe('Markdown class presets', () => {
     expect(write(apply(right, setFormattingPreset('textAlign', 'left')))).toBe('Line {.my-class .size-lg}');
   });
 
+  it('reads and preserves authored justify, but only offers other alignments for editing', () => {
+    const state = read('Line {.center .justify .authored}');
+    expect(presets(state).textAlign).toBe('justify');
+    expect(setFormattingPreset('textAlign', 'justify')(read('Line'))).toBe(false);
+    expect(write(state)).toBe('Line {.center .justify .authored}');
+    expect(write(apply(state, setFormattingPreset('textAlign', 'center')))).toBe('Line {.authored .center}');
+  });
+
+  it('reports the size and font the theme renders when a block carries several of one axis', () => {
+    expect(presets(read('Line {.size-24pt .size-12pt}')).fontSize).toBe('24pt');
+    expect(presets(read('Line {.size-12pt .size-lg}')).fontSize).toBe('12pt');
+    expect(presets(read('Line {.font-nanum-gothic .font-noto-sans-kr}')).fontFamily).toBe('nanum-gothic');
+    expect(presets(read('Line {.font-mono .font-serif}')).fontFamily).toBe('monospace');
+    expect(presets(read('Line {.font-mono .font-noto-serif-kr}')).fontFamily).toBe('monospace');
+  });
+
+  it('keeps the theme rules in the preset table order that the reported value relies on', () => {
+    const css = readFileSync(new URL('../../browser/media/markdownTheme.css', import.meta.url), 'utf8');
+    for (const { options } of Object.values(formattingPresets)) {
+      const positions = options.flatMap(({ className, legacyClassName }) => [className, legacyClassName])
+        .filter(name => name !== undefined)
+        .map(name => css.search(new RegExp(`\\.${name}(?![\\w-])`)));
+      expect(positions.every(position => position >= 0)).toBe(true);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    }
+  });
+
   it('updates only the selected part of a span and preserves the other axes and classes', () => {
     const state = read('A [word]{.authored .size-lg .font-serif} Z {.font-sans}', 4, 6);
     const large = apply(state, setFormattingPreset('fontSize', 'extraLarge'));
@@ -118,14 +146,39 @@ describe('Markdown class presets', () => {
     expect(presets(reset).fontSize).toBe('default');
   });
 
+  it.each([8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72])('round-trips %s pt on a heading', size => {
+    const value = `${size}pt`;
+    const state = read('# Line {.size-lg .authored}', 1, 5);
+    const styled = apply(state, setFormattingPreset('fontSize', value));
+    const source = `# Line {.authored .size-${value}}`;
+    expect(write(styled)).toBe(source);
+    expect(presets(read(source)).fontSize).toBe(value);
+    expect(write(apply(styled, setFormattingPreset('fontSize', 'default')))).toBe('# Line {.authored}');
+  });
+
   it('makes a whole-block choice replace inline overrides on its own axis', () => {
     const state = read('[First]{.authored .font-serif .size-xl} next {.font-sans}', 1, 11);
     expect(presets(state).fontFamily).toBeNull();
     const mono = apply(state, setFormattingPreset('fontFamily', 'monospace'));
-    expect(write(mono)).toBe('[First]{.authored .size-xl} next {.font-mono}');
+    expect(write(mono)).toBe('[First]{.authored .size-xl} next {.font-monospace}');
     expect(presets(mono).fontFamily).toBe('monospace');
     expect(presets(mono).fontSize).toBeNull();
   });
+
+  it.each(['noto-sans-kr', 'noto-serif-kr', 'nanum-myeongjo', 'nanum-gothic', 'monospace'])(
+    'round-trips the %s font while replacing a legacy monospace class',
+    font => {
+      const source = 'Line {.authored .font-mono}';
+      const state = read(source, 1, 5);
+      expect(presets(state).fontFamily).toBe('monospace');
+      expect(write(state)).toBe(source);
+      const styled = apply(state, setFormattingPreset('fontFamily', font));
+      const saved = `Line {.authored .font-${font}}`;
+      expect(write(styled)).toBe(saved);
+      expect(presets(read(saved)).fontFamily).toBe(font);
+      expect(write(apply(styled, setFormattingPreset('fontFamily', 'default')))).toBe('Line {.authored}');
+    },
+  );
 
   it('applies a size and font to upcoming typing without styling the surrounding text', () => {
     const sized = apply(read('before after', 8), setFormattingPreset('fontSize', 'small'));
