@@ -285,7 +285,7 @@ color('sideBarSectionHeader.foreground', 'sideBar.foreground', 'sideBar.foregrou
 color('sideBarSectionHeader.border', null, null, 'contrastBorder', 'contrastBorder', 'Side bar section header border.');
 
 // Editor groups and tabs
-color('editorGroup.border', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Border between editor groups.');
+color('editorGroup.border', '#6b7a94', '#7b8699', 'contrastBorder', 'contrastBorder', 'Border between editor groups.');
 color('editorGroup.dropBackground', '#53595d80', '#9db5d866', null, '#0f4a8533', 'Background of an editor group while an editor is dragged over it.');
 color('editorGroupHeader.tabsBackground', '#1c212c', '#e9edf4', null, null, 'Background of the tabs bar.');
 color('editorGroupHeader.tabsBorder', null, null, null, null, 'Border below the tabs bar.');
@@ -377,6 +377,7 @@ color('charts.purple', '#b38ae0', '#7442a8', '#b180d7', '#652d90', 'Purple in ch
 
 // Editor
 color('editor.background', '#171b24', '#fbfcfe', '#000000', '#ffffff', 'Editor background.');
+color('markdownEditor.contentBorder', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Side borders of the centered Markdown editor content.');
 color('editor.foreground', '#d7dfec', '#1f2633', '#ffffff', '#292929', 'Editor foreground.');
 color('editor.selectionBackground', '#2f4a72', '#c4d8f6', '#ffffff', '#0f4a85', 'Background of the editor selection.');
 color('editor.inactiveSelectionBackground', '#2f4a7280', '#c4d8f680', '#ffffff80', '#0f4a8580', 'Background of the selection in an unfocused editor.');

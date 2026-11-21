@@ -6,6 +6,7 @@
     "editor.background": "#f5f0e6",
     "editor.foreground": "#2e2a24",
     "editorGroup.border": "#7d412e",
+    "markdownEditor.contentBorder": "#b09377",
     "sideBar.background": "#efe7d8",
     "sideBar.border": "#a0522d",
     "statusBar.background": "#d9c9a8",

@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { box, expect, renderedText, test } from './fixtures.js';
+import { box, expect, renderedText, screenshotColor, test } from './fixtures.js';
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -156,8 +156,15 @@ test('moves a tab into the centre of another group, where it becomes active and 
   const [left, right] = [group(page, 0), group(page, 1)];
   await expect.poll(() => renderedText(right)).toBe('travel');
 
-  // The centre: the indicator covers the whole body.
   await startDrag(page, await center(left.getByRole('tab', { name: 'Welcome' })));
+  const targetTab = right.locator('.tab').filter({ has: page.getByRole('tab', { name: 'Untitled-1' }) });
+  const firstTab = await box(targetTab);
+  const tabY = firstTab.y + firstTab.height / 2;
+  await dragOver(page, { x: firstTab.x + 10, y: tabY });
+  await expect(targetTab).toHaveAttribute('data-tab-drop-position', 'before');
+  expect(await screenshotColor(page, firstTab.x, tabY)).toBe('#eaf0f9');
+
+  // The centre: the indicator covers the whole body.
   await dragOver(page, await bodyPoint(right, 0.5, 0.5));
   const b = await body(right);
   await expect(async () => {
