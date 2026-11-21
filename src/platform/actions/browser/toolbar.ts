@@ -22,7 +22,7 @@ export class MenuWorkbenchToolBar extends Disposable {
   ) {
     super();
     const options = 'element' in target ? target : undefined;
-    const container = options?.element ?? target as HTMLElement;
+    const container = 'element' in target ? target.element : target;
     const document = container.ownerDocument;
     const toolbar = document.createElement('div');
     toolbar.className = 'wr-menu-toolbar';
@@ -154,6 +154,13 @@ export class MenuWorkbenchToolBar extends Disposable {
       button.disabled = !action.enabled;
       if (action instanceof MenuItemAction && action.checked !== undefined) {
         button.setAttribute('aria-pressed', String(action.checked));
+      }
+      if (options && action instanceof MenuItemAction) {
+        const shortcut = action.keybinding?.getLabel();
+        if (shortcut) {
+          button.title = `${action.label} (${shortcut})`;
+          button.setAttribute('aria-description', action.keybinding?.getAriaLabel() ?? shortcut);
+        }
       }
       const icon = action.icon && renderMenuIcon(document, action.icon);
       if (icon) {

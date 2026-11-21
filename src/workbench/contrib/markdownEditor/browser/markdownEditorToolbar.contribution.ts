@@ -10,10 +10,12 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import {
   MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
-  MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorModeContext, MarkdownEditorTextAlignContext,
-  MarkdownEditorWritableContext,
+  MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorInlineFormattingContext,
+  MarkdownEditorInlineMarkContexts, MarkdownEditorLinkContext, MarkdownEditorModeContext,
+  MarkdownEditorTextAlignContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
 import { blockStyleKey, blockStyles, parseBlockStyle, setBlockStyle } from './markdownEditorBlockStyles.js';
+import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from './markdownEditorInline.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
 import { formattingPresets, setFormattingPreset } from './markdownEditorPresets.js';
 
@@ -128,3 +130,69 @@ for (const [axis, title, commandTitle, group, order, context] of [
     })) : undefined,
   });
 }
+
+const inline = MarkdownEditorInlineFormattingContext.isEqualTo(true);
+const inlineEnabled = ContextKeyExpr.and(writable, inline);
+// Override workbench shortcuts only for editable rich text. Source and other workbench parts keep their bindings.
+const inlineKeybinding = ContextKeyExpr.and(editorFocus, inline);
+
+function registerInlineAction(
+  id: string,
+  title: string,
+  icon: string,
+  key: number,
+  order: number,
+  toggled: ContextKeyExpression,
+  run: (accessor: ServicesAccessor) => void | Promise<void>,
+): void {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({
+        id, title, category: 'Markdown', f1: true, precondition: wysiwyg, toggled,
+        keybinding: { primary: key, weight: formattingWeight, when: inlineKeybinding },
+      });
+    }
+
+    override run(accessor: ServicesAccessor): void | Promise<void> {
+      return run(accessor);
+    }
+  });
+  MenuRegistry.appendMenuItem(toolbar, {
+    group: '3_inline', order, when: wysiwyg,
+    command: { id, title, icon: { id: icon }, precondition: inlineEnabled, toggled },
+  });
+}
+
+for (const [order, [id, title, icon, mark, key]] of ([
+  ['markdownEditor.toggleBold', 'Bold', 'bold', 'strong', KeyMod.CtrlCmd | KeyCode.KeyB],
+  ['markdownEditor.toggleItalic', 'Italic', 'italic', 'em', KeyMod.CtrlCmd | KeyCode.KeyI],
+  ['markdownEditor.toggleStrike', 'Strikethrough', 'strikethrough', 'strike', KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyX],
+  ['markdownEditor.toggleCode', 'Inline Code', 'code', 'code', KeyMod.CtrlCmd | KeyCode.KeyE],
+] as const).entries()) {
+  registerInlineAction(id, title, icon, key, order, MarkdownEditorInlineMarkContexts[mark].isEqualTo(true), accessor => {
+    getMarkdownPane(accessor.get(IEditorGroupsService))?.runFormattingCommand(toggleInlineFormat(mark));
+  });
+}
+
+registerInlineAction(
+  'markdownEditor.editLink', 'Edit Link', 'link', KeyMod.CtrlCmd | KeyCode.KeyK, 4,
+  MarkdownEditorLinkContext.isEqualTo(true),
+  async accessor => {
+    const groups = accessor.get(IEditorGroupsService);
+    const pane = getMarkdownPane(groups);
+    const state = pane?.formattingState;
+    if (!pane || !state || !pane.scopedContextKeyService?.contextMatchesRules(inline)) {
+      return;
+    }
+    const value = await accessor.get(IQuickInputService).input({
+      title: 'Edit Link',
+      placeHolder: 'https://example.com',
+      prompt: 'Leave the URL empty to remove the link.',
+      value: linkAtSelection(state)?.mark.attrs.href,
+      validateInput: input => normalizeMarkdownLink(input) === undefined ? 'Enter a valid link destination.' : undefined,
+    });
+    if (value !== undefined && getMarkdownPane(groups) === pane && pane.formattingState === state) {
+      pane.runFormattingCommand(setMarkdownLink(value));
+    }
+  },
+);

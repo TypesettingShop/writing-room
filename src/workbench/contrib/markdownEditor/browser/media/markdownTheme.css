@@ -4,6 +4,10 @@
   font-weight: 500;
 }
 
+.markdown-editor-surface .ProseMirror a {
+  color: var(--vscode-textLink-foreground, var(--vscode-editor-foreground));
+}
+
 .markdown-editor-surface .ProseMirror .left { text-align: left; }
 .markdown-editor-surface .ProseMirror .center { text-align: center; }
 .markdown-editor-surface .ProseMirror .right { text-align: right; }

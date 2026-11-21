@@ -23,12 +23,10 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import {
-  MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
-  MarkdownEditorFocusContext, MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorModeContext,
-  MarkdownEditorTextAlignContext, MarkdownEditorWritableContext,
+  MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
+  MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
-import { currentBlockStyle, selectedTextBlocks } from './markdownEditorBlockStyles.js';
-import { currentFormattingPresets } from './markdownEditorPresets.js';
+import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
@@ -73,22 +71,13 @@ export class MarkdownEditorPane extends EditorPane {
     MarkdownEditorFocusContext.bindTo(surfaceScope).set(true);
     const mode = MarkdownEditorModeContext.bindTo(scoped);
     const writable = MarkdownEditorWritableContext.bindTo(scoped);
-    const blockType = MarkdownEditorBlockTypeContext.bindTo(scoped);
-    const alignment = MarkdownEditorTextAlignContext.bindTo(scoped);
-    const fontSize = MarkdownEditorFontSizeContext.bindTo(scoped);
-    const fontFamily = MarkdownEditorFontFamilyContext.bindTo(scoped);
+    const updateFormatting = bindMarkdownFormattingContext(scoped);
     const undo = MarkdownEditorCanUndoContext.bindTo(scoped);
     const redo = MarkdownEditorCanRedoContext.bindTo(scoped);
     this.updateToolbarContext = () => {
       mode.set(this.view ? 'wysiwyg' : null);
       writable.set(this.formattingState !== undefined);
-      const state = this.view && this.sync?.state;
-      const blocks = state ? selectedTextBlocks(state.doc, state.selection) : [];
-      blockType.set(state ? currentBlockStyle(state, blocks) : null);
-      const presets = state ? currentFormattingPresets(state, blocks) : undefined;
-      alignment.set(presets?.textAlign ?? null);
-      fontSize.set(presets?.fontSize ?? null);
-      fontFamily.set(presets?.fontFamily ?? null);
+      updateFormatting(this.view && this.sync?.state);
       undo.set(this.canUndo);
       redo.set(this.canRedo);
     };

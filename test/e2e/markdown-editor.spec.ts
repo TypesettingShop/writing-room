@@ -284,3 +284,90 @@ test('saves paragraph alignment and inline size and font presets and restores th
   await chooseTheme(page, 'Writing Room Dark');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(167, 182, 203)');
 });
+
+test('applies bold without toggling the sidebar and keeps the workbench shortcut outside Markdown', async ({ appPage: page }) => {
+  const name = 'inline.md';
+  const group = await openMarkdown(page, name, 'Some text');
+  const editor = richEditor(group);
+  const paragraph = editor.locator('p');
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const bold = toolbar.getByRole('button', { name: 'Bold' });
+  const sidebar = page.locator('[id="workbench.parts.sidebar"]');
+  await paragraph.click({ timeout: 20_000 });
+  await page.keyboard.press('End');
+  for (let index = 0; index < 4; index++) {
+    await page.keyboard.press('Shift+ArrowLeft');
+  }
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(paragraph.locator('strong')).toHaveText('text');
+  await expect(sidebar).toBeVisible();
+  await expect(bold).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('Some **text**');
+
+  await paragraph.locator('strong').click();
+  await expect(bold).toHaveAttribute('aria-pressed', 'true');
+  await bold.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(toolbar.getByRole('button', { name: 'Italic' })).toBeFocused();
+  await treeItem(page, name).focus();
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(sidebar).toBeHidden();
+});
+
+test('prefills, validates, edits and removes a link through the shortcut, toolbar and palette', async ({ appPage: page }) => {
+  const name = 'link.md';
+  const group = await openMarkdown(page, name, 'An [example](https://example.com/) link');
+  const editor = richEditor(group);
+  const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const url = page.getByRole('textbox', { name: 'Edit Link' });
+  const example = editor.getByRole('link', { name: 'example' });
+  await example.click({ timeout: 20_000 });
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(url).toBeFocused();
+  await expect(url).toHaveValue('https://example.com/');
+  await url.fill('javascript:');
+  await expect(page.getByText('Enter a valid link destination.')).toBeVisible();
+  await url.press('Enter');
+  await expect(url).toBeVisible();
+  await url.fill('/other.md');
+  await url.press('Enter');
+  await expect(example).toHaveAttribute('href', '/other.md');
+
+  await toolbar.getByRole('button', { name: 'Edit Link' }).click();
+  await expect(url).toHaveValue('/other.md');
+  await url.fill('/discarded.md');
+  await url.press('Escape');
+  await expect(example).toHaveAttribute('href', '/other.md');
+
+  await runCommand(page, 'Edit Link', /^Markdown: Edit Link$/);
+  await expect(url).toHaveValue('/other.md');
+  await url.fill('');
+  await url.press('Enter');
+  await expect(example).toHaveCount(0);
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('An example link');
+});
+
+test('targets the toolbar’s editor group when another Markdown editor has focus', async ({ appPage: page }) => {
+  const left = await openMarkdown(page, 'left-formatting.md', 'Left editor');
+  const leftEditor = richEditor(left);
+  await leftEditor.getByText('Left editor').click({ timeout: 20_000 });
+  await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+  const right = groups(page).nth(1);
+  await expect(richEditor(right)).toHaveText('Left editor');
+  await writeWorkspaceFile(page, 'right-formatting.md', 'Right editor');
+  await treeItem(page, 'right-formatting.md').dblclick();
+  const rightEditor = richEditor(right);
+  await rightEditor.getByText('Right editor').click();
+  await expect(rightEditor).toBeFocused();
+
+  await left.getByRole('button', { name: 'Style: Body' }).click();
+  await page.getByRole('menuitemradio', { name: 'Heading 2' }).click();
+  await expect(leftEditor.getByRole('heading', { name: 'Left editor', level: 2 })).toBeVisible();
+  await expect(rightEditor.locator('p')).toHaveText('Right editor');
+  await expect(right.getByRole('button', { name: 'Style: Body' })).toBeVisible();
+});

@@ -4,7 +4,10 @@ import type { Command } from 'prosemirror-state';
 import { describe, expect, it } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
+import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { blockStyles, currentBlockStyle, selectedTextBlocks, setBlockStyle } from '../../browser/markdownEditorBlockStyles.js';
+import { bindMarkdownFormattingContext } from '../../browser/markdownEditorFormattingContext.js';
+import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from '../../browser/markdownEditorInline.js';
 import { currentFormattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
 
 function read(source: string, from = 1, to = from): EditorState {
@@ -103,5 +106,62 @@ describe('Markdown class presets', () => {
     expect(write(styled)).toBe('before after');
     expect(presets(styled)).toEqual({ textAlign: 'left', fontSize: 'small', fontFamily: 'serif' });
     expect(write(styled.apply(styled.tr.insertText('new ')))).toBe('before [new ]{.size-sm .font-serif}after');
+  });
+});
+
+describe('Markdown inline formats', () => {
+  it.each([
+    ['strong', '**word**'],
+    ['em', '*word*'],
+    ['strike', '~~word~~'],
+    ['code', '`word`'],
+  ] as const)('toggles %s and serializes the selected word', (mark, expected) => {
+    const formatted = apply(read('start word end', 7, 11), toggleInlineFormat(mark));
+    expect(write(formatted)).toBe(`start ${expected} end`);
+    expect(write(apply(formatted, toggleInlineFormat(mark)))).toBe('start word end');
+  });
+
+  it('reflects caret changes, pending marks and code-block restrictions in pane context', () => {
+    const context = new ContextKeyService();
+    try {
+      const update = bindMarkdownFormattingContext(context);
+      const bold = read('**bold** text\n\n```\ncode\n```', 3);
+      update(bold);
+      expect(context.getContextKeyValue('markdownEditor.isBold')).toBe(true);
+      const plain = bold.apply(bold.tr.setSelection(TextSelection.create(bold.doc, 8)));
+      update(plain);
+      expect(context.getContextKeyValue('markdownEditor.isBold')).toBe(false);
+      update(apply(plain, toggleInlineFormat('em')));
+      expect(context.getContextKeyValue('markdownEditor.isItalic')).toBe(true);
+      update(read('```\ncode\n```', 2));
+      expect(context.getContextKeyValue('markdownEditor.inlineFormatting')).toBe(false);
+      expect(context.getContextKeyValue('markdownEditor.isItalic')).toBe(false);
+      update(undefined);
+      expect(context.getContextKeyValue('markdownEditor.blockType')).toBeNull();
+    } finally {
+      context.dispose();
+    }
+  });
+
+  it('updates or removes the whole link from its caret or a sub-selection', () => {
+    const state = read('A [some **marked** text](/first "title") B', 9, 12);
+    expect(linkAtSelection(state)?.mark.attrs.href).toBe('/first');
+    const changed = apply(state, setMarkdownLink('/notes/file name.md'));
+    expect(write(changed)).toBe('A [some **marked** text](/notes/file%20name.md "title") B');
+    expect(write(apply(changed, setMarkdownLink('')))).toBe('A some **marked** text B');
+  });
+
+  it('links a selection or inserts the destination at an unlinked caret', () => {
+    const selected = apply(read('some text', 1, 5), setMarkdownLink('https://example.org/'));
+    expect(write(selected)).toBe('[some](https://example.org/) text');
+    const atCaret = apply(read('before after', 8), setMarkdownLink('/note'));
+    expect(write(atCaret)).toBe('before [/note](/note)after');
+  });
+
+  it('rejects destinations the Markdown parser cannot accept', () => {
+    expect(normalizeMarkdownLink('javascript:')).toBeUndefined();
+    expect(normalizeMarkdownLink('java\tscript:')).toBeUndefined();
+    expect(normalizeMarkdownLink('file:///example')).toBeUndefined();
+    expect(normalizeMarkdownLink('  #section ')).toBe('#section');
   });
 });
