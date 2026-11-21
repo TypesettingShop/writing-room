@@ -41,6 +41,8 @@ test.each([
     expect(resolve(`${modifier}+b`, root)).toMatchObject({
       kind: ResultKind.KbFound, rule: { id: 'workbench.action.toggleSidebarVisibility' },
     });
+    expect(resolve(`${modifier}+u`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.toggleUnderline' } });
+    expect(resolve(`${modifier}+u`, root)).not.toMatchObject({ rule: { id: 'markdownEditor.toggleUnderline' } });
     expect(resolve(`${modifier}+k`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.editLink' } });
     expect(resolve(`${modifier}+k`, root).kind).toBe(ResultKind.MoreChordsNeeded);
     expect(resolve(`${modifier}+alt+6`)).toMatchObject({

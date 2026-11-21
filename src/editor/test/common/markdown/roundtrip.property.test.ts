@@ -214,3 +214,23 @@ it('preserves document content through generated Markdown saves', () => {
   expect(checked).toBeGreaterThan(0);
   expect(failures.slice(0, 4), `${failures.length} failures across ${checked} Markdown sources`).toEqual([]);
 }, 240_000);
+
+it('round trips underline applied to generated selections across paragraphs, emphasis and links', () => {
+  const fragments = ['글', '**굵게**', '[**링크**](/x)', '`코드`'];
+  for (const first of fragments) {
+    for (const last of fragments) {
+      const source = `앞 ${first}\n\n${last} 뒤`;
+      const doc = parseMarkdown(source);
+      const from = 3;
+      const to = doc.content.size - 3;
+      const state = EditorState.create({ doc });
+      const underline = state.schema.marks.span.create({ classes: ['underline', 'keep'] });
+      const edited = state.tr.addMark(from, to, underline).doc;
+      const written = serializeMarkdown(edited);
+      expect(written.match(/\.underline(?= )/g)?.length, source).toBe(2);
+      const reopened = parseMarkdown(written);
+      expect(reopened.toJSON(), written).toEqual(edited.toJSON());
+      expect(canonical(reopened), written).toBe(written);
+    }
+  }
+});

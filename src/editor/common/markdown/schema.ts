@@ -1,7 +1,7 @@
 import { Schema } from 'prosemirror-model';
 import type { Attrs, MarkSpec, Node, NodeSpec, TagParseRule } from 'prosemirror-model';
 import { schema as basicMarkdownSchema } from 'prosemirror-markdown';
-import { isMarkdownClass } from './plugins/attrs.js';
+import { isMarkdownClass, markdownUnderlineClass } from './plugins/attrs.js';
 
 const classes = { default: [], validate: 'object' } as const;
 const markup = { default: null, validate: 'string|null' } as const;
@@ -147,11 +147,14 @@ const marks: Record<string, MarkSpec> = {
   link: basicMarkdownSchema.spec.marks.get('link')!,
   span: {
     attrs: { classes },
-    parseDOM: [{ tag: 'span[class]', getAttrs: element => {
-      const classes = readClasses(element);
-      return classes.length ? { classes } : false;
-    } }],
-    toDOM: mark => ['span', classAttribute(mark.attrs), 0],
+    parseDOM: [
+      { tag: 'span[class]', getAttrs: element => {
+        const classes = readClasses(element);
+        return classes.length ? { classes } : false;
+      } },
+      { tag: 'u', getAttrs: element => ({ classes: [...new Set([...readClasses(element), markdownUnderlineClass])] }) },
+    ],
+    toDOM: mark => [mark.attrs.classes.includes(markdownUnderlineClass) ? 'u' : 'span', classAttribute(mark.attrs), 0],
   },
   em: { ...basicMarkdownSchema.spec.marks.get('em'), attrs: { markup } },
   strong: { ...basicMarkdownSchema.spec.marks.get('strong'), attrs: { markup } },

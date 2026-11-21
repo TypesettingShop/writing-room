@@ -264,6 +264,7 @@ function registerInlineAction(
 for (const [order, [id, title, icon, mark, key]] of ([
   ['markdownEditor.toggleBold', 'Bold', 'bold', 'strong', KeyMod.CtrlCmd | KeyCode.KeyB],
   ['markdownEditor.toggleItalic', 'Italic', 'italic', 'em', KeyMod.CtrlCmd | KeyCode.KeyI],
+  ['markdownEditor.toggleUnderline', 'Underline', 'underline', 'underline', KeyMod.CtrlCmd | KeyCode.KeyU],
   ['markdownEditor.toggleStrike', 'Strikethrough', 'strikethrough', 'strike', KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyX],
   ['markdownEditor.toggleCode', 'Inline Code', 'code', 'code', KeyMod.CtrlCmd | KeyCode.KeyE],
 ] as const).entries()) {
@@ -273,7 +274,7 @@ for (const [order, [id, title, icon, mark, key]] of ([
 }
 
 registerInlineAction(
-  'markdownEditor.editLink', 'Edit Link', 'link', KeyMod.CtrlCmd | KeyCode.KeyK, 4,
+  'markdownEditor.editLink', 'Edit Link', 'link', KeyMod.CtrlCmd | KeyCode.KeyK, 5,
   MarkdownEditorLinkContext.isEqualTo(true),
   async accessor => {
     const groups = accessor.get(IEditorGroupsService);

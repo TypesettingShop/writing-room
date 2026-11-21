@@ -3,6 +3,7 @@ import type { Mark } from 'prosemirror-model';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
+import { markdownUnderlineClass } from '../../../../editor/common/markdown/plugins/attrs.js';
 import { selectedTextBlocks } from './markdownEditorBlockStyles.js';
 import type { SelectedTextBlock } from './markdownEditorBlockStyles.js';
 
@@ -20,13 +21,15 @@ export function normalizeMarkdownLink(input: string): string | undefined {
   return validateLink(href) ? href : undefined;
 }
 
-export type MarkdownInlineMark = 'strong' | 'em' | 'strike' | 'code';
+export type MarkdownInlineMark = 'strong' | 'em' | 'underline' | 'strike' | 'code';
 
 export function toggleInlineFormat(name: MarkdownInlineMark): Command {
+  if (name === 'underline') return toggleUnderline;
   return (state, dispatch) => toggleMark(state.schema.marks[name])(state, dispatch);
 }
 
 export function isInlineFormatActive(state: EditorState, name: MarkdownInlineMark): boolean {
+  if (name === 'underline') return isUnderlineActive(state);
   const { schema, doc, selection } = state;
   const mark = schema.marks[name];
   if (selection.empty) {
@@ -34,6 +37,57 @@ export function isInlineFormatActive(state: EditorState, name: MarkdownInlineMar
   }
   return selection.ranges.some(range => doc.rangeHasMark(range.$from.pos, range.$to.pos, mark));
 }
+
+function isUnderlineActive({ schema, doc, selection, storedMarks }: EditorState): boolean {
+  const { span } = schema.marks;
+  const hasUnderline = (marks: readonly Mark[]) => span.isInSet(marks)?.attrs.classes.includes(markdownUnderlineClass);
+  if (selection.empty) return Boolean(hasUnderline(storedMarks ?? selection.$from.marks()));
+  return selection.ranges.some(({ $from, $to }) => {
+    let found = false;
+    doc.nodesBetween($from.pos, $to.pos, node => {
+      if (node.isText && hasUnderline(node.marks)) found = true;
+      return !found;
+    });
+    return found;
+  });
+}
+
+const toggleUnderline: Command = (state, dispatch) => {
+  const { selection, schema, doc } = state;
+  const { span } = schema.marks;
+  const tr = state.tr;
+  const remove = isUnderlineActive(state);
+  // Keep the rest of the class span together. The attribute syntax has one class list per span.
+  const update = (marks: readonly Mark[]): Mark | undefined => {
+    const classes: readonly string[] = span.isInSet(marks)?.attrs.classes ?? [];
+    const next = remove ? classes.filter(name => name !== markdownUnderlineClass) : [...classes, markdownUnderlineClass];
+    return next.length ? span.create({ classes: next }) : undefined;
+  };
+  if (selection.empty) {
+    if (!selection.$from.parent.type.allowsMarkType(span)) return false;
+    const next = update(state.storedMarks ?? selection.$from.marks());
+    tr.removeStoredMark(span);
+    if (next) tr.addStoredMark(next);
+  } else {
+    for (const block of selectedTextBlocks(doc, selection)) {
+      if (!block.node.type.allowsMarkType(span)) continue;
+      block.node.forEach((child, offset) => {
+        const start = Math.max(offset, block.from);
+        const end = Math.min(offset + child.nodeSize, block.to);
+        if (!child.isText || start >= end) return;
+        const from = block.pos + 1 + start;
+        const to = block.pos + 1 + end;
+        const original = span.isInSet(child.marks);
+        const next = update(child.marks);
+        if (next) tr.addMark(from, to, next);
+        else if (original) tr.removeMark(from, to, original);
+      });
+    }
+    if (!tr.docChanged) return false;
+  }
+  dispatch?.(tr.scrollIntoView());
+  return true;
+};
 
 interface LinkRange {
   readonly from: number;

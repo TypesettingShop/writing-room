@@ -72,6 +72,7 @@ export const MarkdownEditorLinkContext = new RawContextKey<boolean>('markdownEdi
 export const MarkdownEditorInlineMarkContexts = {
   strong: new RawContextKey<boolean>('markdownEditor.isBold', false),
   em: new RawContextKey<boolean>('markdownEditor.isItalic', false),
+  underline: new RawContextKey<boolean>('markdownEditor.isUnderline', false),
   strike: new RawContextKey<boolean>('markdownEditor.isStrike', false),
   code: new RawContextKey<boolean>('markdownEditor.isCode', false),
 };
