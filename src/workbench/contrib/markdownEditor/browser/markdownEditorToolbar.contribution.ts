@@ -12,7 +12,8 @@ import type { IKeybindingRule } from '../../../../platform/keybinding/common/key
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import {
-  isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_WIDTH, markdownContentWidth, MarkdownEditorContentWidthContext,
+  isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_LAYOUT, MARKDOWN_EDITOR_CONTENT_WIDTH, markdownContentWidth,
+  MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext,
   MarkdownEditorBlockTypeContext, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext, MarkdownEditorFocusContext,
   MarkdownEditorFontFamilyContext, MarkdownEditorFontSizeContext, MarkdownEditorInlineFormattingContext,
   MarkdownEditorInlineMarkContexts, MarkdownEditorLinkContext, MarkdownEditorModeContext,
@@ -35,7 +36,10 @@ const formattingWeight = KeybindingWeight.WorkbenchContrib + 1;
 const setContentWidthId = 'markdownEditor.setContentWidth';
 MenuRegistry.appendMenuItem(toolbar, {
   group: '7_layout', order: 2, when: wysiwyg,
-  command: { id: setContentWidthId, title: 'Content Width (characters)' },
+  command: {
+    id: setContentWidthId, title: 'Content Width (characters)',
+    precondition: MarkdownEditorContentLayoutContext.isEqualTo('center'),
+  },
   numberInput: { valueKey: MarkdownEditorContentWidthContext.key, min: markdownContentWidth.min, max: markdownContentWidth.max },
 });
 registerAction2(class extends Action2 {
@@ -60,6 +64,24 @@ registerAction2(class extends Action2 {
     }
   }
 });
+
+for (const [order, [layout, id, title, icon]] of ([
+  ['center', 'markdownEditor.centerContent', 'Center Content', 'layout-centered'],
+  ['fill', 'markdownEditor.fillContent', 'Fill Editor Width', 'layout-panel-justify'],
+] as const).entries()) {
+  registerAction2(class extends Action2 {
+    constructor() {
+      super({
+        id, title, category: 'Markdown', icon: { id: icon }, f1: true, precondition: wysiwyg,
+        toggled: MarkdownEditorContentLayoutContext.isEqualTo(layout), menu: { id: toolbar, group: '7_layout', order, when: wysiwyg },
+      });
+    }
+
+    override run(accessor: ServicesAccessor): Promise<void> {
+      return accessor.get(IConfigurationService).updateValue(MARKDOWN_EDITOR_CONTENT_LAYOUT, layout);
+    }
+  });
+}
 
 for (const [order, [id, title, icon, precondition]] of ([
   ['undo', 'Undo', 'discard', MarkdownEditorCanUndoContext.isEqualTo(true)],

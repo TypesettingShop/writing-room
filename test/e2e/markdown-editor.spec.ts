@@ -165,6 +165,37 @@ test('applies a shared Markdown content width on Enter and blur and restores it 
   await expect(input).toHaveValue('72');
 });
 
+test('fills the editor, saves its layout, and keeps the independent Focus Mode width', async ({ appPage: page }) => {
+  const name = 'content-layout.md';
+  const group = await openMarkdown(page, name, 'Centered text');
+  const editor = richEditor(group);
+  const width = group.getByRole('spinbutton', { name: 'Content Width (characters)' });
+  const center = group.getByRole('button', { name: 'Center Content' });
+  const fill = group.getByRole('button', { name: 'Fill Editor Width' });
+  await expect(center).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+  const centered = (await box(editor)).width;
+  await fill.click();
+  await expect(fill).toHaveAttribute('aria-pressed', 'true');
+  await expect(center).toHaveAttribute('aria-pressed', 'false');
+  await expect(width).toBeDisabled();
+  await expect(editor).toHaveCSS('max-width', 'none');
+  expect((await box(editor)).width).toBeGreaterThan(centered);
+  expect(await persistedSettings(page)).toMatch(/"markdownEditor\.contentLayout":\s*"fill"/);
+  await page.reload();
+  await expect(fill).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+  await expect(width).toBeDisabled();
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(editor).not.toHaveCSS('max-width', 'none');
+  expect((await box(editor)).width).toBeLessThan(centered);
+  await editor.press('Escape');
+  await expect(editor).toHaveCSS('max-width', 'none');
+  await runCommand(page, 'Center Content', /^Markdown: Center Content$/);
+  await expect(center).toHaveAttribute('aria-pressed', 'true');
+  await expect(width).toBeEnabled();
+  expect((await box(editor)).width).toBe(centered);
+  expect(await readWorkspaceText(page, name)).toBe('Centered text');
+});
+
 test('keeps split source and WYSIWYG views synchronized on one dirty model', async ({ appPage: page }) => {
   const name = 'split.md';
   const left = await openMarkdown(page, name, '# Heading\n\nShared');
