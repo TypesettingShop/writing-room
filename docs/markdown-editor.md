@@ -49,9 +49,9 @@ WYSIWYG 본문은 기본적으로 12 pt와 Noto Sans KR로 표시된다. 사용�
 서체 식별자는 `noto-sans-kr`, `noto-serif-kr`, `nanum-myeongjo`,
 `nanum-gothic`, `monospace`다. 네 한글 서체는 앱에서 제공한다. WYSIWYG
 편집기를 처음 열면 서체 스타일시트를 가져오고, 브라우저가 글자에 맞는
-조각을 요청한다. 인라인 코드는 고정폭 서체로 표시되며, 그 안에서도 **Font**는
-문단이나 인라인 범위에 적용된 서체를 표시한다. 등록된 식별자가 아닌 문자열을
-입력하면 본문은 Noto Sans KR을 쓴다. 기존 `serif`·`sans`
+서체 조각을 요청한다. 인라인 코드는 고정폭 서체로 표시되며, 그 안에서도
+**Font**는 문단이나 인라인 범위에 적용된 서체를 표시한다. 등록된 식별자가 아닌
+문자열을 입력하면 본문은 Noto Sans KR을 쓴다. 기존 `serif`·`sans`
 객체를 쓰는 설정은 `.font-serif`와 `.font-sans`에 해당 글꼴 목록을
 적용하고, 본문은 Noto Sans KR을 쓴다.
 
