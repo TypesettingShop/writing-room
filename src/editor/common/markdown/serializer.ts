@@ -13,10 +13,14 @@ function classSuffix(attrs: Attrs): string {
   return classes.length ? '{' + classes.map(name => '.' + name).join(' ') + '}' : '';
 }
 
-function finishBlock(state: MarkdownSerializerState, node: Node): void {
+function finishBlock(state: MarkdownSerializerState, node: Node, tight = false): void {
   state.closeBlock(node);
   const suffix = classSuffix(node.attrs);
   if (suffix) {
+    if (tight) {
+      (state as ListSerializerState).flushClose(1);
+      if (node.type.name === 'blockquote') state.write('>\n');
+    }
     state.write(suffix);
     state.closeBlock(node);
   }
@@ -103,7 +107,34 @@ function isListItem(node: Node): boolean {
   return node.type.name === 'list_item' || node.type.name === 'task_item';
 }
 
-function writeCodeBlock(state: MarkdownSerializerState, node: Node): void {
+function isTightItem(state: MarkdownSerializerState, parent: Node): boolean {
+  return isListItem(parent) && (state as ListSerializerState).inTightList;
+}
+
+function renderItemContent(state: MarkdownSerializerState, item: Node): void {
+  const listState = state as ListSerializerState;
+  const first = skipsPlaceholder(item) ? 1 : 0;
+  for (let index = first; index < item.childCount; index++) {
+    const child = item.child(index);
+    if (listState.inTightList && index > first) {
+      const previous = item.child(index - 1);
+      const previousType = previous.type.name;
+      const childType = child.type.name;
+      if (childType === 'code_block' || (childType === 'blockquote' && previousType !== 'blockquote')) {
+        // Both blocks can interrupt a paragraph without making the list loose.
+        listState.flushClose(1);
+      } else if (childType === 'paragraph' && (previousType === 'code_block' || previousType === 'blockquote') &&
+        !classSuffix(previous.attrs)) {
+        listState.flushClose(1);
+        // End the quote explicitly so the next paragraph cannot be a lazy continuation.
+        if (previousType === 'blockquote') state.write('>\n');
+      }
+    }
+    state.render(child, item, index);
+  }
+}
+
+function writeCodeBlock(state: MarkdownSerializerState, node: Node, parent: Node): void {
   const markup: string | null = node.attrs.markup;
   const info: string = node.attrs.info;
   const marker = markup?.[0] === '~' || info.includes('`') ? '~' : '`';
@@ -118,7 +149,7 @@ function writeCodeBlock(state: MarkdownSerializerState, node: Node): void {
     state.write('\n');
   }
   state.write(fence);
-  finishBlock(state, node);
+  finishBlock(state, node, isTightItem(state, parent));
 }
 
 function encodeEntities(text: string): string {
@@ -194,9 +225,9 @@ function writeTable(state: MarkdownSerializerState, node: Node): void {
 }
 
 const markdownSerializer = new MarkdownSerializer({
-  blockquote(state, node) {
+  blockquote(state, node, parent) {
     defaultNodes.blockquote(state, node, node, 0);
-    finishBlock(state, node);
+    finishBlock(state, node, isTightItem(state, parent));
   },
   paragraph(state, node, parent, index) {
     state.renderInline(node);
@@ -239,16 +270,11 @@ const markdownSerializer = new MarkdownSerializer({
     if (start !== 1 && parent.maybeChild(index - 1)?.type.name === 'paragraph') state.write();
     renderList(state, node, parent, index, (marker, item) => String(start + item) + marker + ' ');
   },
-  list_item(state, node) {
-    const skipPlaceholder = skipsPlaceholder(node);
-    node.forEach((child, _offset, index) => {
-      if (index !== 0 || !skipPlaceholder) state.render(child, node, index);
-    });
-  },
+  list_item: renderItemContent,
   task_item(state, node) {
     const needsSpace = Boolean(node.firstChild!.content.size || classSuffix(node.attrs));
     state.write((node.attrs.checked ? '[x]' : '[ ]') + (needsSpace ? ' ' : ''));
-    state.renderContent(node);
+    renderItemContent(state, node);
   },
   table: writeTable,
   image(state, node) {

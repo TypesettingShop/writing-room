@@ -161,6 +161,35 @@ describe('Markdown save normalization', () => {
     expect(parseMarkdown(saved).eq(edited)).toBe(true);
   });
 
+  it.each([
+    ['tight fence', '- a\n  ```\n  b\n  ```', true, 'code_block'],
+    ['tight quote', '- a\n  > b', true, 'blockquote'],
+    ['loose fence', '- a\n\n  ```\n  b\n  ```', false, 'code_block'],
+    ['loose quote', '- a\n\n  > b', false, 'blockquote'],
+    ['tight fence with classes', '- a\n  ```\n  b\n  ```\n  {.code}', true, 'code_block'],
+    ['tight quote with classes', '- a\n  > b\n  >\n  {.quote}', true, 'blockquote'],
+    ['tight quote before a paragraph', '- a\n  > b\n  >\n  c', true, 'blockquote'],
+    ['tight fence before a paragraph', '- a\n  ```\n  b\n  ```\n  c', true, 'code_block'],
+    ['tight quote in an ordered task', '9) [x] a\n   > b', true, 'blockquote'],
+  ] as const)('preserves block boundaries in a %s on save', (_name, source, tight, block) => {
+    const doc = parseMarkdown(source);
+    const list = doc.firstChild!;
+    const item = list.firstChild!;
+    expect(list.attrs.tight).toBe(tight);
+    expect(item.child(0).type.name).toBe('paragraph');
+    expect(item.child(1).type.name).toBe(block);
+    expect(item.child(1).textContent).toBe('b');
+
+    const written = canonical(doc);
+    expect.soft(written).toBe(source);
+    expect.soft(parseMarkdown(written).eq(doc)).toBe(true);
+
+    const edited = editText(doc, 'b', 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(source.replace('b', 'edited'));
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
   it('keeps a loose list loose when its emptied first paragraph is dropped', () => {
     const doc = parseMarkdown('- a\n\n  b\n  {.x}');
     const state = EditorState.create({ doc });
