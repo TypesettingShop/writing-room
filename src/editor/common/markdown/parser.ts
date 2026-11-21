@@ -54,8 +54,8 @@ function listAttrs(token: Token, tokens: Token[], index: number) {
   return { ...blockAttrs(token), tight: true };
 }
 
-function cellAttrs(token: Token, header: boolean) {
-  return { ...blockAttrs(token), header, align: token.attrGet('style')?.match(/^text-align:(left|center|right)$/)?.[1] ?? null };
+function cellAttrs(token: Token) {
+  return { ...blockAttrs(token), align: token.attrGet('style')?.match(/^text-align:(left|center|right)$/)?.[1] ?? null };
 }
 
 function imageAlt(tokens: readonly Token[]): string {
@@ -82,8 +82,8 @@ const tokenSpecs: Record<string, ParseSpec> = {
   task_item: { block: 'task_item', getAttrs: token => ({ ...blockAttrs(token), checked: token.meta.checked }) },
   thead: { ignore: true },
   tbody: { ignore: true },
-  th: { block: 'table_cell', getAttrs: token => cellAttrs(token, true) },
-  td: { block: 'table_cell', getAttrs: token => cellAttrs(token, false) },
+  th: { block: 'table_header', getAttrs: cellAttrs },
+  td: { block: 'table_cell', getAttrs: cellAttrs },
   image: { node: 'image', getAttrs: token => ({
     src: token.attrGet('src'), title: token.attrGet('title'), alt: imageAlt(token.children ?? []),
   }) },

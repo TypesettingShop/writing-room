@@ -14,6 +14,15 @@ async function openMarkdown(page: Page, name: string, text: string): Promise<Loc
   return groups(page).first();
 }
 
+async function openTypewriterMarkdown(page: Page, name: string, text: string): Promise<Locator> {
+  await page.addInitScript(key => {
+    localStorage.setItem('writing-room:storage:version', '2');
+    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
+  }, settingsKey);
+  await page.goto('/');
+  return openMarkdown(page, name, text);
+}
+
 test('opens Markdown from Explorer and carries its draft and saved text through reloads', async ({ appPage: page }) => {
   const name = 'draft.markdown';
   const group = await openMarkdown(page, name, 'First\n=====\n\nHello\n');
@@ -436,6 +445,40 @@ test('creates, edits and saves a GFM table from the toolbar', async ({ appPage: 
   await expect(editor.locator('th').last()).toHaveCSS('text-align', 'center');
 });
 
+test('pastes HTML table spans as single cells and replaces a selected cell range', async ({ appPage: page }) => {
+  const name = 'table-paste.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  const pasteTable = (html: string) => editor.evaluate((element, content) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', content);
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+  }, html);
+
+  await editor.focus();
+  await pasteTable('<table><tr><td colspan="2" class="important" style="text-align:right">A</td><th>B</th></tr>'
+    + '<tr><th rowspan="2">C</th><td>D</td></tr><tr><td>E</td><td>F</td></tr></table>');
+  await expect(editor.locator('th')).toHaveText(['A', 'B']);
+  await expect(editor.locator('td')).toHaveText(['C', 'D', 'E', 'F']);
+  await expect(editor.locator('[colspan], [rowspan]')).toHaveCount(0);
+  await expect(editor.locator('td').first()).toHaveCSS('text-align', 'right');
+
+  await editor.getByText('C', { exact: true }).click();
+  await editor.getByText('F', { exact: true }).click({ modifiers: ['Shift'] });
+  await expect(editor.locator('td.selectedCell')).toHaveCount(4);
+  await pasteTable('<table><tr><th colspan="2" style="text-align:center">X</th><td>Y</td></tr>'
+    + '<tr><td>Z</td><td>W</td></tr></table>');
+  await expect(editor.locator('th')).toHaveText(['A', 'B']);
+  await expect(editor.locator('td')).toHaveText(['X', 'Y', 'Z', 'W']);
+  await expect(editor.locator('td').first()).toHaveCSS('text-align', 'right');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('| A {.important} | B |\n| ---: | --- |\n| X | Y |\n| Z | W |');
+  await page.reload();
+  await expect(editor.locator('th').first()).toHaveClass('important', { timeout: 20_000 });
+  await expect(editor.locator('td')).toHaveText(['X', 'Y', 'Z', 'W']);
+  await expect(editor.locator('[colspan], [rowspan]')).toHaveCount(0);
+});
+
 test('toggles a task, exits a list, and loads remote images only on request', async ({ appPage: page }) => {
   const name = 'blocks-list.md';
   const group = await openMarkdown(page, name, '- [ ] Check me\n\n![Remote](https://images.example.test/photo.png)\n\n![Blocked](http://images.example.test/photo.png)');
@@ -530,7 +573,7 @@ test('keeps list Tab in the editor and saves the nested task structure', async (
   await expect(editor.locator(':scope > ul > li')).toHaveCount(2);
   await page.keyboard.press('Tab');
   await page.keyboard.press('ControlOrMeta+s');
-  await expect.poll(() => readWorkspaceText(page, name)).toMatch(/^- Parent\n +-[ ]\[x\] Child$/);
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('- Parent\n    - [x] Child');
   await page.reload();
   await expect(editor.locator('ul ul > li')).toHaveText('Child', { timeout: 20_000 });
   await expect(editor.getByRole('checkbox')).toBeChecked();
@@ -662,12 +705,8 @@ test('focus mode yields to layout commands and lets Escape close quick input fir
 });
 
 test('typewriter scrolling centers the first, middle and newly written last line', async ({ page }) => {
-  await page.addInitScript(key => {
-    localStorage.setItem('writing-room:storage:version', '2');
-    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
-  }, settingsKey);
-  await page.goto('/');
-  const group = await openMarkdown(page, 'typewriter.md', Array.from({ length: 30 }, (_, index) => `Line ${index + 1}`).join('\n\n'));
+  const group = await openTypewriterMarkdown(page, 'typewriter.md',
+    Array.from({ length: 30 }, (_, index) => `Line ${index + 1}`).join('\n\n'));
   const editor = richEditor(group);
   await editor.focus();
   const caretDistance = () => editor.evaluate(element => {
@@ -685,6 +724,36 @@ test('typewriter scrolling centers the first, middle and newly written last line
   await page.keyboard.press('Enter');
   await page.keyboard.type('New last line');
   await expect.poll(caretDistance).toBeLessThan(3);
+});
+
+test('keeps the typewriter viewport in place when dragging across table cells', async ({ page }) => {
+  const paragraphs = Array.from({ length: 20 }, (_, index) => `Line ${index + 1}`).join('\n\n');
+  const table = '| First | Last |\n| --- | --- |\n| A | B |\n| C | D |\n| E | F |';
+  const group = await openTypewriterMarkdown(page, 'typewriter-table.md', [paragraphs, table, paragraphs].join('\n\n'));
+  const editor = richEditor(group);
+  const surface = group.locator('.markdown-typewriter');
+  const header = editor.getByRole('columnheader', { name: 'First', exact: true });
+  await expect(surface).toBeVisible();
+  await expect(header).toBeVisible();
+
+  const scrollTop = await surface.evaluate(async element => {
+    // Let opening the editor finish any queued caret centering before setting the test viewport.
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const table = element.querySelector('table')!.getBoundingClientRect();
+    element.scrollTop += table.top - element.getBoundingClientRect().top - element.clientHeight / 8;
+    return element.scrollTop;
+  });
+  const first = await box(header);
+  const last = await box(editor.getByRole('cell', { name: 'F', exact: true }));
+  await drag(page, first.x + first.width / 2, first.y + first.height / 2,
+    last.x + last.width / 2, last.y + last.height / 2);
+
+  const afterDrag = await surface.evaluate(async element => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return element.scrollTop;
+  });
+  expect(Math.abs(afterDrag - scrollTop)).toBeLessThan(2);
+  await expect(editor.locator('.selectedCell')).toHaveCount(8);
 });
 
 test('scales the Markdown size presets relative to headings, subtitles, and body text', async ({ appPage: page }) => {

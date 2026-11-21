@@ -93,6 +93,19 @@
   border: 1px solid var(--vscode-editorWidget-border, currentColor);
 }
 
+.markdown-editor-surface .ProseMirror .selectedCell {
+  position: relative;
+}
+
+.markdown-editor-surface .ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--vscode-editor-selectionBackground);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .markdown-editor-error {
   padding: 1rem;
 }

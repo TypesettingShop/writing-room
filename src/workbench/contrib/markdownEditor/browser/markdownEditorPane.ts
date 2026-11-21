@@ -3,6 +3,7 @@ import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
 import { TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
+import { CellSelection } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
@@ -38,7 +39,7 @@ import { markdownClipboard } from './markdownEditorClipboard.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
 import { markdownImageView } from './markdownEditorImages.js';
 import { markdownListKeys, taskItemView } from './markdownEditorLists.js';
-import { moveMarkdownTableCell } from './markdownEditorTables.js';
+import { markdownTablePlugins, moveMarkdownTableCell } from './markdownEditorTables.js';
 import { centerMarkdownCaret, markdownActiveBlock } from './markdownFocusPresentation.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
@@ -210,7 +211,9 @@ export class MarkdownEditorPane extends EditorPane {
         dispatchTransaction: transaction => {
           if (!transaction.docChanged || !input.isReadonly()) {
             // A click or drag only moves the selection; centering it would move the text under the pointer.
-            this.pointerSelection = !transaction.docChanged && transaction.getMeta('pointer') === true;
+            // prosemirror-tables selects cells under the mouse without the pointer flag or a scroll request.
+            this.pointerSelection = !transaction.docChanged && (transaction.getMeta('pointer') === true
+              || (transaction.selection instanceof CellSelection && !transaction.scrolledIntoView));
             try {
               sync.dispatch(transaction);
             } finally {
@@ -299,7 +302,10 @@ export class MarkdownEditorPane extends EditorPane {
     const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, Backspace: undoInputRule });
     const codeKeys = keymap({ Tab: indentMarkdownCode(false), 'Shift-Tab': indentMarkdownCode(true) });
     const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
-    const model = new MarkdownEditorModel(textModel, [markdownInputRules, markdownActiveBlock, keys, codeKeys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
+    const model = new MarkdownEditorModel(textModel, [
+      markdownInputRules, markdownActiveBlock, keys, codeKeys, tableKeys, keymap(markdownListKeys),
+      ...markdownTablePlugins, keymap(baseKeymap),
+    ], state => {
       if (this.input === input) {
         const previous = this.view?.state;
         this.view?.updateState(state);

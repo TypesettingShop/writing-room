@@ -58,7 +58,7 @@ describe('Markdown save normalization', () => {
   it.each([
     ['Heading\n=======', '# Heading'],
     ['Alpha  \nBeta', 'Alpha\\\nBeta'],
-    ['- parent\n  + child', '- parent\n  + child'],
+    ['- parent\n  + child', '- parent\n    + child'],
     ['7) one\n9) two', '7) one\n8) two'],
     ['- [X] done', '- [x] done'],
     ['    a\n    b', '```\na\nb\n```'],
@@ -275,14 +275,14 @@ describe('Markdown save normalization', () => {
 
   it.each([
     ['opening fence', '- ```\n    a\n  ```', 'a'],
-    ['nested siblings', '- - a\n    - b', 'b'],
+    ['nested list after a same-line marker', '- - a\n      - b', 'b'],
     ['nested paragraphs', '- - a\n\n    b', 'b'],
     ['nested loose class trailer', '- - a\n\n    {.x}', 'a'],
     ['deep loose class trailer', '- - - a\n\n      {.x}', 'a'],
     ['quoted nested loose class trailer', '> - - a\n>\n>     {.x}', 'a'],
     ['ordered nested loose class trailer', '- 1. a\n\n     {.x}', 'a'],
     ['quoted ordered continuations across marker widths',
-      '> 9) - a\n>      - b\n> 10) - c\n>       - d', 'd'],
+      '> 9) - a\n>        - b\n> 10) - c\n>         - d', 'd'],
   ] as const)('keeps the content column in %s on repeated saves', (_name, source, text) => {
     const doc = parseMarkdown(source);
     const written = canonical(doc);
@@ -306,15 +306,15 @@ describe('Markdown save normalization', () => {
       'bullet_list', 1, true],
     ['three nested dash markers', '- -\n    -\n      ---', '- -\n    -\n      ---', '- -\n    -\n      ---\n      {.rule}',
       'bullet_list', 1, true],
-    ['nested list interrupting a paragraph', '- text\n  - ___', '- text\n  - ___', '- text\n  - ___\n    {.rule}',
+    ['nested list interrupting a paragraph', '- text\n  - ___', '- text\n    - ___', '- text\n    - ___\n      {.rule}',
       'bullet_list', 1, true],
-    ['two nested dash markers after a paragraph', '- text\n  - -\n      ---', '- text\n  - -\n      ---',
-      '- text\n  - -\n      ---\n      {.rule}',
+    ['two nested dash markers after a paragraph', '- text\n  - -\n      ---', '- text\n    - -\n        ---',
+      '- text\n    - -\n        ---\n        {.rule}',
       'bullet_list', 1, true],
     ['loose list with a rule class', '-\n  ---\n\n  {.old}\n\n- tail', '-\n  ---\n\n  {.old}\n\n- tail',
       '-\n  ---\n\n  {.rule}\n\n- tail', 'bullet_list', 2, false],
-    ['two nested dash markers in a loose item', '- text\n\n  - -\n      ---', '- text\n\n  - -\n      ---',
-      '- text\n\n  - -\n      ---\n      {.rule}', 'bullet_list', 1, true],
+    ['two nested dash markers in a loose item', '- text\n\n  - -\n      ---', '- text\n\n    - -\n        ---',
+      '- text\n\n    - -\n        ---\n        {.rule}', 'bullet_list', 1, true],
   ] as const)('keeps the first rule inside its item (%s)', (_name, source, expected, editedSource, listType, count, tight) => {
     const doc = parseMarkdown(source);
     let rulePosition = -1;
@@ -399,8 +399,8 @@ describe('Markdown save normalization', () => {
       ['paragraph', 'table', 'heading']],
     ['tight table after a quote', '- > lead\n  >\n  | h |\n  | --- |\n  | b |', true,
       ['paragraph', 'blockquote', 'table']],
-    ['tight item with adjacent bullet lists', '- lead\n  - one\n  * two', true, ['paragraph', 'bullet_list', 'bullet_list']],
-    ['tight item with adjacent ordered lists', '- lead\n  1. one\n  1) two', true,
+    ['tight item with adjacent bullet lists', '- lead\n    - one\n    * two', true, ['paragraph', 'bullet_list', 'bullet_list']],
+    ['tight item with adjacent ordered lists', '- lead\n    1. one\n    1) two', true,
       ['paragraph', 'ordered_list', 'ordered_list']],
     ['loose heading', '- lead\n\n  # heading', false, ['paragraph', 'heading']],
     ['loose dash rule with a class', '- lead\n\n  ---\n\n  {.rule}', false, ['paragraph', 'horizontal_rule']],
@@ -445,9 +445,9 @@ describe('Markdown save normalization', () => {
   }
 
   it.each([
-    ['bullet list', '- lead\n  - sub\n\n  | h |\n  | --- |'],
-    ['ordered list', '- lead\n  1. sub\n\n  | h |\n  | --- |'],
-    ['list ending in a quote', '- lead\n  - > sub\n\n  | h |\n  | --- |'],
+    ['bullet list', '- lead\n    - sub\n\n  | h |\n  | --- |'],
+    ['ordered list', '- lead\n    1. sub\n\n  | h |\n  | --- |'],
+    ['list ending in a quote', '- lead\n    - > sub\n\n  | h |\n  | --- |'],
   ] as const)('keeps a table after a tight nested %s out of its last paragraph', (_name, source) => {
     const doc = tightenFirstList(parseMarkdown(source));
     const saved = canonical(doc);
@@ -458,8 +458,8 @@ describe('Markdown save normalization', () => {
   });
 
   it.each([
-    ['paragraph', '- text\n\n  *\n    ***'],
-    ['task paragraph', '- [ ] text\n\n  -\n    ---'],
+    ['paragraph', '- text\n\n    *\n      ***'],
+    ['task paragraph', '- [ ] text\n\n    -\n      ---'],
     ['rule class trailer', '- ***\n  {.rule}\n\n  -\n    ---'],
   ] as const)('ends a tight %s before a nested list that moves its rule off the marker line', (_name, source) => {
     const doc = tightenFirstList(parseMarkdown(source));
@@ -562,10 +562,10 @@ describe('Markdown save normalization', () => {
   });
 
   it.each([
-    ['nested list', '[^1]: - a\n       - b', 'b'],
+    ['nested list', '[^1]: - a\n         - b', 'b'],
     ['second paragraph', '[^1]: - a\n\n       b', 'b'],
     ['paragraph class trailer', '[^1]: - a\n\n       {.x}', 'a'],
-    ['later item', '[^1]: - a\n     - b\n       - c', 'c'],
+    ['later item', '[^1]: - a\n     - b\n         - c', 'c'],
     ['fence in an ordered item', '[^1]: 1. ```\n        b\n        ```', 'b'],
     ['fence', '[^1]: ```\n      b\n     ```', 'b'],
   ] as const)('keeps a %s on the first line of a footnote', (_name, source, text) => {
@@ -722,7 +722,7 @@ it('writes a nested ordered list starting after one as a list', () => {
   const position = 2 + item.firstChild!.nodeSize;
   const edited = state.apply(state.tr.replaceWith(position, position + nested.nodeSize, changed)).doc;
   const written = canonical(edited);
-  expect(written).toBe('- first\n\n  7. second');
+  expect(written).toBe('- first\n\n    7. second');
   expect(parseMarkdown(written).firstChild!.firstChild!.lastChild!.attrs.order).toBe(7);
 });
 

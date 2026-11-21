@@ -1,12 +1,16 @@
 // @vitest-environment node
-import { EditorState, TextSelection } from 'prosemirror-state';
+import { baseKeymap } from 'prosemirror-commands';
+import { EditorState, NodeSelection, TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
+import { CellSelection } from 'prosemirror-tables';
 import { expect, it } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
+import { markdownSchema } from '../../../../../editor/common/markdown/schema.js';
 import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
 import { indentMarkdownCode } from '../../browser/markdownEditorBlockStyles.js';
+import { setMarkdownLink } from '../../browser/markdownEditorInline.js';
 import { markdownListKeys, setMarkdownList } from '../../browser/markdownEditorLists.js';
-import { editMarkdownTable, insertMarkdownTable } from '../../browser/markdownEditorTables.js';
+import { editMarkdownTable, insertMarkdownTable, markdownTablePlugins as tablePlugins } from '../../browser/markdownEditorTables.js';
 
 function apply(state: EditorState, command: Command): EditorState {
   let next = state;
@@ -25,7 +29,7 @@ it('writes a task list and recovers the task state from Markdown', () => {
 });
 
 it('saves table row and column operations as a rectangular GFM table', () => {
-  const state = EditorState.create({ doc: parseMarkdown('') });
+  const state = EditorState.create({ doc: parseMarkdown(''), plugins: tablePlugins });
   let result = apply(state, insertMarkdownTable);
   result = apply(result, editMarkdownTable('addRow'));
   result = apply(result, editMarkdownTable('addColumn'));
@@ -37,6 +41,55 @@ it('saves table row and column operations as a rectangular GFM table', () => {
   expect(parseMarkdown(source).eq(result.doc)).toBe(true);
 });
 
+it('preserves classes and column alignment when the body row becomes the header', () => {
+  const doc = parseMarkdown('| before | name |\n| ---: | :---: |\n| after {.cell} | **new** |\n| last | row |\n\n{.table}');
+  const state = EditorState.create({ doc, plugins: tablePlugins });
+  const result = apply(state, editMarkdownTable('deleteRow'));
+  const source = serializeMarkdown(result.doc);
+  expect(source).toBe('| after {.cell} | **new** |\n| ---: | :---: |\n| last | row |\n\n{.table}');
+  expect(result.selection.$head.parent.type.name).toBe('table_header');
+  expect(parseMarkdown(source).eq(result.doc)).toBe(true);
+});
+
+it('fills a short header row at its end so the header keeps its columns', () => {
+  const { table, table_row, table_header, table_cell } = markdownSchema.nodes;
+  const cell = (type: typeof table_cell, text: string) => type.create(null, markdownSchema.text(text));
+  // Pasted HTML loses the span of <th colspan="2">, which leaves the header one cell short.
+  const pasted = table.create(null, [
+    table_row.create(null, [cell(table_header, 'Title')]),
+    table_row.create(null, [cell(table_cell, 'a'), cell(table_cell, 'b')]),
+  ]);
+  const state = EditorState.create({ doc: parseMarkdown('x'), plugins: tablePlugins });
+  const result = state.apply(state.tr.insert(state.doc.content.size, pasted));
+  result.doc.check();
+  expect(serializeMarkdown(result.doc)).toBe('x\n\n| Title |  |\n| --- | --- |\n| a | b |');
+});
+
+it('links every selected cell without replacing the others', () => {
+  const doc = parseMarkdown('| A | B |\n| --- | --- |\n| x | y |\n|  | w |');
+  const state = EditorState.create({ doc, plugins: tablePlugins });
+  const cellAt = (row: number, column: number) => {
+    let position = -1;
+    doc.descendants((node, pos, parent, index) => {
+      if (parent?.type.name === 'table_row' && doc.resolve(pos).index(-1) === row && index === column) position = pos;
+    });
+    return doc.resolve(position);
+  };
+  // The empty cell is the head cell, which is the selection's main range.
+  const selected = state.apply(state.tr.setSelection(new CellSelection(cellAt(1, 1), cellAt(2, 0))));
+  const result = apply(selected, setMarkdownLink('https://example.com'));
+  expect(serializeMarkdown(result.doc)).toBe(
+    '| A | B |\n| --- | --- |\n| [x](https://example.com) | [y](https://example.com) |\n|  | [w](https://example.com) |');
+});
+
+it('selects and then deletes a table with Backspace from the paragraph after it', () => {
+  const doc = parseMarkdown('| A | B |\n| --- | --- |\n| x | y |\n\npara');
+  const state = EditorState.create({ doc, plugins: tablePlugins, selection: TextSelection.create(doc, doc.firstChild!.nodeSize + 1) });
+  const selected = apply(state, baseKeymap.Backspace);
+  expect(selected.selection).toBeInstanceOf(NodeSelection);
+  expect(serializeMarkdown(apply(selected, baseKeymap.Backspace).doc)).toBe('para');
+});
+
 it('inserts a table beside or inside a paragraph wherever the caret is', () => {
   for (const [source, position, expected] of [
     ['Hello', 6, 'Hello\n\n|  |  |\n| --- | --- |\n|  |  |'],
@@ -46,7 +99,7 @@ it('inserts a table beside or inside a paragraph wherever the caret is', () => {
     const doc = parseMarkdown(source);
     const result = apply(EditorState.create({ doc, selection: TextSelection.create(doc, position) }), insertMarkdownTable);
     expect(serializeMarkdown(result.doc)).toBe(expected);
-    expect(result.selection.$head.parent.type.name).toBe('table_cell');
+    expect(result.selection.$head.parent.type.name).toBe('table_header');
     expect([result.selection.$head.index(-2), result.selection.$head.index(-1)]).toEqual([0, 0]);
   }
 });
