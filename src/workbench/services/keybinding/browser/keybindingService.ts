@@ -97,6 +97,20 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
     this._register(addDisposableListener(window, 'blur', onWindowBlur));
     this._register(toDisposable(() => inputFocus.reset()));
   }
+
+  dispatchDuringComposition(event: KeyboardEvent, commands: readonly string[]): boolean {
+    if (event.defaultPrevented || !(event.isComposing || event.keyCode === 229) ||
+      !(event.ctrlKey || event.metaKey) || event.getModifierState('AltGraph')) {
+      return false;
+    }
+    const { chord } = new StandardKeyboardEvent(event);
+    if (!chord || this.dispatch(chord, this.context.getContext(event.target), commands) !== 'handled') {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
 }
 
 registerSingleton(IKeybindingService, WorkbenchKeybindingService);

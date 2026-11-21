@@ -5,7 +5,7 @@ import { TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
-import { $, append } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { combinedDisposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -18,6 +18,7 @@ import { MenuId } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -26,6 +27,7 @@ import { IEditorGroupsService } from '../../../services/editor/common/editorGrou
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
+import { SAVE_FILE_COMMAND_ID } from '../../files/browser/fileCommands.js';
 import {
   defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_CONTENT_LAYOUT,
   MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, markdownContentWidth,
@@ -50,6 +52,8 @@ import 'prosemirror-view/style/prosemirror.css';
 import './markdownEditor.css';
 import './media/markdownTheme.css';
 
+const compositionCommands = [SAVE_FILE_COMMAND_ID, 'markdownEditor.toggleSource'] as const;
+
 export class MarkdownEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.markdownEditor';
 
@@ -66,12 +70,14 @@ export class MarkdownEditorPane extends EditorPane {
   private pendingFocus = false;
   private typewriter = false;
   private pointerSelection = false;
+  private committingComposition = false;
   private scrollFrame: number | undefined;
   private scoped: IContextKeyService | undefined;
   private updateToolbarContext = () => {};
 
   constructor(
     @IEditorGroupsService private readonly groups: IEditorGroupsService,
+    @IKeybindingService private readonly keybindings: IKeybindingService,
     @IContextKeyService private readonly contextKeys: IContextKeyService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IConfigurationService private readonly configuration: IConfigurationService,
@@ -211,10 +217,11 @@ export class MarkdownEditorPane extends EditorPane {
         editable: () => !input.isReadonly(),
         attributes: { role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true' },
         ...markdownClipboard,
-        handleScrollToSelection: () => {
+        handleScrollToSelection: view => {
           if (this.pointerSelection) return false;
           this.scheduleTypewriter();
-          return this.typewriter;
+          // Typewriter centering waits for the composition to end, so keep the caret in view meanwhile.
+          return this.typewriter && !view.composing;
         },
         nodeViews: {
           image: (node, view) => markdownImageView(node, view.dom.ownerDocument, input.resource, this.files, this.workspace),
@@ -244,6 +251,13 @@ export class MarkdownEditorPane extends EditorPane {
           }
         },
         handleDOMEvents: {
+          keydown: (_view, event) => this.keybindings.dispatchDuringComposition?.(event, compositionCommands) ?? false,
+          compositionend: () => {
+            queueMicrotask(() => {
+              if (this.view === view) this.scheduleTypewriter();
+            });
+            return false;
+          },
           click: (_view, event) => {
             if (event.target instanceof Element && event.target.closest('a')) {
               event.preventDefault();
@@ -254,7 +268,15 @@ export class MarkdownEditorPane extends EditorPane {
         },
       });
       this.session.add(toDisposable(() => view.destroy()));
+      // Finish native input before ProseMirror or the surface moves the selection under the pointer.
+      // A touch keeps ProseMirror's own touchstart handling: blurring there would close the on-screen keyboard.
+      this.session.add(addDisposableListener(this.surface, 'pointerdown', event => {
+        if (event.pointerType !== 'touch') this.commitComposition();
+      }, true));
+      this.session.add(input.onWillSave(() => this.commitComposition()));
+      this.session.add(addDisposableListener(view.dom.ownerDocument.defaultView!, 'blur', () => this.commitComposition()));
       this.session.add(input.onDidChangeLabel(() => {
+        this.commitComposition();
         view.setProps({});
         // Unchanged task items keep their node views, so their checkboxes follow the read-only state here.
         for (const checkbox of view.dom.querySelectorAll<HTMLInputElement>('li[data-task-checked] > input[type="checkbox"]')) {
@@ -280,6 +302,7 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   override clearInput(): void {
+    this.commitComposition(false);
     this.request++;
     this.pendingFocus = false;
     const window = this.surface.ownerDocument.defaultView;
@@ -297,11 +320,32 @@ export class MarkdownEditorPane extends EditorPane {
     this.updateHistoryContext();
   }
 
+  private commitComposition(restoreFocus = true): void {
+    const view = this.view;
+    if (!view?.composing || this.committingComposition) return;
+    this.committingComposition = true;
+    try {
+      const focused = view.hasFocus();
+      if (focused) view.dom.blur();
+      if (view.isDestroyed) return;
+      // Blur lets the browser finish the native composition. Drain ProseMirror's observer now
+      // so the following command, source change, or view destruction sees the final mutation.
+      const { domObserver } = view as EditorView & { domObserver: { forceFlush(always: boolean): void } };
+      domObserver.forceFlush(true);
+      const activeElement = view.root.activeElement;
+      if (focused && restoreFocus && (!activeElement || activeElement === view.dom.ownerDocument.body)) {
+        view.focus();
+      }
+    } finally {
+      this.committingComposition = false;
+    }
+  }
+
   private scheduleTypewriter(): void {
-    if (!this.typewriter || !this.view || this.scrollFrame !== undefined) return;
+    if (!this.typewriter || !this.view || this.view.composing || this.scrollFrame !== undefined) return;
     this.scrollFrame = this.surface.ownerDocument.defaultView?.requestAnimationFrame(() => {
       this.scrollFrame = undefined;
-      if (this.typewriter && this.view) centerMarkdownCaret(this.surface, this.view);
+      if (this.typewriter && this.view && !this.view.composing) centerMarkdownCaret(this.surface, this.view);
     });
   }
 
@@ -336,7 +380,10 @@ export class MarkdownEditorPane extends EditorPane {
         }
         this.updateHistoryContext();
       }
-    }, resolved instanceof TextFileEditorModel ? edit => resolved.applyRichEditorEdit(edit) : undefined);
+    }, resolved instanceof TextFileEditorModel ? edit => resolved.applyRichEditorEdit(edit) : undefined, () => {
+      // A background tab model can receive the same source change as the visible one.
+      if (this.input === input && this.view?.state === model.state) this.commitComposition();
+    });
     const lifetime = combinedDisposable(model, input.onWillDispose(() => this.forgetTabModel(input)));
     this.tabModels.set(input, { model, lifetime });
     return model;
@@ -356,10 +403,12 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   undo(): boolean {
+    this.commitComposition();
     return this.canUndo && this.sync!.undo();
   }
 
   redo(): boolean {
+    this.commitComposition();
     return this.canRedo && this.sync!.redo();
   }
 
@@ -370,8 +419,20 @@ export class MarkdownEditorPane extends EditorPane {
   readonly onDidChangeWritingState = this.historyChanged.event;
 
   revealWritingPosition(position: number): void {
+    const before = this.sync?.state.doc;
+    this.commitComposition();
     if (this.sync && this.view) {
-      this.sync.dispatch(this.sync.state.tr.setSelection(TextSelection.create(this.sync.state.doc, position)).scrollIntoView());
+      const { doc } = this.sync.state;
+      // The caller read `position` before the composition was committed, so carry it over that change.
+      if (before && before !== doc) {
+        const start = before.content.findDiffStart(doc.content);
+        const end = before.content.findDiffEnd(doc.content);
+        if (start !== null && end !== null && position > start) {
+          position = position >= end.a ? Math.max(start, position + end.b - end.a) : Math.max(start, end.b);
+        }
+      }
+      position = Math.min(position, doc.content.size);
+      this.sync.dispatch(this.sync.state.tr.setSelection(TextSelection.create(doc, position)).scrollIntoView());
       this.view.focus();
     }
   }
@@ -381,6 +442,7 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   runFormattingCommand(command: Command): boolean {
+    this.commitComposition();
     return this.formattingState !== undefined && this.sync!.runFormattingCommand(command);
   }
 
@@ -395,6 +457,7 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   getSourceSelection(): ITextEditorSelection | undefined {
+    this.commitComposition();
     const sync = this.sync;
     if (sync) {
       const { doc, selection } = sync.state;
@@ -404,8 +467,10 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   private applySelection(selection: ITextEditorSelection | undefined): void {
+    if (!selection) return;
+    this.commitComposition();
     const sync = this.sync;
-    if (sync && selection) {
+    if (sync) {
       const next = toMarkdownSelection(sync.textModel, sync.state.doc, selection);
       sync.dispatch(sync.state.tr.setSelection(next).scrollIntoView());
     }

@@ -269,6 +269,7 @@ export class MarkdownEditorModel extends Disposable {
     private readonly plugins: readonly Plugin[],
     private readonly onStateChange: (state: EditorState) => void,
     private readonly writeEdit: (edit: ISingleEditOperation) => void = edit => textModel.applyEdits([edit]),
+    beforeExternalChange?: () => void,
   ) {
     super();
     this.deferred = deferredByModel.get(textModel) ?? { pending: [], draining: false };
@@ -283,6 +284,20 @@ export class MarkdownEditorModel extends Disposable {
       if (event.versionId <= this.version) {
         this.writingVersions.delete(event.versionId);
         return;
+      }
+      const ownWrite = this.writingVersions.get(event.versionId);
+      if (beforeExternalChange && (!ownWrite || !this.matchesWrite(event, ownWrite.edit))) {
+        // Flush local input against the document that the editor still displays. Its transactions
+        // wait for this source version and rebase through the existing deferred edit queue.
+        try {
+          beforeExternalChange();
+        } catch (error) {
+          // The source has already changed, so keep syncing even if the view fails to flush.
+          console.error(error);
+        }
+        if (event.versionId <= this.version) {
+          return;
+        }
       }
       // A listener that changes the model while an earlier change is still being delivered makes a
       // later version arrive first. Its changes then do not start from lastSource, so read the live
