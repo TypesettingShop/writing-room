@@ -15,7 +15,7 @@
   color: var(--vscode-descriptionForeground, var(--vscode-editor-foreground));
   --markdown-base-font-size: var(--markdown-subtitle-font-size);
   font-size: var(--markdown-base-font-size);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .markdown-editor-surface .ProseMirror a {
@@ -84,9 +84,11 @@
 /* The legacy monospace class sits with its replacement and still follows the other legacy fonts. */
 .markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
 
-.markdown-editor-surface .ProseMirror :is(
-  .font-serif, .font-sans, .font-mono, .font-monospace,
-  .font-noto-sans-kr, .font-noto-serif-kr, .font-nanum-myeongjo, .font-nanum-gothic
-) > code {
+.markdown-editor-surface .ProseMirror :where(:not(pre) > code) {
+  font-family: monospace;
+}
+
+/* The fenced code block still accepts a font preset on its pre element. */
+.markdown-editor-surface .ProseMirror :where(pre > code) {
   font-family: inherit;
 }

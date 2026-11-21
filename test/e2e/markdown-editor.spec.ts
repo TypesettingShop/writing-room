@@ -510,6 +510,22 @@ test('checks concrete body defaults and updates an open pane when typography set
   expect(await readWorkspaceText(page, name)).toBe(source);
 });
 
+test('uses monospace for inline code and regular weight for subtitles', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'code-and-subtitle-fonts.md', [
+    'Body `plain`',
+    'Styled `block` {.font-noto-serif-kr}',
+    '[`span`]{.font-nanum-gothic}',
+    'Subtitle {.subtitle}',
+    '```\nfenced\n```\n\n{.font-noto-serif-kr}',
+  ].join('\n\n'));
+  const editor = richEditor(group);
+  for (const sample of ['plain', 'block', 'span']) {
+    await expect(editor.locator('p code').getByText(sample, { exact: true })).toHaveCSS('font-family', 'monospace');
+  }
+  await expect(editor.locator('p.subtitle')).toHaveCSS('font-weight', '400');
+  await expect(editor.locator('pre > code')).toHaveCSS('font-family', /^"Noto Serif KR",/);
+});
+
 test('loads the four bundled Korean fonts at both weights with external requests blocked', async ({ page, baseURL }, testInfo) => {
   const origin = new URL(baseURL!).origin;
   const external: string[] = [];
