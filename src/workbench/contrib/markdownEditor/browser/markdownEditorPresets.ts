@@ -1,5 +1,7 @@
 import type { Mark, MarkType } from 'prosemirror-model';
 import type { Command, EditorState, Transaction } from 'prosemirror-state';
+import { CellSelection } from 'prosemirror-tables';
+import { isMarkdownTableCell } from '../../../../editor/common/markdown/schema.js';
 import { selectedTextBlocks } from './markdownEditorBlockStyles.js';
 import type { SelectedTextBlock } from './markdownEditorBlockStyles.js';
 
@@ -120,13 +122,14 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
       return false;
     }
     const { selection } = state;
+    const caret = selection.empty && !(selection instanceof CellSelection);
     const tr = state.tr;
     const span = state.schema.marks.span;
     for (const block of selectedTextBlocks(state.doc, selection)) {
       const { node, pos, from, to } = block;
       const useBlock = axis === 'textAlign' || !node.type.allowsMarkType(span)
-        || (!selection.empty && from === 0 && to === node.content.size);
-      if (axis === 'textAlign' && node.type === state.schema.nodes.table_cell) {
+        || (!caret && from === 0 && to === node.content.size);
+      if (axis === 'textAlign' && isMarkdownTableCell(node)) {
         continue;
       }
       if (useBlock) {
@@ -138,7 +141,7 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
         if (axis !== 'textAlign') {
           updateSpans(tr, { ...block, from: 0, to: node.content.size }, span, axis);
         }
-      } else if (selection.empty) {
+      } else if (caret) {
         const mark = span.isInSet(state.storedMarks ?? selection.$from.marks());
         const classes = changedSpanClasses(mark, axis, choice.className);
         if (classes) {
@@ -171,7 +174,7 @@ export function currentFormattingPresets(
       common = common === undefined || common === value ? value : null;
     };
     for (const { node, from, to } of blocks) {
-      if (axis === 'textAlign' && node.type === schema.nodes.table_cell) {
+      if (axis === 'textAlign' && isMarkdownTableCell(node)) {
         record(null);
         continue;
       }
@@ -179,7 +182,7 @@ export function currentFormattingPresets(
       const effective = (mark: Mark | undefined) => presetInClasses(axis, spanClasses(mark)) ?? base;
       if (axis === 'textAlign' || !node.type.allowsMarkType(span)) {
         record(base);
-      } else if (selection.empty) {
+      } else if (selection.empty && !(selection instanceof CellSelection)) {
         record(effective(span.isInSet(state.storedMarks ?? selection.$from.marks())));
       } else {
         let textFound = false;

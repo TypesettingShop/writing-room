@@ -1,119 +1,117 @@
-import type { Node, ResolvedPos } from 'prosemirror-model';
-import { TextSelection } from 'prosemirror-state';
+import type { Node } from 'prosemirror-model';
+import { Plugin, TextSelection } from 'prosemirror-state';
 import type { Command, Transaction } from 'prosemirror-state';
+import {
+  addColumnAfter, addRowAfter, cellAround, deleteColumn, deleteRow, deleteTable, goToNextCell, isInTable,
+  selectedRect, TableMap, tableEditing,
+} from 'prosemirror-tables';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 
-const { table, table_row, table_cell } = markdownSchema.nodes;
+const { table, table_row, table_cell, table_header } = markdownSchema.nodes;
 
-interface TablePosition {
-  readonly node: Node;
-  readonly pos: number;
-  readonly row: number;
-  readonly column: number;
-}
+export const markdownTableEditing = tableEditing();
 
-function tablePosition($pos: ResolvedPos): TablePosition | undefined {
-  for (let depth = $pos.depth; depth > 0; depth--) {
-    if ($pos.node(depth).type !== table_cell) continue;
-    return {
-      node: $pos.node(depth - 2), pos: $pos.before(depth - 2),
-      row: $pos.index(depth - 2), column: $pos.index(depth - 1),
-    };
-  }
-  return undefined;
-}
+export const markdownTableFormat = new Plugin({
+  appendTransaction(_transactions, oldState, state) {
+    if (oldState.doc === state.doc) return;
+    const before = oldState.doc.content;
+    const after = state.doc.content;
+    const start = before.findDiffStart(after);
+    if (start === null) return;
+    const end = before.findDiffEnd(after)!.b;
+    const tr = state.tr;
+    state.doc.nodesBetween(start, Math.max(start, end), (node, pos) => {
+      if (node.type !== table) return true;
+      // The table plugin repairs missing cells. GFM also requires a header row and one alignment per column.
+      const header = node.firstChild!;
+      node.forEach((row, rowOffset, rowIndex) => {
+        const type = rowIndex === 0 ? table_header : table_cell;
+        row.forEach((cell, cellOffset, column) => {
+          const align = header.maybeChild(column)?.attrs.align ?? null;
+          if (cell.type !== type || cell.attrs.align !== align) {
+            tr.setNodeMarkup(pos + rowOffset + cellOffset + 2, type, { ...cell.attrs, align });
+          }
+        });
+      });
+      return false;
+    });
+    return tr.docChanged ? tr : undefined;
+  },
+});
 
-function cellPosition(node: Node, pos: number, row: number, column: number): number {
-  let inside = pos + 3;
-  for (let index = 0; index < row; index++) inside += node.child(index).nodeSize;
-  for (let index = 0; index < column; index++) inside += node.child(row).child(index).nodeSize;
-  return inside;
-}
-
-function selectCell(tr: Transaction, node: Node, pos: number, row: number, column: number): Transaction {
-  return tr.setSelection(TextSelection.create(tr.doc, cellPosition(node, pos, row, column))).scrollIntoView();
+function selectCell(tr: Transaction, tableStart: number, row: number, column: number): Transaction {
+  const map = TableMap.get(tr.doc.nodeAt(tableStart - 1)!);
+  const offset = map.map[Math.min(row, map.height - 1) * map.width + Math.min(column, map.width - 1)];
+  return tr.setSelection(TextSelection.create(tr.doc, tableStart + offset + 1)).scrollIntoView();
 }
 
 export const insertMarkdownTable: Command = (state, dispatch) => {
   const { $from, $to } = state.selection;
-  if (tablePosition($from) || tablePosition($to)) return false;
-  const node = table.create(null, [true, false].map(header => table_row.create(null,
-    Array.from({ length: 2 }, () => table_cell.create({ header })))));
+  if (cellAround($from) || cellAround($to)) return false;
+  const node = table.create(null, [table_header, table_cell].map(type => table_row.create(null,
+    [type.create(), type.create()])));
   // The table may land before or after the caret's paragraph, outside the old selection, so look
   // for it in the range the insertion step wrote.
   const tr = state.tr.replaceSelectionWith(node, false);
-  let inserted: { node: Node; pos: number } | undefined;
+  let inserted: number | undefined;
   tr.mapping.maps.at(-1)?.forEach((_from, _to, newFrom, newTo) => {
     tr.doc.nodesBetween(newFrom, newTo, (candidate, pos) => {
-      if (!inserted && candidate.type === table) inserted = { node: candidate, pos };
-      return !inserted && !candidate.isTextblock;
+      if (inserted === undefined && candidate.type === table) inserted = pos;
+      return inserted === undefined && !candidate.isTextblock;
     });
   });
-  if (!inserted) return false;
-  dispatch?.(selectCell(tr, inserted.node, inserted.pos, 0, 0));
+  if (inserted === undefined) return false;
+  dispatch?.(selectCell(tr, inserted + 1, 0, 0));
   return true;
 };
 
-export type TableEdit = 'addRow' | 'deleteRow' | 'addColumn' | 'deleteColumn' | 'deleteTable'
-  | 'alignLeft' | 'alignCenter' | 'alignRight' | 'clearAlignment';
+const alignments = { alignLeft: 'left', alignCenter: 'center', alignRight: 'right', clearAlignment: null } as const;
+type AlignmentEdit = keyof typeof alignments;
+
+export type TableEdit = 'addRow' | 'deleteRow' | 'addColumn' | 'deleteColumn' | 'deleteTable' | AlignmentEdit;
 
 export function editMarkdownTable(edit: TableEdit): Command {
   return (state, dispatch) => {
-    const current = tablePosition(state.selection.$head);
-    if (!current) return false;
-    const { node, pos } = current;
-    const rows = Array.from({ length: node.childCount }, (_, index) => node.child(index));
-    const width = Math.max(...rows.map(row => row.childCount));
-    if (edit === 'deleteTable' || (edit === 'deleteRow' && rows.length === 1) || (edit === 'deleteColumn' && width === 1)) {
-      dispatch?.(state.tr.delete(pos, pos + node.nodeSize).scrollIntoView());
-      return true;
+    if (!isInTable(state)) return false;
+    const rect = selectedRect(state);
+    const { map, tableStart, top, bottom, left, right } = rect;
+    if (edit === 'deleteTable' || (edit === 'deleteRow' && bottom - top === map.height) ||
+      (edit === 'deleteColumn' && right - left === map.width)) {
+      return deleteTable(state, dispatch);
     }
 
-    let { row, column } = current;
-    const alignments = Array.from({ length: width }, (_, index) => rows[0].maybeChild(index)?.attrs.align ?? null);
-    if (edit === 'addRow') {
-      rows.splice(++row, 0, table_row.create(null, alignments.map(() => table_cell.create())));
-    } else if (edit === 'deleteRow') {
-      rows.splice(row, 1);
-      row = Math.min(row, rows.length - 1);
+    const finish = (row: number, column: number) => dispatch && ((tr: Transaction) => {
+      dispatch(selectCell(tr, tableStart, row, column));
+    });
+    switch (edit) {
+      case 'addRow': return addRowAfter(state, finish(bottom, left));
+      case 'deleteRow': return deleteRow(state, finish(top, left));
+      case 'addColumn': return addColumnAfter(state, finish(top, right));
+      case 'deleteColumn': return deleteColumn(state, finish(top, left));
     }
-    const alignment = { alignLeft: 'left', alignCenter: 'center', alignRight: 'right', clearAlignment: null } as const;
-    if (edit in alignment) alignments[column] = alignment[edit as keyof typeof alignment];
-    if (edit === 'addColumn') alignments.splice(column + 1, 0, null);
-    if (edit === 'deleteColumn') alignments.splice(column, 1);
 
-    const replacement = table.create(node.attrs, rows.map((line, index) => {
-      const cells = Array.from({ length: width }, (_, col) => line.maybeChild(col) ?? table_cell.create());
-      if (edit === 'addColumn') cells.splice(column + 1, 0, table_cell.create());
-      if (edit === 'deleteColumn') cells.splice(column, 1);
-      return table_row.create(line.attrs, cells.map((cell, col) => table_cell.create(
-        { ...cell.attrs, header: index === 0, align: alignments[col] }, cell.content,
-      )));
-    }));
-    if (edit === 'addColumn') column++;
-    column = Math.min(column, alignments.length - 1);
-    const tr = state.tr.replaceWith(pos, pos + node.nodeSize, replacement);
-    dispatch?.(selectCell(tr, replacement, pos, row, column));
+    if (dispatch) {
+      const tr = state.tr;
+      const align = alignments[edit];
+      for (let row = 0; row < map.height; row++) {
+        for (let col = left; col < right; col++) {
+          const pos = tableStart + map.map[row * map.width + col];
+          const cell = state.doc.nodeAt(pos)!;
+          if (cell.attrs.align !== align) tr.setNodeMarkup(pos, undefined, { ...cell.attrs, align });
+        }
+      }
+      dispatch(selectCell(tr, tableStart, top, left));
+    }
     return true;
   };
 }
 
 export function moveMarkdownTableCell(direction: -1 | 1): Command {
-  return (state, dispatch) => {
-    const current = tablePosition(state.selection.$head);
-    if (!current) return false;
-    const { node, pos } = current;
-    let { row, column } = current;
-    column += direction;
-    if (column < 0 && row > 0) {
-      column = node.child(--row).childCount - 1;
-    } else if (column >= node.child(row).childCount && row + 1 < node.childCount) {
-      row++;
-      column = 0;
-    }
-    if (column >= 0 && column < node.child(row).childCount) {
-      dispatch?.(selectCell(state.tr, node, pos, row, column));
-    }
+  const move = goToNextCell(direction);
+  return (state, dispatch, view) => {
+    if (!isInTable(state)) return false;
+    move(state, dispatch && (tr => dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.selection.from)))), view);
+    // Keep Tab inside the editor at both ends of a table.
     return true;
   };
 }

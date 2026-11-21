@@ -3,6 +3,7 @@ import { Fragment } from 'prosemirror-model';
 import type { Node, NodeType } from 'prosemirror-model';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command, Selection, Transaction } from 'prosemirror-state';
+import { isMarkdownTableCell } from '../../../../editor/common/markdown/schema.js';
 
 type BlockStyle =
   | { readonly type: 'paragraph' | 'subtitle' | 'blockquote' | 'code_block' }
@@ -40,24 +41,27 @@ export interface SelectedTextBlock {
 
 export function selectedTextBlocks(doc: Node, selection: Selection): SelectedTextBlock[] {
   const blocks: SelectedTextBlock[] = [];
-  const { from, to, $from } = selection;
-  if (selection.empty) {
-    if ($from.parent.isTextblock && $from.depth > 0) {
-      blocks.push({ node: $from.parent, pos: $from.before(), from: $from.parentOffset, to: $from.parentOffset });
+  for (const { $from, $to } of selection.ranges) {
+    const from = $from.pos;
+    const to = $to.pos;
+    if (from === to) {
+      if ($from.parent.isTextblock && $from.depth > 0) {
+        blocks.push({ node: $from.parent, pos: $from.before(), from: $from.parentOffset, to: $from.parentOffset });
+      }
+      continue;
     }
-    return blocks;
+    doc.nodesBetween(from, to, (node, pos) => {
+      if (!node.isTextblock) {
+        return true;
+      }
+      const start = pos + 1;
+      const end = start + node.content.size;
+      if ((from < end && to > start) || (start === end && from <= start && to >= start)) {
+        blocks.push({ node, pos, from: Math.max(0, from - start), to: Math.min(node.content.size, to - start) });
+      }
+      return false;
+    });
   }
-  doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isTextblock) {
-      return true;
-    }
-    const start = pos + 1;
-    const end = start + node.content.size;
-    if ((from < end && to > start) || (start === end && from <= start && to >= start)) {
-      blocks.push({ node, pos, from: Math.max(0, from - start), to: Math.min(node.content.size, to - start) });
-    }
-    return false;
-  });
   return blocks;
 }
 
@@ -91,7 +95,7 @@ function codeTextBlocks(text: string): string[][] {
 export function setBlockStyle(style: BlockStyle): Command {
   return (state, dispatch) => {
     const { schema, selection, doc } = state;
-    const blocks = selectedTextBlocks(doc, selection).filter(({ node }) => node.type !== schema.nodes.table_cell);
+    const blocks = selectedTextBlocks(doc, selection).filter(({ node }) => !isMarkdownTableCell(node));
     const quoted = ({ pos }: SelectedTextBlock) => doc.resolve(pos).parent.type === schema.nodes.blockquote;
     const tr = state.tr;
     // Quote state is judged per block, so a selection over two quotes or a quote and plain text toggles each block once.

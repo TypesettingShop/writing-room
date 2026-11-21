@@ -161,7 +161,9 @@ exports[`parseMarkdown > maps containers, code, aligned cells and footnotes 1`] 
               "attrs": {
                 "align": "left",
                 "classes": [],
-                "header": true,
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
               },
               "content": [
                 {
@@ -169,13 +171,15 @@ exports[`parseMarkdown > maps containers, code, aligned cells and footnotes 1`] 
                   "type": "text",
                 },
               ],
-              "type": "table_cell",
+              "type": "table_header",
             },
             {
               "attrs": {
                 "align": "right",
                 "classes": [],
-                "header": true,
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
               },
               "content": [
                 {
@@ -183,7 +187,7 @@ exports[`parseMarkdown > maps containers, code, aligned cells and footnotes 1`] 
                   "type": "text",
                 },
               ],
-              "type": "table_cell",
+              "type": "table_header",
             },
           ],
           "type": "table_row",
@@ -197,7 +201,9 @@ exports[`parseMarkdown > maps containers, code, aligned cells and footnotes 1`] 
               "attrs": {
                 "align": "left",
                 "classes": [],
-                "header": false,
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
               },
               "content": [
                 {
@@ -211,7 +217,9 @@ exports[`parseMarkdown > maps containers, code, aligned cells and footnotes 1`] 
               "attrs": {
                 "align": "right",
                 "classes": [],
-                "header": false,
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
               },
               "content": [
                 {

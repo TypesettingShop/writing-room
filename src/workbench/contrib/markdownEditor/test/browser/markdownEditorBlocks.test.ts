@@ -6,7 +6,7 @@ import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
 import { indentMarkdownCode } from '../../browser/markdownEditorBlockStyles.js';
 import { markdownListKeys, setMarkdownList } from '../../browser/markdownEditorLists.js';
-import { editMarkdownTable, insertMarkdownTable } from '../../browser/markdownEditorTables.js';
+import { editMarkdownTable, insertMarkdownTable, markdownTableEditing, markdownTableFormat } from '../../browser/markdownEditorTables.js';
 
 function apply(state: EditorState, command: Command): EditorState {
   let next = state;
@@ -25,7 +25,7 @@ it('writes a task list and recovers the task state from Markdown', () => {
 });
 
 it('saves table row and column operations as a rectangular GFM table', () => {
-  const state = EditorState.create({ doc: parseMarkdown('') });
+  const state = EditorState.create({ doc: parseMarkdown(''), plugins: [markdownTableEditing, markdownTableFormat] });
   let result = apply(state, insertMarkdownTable);
   result = apply(result, editMarkdownTable('addRow'));
   result = apply(result, editMarkdownTable('addColumn'));
@@ -34,6 +34,16 @@ it('saves table row and column operations as a rectangular GFM table', () => {
   result = apply(result, editMarkdownTable('deleteColumn'));
   const source = serializeMarkdown(result.doc);
   expect(source).toBe('|  |  |\n| --- | --- |\n|  |  |');
+  expect(parseMarkdown(source).eq(result.doc)).toBe(true);
+});
+
+it('preserves classes and column alignment when the body row becomes the header', () => {
+  const doc = parseMarkdown('| before | name |\n| ---: | :---: |\n| after {.cell} | **new** |\n| last | row |\n\n{.table}');
+  const state = EditorState.create({ doc, plugins: [markdownTableEditing, markdownTableFormat] });
+  const result = apply(state, editMarkdownTable('deleteRow'));
+  const source = serializeMarkdown(result.doc);
+  expect(source).toBe('| after {.cell} | **new** |\n| ---: | :---: |\n| last | row |\n\n{.table}');
+  expect(result.selection.$head.parent.type.name).toBe('table_header');
   expect(parseMarkdown(source).eq(result.doc)).toBe(true);
 });
 
@@ -46,7 +56,7 @@ it('inserts a table beside or inside a paragraph wherever the caret is', () => {
     const doc = parseMarkdown(source);
     const result = apply(EditorState.create({ doc, selection: TextSelection.create(doc, position) }), insertMarkdownTable);
     expect(serializeMarkdown(result.doc)).toBe(expected);
-    expect(result.selection.$head.parent.type.name).toBe('table_cell');
+    expect(result.selection.$head.parent.type.name).toBe('table_header');
     expect([result.selection.$head.index(-2), result.selection.$head.index(-1)]).toEqual([0, 0]);
   }
 });

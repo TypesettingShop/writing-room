@@ -436,6 +436,40 @@ test('creates, edits and saves a GFM table from the toolbar', async ({ appPage: 
   await expect(editor.locator('th').last()).toHaveCSS('text-align', 'center');
 });
 
+test('pastes HTML table spans as single cells and replaces a selected cell range', async ({ appPage: page }) => {
+  const name = 'table-paste.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  const pasteTable = (html: string) => editor.evaluate((element, content) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', content);
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+  }, html);
+
+  await editor.focus();
+  await pasteTable('<table><tr><td colspan="2" class="important" style="text-align:right">A</td><th>B</th></tr>'
+    + '<tr><th rowspan="2">C</th><td>D</td></tr><tr><td>E</td><td>F</td></tr></table>');
+  await expect(editor.locator('th')).toHaveText(['A', 'B']);
+  await expect(editor.locator('td')).toHaveText(['C', 'D', 'E', 'F']);
+  await expect(editor.locator('[colspan], [rowspan]')).toHaveCount(0);
+  await expect(editor.locator('td').first()).toHaveCSS('text-align', 'right');
+
+  await editor.getByText('C', { exact: true }).click();
+  await editor.getByText('F', { exact: true }).click({ modifiers: ['Shift'] });
+  await expect(editor.locator('td.selectedCell')).toHaveCount(4);
+  await pasteTable('<table><tr><th colspan="2" style="text-align:center">X</th><td>Y</td></tr>'
+    + '<tr><td>Z</td><td>W</td></tr></table>');
+  await expect(editor.locator('th')).toHaveText(['A', 'B']);
+  await expect(editor.locator('td')).toHaveText(['X', 'Y', 'Z', 'W']);
+  await expect(editor.locator('td').first()).toHaveCSS('text-align', 'right');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('| A {.important} | B |\n| ---: | --- |\n| X | Y |\n| Z | W |');
+  await page.reload();
+  await expect(editor.locator('th').first()).toHaveClass('important', { timeout: 20_000 });
+  await expect(editor.locator('td')).toHaveText(['X', 'Y', 'Z', 'W']);
+  await expect(editor.locator('[colspan], [rowspan]')).toHaveCount(0);
+});
+
 test('toggles a task, exits a list, and loads remote images only on request', async ({ appPage: page }) => {
   const name = 'blocks-list.md';
   const group = await openMarkdown(page, name, '- [ ] Check me\n\n![Remote](https://images.example.test/photo.png)\n\n![Blocked](http://images.example.test/photo.png)');

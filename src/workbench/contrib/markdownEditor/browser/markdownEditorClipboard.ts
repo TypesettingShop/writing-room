@@ -10,6 +10,7 @@ import { normalizeMarkdownLink } from './markdownEditorInline.js';
 const htmlNamespace = 'http://www.w3.org/1999/xhtml';
 const discarded = 'script, style, template, noscript, iframe, object, embed, link, meta, base, title';
 // `data-pm-slice` carries the open depth and context of a copy from this editor; ProseMirror reads it after this transform.
+// Keep one GFM cell per HTML cell. Span and column-width attributes are discarded here.
 const safeAttributes = new Set([
   'class', 'href', 'src', 'title', 'alt', 'start', 'data-task-checked', 'data-code-info', 'data-footnote', 'data-pm-slice',
 ]);

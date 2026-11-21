@@ -38,7 +38,7 @@ import { markdownClipboard } from './markdownEditorClipboard.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
 import { markdownImageView } from './markdownEditorImages.js';
 import { markdownListKeys, taskItemView } from './markdownEditorLists.js';
-import { moveMarkdownTableCell } from './markdownEditorTables.js';
+import { markdownTableEditing, markdownTableFormat, moveMarkdownTableCell } from './markdownEditorTables.js';
 import { centerMarkdownCaret, markdownActiveBlock } from './markdownFocusPresentation.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
@@ -299,7 +299,10 @@ export class MarkdownEditorPane extends EditorPane {
     const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, Backspace: undoInputRule });
     const codeKeys = keymap({ Tab: indentMarkdownCode(false), 'Shift-Tab': indentMarkdownCode(true) });
     const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
-    const model = new MarkdownEditorModel(textModel, [markdownInputRules, markdownActiveBlock, keys, codeKeys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
+    const model = new MarkdownEditorModel(textModel, [
+      markdownInputRules, markdownActiveBlock, keys, codeKeys, tableKeys, keymap(markdownListKeys),
+      markdownTableEditing, markdownTableFormat, keymap(baseKeymap),
+    ], state => {
       if (this.input === input) {
         const previous = this.view?.state;
         this.view?.updateState(state);
