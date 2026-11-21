@@ -2,15 +2,30 @@ import type { Node } from 'prosemirror-model';
 import { Plugin, TextSelection } from 'prosemirror-state';
 import type { Command, Transaction } from 'prosemirror-state';
 import {
-  addColumnAfter, addRowAfter, cellAround, deleteColumn, deleteRow, deleteTable, goToNextCell, isInTable,
+  addColumnAfter, addRowAfter, cellAround, deleteColumn, deleteRow, deleteTable, goToNextCell, handlePaste, isInTable,
   selectedRect, TableMap, tableEditing,
 } from 'prosemirror-tables';
+import type { EditorView } from 'prosemirror-view';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 
 const { table, table_row, table_cell, table_header } = markdownSchema.nodes;
 
-export const markdownTableEditing = tableEditing();
+// A selected table stays a node selection, so Backspace deletes it and a copy writes a GFM table.
+export const markdownTableEditing = tableEditing({ allowTableNodeSelection: true });
 
+// prosemirror-tables dispatches its own paste transaction. Mark it as a paste so the model keeps it
+// as one undo step, as it does for ProseMirror's own paste. Install it before markdownTableEditing.
+export const markdownTablePaste = new Plugin({
+  props: {
+    handlePaste(view, event, slice) {
+      const dispatch = (tr: Transaction) => view.dispatch(tr.setMeta('paste', true).setMeta('uiEvent', 'paste'));
+      return handlePaste(Object.create(view, { dispatch: { value: dispatch } }) as EditorView, event, slice);
+    },
+  },
+});
+
+// Install before markdownTableEditing: that plugin fills a short first row from its start, which
+// moves the header away from its columns.
 export const markdownTableFormat = new Plugin({
   appendTransaction(transactions, oldState, state) {
     if (oldState.doc === state.doc) return;
@@ -24,10 +39,14 @@ export const markdownTableFormat = new Plugin({
     if (start === null) return;
     const end = change?.to ?? before.findDiffEnd(after)!.b;
     const tr = state.tr;
+    const missing: { readonly pos: number; readonly cells: Node[] }[] = [];
     state.doc.nodesBetween(start, Math.max(start, end), (node, pos) => {
       if (node.type !== table) return !node.isTextblock;
-      // The table plugin repairs missing cells. GFM also requires a header row and one alignment per column.
+      // GFM requires a header row, one alignment per column and a cell for every column. Short rows
+      // gain empty cells at their end, as the serializer writes them.
       const header = node.firstChild!;
+      let width = 0;
+      node.forEach(row => { width = Math.max(width, row.childCount); });
       node.forEach((row, rowOffset, rowIndex) => {
         const type = rowIndex === 0 ? table_header : table_cell;
         row.forEach((cell, cellOffset, column) => {
@@ -36,12 +55,22 @@ export const markdownTableFormat = new Plugin({
             tr.setNodeMarkup(pos + rowOffset + cellOffset + 2, type, { ...cell.attrs, align });
           }
         });
+        if (row.childCount < width) {
+          const cells = Array.from({ length: width - row.childCount }, (_, index) =>
+            type.create({ align: header.maybeChild(row.childCount + index)?.attrs.align ?? null }));
+          missing.push({ pos: pos + rowOffset + row.nodeSize, cells });
+        }
       });
       return false;
     });
+    // Markup changes keep every size, so insert from the end to keep the earlier positions.
+    for (const { pos, cells } of missing.reverse()) tr.insert(pos, cells);
     return tr.docChanged ? tr : undefined;
   },
 });
+
+// The table plugins in the order they must run. Both the editor pane and the tests install this list.
+export const markdownTablePlugins = [markdownTableFormat, markdownTablePaste, markdownTableEditing];
 
 function selectCell(tr: Transaction, tableStart: number, row: number, column: number): Transaction {
   const map = TableMap.get(tr.doc.nodeAt(tableStart - 1)!);

@@ -1,6 +1,7 @@
 import { toggleMark } from 'prosemirror-commands';
 import type { Mark } from 'prosemirror-model';
 import type { Command, EditorState } from 'prosemirror-state';
+import { CellSelection } from 'prosemirror-tables';
 import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
 import { selectedTextBlocks } from './markdownEditorBlockStyles.js';
 import type { SelectedTextBlock } from './markdownEditorBlockStyles.js';
@@ -84,7 +85,14 @@ export function setMarkdownLink(input: string): Command {
     const current = linkAtSelection(state, blocks);
     const { from, to } = current ?? selection;
     const tr = state.tr;
-    if (!href) {
+    if (selection instanceof CellSelection && selection.ranges.length > 1) {
+      // Each selected cell is a range of its own. Link its text instead of replacing the cells.
+      for (const { $from, $to } of selection.ranges) {
+        if ($from.pos === $to.pos) continue;
+        if (href) tr.addMark($from.pos, $to.pos, link.create({ href }));
+        else tr.removeMark($from.pos, $to.pos, link);
+      }
+    } else if (!href) {
       tr.removeMark(from, to, link);
     } else {
       const mark = link.create({ ...current?.mark.attrs, href });

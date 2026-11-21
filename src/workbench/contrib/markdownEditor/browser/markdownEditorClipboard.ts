@@ -81,6 +81,10 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
 
   clipboardTextSerializer(slice) {
     let { content, openStart, openEnd } = slice;
+    // A cell selection over the whole table copies the table, opened only at its rows.
+    if (content.childCount === 1 && content.firstChild!.type === markdownSchema.nodes.table && openStart === 1 && openEnd === 1) {
+      return serializeMarkdown(markdownSchema.topNodeType.create(null, content));
+    }
     // A selection inside one block copies that block's text, not the markers of the blocks around it.
     while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
       content = content.firstChild!.content;

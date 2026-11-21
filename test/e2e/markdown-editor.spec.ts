@@ -14,6 +14,15 @@ async function openMarkdown(page: Page, name: string, text: string): Promise<Loc
   return groups(page).first();
 }
 
+async function openTypewriterMarkdown(page: Page, name: string, text: string): Promise<Locator> {
+  await page.addInitScript(key => {
+    localStorage.setItem('writing-room:storage:version', '2');
+    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
+  }, settingsKey);
+  await page.goto('/');
+  return openMarkdown(page, name, text);
+}
+
 test('opens Markdown from Explorer and carries its draft and saved text through reloads', async ({ appPage: page }) => {
   const name = 'draft.markdown';
   const group = await openMarkdown(page, name, 'First\n=====\n\nHello\n');
@@ -696,12 +705,8 @@ test('focus mode yields to layout commands and lets Escape close quick input fir
 });
 
 test('typewriter scrolling centers the first, middle and newly written last line', async ({ page }) => {
-  await page.addInitScript(key => {
-    localStorage.setItem('writing-room:storage:version', '2');
-    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
-  }, settingsKey);
-  await page.goto('/');
-  const group = await openMarkdown(page, 'typewriter.md', Array.from({ length: 30 }, (_, index) => `Line ${index + 1}`).join('\n\n'));
+  const group = await openTypewriterMarkdown(page, 'typewriter.md',
+    Array.from({ length: 30 }, (_, index) => `Line ${index + 1}`).join('\n\n'));
   const editor = richEditor(group);
   await editor.focus();
   const caretDistance = () => editor.evaluate(element => {
@@ -719,6 +724,36 @@ test('typewriter scrolling centers the first, middle and newly written last line
   await page.keyboard.press('Enter');
   await page.keyboard.type('New last line');
   await expect.poll(caretDistance).toBeLessThan(3);
+});
+
+test('keeps the typewriter viewport in place when dragging across table cells', async ({ page }) => {
+  const paragraphs = Array.from({ length: 20 }, (_, index) => `Line ${index + 1}`).join('\n\n');
+  const table = '| First | Last |\n| --- | --- |\n| A | B |\n| C | D |\n| E | F |';
+  const group = await openTypewriterMarkdown(page, 'typewriter-table.md', [paragraphs, table, paragraphs].join('\n\n'));
+  const editor = richEditor(group);
+  const surface = group.locator('.markdown-typewriter');
+  const header = editor.getByRole('columnheader', { name: 'First', exact: true });
+  await expect(surface).toBeVisible();
+  await expect(header).toBeVisible();
+
+  const scrollTop = await surface.evaluate(async element => {
+    // Let opening the editor finish any queued caret centering before setting the test viewport.
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const table = element.querySelector('table')!.getBoundingClientRect();
+    element.scrollTop += table.top - element.getBoundingClientRect().top - element.clientHeight / 8;
+    return element.scrollTop;
+  });
+  const first = await box(header);
+  const last = await box(editor.getByRole('cell', { name: 'F', exact: true }));
+  await drag(page, first.x + first.width / 2, first.y + first.height / 2,
+    last.x + last.width / 2, last.y + last.height / 2);
+
+  const afterDrag = await surface.evaluate(async element => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return element.scrollTop;
+  });
+  expect(Math.abs(afterDrag - scrollTop)).toBeLessThan(2);
+  await expect(editor.locator('.selectedCell')).toHaveCount(8);
 });
 
 test('scales the Markdown size presets relative to headings, subtitles, and body text', async ({ appPage: page }) => {

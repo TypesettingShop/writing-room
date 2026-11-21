@@ -72,6 +72,8 @@ const indentationRegressions = new Map([
     '100. Parent\n\n     second paragraph\n\n     - Child\n\n       ~~~text\n         indented\n       ~~~',
   ],
   ['* - - \n\n       3) m', '* - - \n    3) m'],
+  // A marker wider than four columns keeps its own width.
+  ['100. Parent\n     - Child\n       1. Grandchild', '100. Parent\n     - Child\n         1. Grandchild'],
 ]);
 const regressions = new Set([
   '- a\n  s\n  ===', // wr-x9d4
