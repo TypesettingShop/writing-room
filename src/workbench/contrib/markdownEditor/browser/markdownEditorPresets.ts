@@ -1,4 +1,4 @@
-import type { Mark, MarkType } from 'prosemirror-model';
+import type { Mark, MarkType, Node } from 'prosemirror-model';
 import type { Command, EditorState, Transaction } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { isMarkdownTableCell } from '../../../../editor/common/markdown/schema.js';
@@ -30,7 +30,7 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
   textAlign: {
     defaultValue: 'left',
     options: [
-      { label: 'Left', value: 'left' },
+      { label: 'Left', value: 'left', className: 'left' },
       { label: 'Center', value: 'center', className: 'center' },
       { label: 'Right', value: 'right', className: 'right' },
       { label: 'Justify', value: 'justify', className: 'justify', readOnly: true },
@@ -64,10 +64,6 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
 const axisIds: readonly PresetAxisId[] = ['textAlign', 'fontSize', 'fontFamily'];
 
 function presetForClass(axis: PresetAxisId, name: string): string | undefined {
-  // Treat an explicitly authored .left as the default alignment when replacing the axis.
-  if (axis === 'textAlign' && name === 'left') {
-    return 'left';
-  }
   return formattingPresets[axis].options.find(option => option.className === name || option.legacyClassName === name)?.value;
 }
 
@@ -80,6 +76,15 @@ function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string
     }
   }
   return effective;
+}
+
+function inheritedTextAlign(doc: Node, pos: number): string {
+  const $pos = doc.resolve(pos);
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const value = presetInClasses('textAlign', $pos.node(depth).attrs.classes ?? []);
+    if (value !== undefined) return value;
+  }
+  return formattingPresets.textAlign.defaultValue;
 }
 
 function replaceClasses(
@@ -147,7 +152,10 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
       }
       if (useBlock) {
         const original: readonly string[] = node.attrs.classes;
-        const classes = replaceClasses(original, axis, choice.className);
+        // Left only needs an explicit class when the block would inherit another alignment.
+        const className = axis === 'textAlign' && value === 'left' && inheritedTextAlign(state.doc, pos) === 'left'
+          ? undefined : choice.className;
+        const classes = replaceClasses(original, axis, className);
         if (classes !== original) {
           tr.setNodeMarkup(pos, undefined, { ...node.attrs, classes });
         }
@@ -186,14 +194,16 @@ export function currentFormattingPresets(
     const record = (value: string | null) => {
       common = common === undefined || common === value ? value : null;
     };
-    for (const { node, from, to } of blocks) {
-      if (axis === 'textAlign' && isMarkdownTableCell(node)) {
-        record(null);
+    for (const { node, pos, from, to } of blocks) {
+      if (axis === 'textAlign') {
+        const alignment = isMarkdownTableCell(node) ? null
+          : presetInClasses(axis, node.attrs.classes) ?? inheritedTextAlign(state.doc, pos);
+        record(alignment);
         continue;
       }
       const base = presetInClasses(axis, node.attrs.classes) ?? formattingPresets[axis].defaultValue;
       const effective = (mark: Mark | undefined) => presetInClasses(axis, spanClasses(mark)) ?? base;
-      if (axis === 'textAlign' || !node.type.allowsMarkType(span)) {
+      if (!node.type.allowsMarkType(span)) {
         record(base);
       } else if (selection.empty && !(selection instanceof CellSelection)) {
         record(effective(span.isInSet(state.storedMarks ?? selection.$from.marks())));
