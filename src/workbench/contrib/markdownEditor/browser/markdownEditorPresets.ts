@@ -1,4 +1,4 @@
-import type { Mark, MarkType } from 'prosemirror-model';
+import type { Mark, MarkType, Node } from 'prosemirror-model';
 import type { Command, EditorState, Transaction } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { isMarkdownTableCell } from '../../../../editor/common/markdown/schema.js';
@@ -30,7 +30,7 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
   textAlign: {
     defaultValue: 'left',
     options: [
-      { label: 'Left', value: 'left' },
+      { label: 'Left', value: 'left', className: 'left' },
       { label: 'Center', value: 'center', className: 'center' },
       { label: 'Right', value: 'right', className: 'right' },
       { label: 'Justify', value: 'justify', className: 'justify', readOnly: true },
@@ -64,10 +64,6 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
 const axisIds: readonly PresetAxisId[] = ['textAlign', 'fontSize', 'fontFamily'];
 
 function presetForClass(axis: PresetAxisId, name: string): string | undefined {
-  // Treat an explicitly authored .left as the default alignment when replacing the axis.
-  if (axis === 'textAlign' && name === 'left') {
-    return 'left';
-  }
   return formattingPresets[axis].options.find(option => option.className === name || option.legacyClassName === name)?.value;
 }
 
@@ -80,6 +76,33 @@ function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string
     }
   }
   return effective;
+}
+
+/** The alignment each block inherits from its nearest aligned ancestor, keyed by the block's position. */
+function inheritedTextAligns(doc: Node, blocks: readonly SelectedTextBlock[]): Map<number, string> {
+  const inherited = new Map<number, string>();
+  if (!blocks.length) return inherited;
+  let from = blocks[0].pos;
+  let to = from;
+  for (const { pos } of blocks) {
+    from = Math.min(from, pos);
+    to = Math.max(to, pos);
+  }
+  const wanted = new Set(blocks.map(({ pos }) => pos));
+  // One walk keeps the ancestors' alignments on a stack. Resolving each block would rescan its siblings,
+  // which makes a selection over a long document quadratic.
+  const containers: { readonly end: number; readonly value: string }[] = [];
+  doc.nodesBetween(from, to + 1, (node, pos) => {
+    while (containers.length && containers[containers.length - 1].end <= pos) containers.pop();
+    const value = containers.length ? containers[containers.length - 1].value : formattingPresets.textAlign.defaultValue;
+    if (node.isTextblock) {
+      if (wanted.has(pos)) inherited.set(pos, value);
+      return false;
+    }
+    containers.push({ end: pos + node.nodeSize, value: presetInClasses('textAlign', node.attrs.classes ?? []) ?? value });
+    return true;
+  });
+  return inherited;
 }
 
 function replaceClasses(
@@ -138,7 +161,9 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
     const caret = selection.empty && !(selection instanceof CellSelection);
     const tr = state.tr;
     const span = state.schema.marks.span;
-    for (const block of selectedTextBlocks(state.doc, selection)) {
+    const blocks = selectedTextBlocks(state.doc, selection);
+    const inherited = axis === 'textAlign' ? inheritedTextAligns(state.doc, blocks) : undefined;
+    for (const block of blocks) {
       const { node, pos, from, to } = block;
       const useBlock = axis === 'textAlign' || !node.type.allowsMarkType(span)
         || (!caret && from === 0 && to === node.content.size);
@@ -147,7 +172,9 @@ export function setFormattingPreset(axis: PresetAxisId, value: string): Command 
       }
       if (useBlock) {
         const original: readonly string[] = node.attrs.classes;
-        const classes = replaceClasses(original, axis, choice.className);
+        // An alignment only needs its own class where the block would otherwise inherit another alignment.
+        const className = inherited?.get(pos) === value ? undefined : choice.className;
+        const classes = replaceClasses(original, axis, className);
         if (classes !== original) {
           tr.setNodeMarkup(pos, undefined, { ...node.attrs, classes });
         }
@@ -181,19 +208,22 @@ export function currentFormattingPresets(
   const { selection, schema } = state;
   const span = schema.marks.span;
   const result: Record<PresetAxisId, string | null> = { textAlign: null, fontSize: null, fontFamily: null };
+  const inherited = inheritedTextAligns(state.doc, blocks);
   for (const axis of axisIds) {
     let common: string | null | undefined;
     const record = (value: string | null) => {
       common = common === undefined || common === value ? value : null;
     };
-    for (const { node, from, to } of blocks) {
-      if (axis === 'textAlign' && isMarkdownTableCell(node)) {
-        record(null);
+    for (const { node, pos, from, to } of blocks) {
+      if (axis === 'textAlign') {
+        const alignment = isMarkdownTableCell(node) ? null
+          : presetInClasses(axis, node.attrs.classes) ?? inherited.get(pos) ?? formattingPresets.textAlign.defaultValue;
+        record(alignment);
         continue;
       }
       const base = presetInClasses(axis, node.attrs.classes) ?? formattingPresets[axis].defaultValue;
       const effective = (mark: Mark | undefined) => presetInClasses(axis, spanClasses(mark)) ?? base;
-      if (axis === 'textAlign' || !node.type.allowsMarkType(span)) {
+      if (!node.type.allowsMarkType(span)) {
         record(base);
       } else if (selection.empty && !(selection instanceof CellSelection)) {
         record(effective(span.isInSet(state.storedMarks ?? selection.$from.marks())));

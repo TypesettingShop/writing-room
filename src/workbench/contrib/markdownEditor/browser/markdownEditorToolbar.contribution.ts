@@ -138,7 +138,7 @@ function registerFormattingPicker<T>({ commandId, commandTitle, options, parse, 
     override async run(accessor: ServicesAccessor, arg?: unknown): Promise<void> {
       const groups = accessor.get(IEditorGroupsService);
       const pane = getMarkdownPane(groups);
-      const state = pane?.formattingState;
+      const state = pane?.getFormattingStateForQuickInput();
       if (!pane || !state) {
         return;
       }
@@ -275,7 +275,7 @@ registerInlineAction(
   async accessor => {
     const groups = accessor.get(IEditorGroupsService);
     const pane = getMarkdownPane(groups);
-    const state = pane?.formattingState;
+    const state = pane?.getFormattingStateForQuickInput();
     if (!pane || !state || !pane.scopedContextKeyService?.contextMatchesRules(inline)) {
       return;
     }
@@ -350,7 +350,7 @@ registerAction2(class extends Action2 {
   override async run(accessor: ServicesAccessor): Promise<void> {
     const groups = accessor.get(IEditorGroupsService);
     const pane = getMarkdownPane(groups);
-    const state = pane?.formattingState;
+    const state = pane?.getFormattingStateForQuickInput();
     if (!pane || !state) return;
     const image = selectedMarkdownImage(state.selection);
     const quickInput = accessor.get(IQuickInputService);

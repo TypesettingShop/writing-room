@@ -531,6 +531,57 @@ test('clears an alignment from the command palette and leaves existing justify r
   await expect(group.getByRole('button', { name: /justify/i })).toHaveCount(0);
 });
 
+test('shows inherited alignment and saves left overrides inside a quote and nested list', async ({ appPage: page }) => {
+  const name = 'inherited-alignment.md';
+  const quote = '> Quoted paragraph\n>\n> Quoted sibling\n\n{.center}';
+  const list = '- Parent {.right}\n    - Nested {.center}\n        - Deep paragraph\n        - Deep sibling';
+  const source = `${quote}\n\n${list}`;
+  const group = await openMarkdown(page, name, source);
+  const editor = richEditor(group);
+  const left = group.getByRole('button', { name: 'Align Left', exact: true });
+  const center = group.getByRole('button', { name: 'Align Center', exact: true });
+  const right = group.getByRole('button', { name: 'Align Right', exact: true });
+  const quoted = editor.getByText('Quoted paragraph', { exact: true });
+  const deep = editor.getByText('Deep paragraph', { exact: true });
+  const siblings = [editor.getByText('Quoted sibling'), editor.getByText('Deep sibling')];
+  const parent = editor.getByText('Parent', { exact: true });
+  await expect(quoted).toHaveCSS('text-align', 'center', { timeout: 20_000 });
+  await editor.press('ControlOrMeta+s');
+  expect(await readWorkspaceText(page, name)).toBe(source);
+
+  await parent.click();
+  await expect(parent).toHaveCSS('text-align', 'right');
+  await expect(right).toHaveAttribute('aria-pressed', 'true');
+  await editor.press('ControlOrMeta+a');
+  for (const button of [left, center, right]) {
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  }
+
+  for (const paragraph of [quoted, deep]) {
+    await paragraph.click();
+    await expect(paragraph).toHaveCSS('text-align', 'center');
+    await expect(center).toHaveAttribute('aria-pressed', 'true');
+    await left.click();
+    await expect(paragraph).toHaveCSS('text-align', 'left');
+    await expect(left).toHaveAttribute('aria-pressed', 'true');
+  }
+  await expect(editor.locator('blockquote.center')).toHaveCount(1);
+  await expect(editor.locator('li.center')).toHaveCount(1);
+  for (const sibling of siblings) await expect(sibling).toHaveCSS('text-align', 'center');
+  await editor.press('ControlOrMeta+s');
+  const saved = source.replace('> Quoted paragraph', '> Quoted paragraph\n> {.left}')
+    .replace('- Deep paragraph', '- Deep paragraph\n          {.left}');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(saved);
+
+  await page.reload();
+  for (const paragraph of [quoted, deep]) {
+    await expect(paragraph).toHaveCSS('text-align', 'left', { timeout: 20_000 });
+    await paragraph.click();
+    await expect(left).toHaveAttribute('aria-pressed', 'true');
+  }
+  for (const sibling of siblings) await expect(sibling).toHaveCSS('text-align', 'center');
+});
+
 test('applies bold without toggling the sidebar and keeps the workbench shortcut outside Markdown', async ({ appPage: page }) => {
   const name = 'inline.md';
   const group = await openMarkdown(page, name, 'Some text');

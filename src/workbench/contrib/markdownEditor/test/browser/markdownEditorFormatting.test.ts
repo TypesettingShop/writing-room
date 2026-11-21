@@ -99,6 +99,17 @@ describe('Markdown block styles', () => {
 describe('Markdown class presets', () => {
   const presets = (state: EditorState) => currentFormattingPresets(state, selectedTextBlocks(state.doc, state.selection));
 
+  function selectTextBlocks(source: string, first: string, last = first): EditorState {
+    const doc = parseMarkdown(source);
+    const positions = new Map<string, number>();
+    doc.descendants((node, pos) => {
+      if (node.isTextblock) positions.set(node.textContent, pos + 1);
+    });
+    const from = positions.get(first)!;
+    const to = first === last ? from : positions.get(last)! + last.length;
+    return EditorState.create({ doc, selection: TextSelection.create(doc, from, to) });
+  }
+
   it('replaces an alignment axis and preserves unrelated authored classes', () => {
     const state = read('Line {.my-class .center .left .size-lg}');
     const right = apply(state, setFormattingPreset('textAlign', 'right'));
@@ -113,6 +124,50 @@ describe('Markdown class presets', () => {
     expect(setFormattingPreset('textAlign', 'justify')(read('Line'))).toBe(false);
     expect(write(state)).toBe('Line {.center .justify .authored}');
     expect(write(apply(state, setFormattingPreset('textAlign', 'center')))).toBe('Line {.authored .center}');
+  });
+
+  it('stores a left override on a quoted paragraph and preserves its parent and sibling', () => {
+    const source = '> First\n>\n> Sibling\n\n{.center}';
+    const state = selectTextBlocks(source, 'First');
+    expect(write(state)).toBe(source);
+    expect(presets(state).textAlign).toBe('center');
+    // The inherited alignment needs no class of its own.
+    expect(setFormattingPreset('textAlign', 'center')(state)).toBe(false);
+
+    const left = apply(state, setFormattingPreset('textAlign', 'left'));
+    const saved = write(left);
+    expect(saved).toBe('> First\n> {.left}\n>\n> Sibling\n\n{.center}');
+    expect(presets(selectTextBlocks(saved, 'First')).textAlign).toBe('left');
+    expect(presets(selectTextBlocks(saved, 'Sibling')).textAlign).toBe('center');
+    expect(setFormattingPreset('textAlign', 'left')(left)).toBe(false);
+
+    const right = apply(left, setFormattingPreset('textAlign', 'right'));
+    expect(presets(right).textAlign).toBe('right');
+    expect(write(right)).toBe(saved.replace('{.left}', '{.right}'));
+  });
+
+  it('reads the nearest list alignment, a direct override and mixed selections', () => {
+    const source = '- Parent {.right}\n    - Middle {.left}\n        - Inherited\n        - Direct\n            {.left .center}';
+    expect(write(selectTextBlocks(source, 'Parent'))).toBe(source);
+    expect(presets(selectTextBlocks(source, 'Parent')).textAlign).toBe('right');
+    expect(presets(selectTextBlocks(source, 'Inherited')).textAlign).toBe('left');
+    expect(presets(selectTextBlocks(source, 'Direct')).textAlign).toBe('center');
+    expect(presets(selectTextBlocks(source, 'Inherited', 'Direct')).textAlign).toBeNull();
+    const left = apply(selectTextBlocks(source, 'Direct'), setFormattingPreset('textAlign', 'left'));
+    expect(write(left)).toBe(source.split('\n').slice(0, -1).join('\n'));
+    expect(presets(left).textAlign).toBe('left');
+    const right = write(apply(selectTextBlocks(source, 'Middle', 'Direct'), setFormattingPreset('textAlign', 'right')));
+    for (const text of ['Middle', 'Inherited', 'Direct']) {
+      expect(presets(selectTextBlocks(right, text)).textAlign).toBe('right');
+    }
+
+    // A block after an aligned container inherits from the container's parent again.
+    const after = '> Quoted\n\n{.center}\n\nAfter';
+    expect(presets(selectTextBlocks(after, 'Quoted', 'After')).textAlign).toBeNull();
+    const both = apply(selectTextBlocks(after, 'Quoted', 'After'), setFormattingPreset('textAlign', 'left'));
+    expect(write(both)).toBe('> Quoted\n> {.left}\n\n{.center}\n\nAfter');
+    expect(presets(both).textAlign).toBe('left');
+    expect(presets(selectTextBlocks('> Justified {.justify}', 'Justified')).textAlign).toBe('justify');
   });
 
   it('reports the size and font the theme renders when a block carries several of one axis', () => {
