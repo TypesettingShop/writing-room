@@ -72,6 +72,103 @@ describe('Markdown save normalization', () => {
     expect(canonical(parseMarkdown(source))).toBe(expected);
   });
 
+  it.each([
+    ['first\nsecond {.title}\n=\n\nafter', 1, 'soft_break', '==='],
+    ['- first  \n  second {.title}\n  -\n  after\n- tail', 2, 'hard_break', '  ---'],
+  ] as const)('keeps a multiline Setext heading and its adjacent blocks in %j', (source, level, breakType, underline) => {
+    const doc = parseMarkdown(source);
+    const heading = level === 1 ? doc.firstChild! : doc.firstChild!.firstChild!.child(1);
+    expect(heading.type.name).toBe('heading');
+    expect(heading.attrs).toMatchObject({ level, classes: ['title'] });
+    expect(heading.child(1).type.name).toBe(breakType);
+    expect(serializeMarkdown(doc)).toBe(source);
+
+    const edited = editText(doc, 'second', 'edited');
+    for (const [target, written] of [[doc, canonical(doc)], [edited, serializeMarkdown(edited)]] as const) {
+      expect.soft(written.split('\n')).toContain(underline);
+      const reopened = parseMarkdown(written);
+      expect.soft(reopened.toJSON()).toEqual(target.toJSON());
+      expect.soft(canonical(reopened)).toBe(written);
+    }
+  });
+
+  it('ends a quote before a multiline Setext heading without loosening the item', () => {
+    const source = '- > q\n  >\n  {.x}\n  s\n  ===';
+    const doc = parseMarkdown(source);
+    const item = doc.firstChild!.firstChild!;
+    expect(item.child(1).type.name).toBe('blockquote');
+    expect(item.child(2).type.name).toBe('heading');
+    expect(doc.firstChild!.attrs.tight).toBe(true);
+    const written = canonical(doc);
+    expect(written).toBe(source.replace('{.x}', '\\{.x}'));
+    expect(parseMarkdown(written).toJSON()).toEqual(doc.toJSON());
+  });
+
+  it.each([
+    ['c', 'a\nb\n==='],
+    ['b', 'a\nc\n==='],
+  ])('keeps a Setext heading after deleting the text of line %s', (line, expected) => {
+    const doc = parseMarkdown('a\nb\nc\n===\n\nafter');
+    let position = -1;
+    doc.descendants((node, offset) => {
+      if (position === -1 && node.text === line) position = offset;
+    });
+    const state = EditorState.create({ doc });
+    const edited = state.apply(state.tr.delete(position, position + 1)).doc;
+    const written = serializeMarkdown(edited);
+    expect(written).toBe(expected + '\n\nafter');
+    const reopened = parseMarkdown(written);
+    expect(reopened.firstChild?.type.name).toBe('heading');
+    expect(reopened.childCount).toBe(2);
+  });
+
+  it('writes the lines of a level-three heading on one line', () => {
+    const { heading, soft_break: softBreak } = markdownSchema.nodes;
+    const doc = markdownSchema.node('doc', null, [
+      heading.create({ level: 3 }, [markdownSchema.text('a'), softBreak.create(), markdownSchema.text('b')]),
+    ]);
+    expect(canonical(doc)).toBe('### a b');
+  });
+
+  it.each(['+', '1.', '1)'])('keeps the paragraph %s from starting an empty list', text => {
+    const doc = parseMarkdown(text.replace(/([+.)])$/, '\\$1'));
+    expect(doc.firstChild?.type.name).toBe('paragraph');
+    expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
+  });
+
+  it.each(['+', '1.'])('keeps %s before expelled emphasis whitespace on the first Setext line', marker => {
+    const em = markdownSchema.marks.em.create();
+    const doc = markdownSchema.node('doc', null, [markdownSchema.nodes.heading.create({ level: 1 }, [
+      markdownSchema.text(marker), markdownSchema.text(' x', [em]),
+      markdownSchema.nodes.soft_break.create(), markdownSchema.text('b'),
+    ])]);
+    const reopened = parseMarkdown(canonical(doc));
+    expect(reopened.firstChild?.type.name).toBe('heading');
+    expect(reopened.firstChild?.textContent).toBe(marker + ' x\nb');
+  });
+
+  it('separates a Setext heading from a reference definition in a tight item', () => {
+    const { bullet_list: list, list_item: item, paragraph, raw_block: raw, heading, soft_break: softBreak } =
+      markdownSchema.nodes;
+    const doc = markdownSchema.node('doc', null, [list.create({ tight: true }, [item.create(null, [
+      paragraph.create(null, markdownSchema.text('p')),
+      raw.create({ source: '[a]: /b' }),
+      heading.create({ level: 1 }, [markdownSchema.text('"t"'), softBreak.create(), markdownSchema.text('second')]),
+    ])])]);
+    const reopened = parseMarkdown(canonical(doc)).firstChild!.firstChild!;
+    expect(reopened.child(1).attrs.source).toBe('[a]: /b');
+    expect(reopened.child(2).textContent).toBe('"t"\nsecond');
+  });
+
+  it.each(['\\+', '1\\.', '1\\)'])('keeps the literal marker %s on the first Setext line', marker => {
+    const source = marker + '\nsecond\n===';
+    const doc = parseMarkdown(source);
+    expect(doc.firstChild?.type.name).toBe('heading');
+    expect(doc.firstChild?.firstChild?.text).toBe(marker.replace('\\', ''));
+    expect(canonical(doc)).toBe(source);
+    expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
+  });
+
   it('retains unchanged blocks and their separators through a transaction', () => {
     const source = ' 첫째   \r\n\r\n\r\nmiddle\r\n\r\n' +
       '~~~ spaced-info\r\ncode\r\n~~~\r\n\r\n' +
@@ -135,6 +232,45 @@ describe('Markdown save normalization', () => {
     const written = canonical(doc);
     expect(written).toBe('> - a\n>\n>   {.x}');
     expect(parseMarkdown(written).eq(doc)).toBe(true);
+  });
+
+  it.each([
+    ['> * ***\n>   {.x}\n>   {.y}', '****'],
+    ['> {.x}\n> {.y}', null],
+    ['- > {.x}\n  > {.y}\n- tail', null],
+  ] as const)('saves the empty styled paragraph and its owners in %j', (source, ruleMarkup) => {
+    const doc = parseMarkdown(source);
+    let position = -1;
+    doc.descendants((node, offset) => {
+      if (node.type.name === 'blockquote') position = offset;
+    });
+    expect(position).toBeGreaterThanOrEqual(0);
+    const quote = doc.nodeAt(position)!;
+    const paragraph = quote.lastChild!;
+    expect(quote.attrs.classes).toEqual(['x']);
+    expect(quote.childCount).toBe(ruleMarkup ? 2 : 1);
+    if (ruleMarkup) expect(quote.firstChild?.attrs).toMatchObject({ markup: ruleMarkup, classes: [] });
+    expect(paragraph.type.name).toBe('paragraph');
+    expect(paragraph.attrs.classes).toEqual(['y']);
+    expect(paragraph.content.size).toBe(0);
+    expect(serializeMarkdown(doc)).toBe(source);
+
+    const state = EditorState.create({ doc });
+    const paragraphPos = position + quote.nodeSize - paragraph.nodeSize - 1;
+    const edited = state.apply(state.tr.setNodeMarkup(paragraphPos, undefined, { classes: ['edited'] })).doc;
+    for (const [target, written, name] of [[doc, canonical(doc), 'y'], [edited, serializeMarkdown(edited), 'edited']] as const) {
+      expect.soft(written).toContain(`> []{.${name}}`);
+      const reopened = parseMarkdown(written);
+      expect.soft(reopened.toJSON()).toEqual(target.toJSON());
+      expect.soft(canonical(reopened)).toBe(written);
+    }
+  });
+
+  it('keeps escaped bracket text in a quote and leaves the top-level spelling literal', () => {
+    const doc = parseMarkdown('[]{.top}\n\n> \\[\\]\\{.quote}');
+    expect(doc.firstChild?.textContent).toBe('[]{.top}');
+    expect(doc.lastChild?.firstChild?.textContent).toBe('[]{.quote}');
+    expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
   });
 
   it.each([
