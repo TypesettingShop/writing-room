@@ -3,7 +3,7 @@ import { Emitter, Event } from '../../../common/event.js';
 import { Disposable, DisposableStore } from '../../../common/lifecycle.js';
 import type { IDisposable } from '../../../common/lifecycle.js';
 import { LayoutPriority, Orientation, Sizing, SplitView } from '../splitview/splitview.js';
-import type { DistributeSizing, IView as ISplitViewView } from '../splitview/splitview.js';
+import type { DistributeSizing, ISplitViewStyles, IView as ISplitViewView } from '../splitview/splitview.js';
 import './gridview.css';
 
 export { LayoutPriority, Orientation, Sizing } from '../splitview/splitview.js';
@@ -92,6 +92,7 @@ export function isGridBranchNode<T extends IView>(node: GridNode<T>): node is Gr
 export interface IGridViewOptions {
   /** `true` (the default) keeps every view's share when the grid changes size. */
   readonly proportionalLayout?: boolean;
+  readonly styles?: ISplitViewStyles;
 }
 
 export function orthogonal(orientation: Orientation): Orientation {
@@ -108,9 +109,11 @@ interface ILayoutContext {
   readonly absoluteOrthogonalOffset: number;
 }
 
-/** Shared by the nodes of one grid: while a change rebuilds part of the tree, limits stay quiet. */
+/** Shared by the nodes of one grid, including branches reconstructed from saved state. */
 interface IGridContext {
+  /** While a change rebuilds part of the tree, limits stay quiet. */
   batching: number;
+  readonly styles?: ISplitViewStyles;
 }
 
 type Node = BranchNode | LeafNode;
@@ -255,6 +258,7 @@ class BranchNode extends AbstractNode implements ISplitViewView<ILayoutContext>,
     this.splitview = new SplitView<ILayoutContext, Node>(this.element, {
       orientation,
       proportionalLayout: splitviewProportionalLayout,
+      styles: context.styles,
       getSashOrthogonalSize: () => this._orthogonalSize,
       descriptor: childDescriptors && {
         views: childDescriptors.map(({ node, size, visible }) => ({ view: node, size, visible })),
@@ -541,7 +545,7 @@ function flipNode(node: Node, size: number, orthogonalSize: number, context: IGr
 export class GridView extends Disposable {
   readonly element: HTMLElement;
   private readonly proportionalLayout: boolean;
-  private readonly context: IGridContext = { batching: 0 };
+  private readonly context: IGridContext;
   private _root!: BranchNode;
   private readonly rootListeners = this._register(new DisposableStore());
   private lastSize: { width: number; height: number; top: number; left: number } | undefined;
@@ -555,6 +559,7 @@ export class GridView extends Disposable {
     super();
     this.element = $('.monaco-grid-view');
     this.proportionalLayout = options.proportionalLayout ?? true;
+    this.context = { batching: 0, styles: options.styles };
     this.root = new BranchNode(Orientation.VERTICAL, this.proportionalLayout, this.context);
   }
 

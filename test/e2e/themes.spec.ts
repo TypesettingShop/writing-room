@@ -1,4 +1,7 @@
-import { expect, test } from './fixtures.js';
+import { box, expect, test } from './fixtures.js';
+import { runCommand } from './configuration.helpers.js';
+import { treeItem } from './explorer.helpers.js';
+import { groups, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 import {
   chooseTheme, colorVariable, editorBackground, kindClass, newUntitled, openThemePicker, openWithThemingFixtures,
   persistedSettings, recordRequests, rgb, themingFixtureLocation, workbench,
@@ -97,6 +100,62 @@ test('an id given in the manifest is the setting\'s value; the built-in light th
   await expect(statusPart(page)).toHaveCSS('background-color', rgb('#dde8f8'));
   await newUntitled(page);
   await expect.poll(() => editorBackground(page)).toBe(rgb('#fbfcfe'));
+});
+
+test('nested editor group separators follow the current theme and survive layout restore', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openWithThemingFixtures(page, ['color-theme/'], JSON.stringify({ 'markdownEditor.contentWidth': 40 }));
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'split.md', '# Editor groups\n\nA centered Markdown document.');
+  await treeItem(page, 'split.md').dblclick();
+  await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+  const editorGroups = groups(page);
+  await expect(editorGroups).toHaveCount(2);
+  await editorGroups.nth(1).getByRole('textbox', { name: 'Markdown editor' }).click();
+  await runCommand(page, 'Split Editor Down', /^View: Split Editor Down$/);
+  await expect(editorGroups.getByRole('textbox', { name: 'Markdown editor' })).toHaveCount(3);
+
+  const editor = page.locator('[id="workbench.parts.editor"]');
+  const separator = (orientation: string) => editor.locator(
+    `.monaco-split-view2.${orientation} > .split-view-container > .split-view-view.visible + .split-view-view.visible`,
+  );
+  const geometry = () => Promise.all([0, 1, 2].map(index => box(editorGroups.nth(index))));
+  const initial = await geometry();
+  const [left, topRight, bottomRight] = initial;
+  expect(left.x + left.width).toBe(topRight.x);
+  expect(topRight.y + topRight.height).toBe(bottomRight.y);
+  const expectSeparators = async (color: string) => {
+    await expect.poll(() => separator('horizontal').evaluate(element => {
+      const style = getComputedStyle(element, '::before');
+      return [style.borderLeftWidth, style.borderLeftColor, style.pointerEvents];
+    })).toEqual(['1px', rgb(color), 'none']);
+    await expect.poll(() => separator('vertical').evaluate(element => {
+      const style = getComputedStyle(element, '::before');
+      return [style.borderTopWidth, style.borderTopColor, style.pointerEvents];
+    })).toEqual(['1px', rgb(color), 'none']);
+  };
+
+  for (const [slug, label, groupBorder, sidebarBorder] of [
+    ['dark', 'Writing Room Dark', '#313c50', '#313c50'],
+    ['light', 'Writing Room Light', '#d3dae6', '#d3dae6'],
+    ['hc-dark', 'Fixture Contrast', '#6fc3df', '#6fc3df'],
+    ['hc-light', 'Fixture Contrast Light', '#0f4a85', '#0f4a85'],
+    ['installed', 'Fixture Paper', '#7d412e', '#a0522d'],
+  ]) {
+    await chooseTheme(page, label);
+    await expectSeparators(groupBorder);
+    await expect.poll(() => sidebarPart(page).evaluate(element => getComputedStyle(element, '::after').borderRightColor))
+      .toBe(rgb(sidebarBorder));
+    expect(await geometry()).toEqual(initial);
+    await page.mouse.move(10, 10);
+    const path = testInfo.outputPath(`editor-group-separators-${slug}.png`);
+    await workbench(page).screenshot({ path });
+    await testInfo.attach(`editor-group-separators-${slug}`, { path, contentType: 'image/png' });
+  }
+
+  await page.reload();
+  await expect(editorGroups).toHaveCount(3);
+  await expectSeparators('#7d412e');
 });
 
 test('removing the theme\'s extension falls back and keeps the setting; installing it again brings the theme back', async ({ page }) => {

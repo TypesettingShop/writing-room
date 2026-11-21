@@ -43,3 +43,20 @@
   top: 0;
   height: 100%;
 }
+
+/* Paint over the view contents and below the sash without taking up layout or hit-test space. */
+.monaco-split-view2.separator-border > .split-view-container > .split-view-view.visible ~ .split-view-view.visible::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.monaco-split-view2.separator-border.horizontal > .split-view-container > .split-view-view.visible ~ .split-view-view.visible::before {
+  border-left: 1px solid var(--split-view-separator-border);
+}
+
+.monaco-split-view2.separator-border.vertical > .split-view-container > .split-view-view.visible ~ .split-view-view.visible::before {
+  border-top: 1px solid var(--split-view-separator-border);
+}

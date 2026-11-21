@@ -35,7 +35,7 @@ const toolbarHeight = 40;
 const a = new HarnessView('A', '#264f78', 100, 60);
 const b = new HarnessView('B', '#4d3a1f', 120, 80);
 const c = new HarnessView('C', '#2d4a2d', 120, 80);
-const grid = new Grid<HarnessView>(a, { proportionalLayout: false });
+const grid = new Grid<HarnessView>(a, { proportionalLayout: false, styles: { separatorBorder: '#ffffff' } });
 main.append(grid.element);
 
 function layout(): void {
