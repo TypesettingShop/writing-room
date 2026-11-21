@@ -243,10 +243,22 @@ describe('Markdown class presets', () => {
     },
   );
 
+  it.each([
+    ['# Line', 24, 28], ['## Line', 18, 20], ['### Line', 14, 16],
+    ['#### Line', 12, 14], ['##### Line', 10, 12], ['###### Line', 9, 11], ['Line {.subtitle}', 16, 18],
+  ])('snaps the default size of %s to a preset and clears an explicit choice', (source, initial, adjusted) => {
+    const defaults = resolveMarkdownFontDefaults(14, 'noto-sans-kr');
+    expect(presets(read(source)).fontSize).toBe(`${initial}pt`);
+    expect(presets(read(source), defaults).fontSize).toBe(`${adjusted}pt`);
+    const styled = apply(read(source, 1, 5), setFormattingPreset('fontSize', '36pt', defaults));
+    const reset = apply(styled, setFormattingPreset('fontSize', `${adjusted}pt`, defaults));
+    expect(write(reset)).toBe(source);
+  });
+
   it('resolves configured body, heading and container sizes and fonts', () => {
     const defaults = resolveMarkdownFontDefaults(11, 'noto-serif-kr');
     expect(presets(read('Line'), defaults)).toEqual({ textAlign: 'left', fontSize: '11pt', fontFamily: 'noto-serif-kr' });
-    expect(presets(read('### Heading'), defaults).fontSize).toBe('12.87pt');
+    expect(presets(read('### Heading'), defaults).fontSize).toBe('12pt');
     expect(resolveMarkdownFontDefaults('11', 'unknown')).toEqual({ size: 12, family: 'noto-sans-kr' });
 
     const source = '- Parent {.size-14pt .font-nanum-gothic}\n    - Child\n      {.size-18pt .font-noto-sans-kr}\n\n> Quote\n\n{.size-16pt}';

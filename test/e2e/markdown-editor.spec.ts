@@ -429,7 +429,8 @@ test('applies block styles from the toolbar, shortcut and command palette', asyn
 
 test('checks concrete body defaults and updates an open pane when typography settings are saved', async ({ appPage: page }) => {
   const name = 'font-defaults.md';
-  const source = 'Body text\n\n# Heading\n\n### Smaller heading\n\n- List item\n\n> Quote';
+  const headings = Array.from({ length: 6 }, (_, index) => `${'#'.repeat(index + 1)} Heading ${index + 1}`);
+  const source = ['Body text', ...headings, 'Subtitle {.subtitle}', '- List item', '> Quote'].join('\n\n');
   const group = await openMarkdown(page, name, source);
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
@@ -447,19 +448,27 @@ test('checks concrete body defaults and updates an open pane when typography set
     await expect(font).toHaveText('Noto Sans KR');
   }
 
-  await editor.getByRole('heading', { level: 1 }).click();
-  await expect(size).toHaveText('24 pt');
-  await size.click();
-  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('24 pt');
-  await page.keyboard.press('Escape');
+  const titleSizes = [24, 18, 14, 12, 10, 9, 16];
+  for (const [index, points] of titleSizes.entries()) {
+    const title = index < 6 ? editor.getByRole('heading', { level: index + 1 }) : editor.locator('p.subtitle');
+    await title.click();
+    expect(await title.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(points * 4 / 3);
+    await expect(size).toHaveText(`${points} pt`);
+    await size.click();
+    await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName(`${points} pt`);
+    await page.keyboard.press('Escape');
+  }
 
   const smallHeading = editor.getByRole('heading', { level: 3 });
   await smallHeading.click();
-  await expect(size).toHaveText('14.04 pt');
-  expect(await smallHeading.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(18.72);
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
   await size.click();
-  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  await sizeMenu.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
+  await expect(smallHeading).toHaveClass('size-18pt');
+  await size.click();
+  await sizeMenu.getByRole('menuitemradio', { name: '14 pt', exact: true }).click();
+  await expect(smallHeading).not.toHaveClass('size-18pt');
 
   await body.click();
   await page.keyboard.press('Home');
@@ -486,6 +495,12 @@ test('checks concrete body defaults and updates an open pane when typography set
   await expect(font).toHaveText('Noto Serif KR');
   expect(await body.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(44 / 3);
   await expect(body).toHaveCSS('font-family', /^"Noto Serif KR",/);
+  await smallHeading.click();
+  await expect(smallHeading).toHaveCSS('font-size', '16px');
+  await expect(size).toHaveText('12 pt');
+  await size.click();
+  await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('12 pt');
+  await page.keyboard.press('Escape');
   await body.click();
   await size.click();
   await expect(sizeMenu.getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('11 pt');

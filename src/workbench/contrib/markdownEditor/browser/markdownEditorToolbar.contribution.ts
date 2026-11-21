@@ -222,7 +222,8 @@ for (const [axis, title, commandTitle, group, order, context] of [
     })) : undefined,
     selectLabelKey: axis === 'fontSize' ? MarkdownEditorFontSizeLabelContext.key : undefined,
     selected: value => context.isEqualTo(value),
-    parse: arg => options.find(option => option.value === arg)?.value,
+    // Existing keybindings can still reset an axis with the old argument.
+    parse: arg => arg === 'default' ? arg : options.find(option => option.value === arg)?.value,
     createCommand: (value, pane) => pane.formattingPresetCommand(axis, value),
   });
 }

@@ -2,7 +2,10 @@ import type { Mark, MarkType, Node } from 'prosemirror-model';
 import type { Command, EditorState, Transaction } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { isMarkdownTableCell } from '../../../../editor/common/markdown/schema.js';
-import { defaultMarkdownFonts, markdownFontFamilies, markdownFontSizes } from '../common/markdownEditor.js';
+import {
+  defaultMarkdownFonts, defaultMarkdownHeadingSizes, defaultMarkdownSubtitleSize, markdownFontFamilies, markdownFontSizes,
+  scaleMarkdownTitleSize,
+} from '../common/markdownEditor.js';
 import type { MarkdownFontDefaults } from '../common/markdownEditor.js';
 import { selectedTextBlocks } from './markdownEditorBlockStyles.js';
 import type { SelectedTextBlock } from './markdownEditorBlockStyles.js';
@@ -10,7 +13,7 @@ import type { SelectedTextBlock } from './markdownEditorBlockStyles.js';
 interface PresetChoice {
   readonly label: string;
   readonly value: string;
-  readonly className?: string;
+  readonly className: string;
   readonly legacyClassName?: string;
   readonly readOnly?: boolean;
   readonly hidden?: boolean;
@@ -21,10 +24,6 @@ interface PresetAxis {
 }
 
 export type PresetAxisId = 'textAlign' | 'fontSize' | 'fontFamily';
-
-const headingScales = [2, 1.5, 1.17, 1, 0.83, 0.67];
-const subtitleScale = 1.25;
-const legacySizeScales = new Map([['small', 0.875], ['large', 1.25], ['extraLarge', 1.5]]);
 
 // Both UI and transactions use this table. Markdown persists the resulting generic classes.
 // Within an axis the options follow the order of their equal-specificity rules in markdownTheme.css, so when a
@@ -75,41 +74,20 @@ function presetInClasses(axis: PresetAxisId, classes: readonly string[]): string
   return effective;
 }
 
-interface FontSize {
-  readonly points: number;
-  readonly legacy?: string;
-}
-
 interface BlockPresets {
   readonly textAlign: string;
-  readonly fontSize: FontSize;
+  readonly fontSize: string;
   readonly fontFamily: string;
 }
 
-function scalePoints(points: number, scale: number): number {
-  return Number((points * scale).toFixed(8));
-}
-
-function sizeWithPreset(base: FontSize, preset: string | undefined): FontSize {
-  if (preset === undefined) return base;
-  const scale = legacySizeScales.get(preset);
-  return scale === undefined
-    ? { points: Number.parseInt(preset, 10) }
-    : { points: scalePoints(base.points, scale), legacy: preset };
-}
-
-function sizeValue(size: FontSize): string {
-  return size.legacy ?? `${size.points}pt`;
-}
-
 export function markdownFontSizeLabel(value: string): string {
-  return legacySizeScales.has(value) ? 'Custom' : `${Number(Number.parseFloat(value).toFixed(2))} pt`;
+  return value.endsWith('pt') ? `${value.slice(0, -2)} pt` : 'Custom';
 }
 
 function withClasses(base: BlockPresets, classes: readonly string[]): BlockPresets {
   return {
     textAlign: presetInClasses('textAlign', classes) ?? base.textAlign,
-    fontSize: sizeWithPreset(base.fontSize, presetInClasses('fontSize', classes)),
+    fontSize: presetInClasses('fontSize', classes) ?? base.fontSize,
     fontFamily: presetInClasses('fontFamily', classes) ?? base.fontFamily,
   };
 }
@@ -127,7 +105,7 @@ function inheritedBlockPresets(
     to = Math.max(to, pos);
   }
   const wanted = new Set(blocks.map(({ pos }) => pos));
-  const root: BlockPresets = { textAlign: 'left', fontSize: { points: defaults.size }, fontFamily: defaults.family };
+  const root: BlockPresets = { textAlign: 'left', fontSize: `${defaults.size}pt`, fontFamily: defaults.family };
   // One walk keeps the ancestors' styles on a stack. Resolving each block would rescan its siblings,
   // which makes a selection over a long document quadratic.
   const containers: { readonly end: number; readonly presets: BlockPresets }[] = [];
@@ -137,11 +115,11 @@ function inheritedBlockPresets(
     const classes: readonly string[] = node.attrs.classes ?? [];
     if (node.isTextblock) {
       if (wanted.has(pos)) {
-        const scale = node.type.name === 'heading' ? headingScales[node.attrs.level - 1]
-          : node.type.name === 'paragraph' && classes.includes('subtitle') ? subtitleScale : undefined;
+        const titleSize = node.type.name === 'heading' ? defaultMarkdownHeadingSizes[node.attrs.level - 1]
+          : node.type.name === 'paragraph' && classes.includes('subtitle') ? defaultMarkdownSubtitleSize : undefined;
         inherited.set(pos, {
           textAlign: parent.textAlign,
-          fontSize: scale === undefined ? parent.fontSize : { points: scalePoints(parent.fontSize.points, scale) },
+          fontSize: titleSize === undefined ? parent.fontSize : `${scaleMarkdownTitleSize(titleSize, defaults.size)}pt`,
           fontFamily: node.type.spec.code ? 'monospace' : parent.fontFamily,
         });
       }
@@ -151,15 +129,6 @@ function inheritedBlockPresets(
     return true;
   });
   return inherited;
-}
-
-function presetClassFor(
-  axis: PresetAxisId, choice: PresetChoice, fallback: BlockPresets,
-): string | undefined {
-  // Compare with the value the toolbar reports: a size inherited from a legacy relative class reads as that class,
-  // so an absolute choice there keeps its own class rather than turning into Custom.
-  const inherited = axis === 'fontSize' ? sizeValue(fallback.fontSize) : fallback[axis];
-  return choice.value === inherited ? undefined : choice.className;
 }
 
 function replaceClasses(
@@ -213,7 +182,8 @@ export function setFormattingPreset(
 ): Command {
   return (state, dispatch) => {
     const choice = formattingPresets[axis].options.find(option => option.value === value);
-    if (!choice || choice.readOnly) {
+    const reset = axis !== 'textAlign' && value === 'default';
+    if (!reset && (!choice || choice.readOnly)) {
       return false;
     }
     const { selection } = state;
@@ -231,7 +201,9 @@ export function setFormattingPreset(
       }
       const original: readonly string[] = node.attrs.classes;
       const fallback = inherited.get(pos)!;
-      const className = presetClassFor(axis, choice, useBlock ? fallback : withClasses(fallback, original));
+      const base = useBlock ? fallback : withClasses(fallback, original);
+      // An authored legacy size reads as Custom, even when it happens to match an absolute preset.
+      const className = value === base[axis] ? undefined : choice?.className;
       if (useBlock) {
         const classes = replaceClasses(original, axis, className);
         if (classes !== original) {
@@ -281,10 +253,7 @@ export function currentFormattingPresets(
         record(isMarkdownTableCell(node) ? null : base.textAlign);
         continue;
       }
-      const effective = (mark?: Mark) => {
-        const preset = presetInClasses(axis, spanClasses(mark));
-        return axis === 'fontSize' ? sizeValue(sizeWithPreset(base.fontSize, preset)) : preset ?? base.fontFamily;
-      };
+      const effective = (mark?: Mark) => presetInClasses(axis, spanClasses(mark)) ?? base[axis];
       if (!node.type.allowsMarkType(span)) {
         record(effective());
       } else if (caret) {

@@ -35,6 +35,16 @@ export interface MarkdownFontDefaults {
 }
 export const defaultMarkdownFonts: MarkdownFontDefaults = { size: 12, family: 'noto-sans-kr' };
 
+export const defaultMarkdownHeadingSizes = [24, 18, 14, 12, 10, 9] as const;
+export const defaultMarkdownSubtitleSize = 16;
+
+export function scaleMarkdownTitleSize(sizeAtDefault: number, bodySize: number): number {
+  // Compare scaled integers so an exact midpoint always rounds to the larger ascending preset.
+  const target = sizeAtDefault * bodySize;
+  const distance = (size: number) => Math.abs(size * defaultMarkdownFonts.size - target);
+  return markdownFontSizes.reduce((closest, size) => distance(size) <= distance(closest) ? size : closest);
+}
+
 export function resolveMarkdownFontDefaults(size: unknown, family: unknown): MarkdownFontDefaults {
   return {
     size: typeof size === 'number' && markdownFontSizes.includes(size) ? size : defaultMarkdownFonts.size,

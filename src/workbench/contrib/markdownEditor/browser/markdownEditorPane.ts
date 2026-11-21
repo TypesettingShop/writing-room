@@ -29,11 +29,13 @@ import { TextFileEditorModel } from '../../../services/textfile/common/textFileE
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import { SAVE_FILE_COMMAND_ID } from '../../files/browser/fileCommands.js';
 import {
-  defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, defaultMarkdownFonts, MARKDOWN_EDITOR_CONTENT_LAYOUT,
-  MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, markdownContentWidth,
-  MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext, isMarkdownContentWidth,
-  MARKDOWN_EDITOR_FONT_FAMILY, MARKDOWN_EDITOR_FONT_SIZE, MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
+  defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, defaultMarkdownFonts,
+  defaultMarkdownHeadingSizes, defaultMarkdownSubtitleSize, isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_LAYOUT,
+  MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FONT_FAMILY,
+  MARKDOWN_EDITOR_FONT_SIZE, MARKDOWN_EDITOR_TYPEWRITER, markdownContentWidth, MarkdownEditorCanRedoContext,
+  MarkdownEditorCanUndoContext, MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext,
   MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext, resolveMarkdownFontDefaults,
+  scaleMarkdownTitleSize,
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
@@ -128,8 +130,13 @@ export class MarkdownEditorPane extends EditorPane {
     const updateFonts = () => {
       const familySetting = this.configuration.getValue(MARKDOWN_EDITOR_FONT_FAMILY);
       this.fontDefaults = resolveMarkdownFontDefaults(this.configuration.getValue(MARKDOWN_EDITOR_FONT_SIZE), familySetting);
-      this.frame.style.setProperty('--markdown-body-font-size', `${this.fontDefaults.size}pt`);
-      this.frame.style.setProperty('--markdown-editor-font-family', `var(--markdown-font-${this.fontDefaults.family})`);
+      const { size, family } = this.fontDefaults;
+      this.frame.style.setProperty('--markdown-body-font-size', `${size}pt`);
+      for (const [index, headingSize] of defaultMarkdownHeadingSizes.entries()) {
+        this.frame.style.setProperty(`--markdown-h${index + 1}-font-size`, `${scaleMarkdownTitleSize(headingSize, size)}pt`);
+      }
+      this.frame.style.setProperty('--markdown-subtitle-font-size', `${scaleMarkdownTitleSize(defaultMarkdownSubtitleSize, size)}pt`);
+      this.frame.style.setProperty('--markdown-editor-font-family', `var(--markdown-font-${family})`);
       const families = typeof familySetting === 'object' && familySetting !== null
         ? familySetting as Partial<Record<'serif' | 'sans', unknown>> : undefined;
       const css = parent.ownerDocument.defaultView?.CSS;

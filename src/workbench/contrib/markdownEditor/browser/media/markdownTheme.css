@@ -13,7 +13,7 @@
 
 .markdown-editor-surface .ProseMirror :where(p.subtitle) {
   color: var(--vscode-descriptionForeground, var(--vscode-editor-foreground));
-  --markdown-base-font-size: 1.25em;
+  --markdown-base-font-size: var(--markdown-subtitle-font-size);
   font-size: var(--markdown-base-font-size);
   font-weight: 500;
 }
@@ -28,12 +28,12 @@
 .markdown-editor-surface .ProseMirror .justify { text-align: justify; }
 
 /* Set each heading's base explicitly so block and inline presets scale the intended text. */
-.markdown-editor-surface .ProseMirror :where(h1) { --markdown-base-font-size: 2em; }
-.markdown-editor-surface .ProseMirror :where(h2) { --markdown-base-font-size: 1.5em; }
-.markdown-editor-surface .ProseMirror :where(h3) { --markdown-base-font-size: 1.17em; }
-.markdown-editor-surface .ProseMirror :where(h4) { --markdown-base-font-size: 1em; }
-.markdown-editor-surface .ProseMirror :where(h5) { --markdown-base-font-size: 0.83em; }
-.markdown-editor-surface .ProseMirror :where(h6) { --markdown-base-font-size: 0.67em; }
+.markdown-editor-surface .ProseMirror :where(h1) { --markdown-base-font-size: var(--markdown-h1-font-size); }
+.markdown-editor-surface .ProseMirror :where(h2) { --markdown-base-font-size: var(--markdown-h2-font-size); }
+.markdown-editor-surface .ProseMirror :where(h3) { --markdown-base-font-size: var(--markdown-h3-font-size); }
+.markdown-editor-surface .ProseMirror :where(h4) { --markdown-base-font-size: var(--markdown-h4-font-size); }
+.markdown-editor-surface .ProseMirror :where(h5) { --markdown-base-font-size: var(--markdown-h5-font-size); }
+.markdown-editor-surface .ProseMirror :where(h6) { --markdown-base-font-size: var(--markdown-h6-font-size); }
 .markdown-editor-surface .ProseMirror :where(h1, h2, h3, h4, h5, h6) {
   font-size: var(--markdown-base-font-size);
 }
