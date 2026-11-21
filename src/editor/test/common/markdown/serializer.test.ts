@@ -168,6 +168,7 @@ describe('Markdown save normalization', () => {
     ['loose quote', '- a\n\n  > b', false, 'blockquote'],
     ['tight fence with classes', '- a\n  ```\n  b\n  ```\n  {.code}', true, 'code_block'],
     ['tight quote with classes', '- a\n  > b\n  >\n  {.quote}', true, 'blockquote'],
+    ['tight quote with classes before a second quote', '- a\n  > b\n  >\n  {.quote}\n  > c', true, 'blockquote'],
     ['tight quote before a paragraph', '- a\n  > b\n  >\n  c', true, 'blockquote'],
     ['tight fence before a paragraph', '- a\n  ```\n  b\n  ```\n  c', true, 'code_block'],
     ['tight quote in an ordered task', '9) [x] a\n   > b', true, 'blockquote'],

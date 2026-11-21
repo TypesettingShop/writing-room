@@ -120,7 +120,8 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
       const previous = item.child(index - 1);
       const previousType = previous.type.name;
       const childType = child.type.name;
-      if (childType === 'code_block' || (childType === 'blockquote' && previousType !== 'blockquote')) {
+      if (childType === 'code_block' ||
+        (childType === 'blockquote' && (previousType !== 'blockquote' || classSuffix(previous.attrs)))) {
         // Both blocks can interrupt a paragraph without making the list loose.
         listState.flushClose(1);
       } else if (childType === 'paragraph' && (previousType === 'code_block' || previousType === 'blockquote') &&
