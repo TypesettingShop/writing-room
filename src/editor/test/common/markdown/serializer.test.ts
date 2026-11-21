@@ -158,6 +158,45 @@ describe('Markdown save normalization', () => {
   });
 
   it.each([
+    ['> * ***\n>   {.x}\n>   {.y}', '****'],
+    ['> {.x}\n> {.y}', null],
+    ['- > {.x}\n  > {.y}\n- tail', null],
+  ] as const)('saves the empty styled paragraph and its owners in %j', (source, ruleMarkup) => {
+    const doc = parseMarkdown(source);
+    let position = -1;
+    doc.descendants((node, offset) => {
+      if (node.type.name === 'blockquote') position = offset;
+    });
+    expect(position).toBeGreaterThanOrEqual(0);
+    const quote = doc.nodeAt(position)!;
+    const paragraph = quote.lastChild!;
+    expect(quote.attrs.classes).toEqual(['x']);
+    expect(quote.childCount).toBe(ruleMarkup ? 2 : 1);
+    if (ruleMarkup) expect(quote.firstChild?.attrs).toMatchObject({ markup: ruleMarkup, classes: [] });
+    expect(paragraph.type.name).toBe('paragraph');
+    expect(paragraph.attrs.classes).toEqual(['y']);
+    expect(paragraph.content.size).toBe(0);
+    expect(serializeMarkdown(doc)).toBe(source);
+
+    const state = EditorState.create({ doc });
+    const paragraphPos = position + quote.nodeSize - paragraph.nodeSize - 1;
+    const edited = state.apply(state.tr.setNodeMarkup(paragraphPos, undefined, { classes: ['edited'] })).doc;
+    for (const [target, written, name] of [[doc, canonical(doc), 'y'], [edited, serializeMarkdown(edited), 'edited']] as const) {
+      expect.soft(written).toContain(`> []{.${name}}`);
+      const reopened = parseMarkdown(written);
+      expect.soft(reopened.toJSON()).toEqual(target.toJSON());
+      expect.soft(canonical(reopened)).toBe(written);
+    }
+  });
+
+  it('keeps escaped bracket text in a quote and leaves the top-level spelling literal', () => {
+    const doc = parseMarkdown('[]{.top}\n\n> \\[\\]\\{.quote}');
+    expect(doc.firstChild?.textContent).toBe('[]{.top}');
+    expect(doc.lastChild?.firstChild?.textContent).toBe('[]{.quote}');
+    expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
+  });
+
+  it.each([
     ['opening fence', '- ```\n    a\n  ```', 'a'],
     ['nested siblings', '- - a\n    - b', 'b'],
     ['nested paragraphs', '- - a\n\n    b', 'b'],
