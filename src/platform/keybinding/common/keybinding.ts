@@ -13,6 +13,8 @@ export const IKeybindingService = createDecorator<IKeybindingService>('keybindin
 export interface IKeybindingService extends BrandedService {
   readonly onDidUpdateKeybindings: Event<void>;
   lookupKeybinding(commandId: string): ResolvedKeybinding | undefined;
+  /** Lets an editor opt specific commands into dispatch during its own IME composition. */
+  dispatchDuringComposition?(event: KeyboardEvent, commands: readonly string[]): boolean;
 }
 
 export class NullKeybindingService implements IKeybindingService {

@@ -55,6 +55,29 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
+  it('rebases a final composition transaction flushed before an external source change', () => {
+    const original = 'First\n\n안녕하세';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const flushComposition = vi.fn(() => {
+      const { doc, tr } = sync.state;
+      expect(doc.textContent).toBe('First안녕하세');
+      sync.dispatch(tr.insertText('요', doc.content.size - 1).setMeta('composition', 1));
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, flushComposition);
+    const other = new MarkdownEditorModel(model, [], () => {});
+    try {
+      editLine(model, 1, 1, 1, 'Inserted\n\n');
+      expect(flushComposition).toHaveBeenCalledTimes(1);
+      expect(model.getValue()).toBe('Inserted\n\nFirst\n\n안녕하세요');
+      expect(sync.state.doc.eq(other.state.doc)).toBe(true);
+      expect(sync.state.doc.textContent).toBe('InsertedFirst안녕하세요');
+    } finally {
+      other.dispose();
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
   it('groups adjacent typing within 500 milliseconds and isolates a formatting command', () => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'A');
     const sync = new MarkdownEditorModel(model, [], () => {});

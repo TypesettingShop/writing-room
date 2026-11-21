@@ -42,10 +42,13 @@ export abstract class AbstractKeybindingService extends Disposable implements IK
     return this.pending !== undefined;
   }
 
-  protected dispatch(chord: KeyCodeChord, context: IContext): DispatchResult {
-    const pending = this.pending;
+  protected dispatch(chord: KeyCodeChord, context: IContext, compositionCommands?: readonly string[]): DispatchResult {
+    const pending = compositionCommands ? undefined : this.pending;
     this.cancelChord();
     const match = this.getResolver().resolve(context, pending ?? chord, pending ? chord : undefined);
+    if (compositionCommands && (match.kind !== ResultKind.KbFound || !compositionCommands.includes(match.rule.id))) {
+      return 'unhandled';
+    }
     if (match.kind === ResultKind.MoreChordsNeeded) {
       this.pending = chord;
       this.timer = setTimeout(() => this.cancelChord(), 5000);
