@@ -162,6 +162,63 @@ describe('Markdown save normalization', () => {
   });
 
   it.each([
+    ['dash bullet', '-\n  ---', '-\n  ---', '-\n  ---\n  {.rule}', 'bullet_list', 1, true],
+    ['asterisk bullets', '*\n  ***\n* tail', '*\n  ***\n* tail', '*\n  ***\n  {.rule}\n* tail', 'bullet_list', 2, true],
+    ['width change in an ordered list', '9) head\n10) ---', '9) head\n10) ---', '9) head\n10) ---\n    {.rule}',
+      'ordered_list', 2, true],
+    ['nested list in a quote', '> - -\n>     ---', '> - -\n>     ---', '> - -\n>     ---\n>     {.rule}',
+      'bullet_list', 1, true],
+    ['three nested dash markers', '- -\n    -\n      ---', '- -\n    -\n      ---', '- -\n    -\n      ---\n      {.rule}',
+      'bullet_list', 1, true],
+    ['nested list interrupting a paragraph', '- text\n  - ___', '- text\n  - ___', '- text\n  - ___\n    {.rule}',
+      'bullet_list', 1, true],
+    ['two nested dash markers after a paragraph', '- text\n  - -\n      ---', '- text\n  - -\n      ---',
+      '- text\n  - -\n      ---\n      {.rule}',
+      'bullet_list', 1, true],
+    ['loose list with a rule class', '-\n  ---\n\n  {.old}\n\n- tail', '-\n  ---\n\n  {.old}\n\n- tail',
+      '-\n  ---\n\n  {.rule}\n\n- tail', 'bullet_list', 2, false],
+  ] as const)('keeps the first rule inside its item (%s)', (_name, source, expected, editedSource, listType, count, tight) => {
+    const doc = parseMarkdown(source);
+    let rulePosition = -1;
+    doc.descendants((node, pos) => {
+      if (node.type.name === 'horizontal_rule') rulePosition = pos;
+    });
+    expect(rulePosition).toBeGreaterThanOrEqual(0);
+    const item = doc.resolve(rulePosition);
+    const list = item.node(-1);
+    expect(list.type.name).toBe(listType);
+    expect(list.childCount).toBe(count);
+    expect(list.attrs.tight).toBe(tight);
+    expect(item.parent.childCount).toBe(2);
+    expect(item.parent.firstChild!.type.name).toBe('paragraph');
+    expect(item.parent.firstChild!.content.size).toBe(0);
+
+    const normalized = canonical(doc);
+    expect.soft(normalized).toBe(expected);
+    expect.soft(parseMarkdown(normalized).eq(doc)).toBe(true);
+
+    const state = EditorState.create({ doc });
+    const rule = item.nodeAfter!;
+    const edited = state.apply(state.tr.setNodeMarkup(rulePosition, undefined, { ...rule.attrs, classes: ['rule'] })).doc;
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(editedSource);
+    const reparsed = parseMarkdown(saved);
+    expect.soft(reparsed.eq(edited)).toBe(true);
+    expect.soft(canonical(reparsed)).toBe(saved);
+  });
+
+  it('keeps a rule before a paragraph in a tight list item', () => {
+    const source = '-\n  ---\n  text';
+    const doc = parseMarkdown(source);
+    expect(doc.firstChild!.attrs.tight).toBe(true);
+    expect.soft(canonical(doc)).toBe(source);
+    const edited = editText(doc, 'text', 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe('-\n  ---\n  edited');
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it.each([
     ['tight fence', '- a\n  ```\n  b\n  ```', true, 'code_block'],
     ['tight quote', '- a\n  > b', true, 'blockquote'],
     ['loose fence', '- a\n\n  ```\n  b\n  ```', false, 'code_block'],

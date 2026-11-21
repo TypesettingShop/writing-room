@@ -68,6 +68,16 @@ function skipsPlaceholder(item: Node): boolean {
     !classSuffix(item.firstChild!.attrs) && !classSuffix(item.attrs);
 }
 
+function needsRuleMarkerBreak(item: Node, marker: string, sharesMarkerLine: boolean): boolean {
+  if (!skipsPlaceholder(item)) return false;
+  const first = item.child(1);
+  // A rule on the marker line can consume the marker itself (for example, "- ---").
+  if (first.type.name === 'horizontal_rule') return (first.attrs.markup ?? '---')[0] === marker;
+  // A nested chain ending in such a rule can leave three identical bare markers on a line.
+  return sharesMarkerLine && first.type.name === 'bullet_list' && first.attrs.bullet === marker &&
+    needsRuleMarkerBreak(first.firstChild!, marker, true);
+}
+
 function renderList(
   state: MarkdownSerializerState,
   node: Node,
@@ -92,7 +102,10 @@ function renderList(
   node.forEach((child, _offset, itemIndex) => {
     if (itemIndex && node.attrs.tight) listState.flushClose(1);
     const delim = firstDelim(current.marker, itemIndex);
-    state.wrapBlock(' '.repeat(delim.length), delim, node, () => state.render(child, node, itemIndex));
+    const sharesMarkerLine = isListItem(parent) && !listState.closed && !state.atBlank();
+    const firstLine = needsRuleMarkerBreak(child, current.marker, sharesMarkerLine)
+      ? delim.trimEnd() + '\n' : delim;
+    state.wrapBlock(' '.repeat(delim.length), firstLine, node, () => state.render(child, node, itemIndex));
   });
   listState.inTightList = outerTight;
   if (needsLooseTrailer) {
@@ -124,8 +137,8 @@ function renderItemContent(state: MarkdownSerializerState, item: Node): void {
         (childType === 'blockquote' && (previousType !== 'blockquote' || classSuffix(previous.attrs)))) {
         // Both blocks can interrupt a paragraph without making the list loose.
         listState.flushClose(1);
-      } else if (childType === 'paragraph' && (previousType === 'code_block' || previousType === 'blockquote') &&
-        !classSuffix(previous.attrs)) {
+      } else if (childType === 'paragraph' && !classSuffix(previous.attrs) &&
+        (previousType === 'code_block' || previousType === 'blockquote' || previousType === 'horizontal_rule')) {
         listState.flushClose(1);
         // End the quote explicitly so the next paragraph cannot be a lazy continuation.
         if (previousType === 'blockquote') state.write('>\n');
@@ -273,9 +286,9 @@ const markdownSerializer = new MarkdownSerializer({
     state.closeBlock(node);
   },
   code_block: writeCodeBlock,
-  horizontal_rule(state, node) {
+  horizontal_rule(state, node, parent) {
     state.write(node.attrs.markup ?? '---');
-    finishBlock(state, node);
+    finishBlock(state, node, isTightItem(state, parent));
   },
   bullet_list(state, node, parent, index) {
     renderList(state, node, parent, index, marker => marker + ' ');
