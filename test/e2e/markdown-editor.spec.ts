@@ -434,19 +434,19 @@ test('saves paragraph alignment and inline size and font presets and restores th
     await page.keyboard.press('Shift+ArrowLeft');
   }
   await toolbar.getByRole('button', { name: 'Size', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'Large', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
   await toolbar.getByRole('button', { name: 'Font', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Serif', exact: true }).click();
-  const span = paragraph.locator('span.size-lg.font-serif');
+  const span = paragraph.locator('span.size-18pt.font-serif');
   await expect(span).toHaveText('word');
-  await expect(span).toHaveCSS('font-size', '20px');
+  await expect(span).toHaveCSS('font-size', '24px');
   await expect(span).toHaveCSS('font-family', 'Cambria, serif');
   await expect(editor.locator('.subtitle')).toHaveCSS('color', 'rgb(90, 101, 119)');
   await expect(editor.locator('.subtitle')).toHaveCSS('font-family', 'system-ui, sans-serif');
   await page.keyboard.press('ControlOrMeta+s');
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
   expect(await readWorkspaceText(page, name)).toBe(
-    'One [word]{.size-lg .font-serif} {.my-class .center}\n\nSubheading {.subtitle .font-sans}',
+    'One [word]{.size-18pt .font-serif} {.my-class .center}\n\nSubheading {.subtitle .font-sans}',
   );
   await page.reload();
   await expect(paragraph).toHaveCSS('text-align', 'center', { timeout: 20_000 });
@@ -906,15 +906,17 @@ test('keeps the typewriter viewport in place when dragging across table cells', 
   await expect(editor.locator('.selectedCell')).toHaveCount(8);
 });
 
-test('scales the Markdown size presets relative to headings, subtitles, and body text', async ({ appPage: page }) => {
+test('renders absolute point sizes and still scales authored legacy sizes relative to each block', async ({ appPage: page }) => {
   const name = 'relative-size.md';
-  const labels = ['Small', 'Default', 'Large', 'Extra Large'];
+  const points = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
   const prefixes = [...Array.from({ length: 6 }, (_, index) => '#'.repeat(index + 1) + ' '), '', ''];
   const blocks = prefixes.flatMap((prefix, index) => ['size-sm', '', 'size-lg', 'size-xl'].map((preset, variant) => {
     const classes = [index === 6 ? 'subtitle' : '', preset].filter(Boolean).map(name => '.' + name).join(' ');
     return `${prefix}Example ${index} ${variant}${classes ? ' {' + classes + '}' : ''}`;
   }));
-  const group = await openMarkdown(page, name, blocks.join('\n\n'));
+  const group = await openMarkdown(page, name, [
+    ...blocks, ...points.map(point => `# Point size {.size-${point}pt}`),
+  ].join('\n\n'));
   const editor = richEditor(group);
   await expect(editor.getByText('Example 0 1', { exact: true })).toBeVisible({ timeout: 20_000 });
   const sizes = await editor.locator(':scope > :is(h1,h2,h3,h4,h5,h6,p)').evaluateAll(elements =>
@@ -926,29 +928,40 @@ test('scales the Markdown size presets relative to headings, subtitles, and body
     expect(row[1]).toBeLessThan(row[2]);
     expect(row[2]).toBeLessThan(row[3]);
   }
+  const pointPixels = await editor.getByRole('heading', { name: 'Point size' }).evaluateAll(elements =>
+    elements.map(element => Number.parseFloat(getComputedStyle(element).fontSize)));
+  expect(pointPixels).toHaveLength(points.length);
+  points.forEach((point, index) => expect(pointPixels[index]).toBeCloseTo(point * 4 / 3, 3));
 
   const title = editor.getByRole('heading', { name: 'Example 0 1' });
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
+  const size = toolbar.getByRole('button', { name: 'Size', exact: true });
+  await editor.getByRole('heading', { name: 'Example 0 0' }).click();
+  await expect(size).toHaveText('Custom');
+  await size.click();
+  const menu = page.getByRole('menu', { name: 'Size' });
+  await expect(menu.getByRole('menuitemradio')).toHaveText(['Default', ...points.map(point => `${point} pt`)]);
+  await page.keyboard.press('Escape');
   await title.click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
-  const size = toolbar.getByRole('button', { name: 'Size', exact: true });
   await size.click();
-  await page.getByRole('menuitemradio', { name: labels[2], exact: true }).click();
-  await expect(title).toHaveCSS('font-size', '40px');
-  await expect(size).toHaveText('Large');
+  await menu.getByRole('menuitemradio', { name: '18 pt', exact: true }).click();
+  await expect(title).toHaveCSS('font-size', '24px');
+  await expect(size).toHaveText('18 pt');
   await size.click();
-  await page.getByRole('menuitemradio', { name: labels[1], exact: true }).click();
+  await menu.getByRole('menuitemradio', { name: 'Default', exact: true }).click();
   await expect(title).toHaveCSS('font-size', '32px');
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+ArrowLeft');
   await size.click();
-  await page.getByRole('menuitemradio', { name: labels[3], exact: true }).click();
-  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px');
+  await menu.getByRole('menuitemradio', { name: '36 pt', exact: true }).click();
+  await expect(title.locator('.size-36pt')).toHaveCSS('font-size', '48px');
   await page.keyboard.press('ControlOrMeta+s');
-  await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-xl}');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('# Example 0 [1]{.size-36pt}');
+  expect(await readWorkspaceText(page, name)).toContain('# Example 0 0 {.size-sm}');
   await page.reload();
-  await expect(title.locator('.size-xl')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
+  await expect(title.locator('.size-36pt')).toHaveCSS('font-size', '48px', { timeout: 20_000 });
 });
 
 test('uses Tab to indent code and lets Tab leave ordinary Markdown text', async ({ appPage: page }) => {

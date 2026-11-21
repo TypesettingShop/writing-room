@@ -245,11 +245,12 @@ export class MenuWorkbenchToolBar extends Disposable {
           const choices = action.groups.flatMap(([, items]) => items);
           const current = choices.find(item => item instanceof MenuItemAction && item.checked);
           const value = document.createElement('span');
+          const label = current?.label ?? action.item.selectFallback;
           value.className = 'wr-menu-toolbar-choice-label';
-          value.textContent = current?.label ?? '—';
+          value.textContent = label ?? '—';
           button.replaceChildren(value);
-          if (current) {
-            button.setAttribute('aria-description', current.label);
+          if (label) {
+            button.setAttribute('aria-description', label);
           }
           button.classList.add('wr-menu-toolbar-choices');
           button.disabled = choices.every(item => !item.enabled);

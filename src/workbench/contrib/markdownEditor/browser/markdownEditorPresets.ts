@@ -10,6 +10,7 @@ interface PresetChoice {
   readonly value: string;
   readonly className?: string;
   readonly readOnly?: boolean;
+  readonly hidden?: boolean;
 }
 
 interface PresetAxis {
@@ -18,6 +19,8 @@ interface PresetAxis {
 }
 
 export type PresetAxisId = 'textAlign' | 'fontSize' | 'fontFamily';
+
+const pointSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
 
 // Both UI and transactions use this table. Markdown persists the resulting generic classes.
 export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
@@ -33,10 +36,11 @@ export const formattingPresets: Record<PresetAxisId, PresetAxis> = {
   fontSize: {
     defaultValue: 'default',
     options: [
-      { label: 'Small', value: 'small', className: 'size-sm' },
       { label: 'Default', value: 'default' },
-      { label: 'Large', value: 'large', className: 'size-lg' },
-      { label: 'Extra Large', value: 'extraLarge', className: 'size-xl' },
+      ...pointSizes.map(size => ({ label: `${size} pt`, value: `${size}pt`, className: `size-${size}pt` })),
+      { label: 'Small', value: 'small', className: 'size-sm', hidden: true },
+      { label: 'Large', value: 'large', className: 'size-lg', hidden: true },
+      { label: 'Extra Large', value: 'extraLarge', className: 'size-xl', hidden: true },
     ],
   },
   fontFamily: {

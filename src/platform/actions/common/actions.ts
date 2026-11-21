@@ -54,6 +54,7 @@ export interface ISubmenuItem extends IMenuEntry {
   readonly title: CommandTitle;
   readonly icon?: CommandIcon;
   readonly select?: boolean;
+  readonly selectFallback?: string;
 }
 
 export function isIMenuItem(item: IMenuItem | ISubmenuItem): item is IMenuItem {

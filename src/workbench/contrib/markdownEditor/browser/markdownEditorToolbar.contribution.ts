@@ -106,13 +106,14 @@ interface FormattingChoice<T> extends FormattingPicker<T> {
   readonly group: string;
   readonly order: number;
   readonly title: string;
+  readonly selectFallback?: string;
   readonly selected: (value: T) => ContextKeyExpression;
 }
 
 function registerChoice<T>(choice: FormattingChoice<T>): void {
-  const { group, order, title, commandId, options, selected } = choice;
+  const { group, order, title, commandId, options, selected, selectFallback } = choice;
   const submenu = MenuId.for(`${toolbar.id}.${commandId}`);
-  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true });
+  MenuRegistry.appendMenuItem(toolbar, { submenu, group, order, title, when: wysiwyg, select: true, selectFallback });
   for (const [index, option] of options.entries()) {
     MenuRegistry.appendMenuItem(submenu, {
       order: index,
@@ -206,7 +207,8 @@ for (const [axis, title, commandTitle, group, order, context] of [
   registerChoice({
     group, order, title, commandTitle,
     commandId: 'markdownEditor.set' + axis[0].toUpperCase() + axis.slice(1),
-    options,
+    options: options.filter(option => !option.hidden),
+    selectFallback: axis === 'fontSize' ? 'Custom' : undefined,
     selected: value => context.isEqualTo(value),
     parse: arg => options.find(option => option.value === arg)?.value,
     createCommand: value => setFormattingPreset(axis, value),

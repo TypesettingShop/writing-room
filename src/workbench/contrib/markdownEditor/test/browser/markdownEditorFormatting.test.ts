@@ -126,6 +126,16 @@ describe('Markdown class presets', () => {
     expect(presets(reset).fontSize).toBe('default');
   });
 
+  it.each([8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72])('round-trips %s pt on a heading', size => {
+    const value = `${size}pt`;
+    const state = read('# Line {.size-lg .authored}', 1, 5);
+    const styled = apply(state, setFormattingPreset('fontSize', value));
+    const source = `# Line {.authored .size-${value}}`;
+    expect(write(styled)).toBe(source);
+    expect(presets(read(source)).fontSize).toBe(value);
+    expect(write(apply(styled, setFormattingPreset('fontSize', 'default')))).toBe('# Line {.authored}');
+  });
+
   it('makes a whole-block choice replace inline overrides on its own axis', () => {
     const state = read('[First]{.authored .font-serif .size-xl} next {.font-sans}', 1, 11);
     expect(presets(state).fontFamily).toBeNull();

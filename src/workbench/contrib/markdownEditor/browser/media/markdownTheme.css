@@ -29,6 +29,22 @@
 .markdown-editor-surface .ProseMirror .size-sm { font-size: calc(var(--markdown-base-font-size, 1em) * 0.875); }
 .markdown-editor-surface .ProseMirror .size-lg { font-size: calc(var(--markdown-base-font-size, 1em) * 1.25); }
 .markdown-editor-surface .ProseMirror .size-xl { font-size: calc(var(--markdown-base-font-size, 1em) * 1.5); }
+
+.markdown-editor-surface .ProseMirror .size-8pt { font-size: 8pt; }
+.markdown-editor-surface .ProseMirror .size-9pt { font-size: 9pt; }
+.markdown-editor-surface .ProseMirror .size-10pt { font-size: 10pt; }
+.markdown-editor-surface .ProseMirror .size-11pt { font-size: 11pt; }
+.markdown-editor-surface .ProseMirror .size-12pt { font-size: 12pt; }
+.markdown-editor-surface .ProseMirror .size-14pt { font-size: 14pt; }
+.markdown-editor-surface .ProseMirror .size-16pt { font-size: 16pt; }
+.markdown-editor-surface .ProseMirror .size-18pt { font-size: 18pt; }
+.markdown-editor-surface .ProseMirror .size-20pt { font-size: 20pt; }
+.markdown-editor-surface .ProseMirror .size-24pt { font-size: 24pt; }
+.markdown-editor-surface .ProseMirror .size-28pt { font-size: 28pt; }
+.markdown-editor-surface .ProseMirror .size-36pt { font-size: 36pt; }
+.markdown-editor-surface .ProseMirror .size-48pt { font-size: 48pt; }
+.markdown-editor-surface .ProseMirror .size-72pt { font-size: 72pt; }
+
 .markdown-editor-surface .ProseMirror .font-serif {
   font-family: var(--markdown-editor-font-serif);
 }
