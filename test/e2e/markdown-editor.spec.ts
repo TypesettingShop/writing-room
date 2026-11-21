@@ -8,6 +8,7 @@ import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, wr
 import { chooseTheme, kindClass, openWithThemingFixtures } from './themes.helpers.js';
 
 const richEditor = (scope: Locator) => scope.getByRole('textbox', { name: 'Markdown editor' });
+const markdownFontEntry = /\/markdownEditorFonts(?:-[\w-]+\.css|\.ts)(?:\?.*)?$/;
 
 async function openMarkdown(page: Page, name: string, text: string): Promise<Locator> {
   await waitForStorage(page);
@@ -541,7 +542,7 @@ test('loads the four bundled Korean fonts at both weights with external requests
       return;
     }
     // Production loads one CSS chunk. Vite's dev server loads the module that injects the CSS.
-    if (/\/markdownEditorFonts(?:-[\w-]+\.css|\.ts)$/.test(pathname)) {
+    if (markdownFontEntry.test(pathname)) {
       fontStyleRequests.push(pathname);
       await allowFontStyles;
     }
@@ -605,6 +606,27 @@ test('loads the four bundled Korean fonts at both weights with external requests
   await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toHaveCount(2);
   expect(fontStyleRequests).toHaveLength(1);
   expect(external).toEqual([]);
+});
+
+test('loads bundled webfonts when the workbench restores a Markdown editor', async ({ appPage: page }) => {
+  // Routing disables the HTTP cache so the restored document must load the font entry again.
+  await page.route(markdownFontEntry, route => route.continue());
+  const name = 'restore-webfonts.md';
+  const text = '복원할 문서';
+  const firstFontEntry = page.waitForResponse(markdownFontEntry);
+  const group = await openMarkdown(page, name, text);
+  const paragraph = richEditor(group).getByText(text, { exact: true });
+  await expect(paragraph).toBeVisible();
+  await expect(selectedTab(group)).toHaveText(name);
+  expect((await firstFontEntry).ok()).toBe(true);
+
+  const [fontEntry] = await Promise.all([page.waitForResponse(markdownFontEntry), page.reload()]);
+  expect(fontEntry.ok()).toBe(true);
+  await expect(selectedTab(group)).toHaveText(name);
+  await expect(paragraph).toBeVisible();
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some(face =>
+    face.family.replace(/["']/g, '') === 'Noto Sans KR' && face.weight === '400' && face.status === 'loaded',
+  ))).toBe(true);
 });
 
 test('saves paragraph alignment and inline size and font presets and restores their appearance', async ({ page }) => {

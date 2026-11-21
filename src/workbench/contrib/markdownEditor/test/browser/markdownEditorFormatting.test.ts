@@ -244,15 +244,22 @@ describe('Markdown class presets', () => {
   );
 
   it.each([
-    ['# Line', 24, 28], ['## Line', 18, 20], ['### Line', 14, 16],
-    ['#### Line', 12, 14], ['##### Line', 10, 12], ['###### Line', 9, 11], ['Line {.subtitle}', 16, 18],
-  ])('snaps the default size of %s to a preset and clears an explicit choice', (source, initial, adjusted) => {
-    const defaults = resolveMarkdownFontDefaults(14, 'noto-sans-kr');
-    expect(presets(read(source)).fontSize).toBe(`${initial}pt`);
-    expect(presets(read(source), defaults).fontSize).toBe(`${adjusted}pt`);
-    const styled = apply(read(source, 1, 5), setFormattingPreset('fontSize', '36pt', defaults));
-    const reset = apply(styled, setFormattingPreset('fontSize', `${adjusted}pt`, defaults));
-    expect(write(reset)).toBe(source);
+    [8, [16, 12, 9, 8, 8, 8, 11]],
+    [11, [24, 16, 12, 11, 9, 8, 14]],
+    [12, [24, 18, 14, 12, 10, 9, 16]],
+    [14, [28, 20, 16, 14, 12, 11, 18]],
+    [72, [72, 72, 72, 72, 72, 48, 72]],
+  ] as const)('uses only preset title sizes with a %i pt body and clears an explicit choice', (bodySize, sizes) => {
+    const defaults = resolveMarkdownFontDefaults(bodySize, 'noto-sans-kr');
+    for (const [index, points] of sizes.entries()) {
+      const source = index < 6 ? `${'#'.repeat(index + 1)} Line` : 'Line {.subtitle}';
+      const value = `${points}pt`;
+      const state = read(source, 1, 5);
+      expect(presets(state, defaults).fontSize, source).toBe(value);
+      const styled = apply(state, setFormattingPreset('fontSize', '36pt', defaults));
+      const reset = apply(styled, setFormattingPreset('fontSize', value, defaults));
+      expect(write(reset)).toBe(source);
+    }
   });
 
   it('resolves configured body, heading and container sizes and fonts', () => {
