@@ -20,7 +20,7 @@ import { DEFAULT_EDITOR_ID, IEditorResolverService, RegisteredEditorPriority } f
 import { isTextFileResource } from '../../../services/textfile/common/textfiles.js';
 import { FileEditorInput } from '../../files/browser/editors/fileEditorInput.js';
 import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
-import { getMarkdownEditorMode, MARKDOWN_EDITOR_DEFAULT_MODE, MarkdownEditorModeContext } from '../common/markdownEditor.js';
+import { getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE, MarkdownEditorModeContext } from '../common/markdownEditor.js';
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
 
@@ -61,7 +61,7 @@ class MarkdownEditorContribution extends Disposable {
         registrations.add(resolver.registerEditor(
           glob,
           { id: MarkdownEditorInput.ID, label: 'Markdown Editor', priority },
-          { canSupportResource: resource => isTextFileResource(resource, fileService) },
+          { canSupportResource: resource => isMarkdownResource(resource) && isTextFileResource(resource, fileService) },
           ({ resource, options }) => {
             const existing = groups.groups.flatMap(group => group.editors)
               .find(editor => editor instanceof MarkdownEditorInput && isEqual(editor.resource, resource));
@@ -119,12 +119,18 @@ registerAction2(class ToggleMarkdownSource extends Action2 {
     const pane = group.activeEditorPane;
     const selection = pane instanceof MarkdownEditorPane ? pane.getSourceSelection()
       : pane instanceof TextFileEditor ? pane.getControl()?.getSelection() ?? undefined : undefined;
+    if (pane instanceof MarkdownEditorPane) {
+      pane.resetSourceHistory();
+    }
     await group.replaceEditors([{
       editor,
       replacement: resolved.editor,
       inheritViewState: false,
       options: { preserveFocus: false, selection },
     }]);
+    if (group.activeEditor === resolved.editor && group.activeEditorPane instanceof MarkdownEditorPane) {
+      group.activeEditorPane.resetHistory();
+    }
   }
 });
 

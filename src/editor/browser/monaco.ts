@@ -1,3 +1,4 @@
+import type { ITextModel } from '../common/model.js';
 // The one file that imports `monaco-editor`. The package is large and has workers of its own, so it
 // is loaded on demand: the first text editor that opens pays for it, the first paint does not.
 import type * as Monaco from 'monaco-editor';
@@ -90,6 +91,13 @@ function importWorker(label: string): Promise<WorkerModule> {
   }
 }
 
+let removeUndoHistory: ((resource: string) => void) | undefined;
+
+/** Starts a new Monaco undo history without replacing, detaching or dirtying the text model. */
+export function clearMonacoUndoHistory(model: ITextModel): void {
+  removeUndoHistory?.(model.uri.toString());
+}
+
 async function load(): Promise<MonacoNamespace> {
   // Monaco reads the environment when it starts its first worker, so it has to stand before then.
   globalThis.MonacoEnvironment = {
@@ -100,7 +108,7 @@ async function load(): Promise<MonacoNamespace> {
   };
   const [
     monaco, { StandaloneServices }, { IKeybindingService }, { StandardKeyboardEvent },
-    { InMemoryTextModelService }, { SyncDescriptor }, codeActions,
+    { InMemoryTextModelService }, { SyncDescriptor }, codeActions, { IUndoRedoService },
   ] = await Promise.all([
     import('monaco-editor'),
     // @ts-expect-error Monaco exports this standalone service entry point without declarations.
@@ -115,6 +123,8 @@ async function load(): Promise<MonacoNamespace> {
     import('monaco-editor/platform/instantiation/common/descriptors.js'),
     // @ts-expect-error Monaco exports its standalone code action model without declarations.
     import('monaco-editor/editor/contrib/codeAction/browser/codeActionModel.js'),
+    // @ts-expect-error Monaco exports its resource undo service without declarations.
+    import('monaco-editor/platform/undoRedo/common/undoRedo.js'),
   ]);
   installCodeActionStateOrder(codeActions.CodeActionModel?.prototype);
   // Monaco takes overrides only when it first makes its services, which the theme below already does;
@@ -128,6 +138,10 @@ async function load(): Promise<MonacoNamespace> {
   // F1 belongs to the workbench's command palette, not to Monaco's own.
   monaco.editor.addKeybindingRule({ keybinding: monaco.KeyCode.F1, command: '-editor.action.quickCommand' });
 
+  removeUndoHistory = resource => {
+    const undoRedo: { removeElements(resource: ReturnType<typeof monaco.Uri.parse>): void } = StandaloneServices.get(IUndoRedoService);
+    undoRedo.removeElements(monaco.Uri.parse(resource));
+  };
   const keybindings: StandaloneKeybindings = StandaloneServices.get(IKeybindingService);
   dispatchChordPrefix = (prefix, continuation, target) => {
     // Monaco leaves its chord pending when it gets a key it cannot dispatch.

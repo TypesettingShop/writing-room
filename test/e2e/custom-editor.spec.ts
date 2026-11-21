@@ -127,6 +127,27 @@ test('edits from the Webview reach the text editor beside it, with one dirty sta
   expect((await probe(page)).disposed).toEqual(['a.md']);
 });
 
+test('a WorkspaceEdit from the preview is one undoable change in the WYSIWYG pane', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'a.md', '# Draft');
+  await treeItem(page, 'a.md').click();
+  const left = groups(page).first();
+  await left.getByRole('button', { name: 'Switch to WYSIWYG' }).click();
+  const editor = left.getByRole('textbox', { name: 'Markdown editor' });
+  await expect(editor.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible();
+  await command(page, 'Fixture: Open Preview Beside');
+  await expect(content(page).locator('#text')).toHaveText('# Draft');
+
+  await content(page).getByRole('button', { name: 'Append' }).click();
+  await expect(editor.getByRole('heading', { name: 'Draft!', exact: true })).toBeVisible();
+  await expect(selectedTab(left)).toHaveAccessibleDescription('Modified');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible();
+  await expect(content(page).locator('#text')).toHaveText('# Draft');
+  await expect(selectedTab(left)).toHaveAccessibleDescription('');
+});
+
 test('asks before a dirty custom editor closes alone, and Reopen With swaps editors in place keeping the text', async ({ appPage: page }) => {
   await waitForStorage(page);
   await writeWorkspaceFile(page, 'other.txt', 'other');

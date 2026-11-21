@@ -209,7 +209,10 @@ test('installs vscode.markdown and the GitHub theme from the gallery, uses them,
     await expect.poll(() => editorBackground(page)).toBe(rgb('#ffffff'));
     await expect.poll(() => color(page, 'Title')).toBe(rgb('#0550ae'));
     await expect.poll(() => color(page, 'Plain body')).toBe(rgb('#1f2328'));
-    expect(JSON.parse((await persistedSettings(page))!)).toEqual({ 'workbench.colorTheme': 'GitHub Light Default' });
+    expect(JSON.parse((await persistedSettings(page))!)).toEqual({
+      'markdownEditor.defaultMode': 'source',
+      'workbench.colorTheme': 'GitHub Light Default',
+    });
   });
 
   await test.step('Reload: the theme, the language and the grammar are still there', async () => {

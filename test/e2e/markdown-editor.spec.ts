@@ -52,6 +52,8 @@ test('switches the active tab in place, keeps its draft and takes the caret near
   await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
   await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
   await page.keyboard.type(' edit');
+  await treeItem(page, name).dblclick();
+  await expect(group.locator('.view-lines')).toContainText('Second paragraph draft edit');
   await expect(group.getByRole('tab')).toHaveText(tabs);
   await expect(selectedTab(group)).toHaveAccessibleDescription('Modified');
   await expect.poll(() => listBackups(page)).toHaveLength(1);
@@ -96,4 +98,77 @@ test('keeps split source and WYSIWYG views synchronized on one dirty model', asy
   await left.getByRole('button', { name: 'Close split.md' }).click();
   await expect(page.getByRole('tab', { name })).toHaveCount(1);
   await expect(page.getByRole('tab', { name })).toHaveAccessibleDescription('Modified');
+});
+
+
+async function editHistoryMenu(page: Page, item: 'Undo' | 'Redo'): Promise<void> {
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('menuitem', { name: item, exact: true }).click();
+}
+
+test('undoes and redoes typing and formatting through the keyboard and Edit menu, including after save', async ({ appPage: page }) => {
+  const name = 'history.md';
+  const group = await openMarkdown(page, name, 'Hello');
+  const editor = richEditor(group);
+  await expect(editor.getByText('Hello')).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Undo', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await editor.locator('p').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' world');
+  await page.keyboard.press('Shift+Home');
+  await editor.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', '<p>Hello <strong>world</strong></p>');
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true, bubbles: true }));
+  });
+  await expect(editor.locator('strong')).toHaveText('world');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  expect(await readWorkspaceText(page, name)).toBe('Hello **world**');
+
+  await editHistoryMenu(page, 'Undo');
+  await expect(editor.locator('strong')).toHaveCount(0);
+  await expect(editor).toHaveText('Hello world');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('Modified');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor).toHaveText('Hello');
+
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(editor).toHaveText('Hello world');
+  await editHistoryMenu(page, 'Redo');
+  await expect(editor.locator('strong')).toHaveText('world');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+});
+
+test('starts a new history at the current text when switching between modes', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'boundary.md', 'Start');
+  const editor = richEditor(group);
+  await editor.locator('p').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' rich');
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(group.locator('.view-lines')).toContainText('Start rich');
+  await page.keyboard.type(' source');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(group.locator('.view-lines')).toHaveText('Start rich');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(group.locator('.view-lines')).toHaveText('Start rich');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(group.locator('.view-lines')).toHaveText('Start rich source');
+
+  await group.getByRole('button', { name: 'Switch to WYSIWYG' }).click();
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor).toHaveText('Start rich source');
+  await page.keyboard.type(' later');
+  await expect(editor).toHaveText('Start rich source later');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor).toHaveText('Start rich source');
 });

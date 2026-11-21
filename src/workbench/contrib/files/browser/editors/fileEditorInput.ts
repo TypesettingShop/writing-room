@@ -12,6 +12,8 @@ import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../..
 import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 
+export { FILE_EDITOR_INPUT_ID };
+
 export interface IFileEditorInputOptions {
   /** Restored with a draft: dirty until its model says otherwise. */
   readonly restoredDirty?: boolean;

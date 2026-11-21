@@ -1,3 +1,5 @@
+import { toggleMark } from 'prosemirror-commands';
+import { TextSelection } from 'prosemirror-state';
 import { describe, expect, it, vi } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
@@ -40,6 +42,49 @@ describe('MarkdownEditorModel', () => {
     } finally {
       first.dispose();
       second.dispose();
+      model.dispose();
+    }
+  });
+
+  it('groups adjacent typing within 500 milliseconds and isolates a formatting command', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'A');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      sync.dispatch(sync.state.tr.insertText('B', 2).setTime(1000));
+      sync.dispatch(sync.state.tr.insertText('C', 3).setTime(1250));
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 2, 4)));
+      expect(sync.runFormattingCommand(toggleMark(sync.state.schema.marks.strong))).toBe(true);
+      expect(model.getValue()).toBe('A**BC**');
+
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('ABC');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('A');
+      expect(sync.canUndo).toBe(false);
+
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe('ABC');
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe('A**BC**');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('undoes a source-only edit as an external history step and restores the exact source', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const original = sync.state.doc;
+      model.setValue('First\n\n\nLast');
+      expect(sync.state.doc.eq(original)).toBe(true);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('First\n\nLast');
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe('First\n\n\nLast');
+    } finally {
+      sync.dispose();
       model.dispose();
     }
   });

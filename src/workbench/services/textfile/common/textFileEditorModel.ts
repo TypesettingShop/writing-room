@@ -40,6 +40,21 @@ function alternativeVersionId(model: ITextModel): number {
   return (model as ITextModel & { getAlternativeVersionId?(): number }).getAlternativeVersionId?.() ?? model.getVersionId();
 }
 
+/** Applies a standalone undoable edit without invalidating Monaco's history for another view. */
+function pushTextEdit(model: ITextModel, edit: ISingleEditOperation): void {
+  const monaco = model as ITextModel & {
+    pushStackElement?(): void;
+    pushEditOperations?(before: null, edits: ISingleEditOperation[], cursor: () => null): unknown;
+  };
+  if (monaco.pushEditOperations && monaco.pushStackElement) {
+    monaco.pushStackElement();
+    monaco.pushEditOperations(null, [edit], () => null);
+    monaco.pushStackElement();
+  } else {
+    model.applyEdits([edit]);
+  }
+}
+
 function hasBom(bytes: Uint8Array): boolean {
   return bytes.length >= 3 && bytes[0] === UTF8_BOM[0] && bytes[1] === UTF8_BOM[1] && bytes[2] === UTF8_BOM[2];
 }
@@ -108,6 +123,9 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
   private bom = false;
   /** The alternative version id of the saved text; `undefined` when no version of the text is saved. */
   private savedVersionId: number | undefined;
+  private savedText: string | undefined;
+  /** Undo in another editor writes text back without restoring Monaco's alternative version. */
+  private hasRichEditorEdits = false;
   private dirty = false;
   private orphaned = false;
   private readonly = false;
@@ -222,6 +240,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
     this.bom = file.bom;
     await this.createTextModel(file.text);
     this.savedVersionId = alternativeVersionId(this.model!);
+    this.savedText = this.model!.getValue();
     this.setReadonly(file.readonly);
   }
 
@@ -288,6 +307,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
     this.bom = file.bom;
     this.updateText(file.text);
     this.savedVersionId = alternativeVersionId(this.model);
+    this.savedText = this.model.getValue();
     this.setReadonly(file.readonly);
     this.setOrphaned(false);
     this.setDirty(false);
@@ -296,12 +316,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
   /** Replaces the text with `text` by one edit of the part that differs, as a change that is not the user's. */
   private updateText(text: string): void {
     const model = this.model!;
-    type MonacoModel = ITextModel & {
-      setEOL?(eol: 0 | 1): void;
-      pushStackElement?(): void;
-      pushEditOperations?(before: null, edits: ISingleEditOperation[], cursor: () => null): unknown;
-    };
-    const monaco = model as MonacoModel;
+    const monaco = model as ITextModel & { setEOL?(eol: 0 | 1): void };
     this.ignoreContentChange = true;
     try {
       const lineBreak = firstLineBreak(text);
@@ -312,17 +327,23 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       if (!edit) {
         return;
       }
-      if (monaco.pushEditOperations && monaco.pushStackElement) {
-        // As VS Code's model service updates a model: an undoable step of its own.
-        monaco.pushStackElement();
-        monaco.pushEditOperations(null, [edit], () => null);
-        monaco.pushStackElement();
-      } else {
-        model.applyEdits([edit]);
-      }
+      pushTextEdit(model, edit);
     } finally {
       this.ignoreContentChange = false;
     }
+  }
+
+  /** Mirror a rich editor's change into the shared model, including edits from its undo/redo. */
+  applyRichEditorEdit(edit: ISingleEditOperation): void {
+    if (this.model && !this.readonly) {
+      this.hasRichEditorEdits = true;
+      pushTextEdit(this.model, edit);
+    }
+  }
+
+  private isAtSavedText(model: ITextModel): boolean {
+    return alternativeVersionId(model) === this.savedVersionId
+      || (this.hasRichEditorEdits && this.savedText !== undefined && model.getValue() === this.savedText);
   }
 
   private handleContentChange(): void {
@@ -330,7 +351,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       return;
     }
     // Undo back to the saved text makes the model clean again.
-    this.setDirty(alternativeVersionId(this.model) !== this.savedVersionId);
+    this.setDirty(!this.isAtSavedText(this.model));
     if (this.dirty) {
       this.scheduleBackup();
     }
@@ -466,18 +487,18 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       }
       // What the participants changed is part of this save; what is typed from here on is not.
       const versionId = alternativeVersionId(this.model);
-      const bytes = encode(this.model.getValue(), this.bom);
+      const text = this.model.getValue();
+      const bytes = encode(text, this.bom);
       // A file that is gone is written anew; any other save holds to the file it read.
       const etag = overwrite || this.orphaned ? undefined : this.etag;
       try {
         const stat = await this.fileService.writeFile(this.resource, bytes, { etag });
         this.etag = stat.etag;
         this.savedVersionId = versionId;
+        this.savedText = text;
         this.setReadonly(stat.readonly);
         this.setOrphaned(false);
-        if (this.model && alternativeVersionId(this.model) === versionId) {
-          this.setDirty(false);
-        }
+        this.handleContentChange();
         this._onDidSave.fire({ resource: this.resource, reason });
         return true;
       } catch (error) {
@@ -514,6 +535,7 @@ export class TextFileEditorModel extends Disposable implements ITextFileEditorMo
       return;
     }
     this.savedVersionId = alternativeVersionId(this.model);
+    this.savedText = this.model.getValue();
     this.setDirty(false);
     this._onDidRevert.fire();
   }
