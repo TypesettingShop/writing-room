@@ -26,7 +26,8 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
 import {
-  defaultMarkdownFontFamilies, MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
+  defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH,
+  MARKDOWN_EDITOR_FONT_FAMILY, MARKDOWN_EDITOR_TYPEWRITER, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
   MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
@@ -37,6 +38,7 @@ import { markdownInputRules } from './markdownEditorInputRules.js';
 import { markdownImageView } from './markdownEditorImages.js';
 import { markdownListKeys, taskItemView } from './markdownEditorLists.js';
 import { moveMarkdownTableCell } from './markdownEditorTables.js';
+import { centerMarkdownCaret, markdownActiveBlock } from './markdownFocusPresentation.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -57,6 +59,8 @@ export class MarkdownEditorPane extends EditorPane {
   readonly onDidChangeHistory = this.historyChanged.event;
   private request = 0;
   private pendingFocus = false;
+  private typewriter = false;
+  private scrollFrame: number | undefined;
   private scoped: IContextKeyService | undefined;
   private updateToolbarContext = () => {};
 
@@ -113,6 +117,28 @@ export class MarkdownEditorPane extends EditorPane {
         updateFonts();
       }
     }));
+    const updateWritingPreferences = () => {
+      const width = this.configuration.getValue(MARKDOWN_EDITOR_FOCUS_WIDTH);
+      const supported = typeof width === 'string' && parent.ownerDocument.defaultView?.CSS.supports('max-width', width);
+      this.frame.style.setProperty('--markdown-focus-width', supported ? width : defaultMarkdownFocusWidth);
+      this.frame.classList.toggle('markdown-dim-others', this.configuration.getValue(MARKDOWN_EDITOR_FOCUS_DIM) === true);
+      this.typewriter = this.configuration.getValue(MARKDOWN_EDITOR_TYPEWRITER) === true;
+      this.surface.classList.toggle('markdown-typewriter', this.typewriter);
+      this.scheduleTypewriter();
+    };
+    updateWritingPreferences();
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if ([MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_TYPEWRITER]
+        .some(key => event.affectsConfiguration(key))) {
+        updateWritingPreferences();
+      }
+    }));
+    const ResizeObserver = parent.ownerDocument.defaultView?.ResizeObserver;
+    if (ResizeObserver) {
+      const observer = new ResizeObserver(() => this.scheduleTypewriter());
+      observer.observe(this.surface);
+      this._register(toDisposable(() => observer.disconnect()));
+    }
     const group = this.groups.groups.find(group => group.element.contains(parent));
     if (group) {
       toolbar.addEventListener('click', () => {
@@ -161,6 +187,10 @@ export class MarkdownEditorPane extends EditorPane {
         editable: () => !input.isReadonly(),
         attributes: { role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true' },
         ...markdownClipboard,
+        handleScrollToSelection: () => {
+          this.scheduleTypewriter();
+          return this.typewriter;
+        },
         nodeViews: {
           image: (node, view) => markdownImageView(node, view.dom.ownerDocument, input.resource, this.files, this.workspace),
           task_item: (node, view, getPos) => taskItemView(node, view.dom.ownerDocument, checked => {
@@ -195,6 +225,7 @@ export class MarkdownEditorPane extends EditorPane {
         this.updateHistoryContext();
       }));
       this.frame.hidden = false;
+      this.scheduleTypewriter();
       this.updateHistoryContext();
       this.applySelection(options?.selection);
     } catch (error) {
@@ -213,6 +244,11 @@ export class MarkdownEditorPane extends EditorPane {
   override clearInput(): void {
     this.request++;
     this.pendingFocus = false;
+    const window = this.surface.ownerDocument.defaultView;
+    if (this.scrollFrame !== undefined) {
+      window?.cancelAnimationFrame(this.scrollFrame);
+      this.scrollFrame = undefined;
+    }
     this.session.clear();
     this.view = undefined;
     this.sync = undefined;
@@ -221,6 +257,14 @@ export class MarkdownEditorPane extends EditorPane {
     this.error.textContent = '';
     super.clearInput();
     this.updateHistoryContext();
+  }
+
+  private scheduleTypewriter(): void {
+    if (!this.typewriter || !this.view || this.scrollFrame !== undefined) return;
+    this.scrollFrame = this.surface.ownerDocument.defaultView?.requestAnimationFrame(() => {
+      this.scrollFrame = undefined;
+      if (this.typewriter && this.view) centerMarkdownCaret(this.surface, this.view);
+    });
   }
 
   private updateHistoryContext(): void {
@@ -241,9 +285,11 @@ export class MarkdownEditorPane extends EditorPane {
     const redo: Command = () => { this.redo(); return true; };
     const keys = keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, Backspace: undoInputRule });
     const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
-    const model = new MarkdownEditorModel(textModel, [markdownInputRules, keys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
+    const model = new MarkdownEditorModel(textModel, [markdownInputRules, markdownActiveBlock, keys, tableKeys, keymap(markdownListKeys), keymap(baseKeymap)], state => {
       if (this.input === input) {
+        const previous = this.view?.state;
         this.view?.updateState(state);
+        if (previous?.doc !== state.doc || previous?.selection.head !== state.selection.head) this.scheduleTypewriter();
         this.updateHistoryContext();
       }
     }, resolved instanceof TextFileEditorModel ? edit => resolved.applyRichEditorEdit(edit) : undefined);

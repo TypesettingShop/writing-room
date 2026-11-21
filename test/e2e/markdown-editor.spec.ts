@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect, test } from './fixtures.js';
+import { box, drag, expect, test } from './fixtures.js';
 import { runCommand, settingsKey, startWithMarkdownSource } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, listBackups, readWorkspaceText, selectedTab, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
@@ -605,4 +605,61 @@ test('updates word counts and navigates the outline in visual and source Markdow
   await expect(page.getByText('Selection · 1 word · 4 characters · 4 without spaces')).toBeVisible();
   await page.keyboard.type('Final');
   await expect(outline.getByRole('button', { name: 'Final' })).toHaveAttribute('aria-current', 'location');
+});
+
+test('focus mode restores part sizes and keeps a previously hidden part hidden', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'focus.md', 'First paragraph\n\nSecond paragraph');
+  const editor = richEditor(group);
+  const part = (name: string) => page.locator(`[id="workbench.parts.${name}"]`);
+  const sidebar = part('sidebar');
+  const panel = part('panel');
+  const statusbar = part('statusbar');
+  const activitybar = part('activitybar');
+  const bounds = await box(sidebar);
+  await drag(page, bounds.x + bounds.width, 175, bounds.x + bounds.width + 55, 175);
+  await runCommand(page, 'Toggle Panel Visibility', /^View: Toggle Panel Visibility$/);
+  await expect(panel).toBeHidden();
+  const resized = await box(sidebar);
+  const writingWidth = (await box(editor)).width;
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  for (const element of [sidebar, panel, statusbar, activitybar]) await expect(element).toBeHidden();
+  expect((await box(editor)).width).toBeLessThan(writingWidth);
+  await expect(editor.getByText('First paragraph')).toHaveCSS('opacity', '1');
+  await expect(editor.getByText('Second paragraph')).toHaveCSS('opacity', '0.45');
+  await editor.getByText('Second paragraph').click();
+  await expect(editor.getByText('Second paragraph')).toHaveCSS('opacity', '1');
+  await page.keyboard.press('Escape');
+  for (const element of [sidebar, statusbar, activitybar]) await expect(element).toBeVisible();
+  await expect(panel).toBeHidden();
+  expect(await box(sidebar)).toEqual(resized);
+  await expect(editor.getByText('First paragraph')).toHaveCSS('opacity', '1');
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(sidebar).toBeVisible();
+});
+
+test('typewriter scrolling centers the first, middle and newly written last line', async ({ page }) => {
+  await page.addInitScript(key => {
+    localStorage.setItem('writing-room:storage:version', '2');
+    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
+  }, settingsKey);
+  await page.goto('/');
+  const group = await openMarkdown(page, 'typewriter.md', Array.from({ length: 30 }, (_, index) => `Line ${index + 1}`).join('\n\n'));
+  const editor = richEditor(group);
+  await editor.focus();
+  const caretDistance = () => editor.evaluate(element => {
+    const selection = element.ownerDocument.getSelection()!;
+    if (!selection.rangeCount) return Infinity;
+    const range = selection.getRangeAt(0);
+    const caret = range.getBoundingClientRect();
+    const surface = element.parentElement!;
+    return Math.abs((caret.top + caret.bottom) / 2 - (surface.getBoundingClientRect().top + surface.clientHeight / 2));
+  });
+  await expect.poll(caretDistance).toBeLessThan(3);
+  await editor.getByText('Line 16', { exact: true }).click();
+  await expect.poll(caretDistance).toBeLessThan(3);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('New last line');
+  await expect.poll(caretDistance).toBeLessThan(3);
 });

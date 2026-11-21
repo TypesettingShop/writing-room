@@ -159,3 +159,20 @@
   margin: 8px;
   color: var(--vscode-descriptionForeground);
 }
+
+.markdown-focus-mode .markdown-editor-surface .ProseMirror {
+  max-width: var(--markdown-focus-width, 72ch);
+}
+
+.markdown-focus-mode .markdown-dim-others .ProseMirror
+  :is(p, h1, h2, h3, h4, h5, h6, pre, hr, td, th):not([data-markdown-active-block]) {
+  opacity: 0.45;
+}
+
+.markdown-typewriter {
+  container-type: size;
+}
+
+.markdown-typewriter .ProseMirror {
+  padding-block: max(1.25rem, 50cqh);
+}
