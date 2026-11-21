@@ -196,10 +196,11 @@ export class MarkdownEditorPane extends EditorPane {
         editable: () => !input.isReadonly(),
         attributes: { role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true' },
         ...markdownClipboard,
-        handleScrollToSelection: () => {
+        handleScrollToSelection: view => {
           if (this.pointerSelection) return false;
           this.scheduleTypewriter();
-          return this.typewriter;
+          // Typewriter centering waits for the composition to end, so keep the caret in view meanwhile.
+          return this.typewriter && !view.composing;
         },
         nodeViews: {
           image: (node, view) => markdownImageView(node, view.dom.ownerDocument, input.resource, this.files, this.workspace),
@@ -247,7 +248,10 @@ export class MarkdownEditorPane extends EditorPane {
       });
       this.session.add(toDisposable(() => view.destroy()));
       // Finish native input before ProseMirror or the surface moves the selection under the pointer.
-      this.session.add(addDisposableListener(this.surface, 'pointerdown', () => this.commitComposition(), true));
+      // A touch keeps ProseMirror's own touchstart handling: blurring there would close the on-screen keyboard.
+      this.session.add(addDisposableListener(this.surface, 'pointerdown', event => {
+        if (event.pointerType !== 'touch') this.commitComposition();
+      }, true));
       this.session.add(input.onWillSave(() => this.commitComposition()));
       this.session.add(addDisposableListener(view.dom.ownerDocument.defaultView!, 'blur', () => this.commitComposition()));
       this.session.add(input.onDidChangeLabel(() => {
@@ -394,9 +398,20 @@ export class MarkdownEditorPane extends EditorPane {
   readonly onDidChangeWritingState = this.historyChanged.event;
 
   revealWritingPosition(position: number): void {
+    const before = this.sync?.state.doc;
     this.commitComposition();
     if (this.sync && this.view) {
-      this.sync.dispatch(this.sync.state.tr.setSelection(TextSelection.create(this.sync.state.doc, position)).scrollIntoView());
+      const { doc } = this.sync.state;
+      // The caller read `position` before the composition was committed, so carry it over that change.
+      if (before && before !== doc) {
+        const start = before.content.findDiffStart(doc.content);
+        const end = before.content.findDiffEnd(doc.content);
+        if (start !== null && end !== null && position > start) {
+          position = position >= end.a ? Math.max(start, position + end.b - end.a) : Math.max(start, end.b);
+        }
+      }
+      position = Math.min(position, doc.content.size);
+      this.sync.dispatch(this.sync.state.tr.setSelection(TextSelection.create(doc, position)).scrollIntoView());
       this.view.focus();
     }
   }
