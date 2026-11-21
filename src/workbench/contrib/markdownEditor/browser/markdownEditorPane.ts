@@ -441,6 +441,12 @@ export class MarkdownEditorPane extends EditorPane {
     return this.view && this.input && !this.input.isReadonly() ? this.sync?.state : undefined;
   }
 
+  getFormattingStateForQuickInput(): EditorState | undefined {
+    // Opening quick input moves focus and can finish composition, invalidating an earlier snapshot.
+    this.commitComposition();
+    return this.formattingState;
+  }
+
   runFormattingCommand(command: Command): boolean {
     this.commitComposition();
     return this.formattingState !== undefined && this.sync!.runFormattingCommand(command);
