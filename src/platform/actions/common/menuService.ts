@@ -70,7 +70,7 @@ class MenuInfo {
         }
         let action: MenuItemAction | SubmenuItemAction;
         if (isIMenuItem(item)) {
-          action = new MenuItemAction(item.command, context, keys, commands);
+          action = new MenuItemAction(item.command, context, keys, commands, item.args);
         } else {
           const children = actionsFor(item.submenu, menus);
           if (children.length === 0) {

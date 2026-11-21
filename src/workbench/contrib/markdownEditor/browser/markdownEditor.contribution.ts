@@ -20,9 +20,13 @@ import { DEFAULT_EDITOR_ID, IEditorResolverService, RegisteredEditorPriority } f
 import { isTextFileResource } from '../../../services/textfile/common/textfiles.js';
 import { FileEditorInput } from '../../files/browser/editors/fileEditorInput.js';
 import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
-import { getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE, MarkdownEditorModeContext } from '../common/markdownEditor.js';
+import {
+  defaultMarkdownFontFamilies, getMarkdownEditorMode, isMarkdownResource, MARKDOWN_EDITOR_DEFAULT_MODE,
+  MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorModeContext,
+} from '../common/markdownEditor.js';
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
+import './markdownEditorToolbar.contribution.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPane(
   EditorPaneDescriptor.create(MarkdownEditorPane, MarkdownEditorPane.ID, 'Markdown Editor'), [MarkdownEditorInput.ID],
@@ -39,6 +43,16 @@ configurationRegistry.registerConfiguration({
       enum: ['wysiwyg', 'source'],
       default: 'wysiwyg',
       description: 'Controls how Markdown files open by default. Editor associations take precedence.',
+    },
+    [MARKDOWN_EDITOR_FONT_FAMILY]: {
+      type: 'object',
+      default: defaultMarkdownFontFamilies,
+      additionalProperties: false,
+      properties: {
+        serif: { type: 'string', description: 'CSS font-family list for the Serif preset.' },
+        sans: { type: 'string', description: 'CSS font-family list for the Sans Serif preset.' },
+      },
+      description: 'Controls the font families used by the Serif and Sans Serif presets in the Markdown editor.',
     },
   },
 });

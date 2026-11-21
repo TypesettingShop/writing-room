@@ -1,6 +1,6 @@
 import { baseKeymap } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
-import type { Command } from 'prosemirror-state';
+import type { Command, EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { $, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
@@ -11,17 +11,29 @@ import { clearMonacoUndoHistory } from '../../../../editor/browser/monaco.js';
 import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
 import type { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import type { ITextEditorOptions, ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
+import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
+import { MenuId } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { GroupModelChangeKind } from '../../../common/editor.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { TextFileEditorModel } from '../../../services/textfile/common/textFileEditorModel.js';
 import { describeFileOpenError } from '../../files/browser/editors/textFileEditor.js';
+import {
+  defaultMarkdownFontFamilies, MARKDOWN_EDITOR_FONT_FAMILY, MarkdownEditorCanRedoContext, MarkdownEditorCanUndoContext,
+  MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
+} from '../common/markdownEditor.js';
+import type { MarkdownEditorMode } from '../common/markdownEditor.js';
+import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { MarkdownEditorInput } from './markdownEditorInput.js';
 import { MarkdownEditorModel } from './markdownEditorModel.js';
 import 'prosemirror-view/style/prosemirror.css';
 import './markdownEditor.css';
+import './media/markdownTheme.css';
 
 const { validateLink } = createMarkdownIt();
 
@@ -29,6 +41,7 @@ export class MarkdownEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.markdownEditor';
 
   private surface!: HTMLElement;
+  private frame!: HTMLElement;
   private error!: HTMLElement;
   private view: EditorView | undefined;
   private sync: MarkdownEditorModel | undefined;
@@ -38,15 +51,68 @@ export class MarkdownEditorPane extends EditorPane {
   readonly onDidChangeHistory = this.historyChanged.event;
   private request = 0;
   private pendingFocus = false;
+  private scoped: IContextKeyService | undefined;
+  private updateToolbarContext = () => {};
 
-  constructor(@IEditorGroupsService private readonly groups: IEditorGroupsService) {
+  constructor(
+    @IEditorGroupsService private readonly groups: IEditorGroupsService,
+    @IContextKeyService private readonly contextKeys: IContextKeyService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IConfigurationService private readonly configuration: IConfigurationService,
+  ) {
     super(MarkdownEditorPane.ID);
   }
 
   protected createEditor(parent: HTMLElement): void {
-    this.surface = append(parent, $('.markdown-editor-surface'));
+    this.frame = append(parent, $('.markdown-editor-frame', { hidden: '' }));
+    const toolbar = append(this.frame, $('.markdown-editor-toolbar'));
+    this.surface = append(this.frame, $('.markdown-editor-surface'));
+    const scoped = this.scoped = this._register(this.contextKeys.getScopedContextKeyService(parent).createScoped(parent));
+    const surfaceScope = this._register(scoped.createScoped(this.surface));
+    MarkdownEditorFocusContext.bindTo(surfaceScope).set(true);
+    // Leave the key unset without a view so the group's mode (title menu, source toggle) still shows through.
+    const mode = scoped.createKey<MarkdownEditorMode>(MarkdownEditorModeContext.key, undefined);
+    const writable = MarkdownEditorWritableContext.bindTo(scoped);
+    const updateFormatting = bindMarkdownFormattingContext(scoped);
+    const undo = MarkdownEditorCanUndoContext.bindTo(scoped);
+    const redo = MarkdownEditorCanRedoContext.bindTo(scoped);
+    this.updateToolbarContext = () => {
+      if (this.view) {
+        mode.set('wysiwyg');
+      } else {
+        mode.reset();
+      }
+      writable.set(this.formattingState !== undefined);
+      updateFormatting(this.view && this.sync?.state);
+      undo.set(this.canUndo);
+      redo.set(this.canRedo);
+    };
+    this._register(this.instantiation.createInstance(
+      MenuWorkbenchToolBar, { element: toolbar, ariaLabel: 'Markdown formatting' }, MenuId.MarkdownEditorToolbar, scoped,
+    ));
+    const updateFonts = () => {
+      const families = this.configuration.getValue<Partial<Record<'serif' | 'sans', unknown>>>(MARKDOWN_EDITOR_FONT_FAMILY);
+      const css = parent.ownerDocument.defaultView?.CSS;
+      for (const name of ['serif', 'sans'] as const) {
+        const value = families?.[name];
+        const supported = typeof value === 'string' && css?.supports('font-family', value);
+        this.frame.style.setProperty(`--markdown-editor-font-${name}`, supported ? value : defaultMarkdownFontFamilies[name]);
+      }
+    };
+    updateFonts();
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_FONT_FAMILY)) {
+        updateFonts();
+      }
+    }));
     const group = this.groups.groups.find(group => group.element.contains(parent));
     if (group) {
+      toolbar.addEventListener('click', () => {
+        this.groups.activateGroup(group);
+        if (!parent.contains(parent.ownerDocument.activeElement)) {
+          this.focus();
+        }
+      }, true);
       this._register(group.onDidModelChange(({ kind, editor }) => {
         if (kind === GroupModelChangeKind.EDITOR_CLOSE && editor instanceof MarkdownEditorInput) {
           this.forgetTabModel(editor);
@@ -54,6 +120,10 @@ export class MarkdownEditorPane extends EditorPane {
       }));
     }
     this.error = append(parent, $('.markdown-editor-error', { hidden: '', role: 'alert', tabindex: '-1' }));
+  }
+
+  override get scopedContextKeyService(): IContextKeyService | undefined {
+    return this.scoped;
   }
 
   override async setInput(input: EditorInput, options: ITextEditorOptions | undefined): Promise<void> {
@@ -134,15 +204,16 @@ export class MarkdownEditorPane extends EditorPane {
       this.session.add(toDisposable(() => view.destroy()));
       this.session.add(input.onDidChangeLabel(() => {
         view.setProps({});
-        this.historyChanged.fire();
+        this.updateHistoryContext();
       }));
-      this.historyChanged.fire();
+      this.frame.hidden = false;
+      this.updateHistoryContext();
       this.applySelection(options?.selection);
     } catch (error) {
       if (request !== this.request) {
         return;
       }
-      this.surface.hidden = true;
+      this.frame.hidden = true;
       this.error.hidden = false;
       this.error.textContent = `${input.getName()}: ${describeFileOpenError(error)}`;
     }
@@ -157,10 +228,15 @@ export class MarkdownEditorPane extends EditorPane {
     this.session.clear();
     this.view = undefined;
     this.sync = undefined;
-    this.surface.hidden = false;
+    this.frame.hidden = true;
     this.error.hidden = true;
     this.error.textContent = '';
     super.clearInput();
+    this.updateHistoryContext();
+  }
+
+  private updateHistoryContext(): void {
+    this.updateToolbarContext();
     this.historyChanged.fire();
   }
 
@@ -179,7 +255,7 @@ export class MarkdownEditorPane extends EditorPane {
     const model = new MarkdownEditorModel(textModel, [keys, keymap(baseKeymap)], state => {
       if (this.input === input) {
         this.view?.updateState(state);
-        this.historyChanged.fire();
+        this.updateHistoryContext();
       }
     }, resolved instanceof TextFileEditorModel ? edit => resolved.applyRichEditorEdit(edit) : undefined);
     const lifetime = combinedDisposable(model, input.onWillDispose(() => this.forgetTabModel(input)));
@@ -208,8 +284,12 @@ export class MarkdownEditorPane extends EditorPane {
     return this.canRedo && this.sync!.redo();
   }
 
+  get formattingState(): EditorState | undefined {
+    return this.view && this.input && !this.input.isReadonly() ? this.sync?.state : undefined;
+  }
+
   runFormattingCommand(command: Command): boolean {
-    return this.view !== undefined && !this.input?.isReadonly() && (this.sync?.runFormattingCommand(command) ?? false);
+    return this.formattingState !== undefined && this.sync!.runFormattingCommand(command);
   }
 
   resetHistory(): void {
@@ -240,7 +320,7 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   override layout({ width, height }: Dimension): void {
-    for (const element of [this.surface, this.error]) {
+    for (const element of [this.frame, this.error]) {
       element.style.width = `${width}px`;
       element.style.height = `${height}px`;
     }
@@ -264,7 +344,7 @@ export class MarkdownEditorPane extends EditorPane {
     }
     this.tabModels.clear();
     super.dispose();
-    this.surface.remove();
+    this.frame.remove();
     this.error.remove();
   }
 }

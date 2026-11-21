@@ -1,3 +1,50 @@
+.markdown-editor-frame {
+  display: flex;
+  flex-direction: column;
+}
+
+.markdown-editor-frame[hidden] {
+  display: none;
+}
+
+.markdown-editor-toolbar {
+  flex: none;
+  overflow-x: auto;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--vscode-editorWidget-border);
+  color: var(--vscode-menu-foreground);
+  background: var(--vscode-menu-background);
+}
+
+.markdown-editor-toolbar .wr-menu-toolbar {
+  width: max-content;
+  min-width: 100%;
+}
+
+.markdown-editor-toolbar button:disabled {
+  color: var(--vscode-disabledForeground);
+  cursor: default;
+}
+
+.markdown-editor-toolbar .wr-menu-toolbar-choices {
+  display: flex;
+  min-width: 5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border-color: var(--vscode-menu-border);
+}
+
+.markdown-editor-toolbar button[aria-pressed='true'] {
+  background: var(--vscode-menu-selectionBackground);
+  border-color: var(--vscode-focusBorder);
+}
+
+.markdown-editor-surface {
+  flex: 1;
+  min-height: 0;
+}
+
 .markdown-editor-surface,
 .markdown-editor-error {
   box-sizing: border-box;
