@@ -15,6 +15,16 @@ function canonical(doc: Node): string {
   return serializeMarkdown(doc, { preserveSource: false });
 }
 
+function editText(doc: Node, text: string, replacement: string): Node {
+  let position = -1;
+  doc.descendants((node, offset) => {
+    if (position === -1 && node.text?.includes(text)) position = offset + node.text.indexOf(text);
+  });
+  expect(position).toBeGreaterThanOrEqual(0);
+  const state = EditorState.create({ doc });
+  return state.apply(state.tr.insertText(replacement, position, position + text.length)).doc;
+}
+
 function normalizedTree(doc: Node): unknown {
   const attrs = { ...doc.attrs };
   if (doc.type.name === 'code_block') delete attrs.markup;
@@ -48,7 +58,7 @@ describe('Markdown save normalization', () => {
   it.each([
     ['Heading\n=======', '# Heading'],
     ['Alpha  \nBeta', 'Alpha\\\nBeta'],
-    ['- parent\n  + child', '- parent\n    + child'],
+    ['- parent\n  + child', '- parent\n  + child'],
     ['7) one\n9) two', '7) one\n8) two'],
     ['- [X] done', '- [x] done'],
     ['    a\n    b', '```\na\nb\n```'],
@@ -94,12 +104,12 @@ describe('Markdown save normalization', () => {
   });
 
   it.each([
-    ['loose bullet', '- a\n\n  {.x}', '- a\n\n    {.x}', false, ['x']],
-    ['loose ordered', '7) a\n\n   {.x}', '7) a\n\n    {.x}', false, ['x']],
-    ['loose task with item classes', '- [x] a {.item}\n\n  {.x .y}', '- [x] a {.item}\n\n    {.x .y}', false, ['x', 'y']],
-    ['tight with a paragraph class', '- a\n  {.x}', '- a\n    {.x}', true, ['x']],
-    ['loose with two items', '- a\n\n  {.x}\n- b', '- a\n    {.x}\n\n- b', false, ['x']],
-    ['loose with two paragraphs', '- a\n\n  {.x}\n\n  b', '- a\n    {.x}\n\n    b', false, ['x']],
+    ['loose bullet', '- a\n\n  {.x}', '- a\n\n  {.x}', false, ['x']],
+    ['loose ordered', '7) a\n\n   {.x}', '7) a\n\n   {.x}', false, ['x']],
+    ['loose task with item classes', '- [x] a {.item}\n\n  {.x .y}', '- [x] a {.item}\n\n  {.x .y}', false, ['x', 'y']],
+    ['tight with a paragraph class', '- a\n  {.x}', '- a\n  {.x}', true, ['x']],
+    ['loose with two items', '- a\n\n  {.x}\n- b', '- a\n  {.x}\n\n- b', false, ['x']],
+    ['loose with two paragraphs', '- a\n\n  {.x}\n\n  b', '- a\n  {.x}\n\n  b', false, ['x']],
     ['plain loose', '- a\n\n- b', '- a\n\n- b', false, []],
     ['plain tight', '- a\n- b', '- a\n- b', true, []],
   ] as const)('preserves %s list spacing and paragraph classes on save', (_name, source, expected, tight, classes) => {
@@ -123,31 +133,39 @@ describe('Markdown save normalization', () => {
   it('retains the blank line inside a quoted loose list with a paragraph class', () => {
     const doc = parseMarkdown('> - a\n>\n>   {.x}');
     const written = canonical(doc);
-    expect(written).toBe('> - a\n>\n>     {.x}');
+    expect(written).toBe('> - a\n>\n>   {.x}');
     expect(parseMarkdown(written).eq(doc)).toBe(true);
   });
 
   it.each([
-    ['bullet', '- - a\n\n    {.x}', '- - a\n        {.x}', true],
-    ['triple bullet', '- - - a\n\n      {.x}', '- - - a\n            {.x}', true],
-    ['quoted bullet', '> - - a\n>\n>     {.x}', '> - - a\n>         {.x}', true],
-    ['ordered', '- 1. a\n\n     {.x}', '- 1. a\n\n        {.x}', false],
-  ] as const)('keeps the paragraph class of a %s list on its parent marker line', (_name, source, expected, tight) => {
-    const written = canonical(parseMarkdown(source));
-    expect(written).toBe(expected);
-    let list = parseMarkdown(written).firstChild!;
-    while (list.firstChild!.childCount > 1) list = list.firstChild!.child(1);
-    if (list.type.name === 'blockquote') list = list.firstChild!.firstChild!.child(1);
-    expect(list.attrs.tight).toBe(tight);
-    expect(list.firstChild!.childCount).toBe(1);
-    expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
+    ['opening fence', '- ```\n    a\n  ```', 'a'],
+    ['nested siblings', '- - a\n    - b', 'b'],
+    ['nested paragraphs', '- - a\n\n    b', 'b'],
+    ['nested loose class trailer', '- - a\n\n    {.x}', 'a'],
+    ['deep loose class trailer', '- - - a\n\n      {.x}', 'a'],
+    ['quoted nested loose class trailer', '> - - a\n>\n>     {.x}', 'a'],
+    ['ordered nested loose class trailer', '- 1. a\n\n     {.x}', 'a'],
+    ['quoted ordered continuations across marker widths',
+      '> 9) - a\n>      - b\n> 10) - c\n>       - d', 'd'],
+  ] as const)('keeps the content column in %s on repeated saves', (_name, source, text) => {
+    const doc = parseMarkdown(source);
+    const written = canonical(doc);
+    const reparsed = parseMarkdown(written);
+    expect.soft(written).toBe(source);
+    expect.soft(reparsed.eq(doc)).toBe(true);
+    expect.soft(canonical(reparsed)).toBe(written);
+
+    const edited = editText(doc, text, 'edited');
+    const saved = serializeMarkdown(edited);
+    expect.soft(saved).toBe(source.replace(text, 'edited'));
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
   });
 
   it('keeps a loose list loose when its emptied first paragraph is dropped', () => {
     const doc = parseMarkdown('- a\n\n  b\n  {.x}');
     const state = EditorState.create({ doc });
     const saved = serializeMarkdown(state.apply(state.tr.delete(3, 4)).doc);
-    expect(saved).toBe('- b\n\n    {.x}');
+    expect(saved).toBe('- b\n\n  {.x}');
     const list = parseMarkdown(saved).firstChild!;
     expect(list.attrs.tight).toBe(false);
     expect(list.firstChild!.firstChild!.attrs.classes).toEqual(['x']);
@@ -180,7 +198,7 @@ describe('Markdown save normalization', () => {
       '{.quote}',
       '',
       '- 항목 {.item}',
-      '    {.paragraph}',
+      '  {.paragraph}',
       '',
       '{.list}',
       '',
@@ -278,7 +296,7 @@ it('writes a nested ordered list starting after one as a list', () => {
   const position = 2 + item.firstChild!.nodeSize;
   const edited = state.apply(state.tr.replaceWith(position, position + nested.nodeSize, changed)).doc;
   const written = canonical(edited);
-  expect(written).toBe('- first\n\n    7. second');
+  expect(written).toBe('- first\n\n  7. second');
   expect(parseMarkdown(written).firstChild!.firstChild!.lastChild!.attrs.order).toBe(7);
 });
 

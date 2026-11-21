@@ -50,8 +50,13 @@ interface RenderedList extends ListMarker {
 
 const lastListInScope = new WeakMap<MarkdownSerializerState, RenderedList>();
 const looseSingleItems = new WeakMap<MarkdownSerializerState, Node>();
-// Columns by which the continuation lines of the item being written sit past its content.
-const itemOvershoot = new WeakMap<MarkdownSerializerState, number>();
+// prosemirror-markdown's list renderer uses one continuation indent for the
+// whole list. Keep its block-closing behavior while choosing the indent per item.
+type ListSerializerState = MarkdownSerializerState & {
+  closed: Node | null;
+  inTightList: boolean;
+  flushClose(size?: number): void;
+};
 
 function skipsPlaceholder(item: Node): boolean {
   // ProseMirror fills in a paragraph when a Markdown item starts with another block.
@@ -59,39 +64,37 @@ function skipsPlaceholder(item: Node): boolean {
     !classSuffix(item.firstChild!.attrs) && !classSuffix(item.attrs);
 }
 
-function restore<T>(map: WeakMap<MarkdownSerializerState, T>, state: MarkdownSerializerState, value?: T): void {
-  if (value === undefined) map.delete(state);
-  else map.set(state, value);
-}
-
 function renderList(
   state: MarkdownSerializerState,
   node: Node,
   parent: Node,
   index: number,
-  indent: number,
   firstDelim: (marker: string, itemIndex: number) => string,
 ): void {
   const previous = lastListInScope.get(state);
   const adjacent = previous?.parent === parent && previous.index === index - 1 ? previous : undefined;
   const current = separateListMarker(listMarker(node)!, adjacent);
-  // After a skipped placeholder the list starts on the parent's marker line and inherits its overshoot.
-  const outerOvershoot = itemOvershoot.get(state);
-  const inherited = index === 1 && skipsPlaceholder(parent) ? outerOvershoot ?? 0 : 0;
+  const listState = state as ListSerializerState;
+  if (listState.closed?.type === node.type) listState.flushClose(3);
+  else if (listState.inTightList) listState.flushClose(1);
+
   const item = node.firstChild!;
   const blocks = item.childCount - (skipsPlaceholder(item) ? 1 : 0);
-  // Four columns past the content would turn the class line after the blank line into indented code.
-  const fitsTrailer = indent - firstDelim(current.marker, 0).length + inherited < 4;
-  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1 && fitsTrailer;
+  const needsLooseTrailer = !node.attrs.tight && node.childCount === 1 && blocks === 1;
   const outerItem = looseSingleItems.get(state);
+  const outerTight = listState.inTightList;
   if (needsLooseTrailer) looseSingleItems.set(state, item);
-  state.renderList(node, ' '.repeat(indent), itemIndex => {
+  listState.inTightList = node.attrs.tight;
+  node.forEach((child, _offset, itemIndex) => {
+    if (itemIndex && node.attrs.tight) listState.flushClose(1);
     const delim = firstDelim(current.marker, itemIndex);
-    itemOvershoot.set(state, indent - delim.length + (itemIndex === 0 ? inherited : 0));
-    return delim;
+    state.wrapBlock(' '.repeat(delim.length), delim, node, () => state.render(child, node, itemIndex));
   });
-  restore(itemOvershoot, state, outerOvershoot);
-  if (needsLooseTrailer) restore(looseSingleItems, state, outerItem);
+  listState.inTightList = outerTight;
+  if (needsLooseTrailer) {
+    if (outerItem) looseSingleItems.set(state, outerItem);
+    else looseSingleItems.delete(state);
+  }
   finishBlock(state, node);
   lastListInScope.set(state, { ...current, parent, index });
 }
@@ -228,14 +231,13 @@ const markdownSerializer = new MarkdownSerializer({
     finishBlock(state, node);
   },
   bullet_list(state, node, parent, index) {
-    renderList(state, node, parent, index, 4, marker => marker + ' ');
+    renderList(state, node, parent, index, marker => marker + ' ');
   },
   ordered_list(state, node, parent, index) {
     const start: number = node.attrs.order;
-    const indent = Math.max(4, String(start + node.childCount - 1).length + 2);
     // A list starting above 1 cannot interrupt a paragraph without a blank line.
     if (start !== 1 && parent.maybeChild(index - 1)?.type.name === 'paragraph') state.write();
-    renderList(state, node, parent, index, indent, (marker, item) => String(start + item) + marker + ' ');
+    renderList(state, node, parent, index, (marker, item) => String(start + item) + marker + ' ');
   },
   list_item(state, node) {
     const skipPlaceholder = skipsPlaceholder(node);
