@@ -63,7 +63,7 @@ npm run dev
 
 ### 분량과 집중 모드
 
-- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 언어에 관계없이 공백이나 줄바꿈으로 나뉜 부분을 각각 한 단어로 세며, 글자 수는 Unicode 코드 포인트 단위로 센다.
+- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 언어에 관계없이 줄바꿈을 포함한 공백으로 나뉜 부분을 각각 한 단어로 세며, 글자 수는 Unicode 코드 포인트 단위로 센다.
 - Explorer의 **Outline**은 제목 1–6을 계층으로 표시하고 현재 절을 강조한다. 제목을 선택하면 두 모드 모두 해당 위치로 이동한다.
 - WYSIWYG에서 **View → Appearance → Markdown Focus Mode** 또는 **Markdown: Toggle Focus Mode**를 실행하면 본문을 가운데 놓고 사이드바·패널·액티비티 바·상태 표시줄을 숨긴다. 커맨드를 다시 실행하거나 본문에서 **Esc**를 누르면 원래 레이아웃으로 돌아온다.
 - `markdownEditor.focusMode.width`의 기본값은 `72ch`다. `markdownEditor.focusMode.dimOthers`를 끄면 집중 모드에서도 모든 문단이 선명하다. `markdownEditor.typewriterScroll`을 켜면 WYSIWYG에서 타이핑하거나 키보드로 이동할 때 커서 줄을 세로 가운데에 둔다. 타자기 스크롤은 기본으로 꺼져 있다.
@@ -75,7 +75,7 @@ npm run dev
 ## 확장 추가하기
 
 - **Open VSX에서 찾기**: 액티비티 바의 **Extensions**(Ctrl+Shift+X, macOS에서는 Cmd+Shift+X)에서 **Search Open VSX**에 이름을 입력하고 **Install**을 선택한다. 내려받은 뒤 확인 화면이 식별자, 버전, 라이선스, 크기, SHA-256, 서명 상태를 보여 준다. Microsoft 마켓플레이스는 지원하지 않는다.
-- **VSIX 파일**: 팔레트의 **Install from VSIX...**로 `.vsix`를 고르거나 **Extensions**의 검색 영역에 끌어다 놓는다. 팔레트의 **Install Extension from Location...**에 `.vsix`로 끝나는 주소를 입력해도 된다. VSIX는 크기 한도와 내용을 검사하고, 받은 바이트의 SHA-256을 확인 화면에 보여 준다. 비교할 갤러리 값과 서명이 없어 아래 「서명의 뜻」에 나오는 확인은 거치지 않는다.
+- **VSIX 파일**: 팔레트의 **Install from VSIX...**로 `.vsix`를 고르거나 **Extensions**의 검색 영역에 끌어다 놓는다. 팔레트의 **Install Extension from Location...**에 `.vsix`로 끝나는 주소를 입력해도 된다. VSIX는 크기 한도와 내용을 검사하고, 받은 바이트의 SHA-256을 확인 화면에 보여 준다. 비교할 갤러리 값과 서명이 없어 아래 「서명의 뜻」의 확인은 하지 않는다.
 - **폴더 URL**: **Install Extension from Location...**에 `package.json`을 제공하는 폴더 주소를 입력하고, 표시된 출판자·버전·오리진을 확인한 뒤 설치 항목을 선택한다. 원격 서버는 HTTPS와 CORS를 지원해야 하며 로컬 개발용 루프백 주소에는 HTTP를 쓸 수 있다.
 - **내장 확장**: 매니페스트 `package.json`과 필요한 웹 진입 파일을 `extensions/` 아래의 한 폴더에 둔다. 개발 서버를 다시 시작하거나 프리뷰 빌드를 새로 만든다. `extensions/hello-world/`를 예제로 사용할 수 있다.
 - **제거**: **Extensions**의 **Installed**에서 **Uninstall**을 선택하거나 팔레트의 **Uninstall Extension...**에서 해당 확장을 고른다.
