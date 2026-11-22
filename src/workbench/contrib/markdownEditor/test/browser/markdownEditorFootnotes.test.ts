@@ -27,6 +27,18 @@ it('ignores escaped brackets, code and links with footnote-like labels', () => {
   expect(doc.firstChild?.lastChild?.attrs.alt).toBe('alt [^literal]');
 });
 
+it('keeps a link whose text holds an undefined reference, and footnotes in an image description', () => {
+  const source = '[see [^x]](/target) ![alt [^1] ^[note]](/picture)\n\n[^1]: one';
+  const doc = parseMarkdown(source);
+  const paragraph = doc.firstChild!;
+  expect(paragraph.child(0).marks.map(mark => mark.type.name)).toEqual(['link']);
+  expect(paragraph.child(1).type.name).toBe('footnote_reference');
+  expect(paragraph.child(1).marks.map(mark => mark.type.name)).toEqual(['link']);
+  expect(paragraph.lastChild?.attrs.alt).toBe('alt [^1] ^[note]');
+  const rewritten = serializeMarkdown(doc, { preserveSource: false });
+  expect(parseMarkdown(rewritten).toJSON()).toEqual(doc.toJSON());
+});
+
 it('waits for a 200ms pause, then updates only the current tab', () => {
   vi.useFakeTimers();
   const frame = document.createElement('div');

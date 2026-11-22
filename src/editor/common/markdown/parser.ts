@@ -63,7 +63,10 @@ function imageAlt(tokens: readonly Token[]): string {
     ? imageAlt(token.children ?? [])
     : token.type === 'softbreak' || token.type === 'hardbreak'
       ? '\n'
-      : ['text', 'code_inline', 'text_special', 'unresolved_footnote_ref'].includes(token.type) ? token.content : '').join('');
+      // An alt is plain text, so a footnote in it keeps its spelling.
+      : token.type === 'footnote_ref'
+        ? token.meta.label == null ? '^[' + (token.meta.source ?? '') + ']' : '[^' + token.meta.label + ']'
+        : ['text', 'code_inline', 'text_special', 'unresolved_footnote_ref'].includes(token.type) ? token.content : '').join('');
 }
 
 const tokenSpecs: Record<string, ParseSpec> = {
@@ -125,11 +128,12 @@ function keepUnresolvedFootnotes(markdownIt: MarkdownIt): void {
   const reference = /\[\^[^\] \n]+\]/y;
   // Links and the regular footnote rule already had a chance to consume the reference.
   markdownIt.inline.ruler.after('footnote_ref', 'unresolved_footnote_ref', (state, silent) => {
-    if (!state.src.startsWith('[^', state.pos)) return false;
+    // A silent call scans a link label. Leave the brackets as text there so `[a [^x]](url)` stays a link.
+    if (silent || !state.src.startsWith('[^', state.pos)) return false;
     reference.lastIndex = state.pos;
     const match = reference.exec(state.src);
     if (!match || reference.lastIndex > state.posMax) return false;
-    if (!silent) state.push('unresolved_footnote_ref', '', 0).content = match[0];
+    state.push('unresolved_footnote_ref', '', 0).content = match[0];
     state.pos = reference.lastIndex;
     return true;
   });

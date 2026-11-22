@@ -28,6 +28,24 @@ function placeRuleCaret(sync: MarkdownEditorModel, index: number, side: -1 | 1):
 }
 
 describe('MarkdownEditorModel', () => {
+  it('writes a styled empty paragraph at the end and keeps it when its class changes', () => {
+    const model = new TestTextModel(URI.parse('file:///styled.md'), 'Alpha\n\n[]{.x}');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const pos = sync.state.doc.firstChild!.nodeSize;
+      sync.dispatch(sync.state.tr.setNodeMarkup(pos, undefined, { classes: ['y'] }));
+      expect(model.getValue()).toBe('Alpha\n\n[]{.y}');
+      const end = sync.state.doc.content.size;
+      sync.dispatch(sync.state.tr.insert(end, sync.state.schema.nodes.paragraph.create({ classes: ['z'] })));
+      expect(model.getValue()).toBe('Alpha\n\n[]{.y}\n\n[]{.z}');
+      sync.dispatch(sync.state.tr.insert(sync.state.doc.content.size, sync.state.schema.nodes.paragraph.create()));
+      expect(model.getValue()).toBe('Alpha\n\n[]{.y}\n\n[]{.z}');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
   it('writes a minimal model edit for a document transaction and leaves selection changes alone', () => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n=====\n\nLast\n');
     const changed = vi.fn();

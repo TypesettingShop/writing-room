@@ -8,6 +8,7 @@ import type { Step } from 'prosemirror-transform';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { getOriginalMarkdown, parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
 import type { IMarkdownSourceBlock, IParsedMarkdown } from '../../../../editor/common/markdown/parser.js';
+import { isMarkdownClass } from '../../../../editor/common/markdown/plugins/attrs.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
 import { getTextModelEdit } from '../../../../editor/common/model.js';
 import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
@@ -87,7 +88,8 @@ function withoutUnwrittenParagraphs(doc: Node, source: Node, forSerialization = 
   let parsed: Set<Node> | undefined;
   while (content.childCount > 1) {
     const last = content.lastChild!;
-    if (last.type.name !== 'paragraph' || last.childCount !== 0) break;
+    // A styled empty paragraph is written as []{.class}, so it is content even at the end.
+    if (last.type.name !== 'paragraph' || last.childCount !== 0 || last.attrs.classes.some(isMarkdownClass)) break;
     parsed ??= new Set(source.content.content);
     if (parsed.has(last) || (!forSerialization && caretEnterParagraphs.has(last.attrs))) break;
     content = content.cut(0, content.size - last.nodeSize);
