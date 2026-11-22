@@ -202,43 +202,57 @@ for (const editContext of [true, false]) {
     );
   }
 
-  test(`keeps native composition through a partial source edit in the same table cell (${editContext ? 'EditContext' : 'textarea'})`,
-    async ({ appPage: page }) => {
-      test.skip(process.env.E2E_TARGET === 'preview', 'The test needs the dev module to apply a synchronous Monaco model edit.');
-      const name = 'hangul-table-cell.md';
-      const header = '| A | B |\n| --- | --- |\n';
-      const original = header + '| Alpha | Bravo |';
-      const external = header + '| ALpha | Bravo |';
-      const composed = header + '| ALpha요 | Bravo |';
-      const editor = await openCompositionSplit(page, name, original, editContext);
-      const cells = editor.locator('tbody td');
-      const cell = cells.first();
-      await expect(cells).toHaveText(['Alpha', 'Bravo']);
-      await cell.click();
-      await page.keyboard.press('End');
-      await editSourceOnComposition(editor, name, [3, 4, 3, 5], 'L');
-      const cdp = await page.context().newCDPSession(page);
-      await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
-      await expect.poll(() => cell.evaluate(element => {
-        const selection = element.ownerDocument.getSelection();
-        return element.contains(selection?.focusNode ?? null) && selection?.focusOffset === element.textContent?.length;
-      })).toBe(true);
-      const expectVersion = async (source: string, content: string) => {
-        await expect(cells).toHaveText([content, 'Bravo']);
-        await page.keyboard.press('ControlOrMeta+s');
-        await expect.poll(() => readWorkspaceText(page, name)).toBe(source);
-      };
-      await expectVersion(composed, 'ALpha요');
-      await page.keyboard.press('ControlOrMeta+z');
-      await expectVersion(external, 'ALpha');
-      await page.keyboard.press('ControlOrMeta+z');
-      await expectVersion(original, 'Alpha');
-      await page.keyboard.press('ControlOrMeta+Shift+z');
-      await expectVersion(external, 'ALpha');
-      await page.keyboard.press('ControlOrMeta+Shift+z');
-      await expectVersion(composed, 'ALpha요');
+  for (const scenario of [
+    {
+      label: 'a partial source edit in the same table cell',
+      original: '| Alpha | Bravo |', external: '| ALpha | Bravo |', composed: '| ALpha요 | Bravo |',
+      range: [3, 4, 3, 5], replacement: 'L', target: 0,
+      initialCells: ['Alpha', 'Bravo'], externalCells: ['ALpha', 'Bravo'], composedCells: ['ALpha요', 'Bravo'],
     },
-  );
+    {
+      label: 'a source edit beside an auto-filled table cell',
+      original: '| Alpha |', external: '| Zulu |', composed: '| Zulu | 요 |',
+      range: [3, 3, 3, 8], replacement: 'Zulu', target: 1,
+      initialCells: ['Alpha', ''], externalCells: ['Zulu', ''], composedCells: ['Zulu', '요'],
+    },
+  ] as const) {
+    test(`keeps native composition through ${scenario.label} (${editContext ? 'EditContext' : 'textarea'})`,
+      async ({ appPage: page }) => {
+        test.skip(process.env.E2E_TARGET === 'preview', 'The test needs the dev module to apply a synchronous Monaco model edit.');
+        const name = 'hangul-table-cell.md';
+        const header = '| A | B |\n| --- | --- |\n';
+        const editor = await openCompositionSplit(page, name, header + scenario.original, editContext);
+        const cells = editor.locator('tbody td');
+        const cell = cells.nth(scenario.target);
+        await expect(cells).toHaveText([...scenario.initialCells]);
+        await cell.click();
+        await page.keyboard.press('End');
+        await editSourceOnComposition(editor, name, [...scenario.range], scenario.replacement);
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
+        const expectCaret = () => expect.poll(() => cell.evaluate(element => {
+          const selection = element.ownerDocument.getSelection();
+          return element.contains(selection?.focusNode ?? null) && selection?.focusOffset === element.textContent?.length;
+        })).toBe(true);
+        const expectVersion = async (source: string, content: readonly string[]) => {
+          await expect(cells).toHaveText([...content]);
+          await page.keyboard.press('ControlOrMeta+s');
+          await expect.poll(() => readWorkspaceText(page, name)).toBe(header + source);
+        };
+        await expectVersion(scenario.composed, scenario.composedCells);
+        await expectCaret();
+        await page.keyboard.press('ControlOrMeta+z');
+        await expectVersion(scenario.external, scenario.externalCells);
+        await page.keyboard.press('ControlOrMeta+z');
+        await expectVersion(scenario.original, scenario.initialCells);
+        await page.keyboard.press('ControlOrMeta+Shift+z');
+        await expectVersion(scenario.external, scenario.externalCells);
+        await page.keyboard.press('ControlOrMeta+Shift+z');
+        await expectVersion(scenario.composed, scenario.composedCells);
+        await expectCaret();
+      },
+    );
+  }
 }
 
 for (const action of [

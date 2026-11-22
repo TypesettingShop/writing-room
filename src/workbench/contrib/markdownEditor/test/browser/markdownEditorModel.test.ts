@@ -665,7 +665,17 @@ describe('MarkdownEditorModel', () => {
     });
   });
 
-  it.each([
+  it.each<{
+    original: string;
+    from?: string;
+    to?: string;
+    target: number;
+    typed?: string;
+    header?: string;
+    headerEdits?: [string, string][];
+    newTarget?: number;
+    label?: string;
+  }>([
     { original: '| Alpha | Bravo |', from: 'Bravo', to: 'Zulu', target: 0, typed: '| Alpha요 | Zulu |' },
     { original: '| Bravo | Bravo |', from: 'Bravo', to: 'Zulu', target: 1, typed: '| Zulu | Bravo요 |' },
     { original: 'A\\|B | Bravo', from: 'Bravo', to: 'Zulu', target: 0, typed: '| A\\|B요 | Zulu |' },
@@ -673,44 +683,82 @@ describe('MarkdownEditorModel', () => {
     { original: '| Alpha | Bravo |', from: 'Alpha', to: 'Zulu', target: 0 },
     { original: '| Alpha | Bravo |', from: 'Alpha | Bravo', to: 'Bravo | Alpha', target: 0 },
     { original: '| Alpha | Bravo |', from: 'ph', to: '|', target: 0 },
-  ])('keeps a queued composition only in a proven table cell ($original, $from → $to, cell $target)',
-    ({ original, from, to, target, typed }) => {
-      const header = '| A | B |\n| --- | --- |\n';
+    { label: 'padded cell', original: '| Alpha |', from: 'Alpha', to: 'Zulu', target: 1, typed: '| Zulu | 요 |' },
+    { label: 'padded cell without outer pipes', original: 'Alpha', from: 'Alpha', to: 'Zulu', target: 1, typed: '| Zulu | 요 |' },
+    { label: 'new explicit empty cell', original: '| Alpha |', from: 'Alpha', to: 'Zulu |', target: 1 },
+    { label: 'lost opening boundary', original: '| Alpha |', from: '| Alpha', to: 'Zulu', target: 1 },
+    { label: 'split row', original: '| Alpha |', from: 'ph', to: 'ph |\n| Br', target: 1 },
+    {
+      label: 'inserted column before surviving header', original: '| Alpha |', target: 1, newTarget: 2, typed: '| Alpha |  | 요 |',
+      headerEdits: [['| A', '| X | A'], ['--- | ---', '--- | --- | ---']],
+    },
+    {
+      label: 'deleted column before surviving header', original: '| Alpha |', target: 2, newTarget: 1, typed: '| Alpha | 요 |',
+      header: '| X | A | B |\n| --- | --- | --- |\n',
+      headerEdits: [['X | ', ''], ['--- | --- | ---', '--- | ---']],
+    },
+    {
+      label: 'deleted target header with another header shifting into its place', original: '| Alpha |', target: 1,
+      header: '| X | A | B |\n| --- | --- | --- |\n',
+      headerEdits: [['A | ', ''], ['--- | --- | ---', '--- | ---']],
+    },
+    {
+      label: 'replaced target header', original: '| Alpha |', target: 1, headerEdits: [['B', 'C']],
+    },
+    {
+      label: 'reordered duplicate headers', original: '| Alpha |', target: 1,
+      header: '| A |  A |\n| --- | --- |\n', headerEdits: [['A |  A', ' A | A']],
+    },
+    {
+      label: 'reordered distinct headers', original: '| Alpha |', target: 1, headerEdits: [['A | B', 'B | A']],
+    },
+  ])('keeps a queued composition only in a proven table cell ($label, $original, $from → $to, cell $target)',
+    ({ original, from, to = '', target, typed, header = '| A | B |\n| --- | --- |\n', headerEdits = [], newTarget = target }) => {
       const source = header + original;
-      const external = header + original.replace(from, to);
-      const composed = typed ? header + typed : external + '\n\n요';
+      const edits = headerEdits.map(([search, text]) => ({ offset: header.indexOf(search), length: search.length, text }));
+      if (from !== undefined) edits.push({ offset: header.length + original.indexOf(from), length: from.length, text: to });
+      const external = [...edits].sort((a, b) => b.offset - a.offset).reduce((text, { offset, length, text: replacement }) =>
+        text.slice(0, offset) + replacement + text.slice(offset + length), source);
+      const composed = typed ? external.slice(0, external.lastIndexOf('\n') + 1) + typed : external + '\n\n요';
       const model = new TestTextModel(URI.parse('file:///table.md'), source);
       const listener = model.onDidChangeContent(event => {
         if (event.versionId === 2) sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
       });
       const sync = new MarkdownEditorModel(model, [], () => {});
-      const tablePosition = () => {
+      const tablePosition = (column: number) => {
         const table = sync.state.doc.firstChild!;
         const row = table.child(1);
         let end = 3 + table.firstChild!.nodeSize;
-        for (let column = 0; column < target; column++) end += row.child(column).nodeSize;
-        return end + row.child(target).content.size;
+        for (let index = 0; index < column; index++) end += row.child(index).nodeSize;
+        return end + row.child(column).content.size;
       };
       const expectSource = (text: string) => {
         expect(model.getValue()).toBe(text);
         expect(sync.state.doc.eq(parseMarkdownWithSource(text).doc)).toBe(true);
       };
-      try {
-        const initial = tablePosition();
-        sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
-        const start = header.length + original.indexOf(from);
-        applyOffsets(model, start, start + from.length, to);
-        expectSource(composed);
+      const expectCompositionCaret = () => {
         if (typed) {
-          expect(sync.state.selection.head).toBe(tablePosition());
+          expect(sync.state.selection.head).toBe(tablePosition(newTarget));
         } else {
           expect(sync.state.selection.$head.parent).toBe(sync.state.doc.lastChild);
           expect(sync.state.selection.$head.parent.textContent).toBe('요');
         }
+      };
+      try {
+        const initial = tablePosition(target);
+        sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
+        model.applyEdits(edits.map(({ offset, length, text }) => {
+          const start = model.getPositionAt(offset);
+          const end = model.getPositionAt(offset + length);
+          return { range: { startLineNumber: start.lineNumber, startColumn: start.column,
+            endLineNumber: end.lineNumber, endColumn: end.column }, text };
+        }));
+        expectSource(composed);
+        expectCompositionCaret();
         expect(sync.undo()).toBe(true);
         expectSource(external);
         if (typed) {
-          expect(sync.state.selection.head).toBe(tablePosition());
+          expect(sync.state.selection.head).toBe(tablePosition(newTarget));
         }
         expect(sync.undo()).toBe(true);
         expectSource(source);
@@ -720,9 +768,7 @@ describe('MarkdownEditorModel', () => {
         expectSource(external);
         expect(sync.redo()).toBe(true);
         expectSource(composed);
-        if (typed) {
-          expect(sync.state.selection.head).toBe(tablePosition());
-        }
+        expectCompositionCaret();
         expect(sync.canRedo).toBe(false);
       } finally {
         listener.dispose();

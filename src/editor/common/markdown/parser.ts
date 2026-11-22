@@ -16,8 +16,9 @@ export interface IMarkdownSourceBlock {
   readonly endLine: number;
   readonly startOffset: number;
   readonly endOffset: number;
-  /** Empty explicit cells use their closing pipe as evidence of their position. */
-  readonly tableCell?: 'text' | 'empty';
+  /** Explicit empty cells are anchored by their closing pipe. Padding has a zero-width range. */
+  readonly tableCell?: 'text' | 'empty' | 'padding';
+  readonly tableRow?: TableRowBoundaries;
   /** Nested ranges exclude trailing whitespace and the optional opening pipe of a table row. */
   readonly children?: readonly IMarkdownSourceBlock[];
 }
@@ -34,7 +35,15 @@ interface SourceToken {
   readonly type: string;
   readonly range: LineRange | null;
   readonly cell?: TableCellSource;
+  readonly row?: TableRowBoundaries;
   readonly children: SourceToken[];
+}
+
+interface TableRowBoundaries {
+  /** Source offset of the opening pipe or the line break before the row. */
+  readonly start: number;
+  /** Source offset of the closing pipe or the line break after the row. Absent at EOF without a pipe. */
+  readonly end?: number;
 }
 
 interface TableCellSource {
@@ -124,9 +133,7 @@ const tokenSpecs: Record<string, ParseSpec> = {
   class_span: { mark: 'span', getAttrs: blockAttrs },
 };
 
-function tableCellSources(line: string, offset: number, range: LineRange): TableCellSource[] {
-  const text = line.trim();
-  offset += line.length - line.trimStart().length;
+function tableCellSources(text: string, offset: number, range: LineRange): TableCellSource[] {
   const cells: TableCellSource[] = [];
   let start = text.startsWith('|') ? 1 : 0;
   const append = (end: number) => {
@@ -147,13 +154,16 @@ function tableCellSources(line: string, offset: number, range: LineRange): Table
   return cells;
 }
 
-function adaptBlockRules(markdownIt: MarkdownIt, cellSources: WeakMap<Token, TableCellSource>): void {
+function adaptBlockRules(
+  markdownIt: MarkdownIt, cellSources: WeakMap<Token, TableCellSource>, rowBoundaries: WeakMap<Token, TableRowBoundaries>,
+): void {
   wrapMarkdownRule(markdownIt.block.ruler, 'table', original => (state, start, end, silent) => {
     const index = state.tokens.length;
     if (!original(state, start, end, silent)) return false;
     const env = state.env as IParseEnvironment;
     if (silent || !env.includeChildRanges) return true;
     let cells: TableCellSource[] = [];
+    let padding: TableCellSource | undefined;
     let column = 0;
     for (let cursor = index; cursor < state.tokens.length; cursor++) {
       const token = state.tokens[cursor];
@@ -163,10 +173,22 @@ function adaptBlockRules(markdownIt: MarkdownIt, cellSources: WeakMap<Token, Tab
         const lineStart = from === 0 ? 0 : state.src.lastIndexOf('\n', from - 1) + 1;
         // The block rule sees nested quote/list prefixes and normalized line endings.
         // Convert its column back to the original file using the original line starts.
-        cells = tableCellSources(state.src.slice(from, state.eMarks[line]), env.lines[line] + from - lineStart, token.map);
+        const raw = state.src.slice(from, state.eMarks[line]);
+        const fromContent = raw.trimStart();
+        const offset = env.lines[line] + from - lineStart + raw.length - fromContent.length;
+        const text = fromContent.trimEnd();
+        const endOffset = offset + text.length;
+        const afterLine = env.lines[token.map[1]];
+        const closingPipe = text.endsWith('|') && text.at(-2) !== '\\';
+        rowBoundaries.set(token, {
+          start: text.startsWith('|') ? offset : env.lines[line] - 1,
+          end: closingPipe ? endOffset - 1 : afterLine === undefined ? undefined : afterLine - 1,
+        });
+        cells = tableCellSources(text, offset, token.map);
+        padding = { range: token.map, startOffset: endOffset, endOffset, tableCell: 'padding' };
         column = 0;
       } else if (token.type === 'th_open' || token.type === 'td_open') {
-        const cell = cells[column++];
+        const cell = cells[column++] ?? (token.type === 'td_open' ? padding : undefined);
         if (cell) cellSources.set(token, cell);
       }
     }
@@ -265,7 +287,9 @@ function supportedTokenTypes(): Set<string> {
 }
 
 /** Follow the block nodes emitted by MarkdownParser. Ignored wrappers like thead and tbody are transparent. */
-function sourceTokenChildren(tokens: readonly Token[], cellSources: WeakMap<Token, TableCellSource>): readonly SourceToken[] | undefined {
+function sourceTokenChildren(
+  tokens: readonly Token[], cellSources: WeakMap<Token, TableCellSource>, rowBoundaries: WeakMap<Token, TableRowBoundaries>,
+): readonly SourceToken[] | undefined {
   const rootType = tokenSpecs[tokens[0].type.replace(/_open$/, '')]?.block;
   if (!rootType || markdownSchema.nodes[rootType].inlineContent) return;
 
@@ -280,7 +304,7 @@ function sourceTokenChildren(tokens: readonly Token[], cellSources: WeakMap<Toke
       stack.pop();
     } else {
       const cell = cellSources.get(token);
-      const child: SourceToken = { type, range: cell?.range ?? token.map, cell, children: [] };
+      const child: SourceToken = { type, range: cell?.range ?? token.map, cell, row: rowBoundaries.get(token), children: [] };
       stack.at(-1)!.push(child);
       if (token.nesting > 0) stack.push(child.children);
     }
@@ -290,15 +314,16 @@ function sourceTokenChildren(tokens: readonly Token[], cellSources: WeakMap<Toke
 
 function sourceBlock(
   node: Node, from: number, [startLine, endLine]: LineRange, tokens: readonly SourceToken[] | undefined,
-  source: string, lines: readonly number[], nested = false, cell?: TableCellSource,
+  source: string, lines: readonly number[], token?: SourceToken,
 ): IMarkdownSourceBlock {
   const lineStart = lines[startLine] ?? source.length;
   const lineEnd = lines[endLine] ?? source.length;
   let startOffset = lineStart;
   let endOffset = lineEnd;
+  const cell = token?.cell;
   if (cell) {
     ({ startOffset, endOffset } = cell);
-  } else if (nested) {
+  } else if (token) {
     const text = source.slice(lineStart, lineEnd).trimEnd();
     endOffset = lineStart + text.length;
     if (node.type.spec.tableRole === 'row') {
@@ -309,14 +334,15 @@ function sourceBlock(
   const children: IMarkdownSourceBlock[] = [];
   if (tokens?.length === node.childCount) {
     node.forEach((child, offset, index) => {
-      const token = tokens[index];
-      if (token.type === child.type.name && token.range) {
-        children.push(sourceBlock(child, from + 1 + offset, token.range, token.children, source, lines, true, token.cell));
+      const childToken = tokens[index];
+      if (childToken.type === child.type.name && childToken.range) {
+        children.push(sourceBlock(child, from + 1 + offset, childToken.range, childToken.children, source, lines, childToken));
       }
     });
   }
   return { from, to: from + node.nodeSize, startLine, endLine, startOffset, endOffset,
     ...(cell ? { tableCell: cell.tableCell } : {}),
+    ...(token?.row ? { tableRow: token.row } : {}),
     ...(children.length ? { children } : {}) };
 }
 
@@ -338,7 +364,8 @@ export function getOriginalMarkdown(doc: Node): IOriginalMarkdown | undefined {
 export function createMarkdownParser(options?: IMarkdownItOptions): (source: string, includeChildRanges?: boolean) => IParsedMarkdown {
   const markdownIt = createMarkdownIt(options);
   const cellSources = new WeakMap<Token, TableCellSource>();
-  adaptBlockRules(markdownIt, cellSources);
+  const rowBoundaries = new WeakMap<Token, TableRowBoundaries>();
+  adaptBlockRules(markdownIt, cellSources, rowBoundaries);
   keepUnresolvedFootnotes(markdownIt);
   const supported = supportedTokenTypes();
   markdownIt.core.ruler.push('prosemirror_source', state => {
@@ -349,7 +376,7 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
       const first = group[0];
       const range = first.map;
       if (group.every(token => isSupported(token, supported))) {
-        env.blocks.push({ range, children: env.includeChildRanges ? sourceTokenChildren(group, cellSources) : undefined });
+        env.blocks.push({ range, children: env.includeChildRanges ? sourceTokenChildren(group, cellSources, rowBoundaries) : undefined });
         return group;
       }
       env.blocks.push({ range });
