@@ -17,10 +17,10 @@ Decided in: wr-efqx.n9k, wr-lnox, wr-gfge, wr-qk08
   탭 사이(`tab.border`), 패널(`panel.border`), 제목 표시줄(`titleBar.border`),
   상태 표시줄(`statusBar.border`)의 기본색은 라이트 계열에서 `#a2aec0`, 다크 계열에서
   `#4a596e`다. 설치한 라이트·다크 테마에서 액티비티 바, 탭 바 아래, 상태 표시줄,
-  제목 표시줄의 경계색을 생략하면 해당 항목에는 테마 계열의 기본값을 쓴다.
+  제목 표시줄의 경계색을 생략하면 해당 항목에는 테마 계열의 기본색으로 선을 그린다.
   테마 파일의 `colors`에서 지정한 색이 우선한다. 일반 라이트·다크 계열에서
-  `sideBar.border`를 생략하면 `panel.border`를 따른다. 고대비에서는 경계의
-  기본색으로 `contrastBorder`를 쓴다. 고대비 테마의 탭 바 아래에는
+  `sideBar.border`를 생략하면 `panel.border`를 따른다. 고대비에서는 이 경계들의
+  기본색으로 `contrastBorder`를 쓴다. 다만 고대비 테마의 탭 바 아래에는
   `editorGroupHeader.tabsBorder`를 지정할 때만 선을 그린다.
 - `panel.border`는 Output 채널 목록과 헤더의 구분선, 확장 뷰의 행 구분선과 일부 버튼 테두리에도 쓰인다.
 - `markdownEditor.contentBorder`는 가운데 배치와 집중 모드에서 Markdown 본문 양옆의 선을 지정한다. 내장 라이트의 기본색은 `#d3dae6`, 내장 다크의 기본색은 `#313c50`이다. 두 색 모두 각 테마의 워크벤치 경계보다 연하다. 고대비 기본색은 `contrastBorder`를 따른다.
