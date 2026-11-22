@@ -360,6 +360,7 @@ export class MarkdownEditorModel extends Disposable {
     readonly source: SourceDocument;
     readonly parsed: Node;
     readonly identities: ReadonlyMap<Node, Node>;
+    readonly attrIdentities: ReadonlyMap<Node['attrs'], Node>;
   } | undefined;
 
   constructor(
@@ -708,20 +709,32 @@ export class MarkdownEditorModel extends Disposable {
     if (this.serializerProvenance?.source !== source) {
       const parsed = parseMarkdownWithSource(source.incrementalText).doc;
       const identities = new Map<Node, Node>();
+      const attrIdentities = new Map<Node['attrs'], Node>();
       // Only a block the full parse reads the same way can take that parse's spelling.
       if (parsed.childCount === source.doc.childCount) {
         source.doc.forEach((node, _offset, index) => {
           const block = parsed.child(index);
           if (node.eq(block)) {
             identities.set(node, block);
+            attrIdentities.set(node.attrs, block);
           }
         });
       }
-      this.serializerProvenance = { source, parsed, identities };
+      this.serializerProvenance = { source, parsed, identities, attrIdentities };
     }
-    const { parsed, identities } = this.serializerProvenance;
+    const { parsed, identities, attrIdentities } = this.serializerProvenance;
     const blocks: Node[] = [];
-    doc.forEach(node => blocks.push(identities.get(node) ?? node));
+    doc.forEach(node => {
+      const unchanged = identities.get(node);
+      if (unchanged) {
+        blocks.push(unchanged);
+        return;
+      }
+      // Content edits retain their old attrs. Use the full parse's attrs so the serializer
+      // can find their neighboring gaps and detect when a split shares the same source range.
+      const original = attrIdentities.get(node.attrs);
+      blocks.push(original?.type === node.type ? original.copy(node.content).mark(node.marks) : node);
+    });
     return serializeMarkdown(parsed.copy(Fragment.fromArray(blocks)));
   }
 

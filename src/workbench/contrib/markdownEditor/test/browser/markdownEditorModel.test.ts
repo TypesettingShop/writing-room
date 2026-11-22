@@ -1,4 +1,4 @@
-import { toggleMark } from 'prosemirror-commands';
+import { splitBlock, toggleMark } from 'prosemirror-commands';
 import { undo } from 'prosemirror-history';
 import { InputRule, inputRules, undoInputRule } from 'prosemirror-inputrules';
 import type { EditorState } from 'prosemirror-state';
@@ -689,6 +689,42 @@ describe('MarkdownEditorModel', () => {
       editLine(model, 3, 4, 4, ' 오늘');
       expect(sync.state.doc.child(2)).toBe(heading);
       expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
+    { name: 'blank lines', gap: '\n\n\n', first: 'a', middle: 'b', last: 'c' },
+    { name: 'a whitespace-only line and repeated paragraphs', gap: '\n\n \t\n', first: 'same', middle: 'same', last: 'same' },
+  ])('preserves $name before a paragraph split after an incremental source edit', ({ gap, first, middle, last }) => {
+    const original = `${first}${gap}${middle}\n\n\n${last}\n`;
+    const external = `${first}a${gap}${middle}\n\n\n${last}\n`;
+    const written = `${first}a${gap}${middle}\n\nx\n\n${last}\n`;
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const middleBeforeEdit = sync.state.doc.child(1);
+      editLine(model, 1, first.length + 1, first.length + 1, 'a');
+      expect(sync.state.doc.child(1)).toBe(middleBeforeEdit);
+      const { doc } = sync.state;
+      const end = doc.child(0).nodeSize + doc.child(1).nodeSize - 1;
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(doc, end)));
+      expect(splitBlock(sync.state, tr => sync.dispatch(tr.setTime(1000)))).toBe(true);
+      expect(model.getValue()).toBe(external);
+      sync.dispatch(sync.state.tr.insertText('x').setTime(1100));
+      expect(model.getValue()).toBe(written);
+
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(external);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(external);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(written);
     } finally {
       sync.dispose();
       model.dispose();
