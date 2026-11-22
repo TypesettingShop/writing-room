@@ -166,6 +166,10 @@ export class HttpManuscriptStore implements ManuscriptStore {
       this.status.set('ready');
       throw new ManuscriptStoreError('not_found');
     }
+    if (init?.method === 'HEAD' && response.status === 403) {
+      this.status.set('unavailable');
+      throw new Error('The manuscript server does not allow this address.');
+    }
     let body: unknown;
     if (response.status < 500 && response.headers.get('Content-Type')?.startsWith('application/json')) {
       body = await response.json().catch(() => undefined);
@@ -176,6 +180,10 @@ export class HttpManuscriptStore implements ManuscriptStore {
         (code !== 'conflict' || currentRevision !== undefined)) {
         this.status.set('ready');
         throw new ManuscriptStoreError(code, currentRevision);
+      }
+      if (code === 'forbidden_host') {
+        this.status.set('unavailable');
+        throw new Error(body.error.message);
       }
       if (code === 'forbidden_origin' || code === 'unsupported_media_type' || code === 'method_not_allowed') {
         this.status.set('ready');

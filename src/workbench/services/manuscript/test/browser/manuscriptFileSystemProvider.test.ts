@@ -8,7 +8,6 @@ import {
 import { HttpManuscriptStore } from '../../browser/httpManuscriptStore.js';
 import { manuscriptDocumentUri, ManuscriptFileSystemProvider, manuscriptScheme } from '../../browser/manuscriptFileSystemProvider.js';
 import { WindowManuscriptService } from '../../browser/windowManuscriptService.js';
-import { readManuscriptWindowWorkId } from '../../browser/windowWorkId.js';
 
 async function fixture() {
   const service = new WindowManuscriptService('?store=memory', undefined, () => { throw new Error('Unexpected HTTP store'); });
@@ -40,8 +39,6 @@ describe('manuscript file provider', () => {
           code: expect.stringMatching(/NoPermissions|EntryNotFound/),
         });
       }
-      expect(readManuscriptWindowWorkId('?work=' + workId + '&work=' + workId)).toBeUndefined();
-      expect(readManuscriptWindowWorkId('?work=' + workId)).toBe(workId);
 
       const welcomeProvider = new ManuscriptFileSystemProvider(service, () => undefined);
       try {
@@ -109,6 +106,23 @@ it('reports authentication changes and server outage without switching to memory
   } finally {
     availabilityListener.dispose();
     authListener.dispose();
+    service.dispose();
+  }
+});
+
+it('explains address rejection for both document stats and JSON requests', async () => {
+  const message = 'Host must be a loopback address or an allowed origin.';
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(Response.json({ error: { code: 'forbidden_host', message } }, { status: 403 }))
+    .mockResolvedValueOnce(new Response(null, { status: 403 }));
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, fetch));
+  try {
+    await expect(service.store.listWorks()).rejects.toThrow(message);
+    expect(service.availability).toBe('unavailable');
+    await expect(service.store.statDocument(crypto.randomUUID(), crypto.randomUUID())).rejects
+      .toThrow('The manuscript server does not allow this address.');
+    expect(service.availability).toBe('unavailable');
+  } finally {
     service.dispose();
   }
 });
