@@ -290,6 +290,22 @@ interface UnchangedSourceSpan {
   readonly shift: number;
 }
 
+function firstSourceSpanEndingAfter(spans: readonly UnchangedSourceSpan[], offset: number): number {
+  let first = 0;
+  let last = spans.length;
+  while (first < last) {
+    const middle = Math.floor((first + last) / 2);
+    if (spans[middle].to <= offset) first = middle + 1;
+    else last = middle;
+  }
+  return first;
+}
+
+function mapUnchangedOffset(spans: readonly UnchangedSourceSpan[], offset: number): number | undefined {
+  const span = spans[firstSourceSpanEndingAfter(spans, offset)];
+  if (span && span.from <= offset) return offset + span.shift;
+}
+
 /** Validate the event against both source versions before using its unchanged ranges. */
 function unchangedSourceSpans(
   previous: string, next: string, changes: readonly IModelContentChange[],
@@ -349,7 +365,7 @@ function survivingBlockText(
 function sourceBlockMatches(
   before: readonly IMarkdownSourceBlock[], after: readonly IMarkdownSourceBlock[],
   previous: string, unchanged: readonly UnchangedSourceSpan[],
-): ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null> | undefined {
+): Map<IMarkdownSourceBlock, SourceBlockMatch | null> | undefined {
   const forward = new Map<IMarkdownSourceBlock, SourceBlockMatch | null>();
   const backward = new Map<IMarkdownSourceBlock, IMarkdownSourceBlock | null>();
   const ordered = (blocks: readonly IMarkdownSourceBlock[]) =>
@@ -358,13 +374,7 @@ function sourceBlockMatches(
   if (!before.length || !after.length) return forward;
 
   // A nested container needs only the spans overlapping its own source.
-  let first = 0;
-  let last = unchanged.length;
-  while (first < last) {
-    const middle = Math.floor((first + last) / 2);
-    if (unchanged[middle].to <= before[0].startOffset) first = middle + 1;
-    else last = middle;
-  }
+  const first = firstSourceSpanEndingAfter(unchanged, before[0].startOffset);
   let oldIndex = 0;
   let newIndex = 0;
   for (let index = first; index < unchanged.length; index++) {
@@ -400,6 +410,62 @@ function sourceBlockMatches(
     if (match && backward.get(match.block) !== oldBlock) forward.delete(oldBlock);
   }
   return forward;
+}
+
+function unchangedTableColumns(
+  before: IMarkdownSourceBlock, after: IMarkdownSourceBlock, previous: string, unchanged: readonly UnchangedSourceSpan[],
+): ReadonlyMap<number, number> {
+  const columns = new Map<number, number>();
+  const oldHeader = before.children?.[0]?.children;
+  const newHeader = after.children?.[0]?.children;
+  if (!oldHeader || !newHeader) return columns;
+  const matches = sourceBlockMatches(oldHeader, newHeader, previous, unchanged);
+  const newColumns = new Map(newHeader.map((cell, column) => [cell, column]));
+  oldHeader.forEach((cell, column) => {
+    const match = matches?.get(cell);
+    const nextColumn = match?.intact ? newColumns.get(match.block) : undefined;
+    if (nextColumn !== undefined) columns.set(column, nextColumn);
+  });
+  return columns;
+}
+
+function hasTablePadding(row: IMarkdownSourceBlock): boolean {
+  return row.children?.at(-1)?.tableCell === 'padding';
+}
+
+function tableRowBoundariesMatch(
+  before: IMarkdownSourceBlock, after: IMarkdownSourceBlock, unchanged: readonly UnchangedSourceSpan[],
+): boolean {
+  const oldRow = before.tableRow;
+  const newRow = after.tableRow;
+  // An unpiped row can end at EOF. A deleted pipe or newline cannot stand in for that boundary.
+  return !!oldRow && !!newRow && mapUnchangedOffset(unchanged, oldRow.start) === newRow.start
+    && (oldRow.end === undefined ? newRow.end === undefined
+      : newRow.end !== undefined && mapUnchangedOffset(unchanged, oldRow.end) === newRow.end);
+}
+
+function* tableRowMatches(
+  before: readonly IMarkdownSourceBlock[], after: readonly IMarkdownSourceBlock[],
+  matches: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>, unchanged: readonly UnchangedSourceSpan[],
+): Iterable<[IMarkdownSourceBlock, SourceBlockMatch]> {
+  const claimed = new Set(Array.from(matches.values(), match => match?.block));
+  const paddedRows = new Map<number, IMarkdownSourceBlock>();
+  for (const row of after) {
+    if (row.tableRow && hasTablePadding(row) && !claimed.has(row)) paddedRows.set(row.tableRow.start, row);
+  }
+  for (const row of before) {
+    const match = matches.get(row);
+    if (match) {
+      yield [row, match];
+    } else if (match === undefined && row.tableRow && hasTablePadding(row)) {
+      // Replacing the only explicit field can leave no unchanged body text in the row.
+      const start = mapUnchangedOffset(unchanged, row.tableRow.start);
+      const updated = start === undefined ? undefined : paddedRows.get(start);
+      if (updated && tableRowBoundariesMatch(row, updated, unchanged)) {
+        yield [row, { block: updated, intact: false }];
+      }
+    }
+  }
 }
 
 function blockNodesByPosition(doc: Node): ReadonlyMap<number, Node> {
@@ -449,12 +515,16 @@ function sourceChangeMap(
     unmatched.push({ from: oldEnd, to: oldTo });
   };
 
-  const appendMatches = (blocks: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>) => {
+  const appendMatches = (
+    blocks: Iterable<[IMarkdownSourceBlock, SourceBlockMatch | null]>, columns?: ReadonlyMap<number, number>,
+  ) => {
     for (const [source, match] of blocks) {
       if (!match) continue;
       const block = oldNodes.get(source.from)!;
       const updated = newNodes.get(match.block.from)!;
-      const intact = match.intact && block.eq(updated);
+      const paddedRow = hasTablePadding(source);
+      // A row can keep identical source while its header columns change.
+      const intact = match.intact && !paddedRow && block.eq(updated);
       if (intact || block.isTextblock && (block.sameMarkup(updated) || source.tableCell && block.type === updated.type)) {
         appendGap(source.from, match.block.from);
         if (!intact) {
@@ -468,7 +538,24 @@ function sourceChangeMap(
         // Use exact, untouched ranges for surviving children. Equal prefixes and suffixes
         // can represent different list items, quote blocks or table rows after an edit.
         const children = sourceBlockMatches(source.children, match.block.children, previous, unchanged);
-        if (children) appendMatches(children);
+        if (!children) continue;
+        if (block.type.spec.tableRole === 'table') {
+          appendMatches(tableRowMatches(source.children, match.block.children, children, unchanged),
+            unchangedTableColumns(source, match.block, previous, unchanged));
+        } else {
+          // An untouched row is its own evidence. Its boundary newlines can belong to an edited neighbor line.
+          if (paddedRow && columns && (match.intact || tableRowBoundariesMatch(source, match.block, unchanged))) {
+            // Padding comes after the explicit cells on both sides, in the order of the proven header columns.
+            for (const [column, nextColumn] of columns) {
+              const cell = source.children[column];
+              const updatedCell = match.block.children[nextColumn];
+              if (cell?.tableCell === 'padding' && updatedCell?.tableCell === 'padding') {
+                children.set(cell, { block: updatedCell, intact: true });
+              }
+            }
+          }
+          appendMatches(children);
+        }
       }
     }
   };
