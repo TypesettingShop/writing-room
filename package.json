@@ -8,10 +8,13 @@
   },
   "scripts": {
     "dev": "vite",
+    "server:build": "vite build --config server/vite.config.ts",
+    "server": "npm run server:build && node dist-server/main.js",
+    "dev:server": "node scripts/watch-api.mjs",
     "build": "npm run typecheck && vite build",
     "postbuild": "node scripts/copy-builtin-extensions.mjs",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.extension-worker.json",
+    "typecheck": "tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.extension-worker.json && tsc --noEmit -p tsconfig.server.json",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
