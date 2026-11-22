@@ -6,6 +6,17 @@ export const IManuscriptService = createDecorator<IManuscriptService>('manuscrip
 
 export type ManuscriptAvailability = 'ready' | 'signedOut' | 'unavailable';
 
+export interface ManuscriptAuth {
+  hasGoogle(): Promise<boolean>;
+  signIn(email: string, password: string, createAccount: boolean): Promise<void>;
+  signOut(): Promise<void>;
+}
+
+export interface ManuscriptAuthChange {
+  readonly signedIn: boolean;
+  readonly reason: 'request' | 'account';
+}
+
 export interface DeletedManuscriptDocuments {
   readonly workId: string;
   readonly nodeIds: readonly string[];
@@ -16,7 +27,9 @@ export interface IManuscriptService extends BrandedService {
   readonly availability: ManuscriptAvailability;
   readonly usesMemory: boolean;
   readonly onDidChangeAvailability: Event<ManuscriptAvailability>;
-  readonly onDidChangeAuth: Event<void>;
+  readonly auth: ManuscriptAuth | undefined;
+  readonly signedIn: boolean | undefined;
+  readonly onDidChangeAuth: Event<ManuscriptAuthChange>;
   readonly onDidChangeTree: Event<string>;
   readonly onDidDeleteDocuments: Event<DeletedManuscriptDocuments>;
 }

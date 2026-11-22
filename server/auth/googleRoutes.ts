@@ -87,7 +87,11 @@ export function createGoogleRoutes({ google, store, allowLoopbackHttpCookies, tr
       throw new ApiError(400, 'invalid_oauth_state', 'Google sign-in expired or could not be verified.');
     }
     if (query.has('error')) {
-      redirect(response, '/?authError=google#works');
+      // The start route validated this same-origin path before storing it with the state.
+      const target = new URL(signIn.returnTo, config.publicOrigin);
+      const pairs = target.search.slice(1).split('&').filter(pair => pair && !new URLSearchParams(pair).has('authError'));
+      pairs.push('authError=google');
+      redirect(response, target.pathname + '?' + pairs.join('&') + '#works');
       return;
     }
     const code = query.get('code');
