@@ -157,7 +157,8 @@ const blockClasses: RuleCore = state => {
       const firstInItem = inListItem && parent?.previous === undefined;
       const endsContainer = closesParent && (inQuote || inListItem);
       const container = owner.type === 'paragraph_open' && (firstInItem || endsContainer) ? parent?.token : undefined;
-      const empty = owner.type === 'paragraph_open' && (inListItem || inQuote) &&
+      const acceptsEmptyMarker = !parentType || inListItem || inQuote || parentType === 'footnote_reference_open';
+      const empty = owner.type === 'paragraph_open' && acceptsEmptyMarker &&
         takeEmptyParagraph(tokens, index, owner, inListItem, inListItem ? container : undefined);
       const suffix = empty ? undefined : findSuffix(token.content);
       const acceptsEmpty = container || ['heading_open', 'th_open', 'td_open'].includes(owner.type);
