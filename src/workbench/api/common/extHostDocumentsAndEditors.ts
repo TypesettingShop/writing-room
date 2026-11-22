@@ -13,7 +13,7 @@ extHostApiRegistry.register('documents', ({ rpc, isLive }) => {
     () => editors.visibleTextEditors.map(editor => editor.document));
   rpc.set(ExtHostDocumentsProxy, documents);
   const decorations = new ExtHostTextEditorDecorations(rpc.getProxy(MainThreadDecorationsProxy));
-  const editors = new ExtHostTextEditors(rpc.getProxy(MainThreadEditorsProxy), documents, decorations);
+  const editors: ExtHostTextEditors = new ExtHostTextEditors(rpc.getProxy(MainThreadEditorsProxy), documents, decorations);
   rpc.set(ExtHostEditorsProxy, editors);
   const tabs = new ExtHostEditorTabs(rpc.getProxy(MainThreadEditorTabsProxy), documents);
   rpc.set(ExtHostEditorTabsProxy, tabs);
