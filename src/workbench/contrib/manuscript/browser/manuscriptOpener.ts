@@ -25,6 +25,15 @@ export class ManuscriptOpener {
     @INotificationService private readonly notifications: INotificationService,
   ) {}
 
+  isForWork(workId: string): boolean {
+    return workId === this.state.workId;
+  }
+
+  hasDocuments(nodeIds: readonly string[]): boolean {
+    const index = this.state.index;
+    return index !== undefined && nodeIds.some(id => documentsUnder(id, index).length > 0);
+  }
+
   async openDocuments(nodeIds: readonly string[], options: OpenDocumentsOptions = {}): Promise<void> {
     const { workId, index } = this.state;
     if (!workId || !index) {
@@ -36,7 +45,8 @@ export class ManuscriptOpener {
         ids.add(document);
       }
     }
-    const documents = [...ids].slice(0, maxDocuments);
+    const ordered = nodeIds.length > 1 ? documentsUnder(null, index).filter(id => ids.has(id)) : [...ids];
+    const documents = ordered.slice(0, maxDocuments);
     let opened = 0;
     const defaultGroup = options.group ?? this.groups.activeGroup;
     try {

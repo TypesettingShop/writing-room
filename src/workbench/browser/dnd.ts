@@ -319,6 +319,10 @@ export class ManuscriptDragAndDropObserver {
     return undefined;
   }
 
+  get isDragging(): boolean {
+    return !!this.active;
+  }
+
   isSource(element: HTMLElement): boolean {
     return this.active?.source === element;
   }
@@ -339,5 +343,6 @@ export class ManuscriptDragAndDropObserver {
 export function isWorkbenchDrag(event: DragEvent): boolean {
   const types = event.dataTransfer?.types ?? [];
   return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime)
-    || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging;
+    || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging
+    || ManuscriptDragAndDropObserver.INSTANCE.isDragging;
 }

@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { groups } from './files.helpers.js';
 
 async function createWork(request: APIRequestContext, baseURL: string) {
   const headers = { Origin: new URL(baseURL).origin };
@@ -227,4 +228,65 @@ test('reorders before and into a row and handles a stale drag revision', async (
   await expect.poll(rootTitles).toEqual(['1장 - Folder', 'B', 'Elsewhere']);
   await expect(row(page, 'Elsewhere')).toHaveAttribute('aria-level', '1');
   await expect(tree(page).locator('[data-manuscript-drop]')).toHaveCount(0);
+});
+
+async function dropOnGroup(page: Page, item: Locator, group: Locator, x: number, strip = false): Promise<void> {
+  const source = (await item.boundingBox())!;
+  const target = (await group.boundingBox())!;
+  const tabs = (await group.getByRole('tablist').boundingBox())!;
+  const bodyTop = tabs.y + tabs.height;
+  const from = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
+  const to = {
+    x: target.x + x * target.width,
+    y: strip ? tabs.y + tabs.height / 2 : (bodyTop + target.y + target.height) / 2,
+  };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 8, from.y + 3, { steps: 3 });
+  await page.mouse.move(to.x - 1, to.y);
+  await page.mouse.move(to.x, to.y);
+  if (!strip) {
+    await expect(group.locator('[data-editor-drop-position]')).toHaveAttribute(
+      'data-editor-drop-position', x > 0.9 ? 'right' : 'center',
+    );
+  }
+  await page.mouse.up();
+  await expect(page.locator('[data-editor-drop-position]')).toHaveCount(0);
+}
+
+test('opens editor-area drops in the target group, splits at the edge and caps each operation at 50', async ({ page, request, baseURL }) => {
+  test.setTimeout(60_000);
+  const work = await createWork(request, baseURL!);
+  async function add(kind: string, name: string, expectedRevision: number, parentId: string | null) {
+    const response = await request.post(work.nodes, {
+      headers: work.headers, data: { kind, title: name, parentId, expectedRevision },
+    });
+    expect(response.status()).toBe(201);
+    return (await response.json()).node.id as string;
+  }
+
+  const folder = await add('chapter', 'Bundle', 0, null);
+  await add('document', 'Single', 1, null);
+  for (let position = 0; position < 51; position++) {
+    await add('document', 'Scene ' + (position + 1), position + 2, folder);
+  }
+  await page.goto(work.url);
+  const first = groups(page).first();
+  await dropOnGroup(page, row(page, 'Single'), first, 0.65, true);
+  await expect(first.getByRole('tab', { name: 'Single', exact: true })).toHaveCount(0);
+  await dropOnGroup(page, row(page, 'Single'), first, 0.5);
+  await expect(first.getByRole('tab', { name: 'Single', exact: true })).toHaveCount(1);
+  await dropOnGroup(page, row(page, 'Single'), first, 0.5);
+  await expect(first.getByRole('tab', { name: 'Single', exact: true })).toHaveCount(1);
+
+  await dropOnGroup(page, row(page, '1장 - Bundle'), first, 0.97);
+  await expect(groups(page)).toHaveCount(2);
+  const second = groups(page).filter({ has: page.getByRole('tab', { name: 'Scene 1', exact: true }) });
+  await expect(second.getByRole('tab')).toHaveCount(50);
+  const original = groups(page).filter({ has: page.getByRole('tab', { name: 'Single', exact: true }) });
+  expect((await second.boundingBox())!.x).toBeGreaterThan((await original.boundingBox())!.x);
+  const names = await second.getByRole('tab').evaluateAll(tabs => tabs.map(tab => tab.querySelector('.tab-name')?.textContent));
+  expect(names).toEqual(Array.from({ length: 50 }, (_, position) => 'Scene ' + (position + 1)));
+  await expect(second.getByRole('tab', { name: 'Scene 1', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('Opened 50 of 51 documents.')).toBeVisible();
 });
