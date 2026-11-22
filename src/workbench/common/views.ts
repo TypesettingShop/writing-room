@@ -3,6 +3,7 @@ import { Emitter } from '../../base/common/event.js';
 import type { IDisposable } from '../../base/common/lifecycle.js';
 import { RawContextKey } from '../../platform/contextkey/common/contextkey.js';
 import type { ContextKeyExpression } from '../../platform/contextkey/common/contextkey.js';
+import type { IInstantiationService } from '../../platform/instantiation/common/instantiation.js';
 import { createDecorator } from '../../platform/instantiation/common/instantiation.js';
 import type { BrandedService } from '../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../platform/registry/common/platform.js';
@@ -25,6 +26,7 @@ export interface ViewContainer {
   readonly id: string;
   readonly title: string;
   readonly icon?: string | URL;
+  readonly defaultActive?: boolean;
 }
 
 export interface IViewBody extends Partial<IDisposable> {
@@ -35,7 +37,7 @@ export interface IViewDescriptor {
   readonly id: string;
   readonly name: string;
   readonly when?: ContextKeyExpression;
-  readonly renderBody: (parent: HTMLElement) => IViewBody | void;
+  readonly renderBody: (parent: HTMLElement, instantiationService?: IInstantiationService) => IViewBody | void;
 }
 
 export interface IViewContainersRegistry {

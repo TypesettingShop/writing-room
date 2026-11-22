@@ -227,8 +227,11 @@ export abstract class PaneCompositePart extends Part {
     }
 
     this.available = available;
-    const selected = [...available.keys()].find(container => container.id === this.state[this.activeKey])
-      ?? available.keys().next().value;
+    const candidates = [...available.keys()];
+    const remembered = this.state[this.activeKey];
+    const selected = (remembered === undefined
+      ? candidates.find(container => container.defaultActive)
+      : candidates.find(container => container.id === remembered)) ?? candidates[0];
     const previous = this.active;
     if (previous && (previous.descriptor !== selected || !this.visible)) {
       previous.setVisible(false);
