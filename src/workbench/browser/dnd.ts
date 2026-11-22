@@ -9,17 +9,34 @@ const compositeMime = 'application/x-writing-room-view-container';
 const editorMime = 'application/x-writing-room-editor';
 /** The marker type of a drag of extension tree items. */
 export const treeMime = 'application/x-writing-room-tree';
+const manuscriptMime = 'application/x-writing-room-manuscript';
 
 /**
- * Calls `end` on the source's `dragend`, Escape, or `pagehide`.
- * Window `blur` and `mousemove` leave the session active on every platform.
- * Wayland can move focus away from the window during a native drag, and Firefox can deliver
- * `mousemove` just after `dragstart`.
+ * Native drops leave the payload available through the target's synchronous handling.
+ * A removed source can miss dragend, so also recover on trusted pointer input that
+ * confirms release, or on the start of a new native drag. Wayland blur can occur
+ * during a valid drag and Firefox can still deliver pointer movement with the button down.
  */
 function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
   const window = source.ownerDocument.defaultView!;
   session.add(addDisposableListener(source, 'dragend', end));
   session.add(addDisposableListener(window, 'pagehide', end));
+  session.add(addDisposableListener(window, 'drop', () => {
+    const timer = window.setTimeout(end, 0);
+    session.add(toDisposable(() => window.clearTimeout(timer)));
+  }, true));
+  const finishOrphaned = (event: PointerEvent) => {
+    if (!source.isConnected && event.isTrusted && event.isPrimary && (event.buttons & 1) === 0) {
+      end();
+    }
+  };
+  session.add(addDisposableListener(window, 'pointerup', finishOrphaned, true));
+  session.add(addDisposableListener(window, 'pointermove', finishOrphaned, true));
+  session.add(addDisposableListener(window, 'dragstart', event => {
+    if (!source.isConnected && event.isTrusted) {
+      end();
+    }
+  }, true));
   session.add(addDisposableListener(window, 'keydown', event => {
     if (event.key === 'Escape') {
       end();
@@ -78,16 +95,20 @@ export class CompositeDragAndDropObserver {
 
   registerTarget(element: HTMLElement, target: CompositeDropTarget): IDisposable {
     const registrations = new DisposableStore();
+    const accept = (event: DragEvent) => {
+      const item = this.getItem(element, event);
+      if (item && target.onDragOver(event, item)) {
+        event.preventDefault();
+        event.dataTransfer!.dropEffect = 'move';
+      } else {
+        target.onDragLeave();
+      }
+    };
+    // The browser can release before the next dragover. Recheck descendant entries too,
+    // since the pointer may have moved from a refused insertion point to an allowed one.
+    registrations.add(addDisposableListener(element, 'dragenter', accept));
     const observer = registrations.add(new DragAndDropObserver(element, {
-      onDragOver: event => {
-        const item = this.getItem(element, event);
-        if (item && target.onDragOver(event, item)) {
-          event.preventDefault();
-          event.dataTransfer!.dropEffect = 'move';
-        } else {
-          target.onDragLeave();
-        }
-      },
+      onDragOver: accept,
       onDragLeave: () => target.onDragLeave(),
       onDrop: event => {
         const item = this.getItem(element, event);
@@ -272,12 +293,65 @@ export class TreeDragAndDropObserver {
   }
 }
 
+export interface DraggedManuscriptItems {
+  readonly workId: string;
+  readonly nodeIds: readonly string[];
+}
+
+/** The marker is the only native payload. Work and node ids stay in the source document. */
+export class ManuscriptDragAndDropObserver {
+  static readonly INSTANCE = new ManuscriptDragAndDropObserver();
+
+  private readonly session = new DisposableStore();
+  private readonly dragEnded = new Emitter<void>();
+  readonly onDidEndDrag = this.dragEnded.event;
+  private active: { readonly source: HTMLElement; readonly item: DraggedManuscriptItems } | undefined;
+
+  private constructor() {}
+
+  startDrag(event: DragEvent, source: HTMLElement, item: DraggedManuscriptItems): void {
+    const transfer = event.dataTransfer;
+    if (!transfer || event.defaultPrevented || !item.nodeIds.length) {
+      return;
+    }
+    this.endDrag();
+    this.active = { source, item: { workId: item.workId, nodeIds: [...item.nodeIds] } };
+    transfer.effectAllowed = 'copyMove';
+    transfer.setData(manuscriptMime, '1');
+    trackDragSession(this.session, source, () => this.endDrag());
+  }
+
+  getDraggedItems(event: DragEvent, element: HTMLElement): DraggedManuscriptItems | undefined {
+    if (this.active?.source.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(manuscriptMime)) {
+      return this.active.item;
+    }
+    return undefined;
+  }
+
+  get isDragging(): boolean {
+    return !!this.active;
+  }
+
+  isSource(element: HTMLElement): boolean {
+    return this.active?.source === element;
+  }
+
+  endDrag(): void {
+    if (this.active) {
+      this.active = undefined;
+      this.session.clear();
+      this.dragEnded.fire();
+    }
+  }
+}
+
 /**
  * Whether the drag is one of the workbench's own that a tree view must not take: an editor, an editor
- * group or a view container, by its marker type or by the session going on.
+ * group, a view container or a manuscript row.
  */
 export function isWorkbenchDrag(event: DragEvent): boolean {
   const types = event.dataTransfer?.types ?? [];
-  return types.includes(editorMime) || types.includes(compositeMime)
-    || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging;
+  return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime)
+    || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging
+    || ManuscriptDragAndDropObserver.INSTANCE.isDragging;
 }

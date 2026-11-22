@@ -1,0 +1,43 @@
+.manuscript-properties {
+  box-sizing: border-box;
+  padding: 6px 10px;
+}
+
+.manuscript-properties-hint {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.manuscript-properties dl {
+  margin: 0;
+}
+
+.manuscript-properties dl > div {
+  display: grid;
+  grid-template-columns: 5em minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  margin-block: 4px;
+}
+
+.manuscript-properties dl > div[hidden] {
+  display: none;
+}
+
+.manuscript-properties dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.manuscript-properties input {
+  box-sizing: border-box;
+  width: 100%;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  padding: 2px 4px;
+}
+
+.manuscript-properties input[aria-invalid='true'] {
+  border-color: var(--vscode-inputValidation-errorBorder);
+}

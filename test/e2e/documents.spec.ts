@@ -204,7 +204,7 @@ test('a file opened from the Explorer is the active and visible text editor of e
   const report = await reportEditors(page);
   expect(report).toMatchObject({ active: 'notes.md@1', activeIsUri: true, visible: ['notes.md@1'], documents: 1 });
   // As VS Code: the document opens before its editor comes.
-  expect(report.events.indexOf('open notes.md')).toBeGreaterThanOrEqual(0);
+  expect(report.events.filter(event => /^(open|close) notes\.md$/.test(event))).toEqual(['open notes.md']);
   expect(report.events.indexOf('open notes.md')).toBeLessThan(report.events.indexOf('active notes.md@1'));
   expect(report.events.indexOf('open notes.md')).toBeLessThan(report.events.indexOf('visible notes.md@1'));
 

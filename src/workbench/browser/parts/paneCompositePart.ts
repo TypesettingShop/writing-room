@@ -130,7 +130,8 @@ export abstract class PaneCompositePart extends Part {
   }
 
   override canShow(): boolean {
-    return this.viewDescriptors.getViewContainersByLocation(this.location).length > 0;
+    return this.viewDescriptors.getViewContainersByLocation(this.location)
+      .some(container => this.contextKeyService.contextMatchesRules(container.when));
   }
 
   bindContainerLocations(listener: (event: IViewContainerLocationChangeEvent) => void): void {
@@ -165,8 +166,12 @@ export abstract class PaneCompositePart extends Part {
     if (incoming && !reset) {
       this.state[this.activeKey] = incoming.viewContainer.id;
     } else if (outgoing) {
+      // `fromIndex` counts every container of the location, hidden ones too: take the first shown one
+      // that moved up into its place, or else the last shown one before it.
       const remaining = this.viewDescriptors.getViewContainersByLocation(this.location);
-      this.state[this.activeKey] = (remaining[outgoing.fromIndex] ?? remaining.at(-1))?.id;
+      const shown = (container: ViewContainer) => this.contextKeyService.contextMatchesRules(container.when);
+      const next = remaining.slice(outgoing.fromIndex).find(shown) ?? remaining.slice(0, outgoing.fromIndex).reverse().find(shown);
+      this.state[this.activeKey] = next?.id;
     }
     this.transferring = false;
     this.refresh();
@@ -214,7 +219,10 @@ export abstract class PaneCompositePart extends Part {
   private updateComposites(): void {
     const available = new Map<ViewContainer, readonly IViewDescriptor[]>();
     this.relevantContextKeys = new Set();
-    const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location);
+    const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location).filter(container => {
+      container.when?.keys().forEach(key => this.relevantContextKeys.add(key));
+      return this.contextKeyService.contextMatchesRules(container.when);
+    });
     this.layoutService.setPartHidden(descriptors.length === 0, this.id, { automatic: true });
     for (const container of descriptors) {
       const views = viewsRegistry.getViews(container).filter(view => {
@@ -227,8 +235,11 @@ export abstract class PaneCompositePart extends Part {
     }
 
     this.available = available;
-    const selected = [...available.keys()].find(container => container.id === this.state[this.activeKey])
-      ?? available.keys().next().value;
+    const candidates = [...available.keys()];
+    const remembered = this.state[this.activeKey];
+    const selected = (remembered === undefined
+      ? candidates.find(container => container.defaultActive)
+      : candidates.find(container => container.id === remembered)) ?? candidates[0];
     const previous = this.active;
     if (previous && (previous.descriptor !== selected || !this.visible)) {
       previous.setVisible(false);

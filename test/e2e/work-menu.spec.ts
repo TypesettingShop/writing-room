@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { showPracticeExplorer } from './work.helpers.js';
 import { runCommand } from './configuration.helpers.js';
 import { part, treeItem } from './explorer.helpers.js';
 import { answerCloseQuestion, expectEditorText, focusEditorEnd, groups, writeWorkspaceFile } from './files.helpers.js';
@@ -47,6 +48,7 @@ test('a canceled Work switch leaves earlier groups and their changes open', asyn
   const { work } = await response.json();
   await page.goto('/?work=' + work.id);
   await expect(page).toHaveTitle(work.title);
+  await showPracticeExplorer(page);
 
   const first = groups(page).first();
   const second = groups(page).nth(1);
