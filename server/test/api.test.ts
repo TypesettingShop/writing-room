@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { manuscriptLimits } from '../../src/platform/manuscript/common/manuscript.js';
 import { InMemoryManuscriptRepository } from '../../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import { contractTime, manuscriptStoreContract } from '../../src/platform/manuscript/test/common/manuscriptStoreContract.js';
 import { readApiConfig } from '../config.js';
 import { startTestApi, testOrigin } from './apiFixture.js';
-import { fetchContractStore } from './fetchContractStore.js';
+import { httpContractStore } from './httpContractStore.js';
 
 describe('in-memory API', () => {
   let api: Awaited<ReturnType<typeof startTestApi>>;
@@ -18,8 +19,8 @@ describe('in-memory API', () => {
   afterEach(async () => api.close());
 
   manuscriptStoreContract('HTTP manuscript contract', async () => ({
-    owner: fetchContractStore(api.fetch, 'owner'),
-    other: fetchContractStore(api.fetch, 'other'),
+    owner: httpContractStore(api.fetch, 'owner'),
+    other: httpContractStore(api.fetch, 'other'),
   }));
 
   it('requires an allowed Origin for writes, sets response headers and authenticates reads', async () => {
@@ -60,7 +61,7 @@ describe('in-memory API', () => {
     const invalidType = await api.fetch('/api/works', { method: 'POST', headers, body: '{}' });
     expect(invalidJson.status).toBe(400);
     expect(invalidType.status).toBe(415);
-    const store = fetchContractStore(api.fetch, 'owner');
+    const store = httpContractStore(api.fetch, 'owner');
     const { id } = await store.createWork({ title: 'Work' });
     const { node } = await store.createNode(id, { kind: 'document', parentId: null, title: '' }, 0);
     const response = await api.fetch('/api/works/' + id + '/documents/' + node.id, {
@@ -68,6 +69,26 @@ describe('in-memory API', () => {
     });
     expect(response.status).toBe(400);
     expect((await store.readDocument(id, node.id)).content).toBe('');
+  });
+
+  it('checks the declared Markdown size before reading its body', async () => {
+    const store = httpContractStore(api.fetch, 'owner');
+    const { id } = await store.createWork({ title: 'Work' });
+    const { node } = await store.createNode(id, { kind: 'document', parentId: null, title: '' }, 0);
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const req = request({
+        host: '127.0.0.1', port: api.port, path: '/api/works/' + id + '/documents/' + node.id, method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'text/markdown', 'Content-Length': manuscriptLimits.document + 1 },
+      }, response => {
+        response.resume();
+        response.on('end', () => { resolve(response.statusCode); req.destroy(); });
+      });
+      req.setTimeout(2000, () => req.destroy(new Error('No 413 before the body arrived.')));
+      req.on('error', reject);
+      req.flushHeaders();
+    });
+    expect(status).toBe(413);
+    expect(await store.readDocument(id, node.id)).toMatchObject({ content: '', size: 0 });
   });
 
   it('rejects a chunked body as soon as it crosses the limit', async () => {

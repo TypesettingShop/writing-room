@@ -8,7 +8,7 @@ import {
 import { migrate } from '../store/migrate.js';
 import { createPostgresPool, PostgresManuscriptRepository } from '../store/postgresManuscriptRepository.js';
 import { startTestApi } from './apiFixture.js';
-import { fetchContractStore } from './fetchContractStore.js';
+import { httpContractStore } from './httpContractStore.js';
 
 const databaseUrl = process.env.WRITING_ROOM_TEST_DATABASE_URL;
 if (!databaseUrl) {
@@ -52,8 +52,8 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
     beforeAll(async () => { api = await startTestApi({ store: 'postgres', repository }); });
     afterAll(async () => api.close());
     manuscriptStoreContract('HTTP', async () => ({
-      owner: fetchContractStore(api.fetch, 'owner'),
-      other: fetchContractStore(api.fetch, 'other'),
+      owner: httpContractStore(api.fetch, 'owner'),
+      other: httpContractStore(api.fetch, 'other'),
     }));
   });
 

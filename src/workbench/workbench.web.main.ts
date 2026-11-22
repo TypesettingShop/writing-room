@@ -1,5 +1,6 @@
 // Platform and workbench services
 import './platformServices.contribution.js';
+import './services/manuscript/browser/manuscript.contribution.js';
 
 // Workbench parts and editor contributions
 import './browser/workbench.contribution.js';
