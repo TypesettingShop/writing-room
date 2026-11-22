@@ -10,6 +10,7 @@ import type { GroupIdentifier } from '../../../../common/editor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
 import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../../../common/editor/editorInput.js';
 import { IFileDialogService } from '../../../../services/dialogs/common/dialogs.js';
+import { onDidChangeResourceLabels, resourceLabelProvider } from '../../../../services/label/common/resourceLabels.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 
 export { FILE_EDITOR_INPUT_ID };
@@ -52,6 +53,7 @@ export class FileEditorInput extends EditorInput {
     const mine = <T extends { readonly resource: URI }>(event: Event<T>) => Event.filter(event, model => isEqual(model.resource, this.target));
     this._register(mine(files.onDidChangeDirty)(() => this._onDidChangeDirty.fire()));
     this._register(Event.any(mine(files.onDidChangeOrphaned), mine(files.onDidChangeReadonly))(() => this._onDidChangeLabel.fire()));
+    this._register(Event.filter(onDidChangeResourceLabels, scheme => scheme === this.target.scheme)(() => this._onDidChangeLabel.fire()));
   }
 
   override get typeId(): string {
@@ -63,11 +65,15 @@ export class FileEditorInput extends EditorInput {
   }
 
   override getName(): string {
-    return basename(this.target) || this.target.toString();
+    return resourceLabelProvider(this.target.scheme)?.getName(this.target) ?? (basename(this.target) || this.target.toString());
   }
 
   /** The folder: relative to the workspace folder, which is named for a file at its top. */
   override getDescription(): string {
+    const description = resourceLabelProvider(this.target.scheme)?.getDescription(this.target);
+    if (description !== undefined) {
+      return description;
+    }
     const parent = dirname(this.target);
     const folder = this.workspace.getWorkspaceFolder(this.target);
     if (folder) {
@@ -81,7 +87,11 @@ export class FileEditorInput extends EditorInput {
   override getTitle(): string {
     const folder = this.workspace.getWorkspaceFolder(this.target);
     const relative = folder && relativePath(folder.uri, this.target);
-    const label = folder && relative ? `${folder.name}/${relative}` : this.target.toString(true);
+    const provider = resourceLabelProvider(this.target.scheme);
+    const name = provider?.getName(this.target);
+    const label = name
+      ? [provider?.getDescription(this.target), name].filter(Boolean).join(' / ')
+      : folder && relative ? `${folder.name}/${relative}` : this.target.toString(true);
     const model = this.textFileService.files.get(this.target);
     const marks = [model?.isOrphaned() ? 'deleted' : undefined, model?.isReadonly() ? 'read-only' : undefined].filter(Boolean);
     return marks.length ? `${label} (${marks.join(', ')})` : label;

@@ -4,6 +4,8 @@ import type { ServicesAccessor } from '../../../../platform/instantiation/common
 import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/browser/viewsService.js';
 import { WorkOpenContext } from '../../../services/work/common/work.js';
+import './manuscriptLabels.js';
+import { IManuscriptOpener } from './manuscriptOpener.js';
 import { IManuscriptViewState, type ManuscriptViewState } from './manuscriptViewState.js';
 import { NavigatorView } from './navigatorView.js';
 
@@ -87,3 +89,11 @@ registerManuscriptAction('rename', 'Rename...', { menu: context(40) }, state => 
   }
 });
 registerManuscriptAction('delete', 'Delete', { menu: context(50) }, state => state.deleteSelected());
+
+registerManuscriptAction('openAllDocuments', 'Open All Documents', { menu: context(6, folder) }, (state, accessor) => {
+  const selection = state.singleSelection();
+  if (selection && selection.kind !== 'document') {
+    return accessor.get(IManuscriptOpener).openDocuments([selection.id]);
+  }
+  return undefined;
+});

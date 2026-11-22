@@ -8,6 +8,7 @@ import { normalizeManuscriptTitle, type ManuscriptNodeKind } from '../../../../p
 import {
   breadcrumb, moveKey, parentLine, revealOffset, twigParts, TWIG_TEXT, UP_KEY, windowRange, type NavigatorLine,
 } from '../common/manuscriptTree.js';
+import { IManuscriptOpener, type ManuscriptOpener } from './manuscriptOpener.js';
 import { IManuscriptViewState, type ManuscriptViewState, type TitleEdit } from './manuscriptViewState.js';
 import './media/navigator.css';
 
@@ -43,6 +44,7 @@ export class NavigatorView extends Disposable {
     @IManuscriptViewState private readonly state: ManuscriptViewState,
     @IContextKeyService private readonly contextKeys: IContextKeyService,
     @IMenuService private readonly menus: IMenuService,
+    @IManuscriptOpener private readonly opener: ManuscriptOpener,
     @IContextMenuService private readonly contextMenus: IContextMenuService,
   ) {
     super();
@@ -367,6 +369,8 @@ export class NavigatorView extends Disposable {
       this.state.up();
     } else if (line.dir) {
       this.state.enter(line.key);
+    } else {
+      void this.opener.openDocuments([line.key]);
     }
   }
 

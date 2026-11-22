@@ -119,3 +119,37 @@ test('renders only the visible window of a 10,000-row manuscript tree', async ({
   expect(await tree(page).getByRole('treeitem').count()).toBeLessThanOrEqual(viewport + 17);
   await expect(row(page, 'Document 1')).toHaveCount(0);
 });
+
+test('opens a document once and keeps the title and path current in its editor tab', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const add = async (kind: string, name: string, expectedRevision: number, parentId: string | null) => {
+    const response = await request.post(work.nodes, {
+      headers: work.headers, data: { kind, title: name, parentId, expectedRevision },
+    });
+    expect(response.status()).toBe(201);
+    return (await response.json()).node.id as string;
+  };
+  const part = await add('part', 'Opening', 0, null);
+  const chapter = await add('chapter', 'First', 1, part);
+  await add('document', 'Scene', 2, chapter);
+  await add('document', 'Next scene', 3, chapter);
+  await page.goto(work.url);
+  await row(page, '1부 - Opening').getByRole('button', { name: 'Expand' }).click();
+  await row(page, '1장 - First').getByRole('button', { name: 'Expand' }).click();
+  await row(page, 'Scene').click();
+  await expect(page.getByRole('tab', { name: 'Scene', exact: true })).toHaveCount(0);
+  await tree(page).press('Enter');
+  const tab = page.getByRole('tab', { name: 'Scene', exact: true });
+  await expect(page.locator('.tab').filter({ has: tab })).toHaveAttribute('title', '1부 - Opening / 1장 - First / Scene');
+  await row(page, 'Scene').dblclick();
+  await expect(tab).toHaveCount(1);
+  await row(page, '1장 - First').click();
+  await tree(page).press('F2');
+  await title(page).fill('Revised');
+  await title(page).press('Enter');
+  await expect(page.locator('.tab').filter({ has: tab })).toHaveAttribute('title', '1부 - Opening / 1장 - Revised / Scene');
+  await row(page, '1장 - Revised').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Open All Documents', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Next scene', exact: true })).toBeVisible();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+});
