@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { runCommand, settingsKey } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
@@ -145,6 +145,75 @@ async function textPoint(line: Locator, offset: number): Promise<{ x: number; y:
     return { x: rect.left, y: rect.top + rect.height / 2 };
   }, offset);
 }
+
+async function openSelectionDocument(page: Page, file: string, source: string): Promise<Locator> {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, file, source);
+  await treeItem(page, file).dblclick();
+  return groups(page).first();
+}
+
+test('drags and double-clicks to select text from the editor padding', async ({ appPage: page }) => {
+  const group = await openSelectionDocument(page, 'padding-selection.md', 'Alpha words here\n\nBeta words here\n');
+  const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+  const first = editor.getByText('Alpha words here', { exact: true });
+  const second = editor.getByText('Beta words here', { exact: true });
+  await expect(first).toBeVisible({ timeout: 20_000 });
+
+  const paper = await box(editor);
+  const start = await textPoint(first, 0);
+  const end = await textPoint(first, 'Alpha words'.length);
+  const paddingX = (paper.x + start.x) / 2;
+  const selection = () => editor.evaluate(() => document.getSelection()?.toString());
+  await drag(page, paddingX, start.y, end.x, end.y);
+  await expect.poll(selection).toBe('Alpha words');
+
+  const next = await textPoint(second, 0);
+  await page.mouse.dblclick(paddingX, next.y);
+  await expect.poll(selection).toBe('Beta');
+});
+
+for (const [name, nested, selector] of [
+  ['quote', '> ---', 'blockquote hr'],
+  ['list', '- Item\n\n  ---', 'li hr'],
+] as const) {
+  test(`keeps a ${name} rule and types just after its container from the gutter`, async ({ appPage: page }) => {
+    const file = `nested-${name}-rule.md`;
+    const group = await openSelectionDocument(page, file, `${nested}\n\n---\n\nLast\n`);
+    const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+    const rule = editor.locator(selector);
+    await expect(rule).toBeVisible({ timeout: 20_000 });
+    const paper = await box(editor);
+    const bounds = await box(rule);
+    await page.mouse.click(paper.x + paper.width + 12, bounds.y + bounds.height / 2);
+    await expect(selectedTab(group)).toHaveAccessibleDescription('');
+    await page.keyboard.type('Added');
+    await expect(rule).toBeVisible();
+    await expect(editor.locator(':scope > p')).toHaveText(['Added', 'Last']);
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect.poll(() => readWorkspaceText(page, file)).toBe(`${nested}\n\nAdded\n\n---\n\nLast\n`);
+  });
+}
+
+test('keeps pending bold when the same caret is clicked in the gutter', async ({ appPage: page }) => {
+  const group = await openSelectionDocument(page, 'gutter-marks.md', 'Line\n');
+  const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+  const paragraph = editor.getByText('Line', { exact: true });
+  await paragraph.click({ timeout: 20_000 });
+  await page.keyboard.press('End');
+  await page.keyboard.press('ControlOrMeta+b');
+  const bold = group.getByRole('toolbar', { name: 'Markdown formatting' }).getByRole('button', { name: 'Bold', exact: true });
+  await expect(bold).toHaveAttribute('aria-pressed', 'true');
+
+  const paper = await box(editor);
+  const bounds = await box(paragraph);
+  await page.mouse.click(paper.x + paper.width + 12, bounds.y + bounds.height / 2);
+  await expect(bold).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.type('Bold');
+  await expect(editor.locator('strong')).toHaveText('Bold');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, 'gutter-marks.md')).toBe('Line**Bold**\n');
+});
 
 test('right-clicking below a read-only rule leaves a collapsed selection', async ({ appPage: page }) => {
   await seedInstalledExtensions(page, [{

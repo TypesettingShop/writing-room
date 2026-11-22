@@ -4,7 +4,7 @@ import { keymap } from 'prosemirror-keymap';
 import { TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
-import { EditorView } from 'prosemirror-view';
+import type { EditorView } from 'prosemirror-view';
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -40,7 +40,7 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
-import { bindMarkdownGutter, onMarkdownScrollbar } from './markdownEditorGutter.js';
+import { bindMarkdownGutter, MarkdownEditorView, onMarkdownScrollbar } from './markdownEditorGutter.js';
 import { markdownCaretParagraphKey, toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
@@ -239,7 +239,7 @@ export class MarkdownEditorPane extends EditorPane {
         return;
       }
       const sync = this.sync = this.getTabModel(input, resolved);
-      const view = this.view = new EditorView(this.surface, {
+      const view = this.view = new MarkdownEditorView(this.surface, {
         state: sync.state,
         editable: () => !input.isReadonly(),
         attributes: () => ({
