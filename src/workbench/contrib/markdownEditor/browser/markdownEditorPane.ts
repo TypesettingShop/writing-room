@@ -269,10 +269,11 @@ export class MarkdownEditorPane extends EditorPane {
         },
         dispatchTransaction: transaction => {
           if (!transaction.docChanged || !input.isReadonly()) {
-            // A click or drag only moves the selection; centering it would move the text under the pointer.
-            // prosemirror-tables selects cells under the mouse without the pointer flag or a scroll request.
+            // Native read-only selection and table cell drags can arrive without the pointer flag.
+            // Keep the viewport in place unless the transaction requested scrolling.
             this.pointerSelection = transaction.getMeta('pointer') === true
-              || (!transaction.docChanged && transaction.selection instanceof CellSelection && !transaction.scrolledIntoView);
+              || (!transaction.docChanged && !transaction.scrolledIntoView
+                && ((!view.editable && transaction.selectionSet) || transaction.selection instanceof CellSelection));
             try {
               sync.dispatch(transaction);
             } finally {
@@ -281,6 +282,8 @@ export class MarkdownEditorPane extends EditorPane {
           }
         },
         handleDOMEvents: {
+          // ProseMirror handles mousedown even in read-only views and cancels native selection.
+          mousedown: view => !view.editable,
           keydown: (_view, event) => {
             if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && this.openContextMenu()) {
               event.preventDefault();

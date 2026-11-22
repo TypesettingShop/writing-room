@@ -56,7 +56,7 @@ export function markdownEndCaretTransaction(
 export function bindMarkdownGutter(surface: HTMLElement, getView: () => EditorView | undefined): IDisposable {
   const moveCaret = (event: MouseEvent) => {
     const view = getView();
-    if (!view || view.composing || event.button !== 0) return;
+    if (!view?.editable || view.composing || event.button !== 0) return;
     let transaction = markdownEndCaretTransaction(surface, view, event, event.shiftKey);
     if (!transaction) {
       let selection = markdownGutterSelection(surface, view, event);
