@@ -12,10 +12,9 @@ export interface RouteContext {
   store: ManuscriptStore;
 }
 
-type Handler = (context: RouteContext) => Promise<void>;
-export interface Route {
+export interface Route<Context = RouteContext> {
   path: string;
-  handlers: Readonly<Record<string, Handler>>;
+  handlers: Readonly<Record<string, (context: Context) => Promise<void>>>;
 }
 
 export function splitTarget(request: IncomingMessage): { path: string; query: URLSearchParams } {
@@ -26,7 +25,7 @@ export function splitTarget(request: IncomingMessage): { path: string; query: UR
     : { path: target.slice(0, index), query: new URLSearchParams(target.slice(index + 1)) };
 }
 
-export function matchRoute(routes: readonly Route[], path: string, method: string, response: ServerResponse) {
+export function matchRoute<Context>(routes: readonly Route<Context>[], path: string, method: string, response: ServerResponse) {
   // Match the original request target. URL pathname normalization would collapse dot segments.
   const segments = path.split('/');
   for (const route of routes) {
