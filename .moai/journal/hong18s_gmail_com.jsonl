@@ -305,3 +305,37 @@
 {"ts":"2026-11-22T09:02:18Z","id":"wr-3n70","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Report-checked: c0e0ed7"}
 {"ts":"2026-11-22T09:05:22Z","id":"wr-th5n","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"결정(사람, 2026-11-22): 로컬 개발 Postgres는 Docker로 띄운다. compose.yaml(postgres:17, 루프백 5432, 이름 있는 볼륨, healthcheck, 테스트 DB init)과 npm 스크립트 db:up/db:down/db:reset, .env.example을 둔다. 상세는 wr-th5n.wu6 본문 「정한 것」. 테스트는 Docker를 직접 띄우지 않고 URL이 없으면 건너뛴다."}
 {"ts":"2026-11-22T09:05:29Z","id":"wr-th5n.wu6","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"공유 파일 주의: db:up/db:down/db:reset 스크립트 때문에 이 멤버도 package.json을 만진다. 「API 서버」(wr-th5n.n7q)와 병렬로 진행하면 scripts 블록에서 충돌할 수 있으니, n7q가 먼저 병합된 뒤 그 위에 더한다. compose.yaml, .env.example, scripts/postgres/는 이 멤버만 만진다."}
+{"ts":"2026-11-22T09:17:43Z","id":"wr-ph6c.bvl","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"각주 정의 안의 클래스 붙은 빈 문단 저장"}
+{"ts":"2026-11-22T09:17:43Z","id":"wr-ph6c.bvl","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-vgef — 각주 정의 안의 클래스가 붙은 빈 문단을 저장한다"}
+{"ts":"2026-11-22T09:17:43Z","id":"wr-vgef","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-ph6c as wr-ph6c.bvl"}
+{"ts":"2026-11-22T09:17:43Z","id":"wr-ph6c.45u","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"인용문·최상위의 클래스 붙은 빈 문단 저장"}
+{"ts":"2026-11-22T09:17:43Z","id":"wr-ph6c.45u","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-sylr — 인용문·최상위의 클래스가 붙은 빈 문단 저장 표기"}
+{"ts":"2026-11-22T09:17:43Z","id":"wr-sylr","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-ph6c as wr-ph6c.45u"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-ph6c.cqw","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"글자 수 정의와 긴 원고 성능 예산"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-ph6c.cqw","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-3jxv — Markdown 글자 수 정의와 긴 원고 성능 예산을 정한다"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-3jxv","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-ph6c as wr-ph6c.cqw"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-1pn9.k0a","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"뷰 컨테이너 네이티브 드롭의 첫 dragenter 수락"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-1pn9.k0a","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-uehv — 뷰 컨테이너의 네이티브 드롭 대상에 첫 dragenter 응답이 빠진다"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-uehv","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-1pn9 as wr-1pn9.k0a"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-1pn9.2su","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"드래그 도중 문서에서 빠진 소스의 세션 정리"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-1pn9.2su","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-yefw — 드래그 도중 문서에서 빠진 소스의 세션을 안전하게 정리한다"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-yefw","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-1pn9 as wr-1pn9.2su"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-1pn9.gbz","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"문서를 열면 확장에 open·close·open이 세 번 알려짐"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-1pn9.gbz","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-tx0d — 작업 폴더 파일을 편집기로 열면 확장에 문서가 열림·닫힘·열림 세 번 알려진다"}
+{"ts":"2026-11-22T09:17:44Z","id":"wr-tx0d","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-1pn9 as wr-1pn9.gbz"}
+{"ts":"2026-11-22T09:17:45Z","id":"wr-88fi.lsh","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"Welcome 시작 판단을 워크벤치 기여로 옮기기"}
+{"ts":"2026-11-22T09:17:45Z","id":"wr-88fi.lsh","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-pz63 — Welcome 시작 판단을 워크벤치 기여로 옮기고 에디터 그룹 서비스로 복원 상태 제공 (리뷰 wr-k5og.w34 #8)"}
+{"ts":"2026-11-22T09:17:45Z","id":"wr-pz63","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-88fi as wr-88fi.lsh"}
+{"ts":"2026-11-22T09:17:54Z","id":"wr-ph6c.bvl","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"v0.4.0(wr-hhp1)으로 가져왔다(사람 결정 2026-11-22). 본문의 \"마일스톤 밖/백로그\" 문구는 지난 판단이며, 이제 이 에픽의 멤버다."}
+{"ts":"2026-11-22T09:17:54Z","id":"wr-ph6c.45u","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"v0.4.0(wr-hhp1)으로 가져왔다(사람 결정 2026-11-22). 본문의 \"마일스톤 밖/백로그\" 문구는 지난 판단이며, 이제 이 에픽의 멤버다."}
+{"ts":"2026-11-22T09:17:55Z","id":"wr-ph6c.cqw","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"v0.4.0(wr-hhp1)으로 가져왔다(사람 결정 2026-11-22). 본문의 \"마일스톤 밖/백로그\" 문구는 지난 판단이며, 이제 이 에픽의 멤버다."}
+{"ts":"2026-11-22T09:17:55Z","id":"wr-zx9z","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"한글 입력 결함: IME 리셋과 대기 입력 보존"}
+{"ts":"2026-11-22T09:17:55Z","id":"wr-zx9z.vpz","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"원문 Monaco IME 리셋이 마지막 조합 글자를 지움"}
+{"ts":"2026-11-22T09:17:55Z","id":"wr-zx9z","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-gmvt — 원문 Monaco에서 IME 리셋이 마지막 조합 글자를 지운다"}
+{"ts":"2026-11-22T09:17:55Z","id":"wr-gmvt","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-zx9z, 1 issue"}
+{"ts":"2026-11-22T09:18:02Z","id":"wr-zx9z.2m5","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"대상 블록이 삭제돼도 WYSIWYG 대기 중 IME 입력을 보존한다"}
+{"ts":"2026-11-22T09:18:02Z","id":"wr-zx9z.2m5","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-d821 — 대상 블록이 삭제돼도 WYSIWYG 대기 중 IME 입력을 보존한다"}
+{"ts":"2026-11-22T09:18:02Z","id":"wr-d821","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-zx9z as wr-zx9z.2m5"}
+{"ts":"2026-11-22T09:18:02Z","id":"wr-zx9z.r72","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"대상 블록 삭제 뒤 WYSIWYG 커서의 대체 위치를 정한다"}
+{"ts":"2026-11-22T09:18:02Z","id":"wr-zx9z.r72","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-1kqd — 대상 블록 삭제 뒤 WYSIWYG 커서의 대체 위치를 정한다"}
+{"ts":"2026-11-22T09:18:02Z","id":"wr-1kqd","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-zx9z as wr-zx9z.r72"}
