@@ -1,0 +1,35 @@
+name: Main PR source
+
+on:
+  # Run the workflow from the base repository. Do not add checkout or run PR code.
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  check-main-pr-source:
+    name: Check main PR source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source repository and branch
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
+          BASE_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          if [[ -z "$HEAD_REPOSITORY_ID" || "$HEAD_REPOSITORY_ID" != "$BASE_REPOSITORY_ID" ]]; then
+            echo '::error::Pull requests to main must come from this repository.'
+            exit 1
+          fi
+
+          case "$HEAD_REF" in
+            develop|hotfix/*) ;;
+            *)
+              echo "::error::Pull requests to main must come from develop or hotfix/*, not ${HEAD_REF}. Retarget this pull request to develop."
+              exit 1
+              ;;
+          esac
