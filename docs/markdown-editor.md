@@ -11,6 +11,12 @@
 - 모드를 전환한 순간의 마크다운이 새 이력의 시작점이 된다. 그 뒤 첫 편집을 실행 취소하면 전환 순간의 텍스트로 돌아온다. 원문 모드로 전환할 때 같은 파일을 보여 주는 Monaco 창도 새 이력의 시작점을 공유한다. 새로고침은 탭 모드와 초안을 복원한다.
 - 이미지의 상대 경로는 문서 폴더를 기준으로 읽는다. 작업 폴더 안의 이미지는 파일 서비스로 읽어 보여 주고, 작업 폴더 밖의 경로나 지원하지 않는 형식은 대체 텍스트와 사유를 보여 준다. HTTPS 이미지는 이미지마다 **Load image** 버튼을 눌러야 요청하며 referrer를 보내지 않는다. HTTP 이미지는 요청하지 않고 대체 텍스트를 보여 준다. 어느 경우든 저장할 때 원래 주소를 유지한다.
 
+## 서식 없이 붙여넣기
+
+- WYSIWYG의 **Paste as Plain Text**와 **Ctrl+Shift+V**(macOS는 **Cmd+Shift+V**)는 같은 브라우저 탭의 편집기에서 복사한 조각을 보이는 글자로 붙인다. 문단과 목록 항목 사이는 줄바꿈으로 잇고 표는 칸마다 한 줄로 붙인다. 이미지는 대체 텍스트로 붙이며 대체 텍스트가 없으면 생략한다. 일반 텍스트만 담긴 클립보드는 글자 그대로 붙이고, 보통 복사는 Markdown 원문과 렌더된 HTML을 함께 담는다.
+- 단축키는 현재 클립보드의 일반 텍스트를 이 탭에서 마지막으로 복사한 Markdown과 비교한다. 다른 브라우저 탭이나 창의 WYSIWYG에서 복사한 조각을 붙이거나 코드 블록에 붙일 때는 메뉴의 **Paste as Plain Text**를 사용한다. 단축키로는 Markdown 원문이 들어갈 수 있다.
+- 단축키가 새로고침 뒤에도 동작하도록 마지막 복사본의 Markdown과 보이는 글자를 이 브라우저 탭의 세션 저장소에 둔다. 탭 세션이 끝나면 사라지며, 저장할 데이터가 1 MiB를 넘으면 새로고침 전까지만 메모리에 둔다.
+
 ## 본문 폭과 배치
 
 - `markdownEditor.contentWidth`는 가운데 배치에서 본문 글줄의 최대 폭을
@@ -198,4 +204,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk
