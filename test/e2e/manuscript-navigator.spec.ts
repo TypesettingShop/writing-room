@@ -5,6 +5,7 @@ import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFi
 import { groups } from './files.helpers.js';
 import { savedRecords } from './packages.helpers.js';
 import { installFromGallery, realPin, requireRealExtensions, routeFixtureGallery } from './real-extensions.helpers.js';
+import { chooseTheme, colorVariable, kindClass, openWithThemingFixtures, rgb } from './themes.helpers.js';
 
 async function createWork(request: APIRequestContext, baseURL: string) {
   const headers = { Origin: new URL(baseURL).origin };
@@ -66,6 +67,90 @@ test('shows Navigator only in a work and remembers folder, expansion and selecti
   await expect(row(page, '2장 - Second')).toBeVisible();
   await tree(page).press('Backspace');
   await expect(row(page, '2부 - Ending')).toBeVisible();
+});
+
+test('aligns Navigator branches with their parent toggles and reaches document icons', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  let revision = 0;
+  async function add(kind: string, title: string, parentId: string | null): Promise<string> {
+    const response = await request.post(work.nodes, {
+      headers: work.headers, data: { kind, title, parentId, expectedRevision: revision },
+    });
+    expect(response.status()).toBe(201);
+    revision++;
+    return (await response.json()).node.id;
+  }
+  const partId = await add('part', '떠나는 길', null);
+  await add('document', '부 여는 글', partId);
+  const chapterId = await add('chapter', '첫 만남', partId);
+  await add('document', '역 앞에서', chapterId);
+  await add('chapter', '두 번째 약속', partId);
+  await add('document', '집필 노트', null);
+
+  await openWithThemingFixtures(page, ['color-theme/']);
+  await page.goto(work.url);
+  const part = row(page, '1부 - 떠나는 길');
+  await part.getByRole('button', { name: 'Expand' }).click();
+  const chapter = row(page, '1장 - 첫 만남');
+  await chapter.getByRole('button', { name: 'Expand' }).click();
+  const introduction = row(page, '부 여는 글');
+  const scene = row(page, '역 앞에서');
+
+  await expect(part).toHaveAttribute('aria-level', '1');
+  await expect(chapter).toHaveAttribute('aria-level', '2');
+  await expect(scene).toHaveAttribute('aria-level', '3');
+  await expect(part.locator('.manuscript-twig > span')).toHaveCount(0);
+  await expect(row(page, '집필 노트').locator('.manuscript-twig > span')).toHaveCount(0);
+
+  async function toggleCenter(folder: Locator): Promise<number> {
+    const { x, width } = (await folder.getByRole('button', { name: 'Collapse' }).boundingBox())!;
+    return x + width / 2;
+  }
+
+  async function branch(item: Locator) {
+    return item.evaluate(element => {
+      const segment = element.querySelector('.manuscript-twig > :last-child')!;
+      const vertical = getComputedStyle(segment, '::before');
+      const horizontal = getComputedStyle(segment, '::after');
+      const bounds = segment.getBoundingClientRect();
+      const iconOrToggle = element.querySelector('.manuscript-toggle, .codicon-file')!.getBoundingClientRect();
+      return {
+        verticalX: bounds.left + parseFloat(vertical.left) + parseFloat(vertical.width) / 2,
+        gap: iconOrToggle.left - (bounds.left + parseFloat(horizontal.left) + parseFloat(horizontal.width)),
+        colors: [vertical.backgroundColor, horizontal.backgroundColor],
+      };
+    });
+  }
+
+  const partX = await toggleCenter(part);
+  const chapterX = await toggleCenter(chapter);
+  const chapterBranch = await branch(chapter);
+  const introductionBranch = await branch(introduction);
+  const sceneBranch = await branch(scene);
+  const pipeX = await scene.locator('.manuscript-twig-pipe').evaluate(element => {
+    const stroke = getComputedStyle(element, '::before');
+    return element.getBoundingClientRect().left + parseFloat(stroke.left) + parseFloat(stroke.width) / 2;
+  });
+
+  expect.soft(Math.abs(chapterBranch.verticalX - partX), 'part to chapter').toBeLessThanOrEqual(1);
+  expect.soft(Math.abs(introductionBranch.verticalX - partX), 'part to document').toBeLessThanOrEqual(1);
+  expect.soft(Math.abs(sceneBranch.verticalX - chapterX), 'chapter to document').toBeLessThanOrEqual(1);
+  expect.soft(Math.abs(pipeX - partX), 'part branch continues past the first chapter').toBeLessThanOrEqual(1);
+  expect(chapterBranch.gap).toBeGreaterThanOrEqual(0);
+  for (const gap of [introductionBranch.gap, sceneBranch.gap]) {
+    expect.soft(gap).toBeGreaterThanOrEqual(0);
+    expect.soft(gap).toBeLessThanOrEqual(chapterBranch.gap);
+  }
+
+  for (const [theme, kind] of [
+    ['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'],
+    ['Fixture Contrast', 'hc-black'], ['Fixture Contrast Light', 'hc-light'],
+  ]) {
+    await chooseTheme(page, theme);
+    await expect.poll(() => kindClass(page)).toBe(kind);
+    const color = rgb(await colorVariable(page, 'descriptionForeground'));
+    expect((await branch(scene)).colors).toEqual([color, color]);
+  }
 });
 
 test('keeps inline rename local until Enter and refreshes after a revision conflict', async ({ page, request, baseURL }) => {
