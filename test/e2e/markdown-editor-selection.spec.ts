@@ -151,6 +151,46 @@ test('redoes the paragraph at the rule after undo and a caret move', async ({ ap
   await expect.poll(() => readWorkspaceText(page, file)).toBe('First\n\n---\n\nAdded\n\nLast\n');
 });
 
+for (const keepRule of [true, false]) {
+  test(`places input after a split source edit that ${keepRule ? 'keeps' : 'deletes'} the target rule`, async ({ appPage: page }) => {
+    const file = 'gutter-split-source.md';
+    const left = await openSelectionDocument(page, file, 'First\n\n---');
+    const editor = left.getByRole('textbox', { name: 'Markdown editor' });
+    const rule = editor.locator('hr');
+    await expect(rule).toBeVisible({ timeout: 20_000 });
+    await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+    const right = groups(page).nth(1);
+    await right.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+    const source = right.getByRole('textbox', { name: 'Editor content' });
+    await expect(source).toBeFocused({ timeout: 20_000 });
+
+    const paper = await box(editor);
+    const bounds = await box(rule);
+    await page.mouse.click(paper.x + paper.width / 2, bounds.y + bounds.height + 24);
+    await expect(editor.locator(':scope > p')).toHaveText(['First', '']);
+    await expect(selectedTab(left)).toHaveAccessibleDescription('');
+    await source.focus();
+    if (keepRule) {
+      await page.keyboard.press('ControlOrMeta+Home');
+      await page.keyboard.insertText('Changed ');
+      await expect(editor.locator(':scope > p')).toHaveText(['Changed First', '']);
+    } else {
+      await page.keyboard.press('ControlOrMeta+End');
+      await page.keyboard.press('Shift+Home');
+      await page.keyboard.press('Backspace');
+      await expect(rule).toHaveCount(0);
+      await expect(editor.locator(':scope > p')).toHaveText(['First']);
+    }
+
+    await editor.focus();
+    await page.keyboard.type('Added');
+    await expect(editor.locator(':scope > p')).toHaveText(keepRule ? ['Changed First', 'Added'] : ['FirstAdded']);
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect.poll(() => readWorkspaceText(page, file))
+      .toBe(keepRule ? 'Changed First\n\n---\n\nAdded' : 'FirstAdded\n\n');
+  });
+}
+
 test('typing still replaces an explicitly selected Markdown rule', async ({ appPage: page }) => {
   await waitForStorage(page);
   await writeWorkspaceFile(page, 'selected-rule.md', 'First paragraph\n\n---\n');
@@ -186,6 +226,30 @@ test('clicking below a final rule keeps edited gaps and the source caret after t
   await page.keyboard.type('added');
   await page.keyboard.press('ControlOrMeta+s');
   await expect.poll(() => readWorkspaceText(page, file)).toBe('First!\n\n\n\nSecond\n\n---\nadded');
+});
+
+test('drops the display-only paragraph during a round trip through source mode', async ({ appPage: page }) => {
+  const file = 'gutter-mode-switch.md';
+  const source = 'First\n\n---\n';
+  const group = await openSelectionDocument(page, file, source);
+  const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+  const rule = editor.locator('hr');
+  await expect(rule).toBeVisible({ timeout: 20_000 });
+  const paper = await box(editor);
+  const bounds = await box(rule);
+  await page.mouse.click(paper.x + paper.width / 2, bounds.y + bounds.height + 24);
+  await expect(editor.locator(':scope > p')).toHaveText(['First', '']);
+
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  await page.keyboard.press('ControlOrMeta+Shift+m');
+  await expect(editor).toBeFocused({ timeout: 20_000 });
+  await expect(editor.locator(':scope > p')).toHaveText(['First']);
+  await expect(group.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  await page.keyboard.press('ControlOrMeta+s');
+  expect(await readWorkspaceText(page, file)).toBe(source);
 });
 
 async function textPoint(line: Locator, offset: number): Promise<{ x: number; y: number }> {
@@ -303,8 +367,10 @@ test('right-clicking below a read-only rule leaves a collapsed selection', async
   await expect(atom).toBeVisible({ timeout: 20_000 });
   const bounds = await box(atom);
   const editorBounds = await box(editor);
-  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height + 24);
+  await page.mouse.click(editorBounds.x - 12, bounds.y + bounds.height / 2);
+  await expect(editor).toBeFocused();
   await expect(editor.locator(':scope > p')).toHaveCount(0);
+  expect((await box(atom)).y).toBe(bounds.y);
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height + 24, { button: 'right' });
 
   const menu = page.getByRole('menu', { name: 'Markdown editor' });
