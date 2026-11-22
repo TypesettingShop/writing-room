@@ -56,20 +56,17 @@ class CRLFHistoryModel extends TestTextModel {
   }
 }
 
-function exerciseHistory(seed: number, paneCount: number, exactSource: boolean): void {
+function exerciseHistory(seed: number, paneCount: number, exactSource: boolean, gap?: string): void {
   const nextRandom = random(seed);
   const pick = <T>(values: readonly T[]): T => values[Math.floor(nextRandom() * values.length)];
-  const gaps = ['\n\n', '\n\n\n', '\r\n\r\n\r\n', '\n\n \t\n'];
-  const gap = exactSource ? gaps[0] : gaps[(seed - 1) % gaps.length];
-  const source = ['First', 'Middle', 'Last'].join(gap);
+  const source = ['First', 'Middle', 'Last'].join(gap ?? '\n\n');
   const uri = URI.parse('file:///history.md');
-  const model = gap.includes('\r') ? new CRLFHistoryModel(uri, source) : new TestTextModel(uri, source);
+  const model = gap?.includes('\r') ? new CRLFHistoryModel(uri, source) : new TestTextModel(uri, source);
   const separator = model.getEOL().repeat(2);
   const panes: MarkdownEditorModel[] = [];
   const trace: string[] = [];
   let depth = 0;
   let recording = true;
-  let seedingGaps = false;
   let time = 1000;
   let recordedVersion = model.getVersionId();
   let recordedText = model.getValue();
@@ -182,7 +179,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   }
 
   const listener = (label: string) => () => {
-    if (recording && !seedingGaps && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
+    if (recording && gap === undefined && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
       trace.push(label + '[');
       depth++;
       try {
@@ -222,7 +219,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
       if (source !== recordedText) {
         throw new Error(`${step} recorded ${JSON.stringify(recordedText)}, model has ${JSON.stringify(source)}`);
       }
-    } else if (exactSource && !writtenTexts.has(source)) {
+    } else if ((exactSource || gap !== undefined) && !writtenTexts.has(source)) {
       throw new Error(`${step} restored unwritten text ${JSON.stringify(source)}`);
     }
     const parsed = parseMarkdownWithSource(source).doc;
@@ -234,11 +231,9 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   };
 
   try {
-    if (!exactSource && seed % 3 === 1) {
-      // Start some mixed runs with an exact gap oracle, before reentrant edits can change the
-      // fixture. A native split and the new block's first text are dispatched together so every
-      // pane sees a source-backed block. The random edits and history walk then include both edits.
-      seedingGaps = true;
+    if (gap !== undefined) {
+      // Keep the gap oracle independent of the reentrant edits. Dispatch the native split with
+      // the new block's first text so every pane sees a source-backed block, then walk history.
       const pane = pick(panes);
       const middle = pane.state.doc.child(1);
       const suffix = pick(['a', 'Z', 'q']);
@@ -254,12 +249,12 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
       expect(splitBlock(pane.state, tr => pane.dispatch(tr.insertText(added).setTime(time)))).toBe(true);
       expect(model.getValue(), 'split kept the original gap before the middle paragraph')
         .toBe('First' + suffix + gap + 'Middle' + separator + added + separator + 'Last');
-      seedingGaps = false;
       check('source then split');
-    }
-    for (let step = 0; step < 12; step++) {
-      act();
-      check(`step ${step}`);
+    } else {
+      for (let step = 0; step < 12; step++) {
+        act();
+        check(`step ${step}`);
+      }
     }
     // Freeze the set of texts before walking history so an Undo/Redo write cannot validate itself.
     recording = false;
@@ -488,6 +483,13 @@ describe('Markdown editor history across reentrant text edits', () => {
   ];
   it.each(cases)('synchronizes $paneCount panes through $input history', { timeout: full ? 300_000 : 10_000 },
     ({ paneCount, exactSource }) => {
+      if (!exactSource) {
+        const gaps = ['\n\n', '\n\n\n', '\r\n\r\n\r\n', '\n\n \t\n'];
+        const gapSeeds = full ? 24 : gaps.length;
+        for (let seed = 1; seed <= gapSeeds; seed++) {
+          exerciseHistory(seed, paneCount, exactSource, gaps[(seed - 1) % gaps.length]);
+        }
+      }
       const seeds = full ? (paneCount === 2 ? 600 : 1500) : 24;
       for (let seed = 1; seed <= seeds; seed++) {
         exerciseHistory(seed, paneCount, exactSource);
