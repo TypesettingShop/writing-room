@@ -105,6 +105,9 @@ WYSIWYG 본문은 기본적으로 12 pt와 Noto Sans KR로 표시된다. 사용�
   클래스는 공백으로 나눈다. 사용자 클래스와 입력 순서가 저장된다.
 - 줄 끝의 클래스 목록 앞에는 공백을 둔다. `글자{.class}`나 `![그림](a.png){.class}`처럼
   붙여 쓰면 글자로 읽는다.
+- 밑줄을 적용한 글은 `[글]{.underline}`으로 저장한다. 굵게나 링크, 크기·서체 클래스와
+  함께 쓸 수 있다. 클래스 속성 문법을 지원하지 않는 Markdown 렌더러에서는 표기가
+  글자로 보일 수 있다. 다른 앱에서 HTML을 붙여넣을 때 CSS 밑줄은 링크 밖의 글에 적용된다.
 - 클래스 목록만 있는 문단은 빈 줄 뒤에 있어도 바로 앞 블록(문단, 제목, 인용문, 목록,
   표, 코드 블록, 구분선, 각주)에 붙는다. 앞 블록이 없으면 글자로 남는다. 여러 블록을
   담은 인용문, 목록, 표, 코드 블록, 구분선은 이렇게 꾸민다. 클래스처럼 보이는 글자만
@@ -194,4 +197,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu
