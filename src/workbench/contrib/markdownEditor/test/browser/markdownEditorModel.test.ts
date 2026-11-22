@@ -1104,6 +1104,74 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
+  it('undoes a recovered composition and its later updates together', () => {
+    const original = 'First\n\n[ref]: /path\n\nLast';
+    const external = 'First\n\nLast';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      if (markdownCaretParagraphSide(sync.state.selection.$head.parent) !== undefined) {
+        sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      }
+    });
+    try {
+      placeAtomCaret(sync, 1, 1);
+      applyOffsets(model, 7, 21, '');
+      expect(model.getValue()).toBe('First\n\n요\n\nLast');
+      const { head } = sync.state.selection;
+      sync.dispatch(sync.state.tr.insertText('욤', head - 1, head).setMeta('composition', 1));
+      expect(model.getValue()).toBe('First\n\n욤\n\nLast');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(external);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('recovers only the last composition queued for one lost paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n[ref]: /path\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      const { state } = sync;
+      if (markdownCaretParagraphSide(state.selection.$head.parent) === undefined) return;
+      // Both flushes read the DOM against the same deferred state. The second IME composition
+      // therefore also contains the first one's committed text.
+      sync.dispatch(state.tr.insertText('요').setMeta('composition', 1));
+      sync.dispatch(state.tr.insertText('요리').setMeta('composition', 2));
+    });
+    try {
+      placeAtomCaret(sync, 1, 1);
+      applyOffsets(model, 7, 21, '');
+      expect(model.getValue()).toBe('First\n\n요리\n\nLast');
+      expect(sync.state.doc.eq(parseMarkdownWithSource('First\n\n요리\n\nLast').doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps a gutter caret beside a repeated rule when a batch leaves the text unchanged', () => {
+    const original = 'A\n\n---\n\nB\n\n---';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      const caret = sync.state.selection.$head.parent;
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 2 }, text: 'A' },
+        { range: { startLineNumber: 3, startColumn: 1, endLineNumber: 3, endColumn: 4 }, text: '---' },
+      ]);
+      expect(model.getValue()).toBe(original);
+      expect(sync.state.selection.$head.parent).toBe(caret);
+      expect(sync.state.selection.$head.before()).toBe(sync.state.doc.child(0).nodeSize + sync.state.doc.child(1).nodeSize);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
   it('keeps an extended range when its anchor leaves with the temporary paragraph', () => {
     const original = 'First\n\n---\n\nLast';
     const model = new TestTextModel(URI.parse('file:///draft.md'), original);

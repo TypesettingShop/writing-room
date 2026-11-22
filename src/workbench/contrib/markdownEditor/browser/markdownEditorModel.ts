@@ -38,7 +38,7 @@ interface SourceWrite {
 interface DeferredEdit {
   readonly owner: MarkdownEditorModel;
   readonly mapping?: Mapping;
-  readonly composition?: { readonly caret: CaretParagraph; readonly id: number };
+  readonly composition?: { readonly caret: CaretParagraph };
   run(): void;
 }
 
@@ -162,9 +162,10 @@ function remapCaretGap(
   });
   if (oldCount !== newCount) return;
   if (newCount > 1) {
-    // Exact changes did not trace this copy. Loose prefix/suffix equality cannot identify it.
-    if (matches) return;
     const start = oldDoc.content.findDiffStart(newDoc.content);
+    // Exact changes did not trace this copy. Loose prefix/suffix equality cannot identify it,
+    // but an unchanged document still has every block at its old position.
+    if (matches && start !== null) return;
     const end = oldDoc.content.findDiffEnd(newDoc.content);
     if (start === null || from + target.nodeSize <= start) {
       candidate = from;
@@ -601,7 +602,7 @@ export class MarkdownEditorModel extends Disposable {
     const before = this.state;
     const id: unknown = transaction.getMeta('composition');
     const caret = transaction.docChanged && typeof id === 'number' ? selectedCaretParagraph(before) : undefined;
-    const composition = caret && typeof id === 'number' ? { caret, id } : undefined;
+    const composition = caret ? { caret } : undefined;
     const mapping = new Mapping();
     this.deferred.pending.push({ owner: this, mapping, composition, run: () => {
       const rebased = before === this.state && mapping.maps.length === 0 ? transaction : this.rebaseTransaction(transaction, mapping);
@@ -609,9 +610,10 @@ export class MarkdownEditorModel extends Disposable {
         this.applyDispatch(rebased, isolate);
       } else if (composition) {
         // Reentrant flushes can queue another update against the same still-empty paragraph.
-        // Its final composition text supersedes the older update if the paragraph was lost.
+        // It reads the DOM against the same unchanged state, so its composition text supersedes
+        // the older update if the paragraph was lost, even after the IME started a new composition.
         const updated = this.deferred.pending.some(edit => edit.owner === this
-          && edit.composition?.id === composition.id && edit.composition.caret.node === composition.caret.node);
+          && edit.composition?.caret.node === composition.caret.node);
         if (!updated) this.recoverDeferredComposition(transaction, composition.caret, mapping);
       }
     } });
@@ -717,7 +719,8 @@ export class MarkdownEditorModel extends Disposable {
     const restoredSelection = inside ? selection.map(recovered.doc, offset)
       : TextSelection.create(recovered.doc, position + paragraph.nodeSize - 1);
     this.copyTransactionState(transaction, recovered, restoredSelection, offset);
-    this.applyDispatch(recovered, true);
+    // Start a separate history event, but let later updates of the same composition join it.
+    this.applyDispatch(closeHistory(recovered), false);
   }
 
   private copyTransactionState(
