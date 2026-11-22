@@ -63,6 +63,7 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 - [lessons/first-text-model-waits-for-monaco.md](lessons/first-text-model-waits-for-monaco.md) — 처음 여는 텍스트 모델을 기다리는 e2e는 Monaco 로드를 셈에 넣는다
 - [lessons/freeze-clock-before-testing-timeouts.md](lessons/freeze-clock-before-testing-timeouts.md) — 시간 의존 브라우저 테스트는 동작을 시작하기 전에 시계를 멈춘다
 - [lessons/invalidate-caches-of-serialized-fields.md](lessons/invalidate-caches-of-serialized-fields.md) — 직렬화 값에 필드를 더하면 그 값을 담아 두는 캐시의 무효화 조건도 함께 고친다
+- [lessons/invalidate-responses-on-session-change.md](lessons/invalidate-responses-on-session-change.md) — 계정 세션이 바뀌면 앞선 세션의 응답을 무효화한다
 - [lessons/keep-file-watch-provider-order.md](lessons/keep-file-watch-provider-order.md) — 이름 바꾸기 감시는 제공자의 변경 순서로 시험한다
 - [lessons/keep-network-opt-out-on-config-fallback.md](lessons/keep-network-opt-out-on-config-fallback.md) — 설정의 기본값으로 돌아갈 때도 명시적인 네트워크 비활성화를 보존한다
 - [lessons/match-keybinding-keys-by-code.md](lessons/match-keybinding-keys-by-code.md) — 워크벤치 키바인딩과 겨루는 키 판정은 물리 키(code)도 본다

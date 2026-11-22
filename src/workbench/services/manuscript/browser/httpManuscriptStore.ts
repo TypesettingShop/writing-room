@@ -96,13 +96,11 @@ export class HttpManuscriptStore implements ManuscriptStore {
   }
 
   async statDocument(workId: string, nodeId: string): Promise<DocumentStat> {
-    const response = await this.request(documentPath(workId, nodeId), { method: 'HEAD' });
-    return this.decode(() => readStatHeaders(response.headers));
+    return this.request(documentPath(workId, nodeId), { method: 'HEAD' }, response => readStatHeaders(response.headers));
   }
 
   async readDocument(workId: string, nodeId: string): Promise<ManuscriptDocument> {
-    const response = await this.request(documentPath(workId, nodeId));
-    return this.decode(async () => {
+    return this.request(documentPath(workId, nodeId), { method: 'GET' }, async response => {
       const stat = readStatHeaders(response.headers);
       const bytes = await response.arrayBuffer();
       if (bytes.byteLength !== stat.size) {
@@ -119,8 +117,7 @@ export class HttpManuscriptStore implements ManuscriptStore {
     if (expectedEtag !== undefined) {
       headers.set('If-Match', '"' + expectedEtag + '"');
     }
-    const response = await this.request(path, { method: 'PUT', headers, body: content });
-    return this.decode(async () => {
+    return this.request(path, { method: 'PUT', headers, body: content }, async response => {
       const result: unknown = await response.json();
       if (!isRecord(result)) {
         throw new Error('Invalid document stat.');
@@ -130,44 +127,41 @@ export class HttpManuscriptStore implements ManuscriptStore {
   }
 
   private async json<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-    const response = await this.request(path, body === undefined ? { method } : {
+    const init = body === undefined ? { method } : {
       method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    return this.decode(async () => await response.json() as T);
+    };
+    return this.request(path, init, async response => await response.json() as T);
   }
 
-  private async decode<T>(read: () => T | Promise<T>): Promise<T> {
-    try {
-      const result = await read();
-      this.status.set('ready');
-      return result;
-    } catch (error) {
-      this.status.set('unavailable');
-      throw new ManuscriptUnavailableError(error);
-    }
-  }
-
-  private async request(path: string, init?: RequestInit): Promise<Response> {
+  private async request<T>(path: string, init: RequestInit, decode: (response: Response) => T | Promise<T>): Promise<T> {
+    const revision = this.status.revision;
     let response: Response;
     try {
       response = await this.fetcher(path, { ...init, credentials: 'same-origin' });
     } catch (error) {
-      this.status.set('unavailable');
+      this.status.report('unavailable', revision);
       throw new ManuscriptUnavailableError(error);
     }
     if (response.ok) {
-      return response;
+      try {
+        const result = await decode(response);
+        this.status.report('ready', revision);
+        return result;
+      } catch (error) {
+        this.status.report('unavailable', revision);
+        throw new ManuscriptUnavailableError(error);
+      }
     }
     if (response.status === 401) {
-      this.status.set('signedOut');
+      this.status.report('signedOut', revision);
       throw new ManuscriptStoreError('unauthorized');
     }
-    if (init?.method === 'HEAD' && response.status === 404) {
-      this.status.set('ready');
+    if (init.method === 'HEAD' && response.status === 404) {
+      this.status.report('ready', revision);
       throw new ManuscriptStoreError('not_found');
     }
-    if (init?.method === 'HEAD' && response.status === 403) {
-      this.status.set('unavailable');
+    if (init.method === 'HEAD' && response.status === 403) {
+      this.status.report('unavailable', revision);
       throw new Error('The manuscript server does not allow this address.');
     }
     let body: unknown;
@@ -178,19 +172,19 @@ export class HttpManuscriptStore implements ManuscriptStore {
       const { code, currentRevision } = body.error;
       if (isManuscriptStoreErrorCode(code) && (currentRevision === undefined || isManuscriptRevision(currentRevision)) &&
         (code !== 'conflict' || currentRevision !== undefined)) {
-        this.status.set('ready');
+        this.status.report('ready', revision);
         throw new ManuscriptStoreError(code, currentRevision);
       }
       if (code === 'forbidden_host') {
-        this.status.set('unavailable');
+        this.status.report('unavailable', revision);
         throw new Error(body.error.message);
       }
       if (code === 'forbidden_origin' || code === 'unsupported_media_type' || code === 'method_not_allowed') {
-        this.status.set('ready');
+        this.status.reportReachable(revision);
         throw new Error(body.error.message);
       }
     }
-    this.status.set('unavailable');
+    this.status.report('unavailable', revision);
     throw new ManuscriptUnavailableError();
   }
 }

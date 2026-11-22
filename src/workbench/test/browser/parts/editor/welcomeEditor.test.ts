@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { Event as WorkbenchEvent } from '../../../../../base/common/event.js';
 import type { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { ManuscriptStoreError, type ManuscriptWork } from '../../../../../platform/manuscript/common/manuscript.js';
 import { WelcomeEditorInput, WelcomeEditorPane } from '../../../../browser/parts/editor/welcomeEditor.js';
@@ -8,12 +9,16 @@ import type { IWorkService } from '../../../../services/work/common/work.js';
 function welcome(listWorks: () => Promise<ManuscriptWork[]>, availability: ManuscriptAvailability) {
   const parent = document.createElement('div');
   const commands = { executeCommand: vi.fn() } as unknown as ICommandService;
-  const manuscript = { store: { listWorks }, availability } as IManuscriptService;
+  const manuscript = {
+    store: { listWorks }, signedIn: availability === 'unavailable' ? undefined : availability === 'ready',
+    onDidChangeAuth: WorkbenchEvent.None,
+    auth: { hasGoogle: async () => false, signIn: vi.fn(), signOut: vi.fn() },
+  };
   const work = { current: undefined } as IWorkService;
-  const pane = new WelcomeEditorPane(commands, manuscript, work);
+  const pane = new WelcomeEditorPane(commands, manuscript as unknown as IManuscriptService, work);
   const input = new WelcomeEditorInput();
   pane.create(parent);
-  return { pane, input, section: parent.querySelector('section')! };
+  return { pane, input, section: parent.querySelector('section')!, manuscript };
 }
 
 test('does not render a list response after the Welcome pane is disposed', async () => {
@@ -64,7 +69,47 @@ test('shows the sign-in message when the Works request is unauthorized', async (
   try {
     await pane.setInput(input, undefined);
     await vi.waitFor(() => expect(section.querySelector('[role="status"]')?.textContent).toBe('Sign in to see your Works.'));
-    expect(section.querySelector('.welcome-works-account')).not.toBeNull();
+    expect(section.querySelector<HTMLFormElement>('.welcome-works-account form')?.hidden).toBe(false);
+  } finally {
+    pane.dispose();
+    input.dispose();
+  }
+});
+
+
+test('clears the Google cancellation when a signed-in Works list arrives', async () => {
+  let settle!: (works: ManuscriptWork[]) => void;
+  const { pane, input, section } = welcome(() => new Promise(resolve => { settle = resolve; }), 'ready');
+  try {
+    await pane.setInput(input, undefined);
+    pane.focusWorks(true);
+    const alert = section.querySelector('[role="alert"]');
+    expect(alert?.textContent).toBe('Google sign-in was canceled.');
+    expect(section.querySelector('form')?.hidden).toBe(true);
+    settle([]);
+    await vi.waitFor(() => {
+      expect(section.querySelector('[role="status"]')?.textContent).toBe('No Works yet.');
+      expect(alert?.textContent).toBe('');
+    });
+  } finally {
+    pane.dispose();
+    input.dispose();
+  }
+});
+
+test('restores the New Work button after leaving the form and reopening during an outage', async () => {
+  const { pane, input, section, manuscript } = welcome(
+    () => Promise.reject(new Error('The network is unavailable.')), 'signedOut',
+  );
+  try {
+    await pane.setInput(input, undefined);
+    const newWork = Array.from(section.querySelectorAll('button')).find(button => button.textContent === 'New Work...')!;
+    expect(newWork.hidden).toBe(true);
+    pane.clearInput();
+    manuscript.signedIn = true;
+    await pane.setInput(input, undefined);
+    await vi.waitFor(() => expect(section.querySelector('[role="status"]')?.textContent).toBe('The Works server is not available.'));
+    expect(newWork.hidden).toBe(false);
   } finally {
     pane.dispose();
     input.dispose();
