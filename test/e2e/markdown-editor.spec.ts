@@ -1656,6 +1656,7 @@ test('copies the WYSIWYG selection as Markdown or rendered HTML', async ({ appPa
       classes: Array.from(body.querySelectorAll('[class]'), element => element.getAttribute('class')),
       formats: ['strong', 'em', 'u', 'a', 'ul', 'table', 'img'].map(selector => body.querySelector(selector)?.textContent),
       image: body.querySelector('img')?.getAttribute('alt'),
+      imageSrc: body.querySelector('img')?.getAttribute('src'),
       unsafeElements: body.querySelectorAll('script, [onerror]').length,
       renderedText: body.textContent,
     };
@@ -1667,6 +1668,7 @@ test('copies the WYSIWYG selection as Markdown or rendered HTML', async ({ appPa
     '굵게', '기울임', '밑줄', '링크', expect.stringContaining('둘째 항목'), expect.stringContaining('첫째'), '',
   ]);
   expect(data.image).toBe('그림');
+  expect(data.imageSrc).toBe('https://example.test/image.png');
   expect(data.unsafeElements).toBe(0);
   expect(data.renderedText).toContain('<script>literal script</script>');
 
@@ -1687,6 +1689,37 @@ test('copies the WYSIWYG selection as Markdown or rendered HTML', async ({ appPa
   await page.keyboard.press('ControlOrMeta+Shift+v');
   await expect(target.locator('p').first()).toHaveText('굵게 기울임 밑줄 크기와 글꼴');
   await expect(target.locator('strong, em, u, ul, table, img')).toHaveCount(0);
+});
+
+test('keeps the last successful Markdown copy when a clipboard write fails', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const key = 'writing-room:markdownEditor:lastCopy';
+  const copyDocument = async (name: string, markdown: string) => {
+    const editor = richEditor(await openMarkdown(page, name, markdown));
+    await editor.focus({ timeout: 20_000 });
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Shift+F10');
+    const copy = page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Copy as Markdown' });
+    await expect(copy).toBeEnabled();
+    await copy.click();
+  };
+
+  await copyDocument('successful-copy.md', '**first copy**');
+  const lastCopy = () => page.evaluate(key => sessionStorage.getItem(key), key);
+  await expect.poll(lastCopy).toBe(JSON.stringify({ markdown: '**first copy**', text: 'first copy' }));
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async () => { throw new DOMException('Clipboard write denied', 'NotAllowedError'); };
+  });
+  await copyDocument('denied-copy.md', '**denied copy**');
+  await expect(page.getByText('Could not copy as Markdown using the clipboard.', { exact: true })).toBeVisible();
+  expect(await lastCopy()).toBe(JSON.stringify({ markdown: '**first copy**', text: 'first copy' }));
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('**first copy**');
+
+  const target = richEditor(await openMarkdown(page, 'paste-last-copy.md', ''));
+  await target.focus();
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(target.locator('p')).toHaveText('first copy');
+  await expect(target.locator('strong')).toHaveCount(0);
 });
 
 test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {

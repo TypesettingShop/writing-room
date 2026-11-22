@@ -206,14 +206,24 @@ describe('Markdown context menu plain-text paste', () => {
       .toEqual([]);
   });
 
+  it('does not ask for the clipboard text again after the browser refuses the clipboard read', async () => {
+    const readText = vi.fn(async () => 'text');
+    const read = () => Promise.reject(new DOMException('Read permission denied.', 'NotAllowedError'));
+    await expect(paste({ read, readText })).rejects.toThrow('Read permission denied.');
+    expect(readText).not.toHaveBeenCalled();
+  });
+});
+
+describe('Markdown HTML copy', () => {
+  const copyHTML = async (selection: Selection) => {
+    let html = '';
+    const write = async ([item]: { data: Record<string, Blob> }[]) => { html = await item.data['text/html'].text(); };
+    const browserWindow = { ClipboardItem: class { constructor(readonly data: Record<string, Blob>) {} }, navigator: { clipboard: { write } } };
+    await copyMarkdownFragment(browserWindow as unknown as Window, selection, 'html');
+    return html;
+  };
+
   it('copies part of a table or an ordered list as HTML with the table and the item numbers', async () => {
-    const copyHTML = async (selection: Selection) => {
-      let html = '';
-      const write = async ([item]: { data: Record<string, Blob> }[]) => { html = await item.data['text/html'].text(); };
-      const browserWindow = { ClipboardItem: class { constructor(readonly data: Record<string, Blob>) {} }, navigator: { clipboard: { write } } };
-      await copyMarkdownFragment(browserWindow as unknown as Window, selection, 'html');
-      return html;
-    };
     const table = parseMarkdown('| *a* | b |\n| --- | --- |\n| \\# c | d |');
     const cells: number[] = [];
     table.descendants((node, pos) => { if (node.type.spec.tableRole?.endsWith('cell')) cells.push(pos); });
@@ -228,10 +238,20 @@ describe('Markdown context menu plain-text paste', () => {
     expect(await copyHTML(NodeSelection.create(list, item))).toBe('<ol start="2">\n<li>two</li>\n</ol>\n');
   });
 
-  it('does not ask for the clipboard text again after the browser refuses the clipboard read', async () => {
-    const readText = vi.fn(async () => 'text');
-    const read = () => Promise.reject(new DOMException('Read permission denied.', 'NotAllowedError'));
-    await expect(paste({ read, readText })).rejects.toThrow('Read permission denied.');
-    expect(readText).not.toHaveBeenCalled();
+  it('copies only the selected table body cells without inventing a header row', async () => {
+    const doc = parseMarkdown('| title | value |\n| --- | --- |\n| *first* | one |\n| second | two |');
+    const cells: number[] = [];
+    doc.descendants((node, pos) => { if (node.type === markdownSchema.nodes.table_cell) cells.push(pos); });
+    const text = await copyHTML(TextSelection.create(doc, cells[0] + 1, cells[0] + 6));
+    expect(text).toContain('<td><em>first</em></td>');
+    expect(text).not.toMatch(/<th[>\s]/);
+    expect(text).not.toContain('<thead>');
+
+    const rows = await copyHTML(new CellSelection(doc.resolve(cells[0]), doc.resolve(cells[3])));
+    expect(rows).toContain('<td><em>first</em></td>');
+    expect(rows).toContain('<td>two</td>');
+    expect(rows.match(/<tbody>/g)).toEqual(['<tbody>']);
+    expect(rows).not.toMatch(/<th[>\s]/);
+    expect(rows).not.toContain('<thead>');
   });
 });

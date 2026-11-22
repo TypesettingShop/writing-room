@@ -35,8 +35,10 @@ for (const { id, label, format } of markdownCopyCommands) {
       const group = accessor.get(IEditorGroupsService).activeGroup;
       const pane = group.activeEditorPane;
       const browserWindow = group.element.ownerDocument.defaultView;
-      const selection = pane instanceof MarkdownEditorPane ? pane.writingState?.selection : undefined;
-      if (!browserWindow || !selection || selection.empty) return;
+      if (!browserWindow || !(pane instanceof MarkdownEditorPane)) return;
+      // Finish composition before taking the snapshot. The formatting state is unavailable in read-only panes.
+      const selection = (pane.getFormattingStateForQuickInput() ?? pane.writingState)?.selection;
+      if (!selection || selection.empty) return;
       const notifications = accessor.get(INotificationService);
       try {
         await copyMarkdownFragment(browserWindow, selection, format);

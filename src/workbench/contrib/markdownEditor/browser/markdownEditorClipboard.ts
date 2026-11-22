@@ -94,6 +94,40 @@ function enclosedSlice(selection: Selection): Slice {
   return withListStarts($from.doc.slice(from, to, true), $from);
 }
 
+function renderClipboardHTML(markdown: string, slice: Slice): string {
+  const { table, table_cell } = markdownSchema.nodes;
+  const bodyOnlyTables: boolean[] = [];
+  slice.content.descendants(node => {
+    if (node.type !== table) return;
+    bodyOnlyTables.push(node.firstChild?.firstChild?.type === table_cell);
+    return false;
+  });
+  if (!bodyOnlyTables.includes(true)) return clipboardRenderer.render(markdown);
+
+  // Markdown tables require a header. Restore body cell roles removed by that intermediate format.
+  const env = {};
+  const tokens = clipboardRenderer.parse(markdown, env);
+  let tableIndex = 0;
+  let bodyOnly = false;
+  const renderedTokens = tokens.filter((token, index) => {
+    if (token.type === 'table_open') bodyOnly = bodyOnlyTables[tableIndex++] ?? false;
+    if (!bodyOnly) return true;
+    if ((token.type === 'thead_close' && tokens[index + 1]?.type === 'tbody_open')
+      || (token.type === 'tbody_open' && tokens[index - 1]?.type === 'thead_close')) {
+      return false;
+    }
+    if (token.tag === 'thead') {
+      token.tag = 'tbody';
+      token.type = token.nesting === 1 ? 'tbody_open' : 'tbody_close';
+    } else if (token.tag === 'th') {
+      token.tag = 'td';
+      token.type = token.nesting === 1 ? 'td_open' : 'td_close';
+    }
+    return true;
+  });
+  return clipboardRenderer.renderer.render(renderedTokens, clipboardRenderer.options, env);
+}
+
 export async function copyMarkdownFragment(browserWindow: Window, selection: Selection, format: 'markdown' | 'html'): Promise<void> {
   const clipboard = browserWindow.navigator.clipboard;
   if (!clipboard) throw new Error('Clipboard access is unavailable');
@@ -103,7 +137,7 @@ export async function copyMarkdownFragment(browserWindow: Window, selection: Sel
     await clipboard.writeText(markdown);
     rememberCopy(browserWindow, markdown, slice.content);
   } else {
-    const html = clipboardRenderer.render(markdown);
+    const html = renderClipboardHTML(markdown, slice);
     const { ClipboardItem } = browserWindow as Window & typeof globalThis;
     await clipboard.write([new ClipboardItem({
       'text/html': new Blob([html], { type: 'text/html' }),
