@@ -1228,6 +1228,58 @@ test('pastes only literal unformatted clipboard text from the Markdown context m
   await expect.poll(() => readWorkspaceText(page, name)).toContain('\\# Literal title\n\n\\- Literal list');
 });
 
+test('pastes a copied WYSIWYG fragment as visible text with block boundaries', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const group = await openMarkdown(page, 'copy-formatted-fragment.md', [
+    '[***~~안녕하세요.~~***]{.underline} `코드` [링크](https://example.test/) [클래스]{.size-24pt}',
+    '다음 문단',
+    '- 첫 항목\n- 둘째 항목',
+  ].join('\n\n'));
+  const editor = richEditor(group);
+  await expect(editor.locator('strong')).toHaveText('안녕하세요.', { timeout: 20_000 });
+  await expect(editor.locator('em, s, u.underline')).toHaveCount(3);
+  await expect(editor.locator('.size-24pt')).toHaveText('클래스');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+c');
+  const copied = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    return {
+      html: await (await item.getType('text/html')).text(),
+      text: await (await item.getType('text/plain')).text(),
+    };
+  });
+  expect(copied.html).toContain('data-pm-slice');
+  expect(copied.text).toContain('{.underline}');
+
+  const destination = await openMarkdown(page, 'paste-formatted-fragment.md', '');
+  const target = richEditor(destination);
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const paste = async (name: string) => {
+    await page.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitem', { name, exact: true }).click();
+  };
+  await target.focus();
+  await paste('Paste as Plain Text');
+  await expect(target.locator(':scope > p')).toHaveText(['안녕하세요. 코드 링크 클래스', '다음 문단', '첫 항목', '둘째 항목']);
+  await expect(target.locator('strong, em, s, u, code, a, .size-24pt, ul')).toHaveCount(0);
+
+  await page.keyboard.press('ControlOrMeta+a');
+  await paste('Paste');
+  await expect(target.locator('strong')).toHaveText('안녕하세요.');
+  await expect(target.locator('em, s, u.underline')).toHaveCount(3);
+  await expect(target.locator('code')).toHaveText('코드');
+  await expect(target.getByRole('link', { name: '링크' })).toHaveAttribute('href', 'https://example.test/');
+  await expect(target.locator('.size-24pt')).toHaveText('클래스');
+  await expect(target.locator('ul > li')).toHaveText(['첫 항목', '둘째 항목']);
+
+  await page.evaluate(() => navigator.clipboard.writeText('**글**'));
+  await page.keyboard.press('ControlOrMeta+a');
+  await paste('Paste as Plain Text');
+  await expect(target.locator(':scope > p')).toHaveText(['**글**']);
+  await expect(target.locator('strong')).toHaveCount(0);
+});
+
 test('discards a clipboard read if the original Markdown caret moves while it is pending', async ({ appPage: page }) => {
   const group = await openMarkdown(page, 'pending-context-paste.md', 'Keep this text');
   const editor = richEditor(group);
@@ -1235,9 +1287,11 @@ test('discards a clipboard read if the original Markdown caret moves while it is
   await paragraph.click({ timeout: 20_000 });
   await page.keyboard.press('End');
   await page.evaluate(() => {
-    navigator.clipboard.readText = () => new Promise(resolve => {
+    navigator.clipboard.read = () => new Promise(resolve => {
       document.documentElement.dataset.testClipboardPending = 'true';
-      window.addEventListener('test-complete-clipboard-read', () => resolve('Late text'), { once: true });
+      window.addEventListener('test-complete-clipboard-read', () => resolve([
+        new ClipboardItem({ 'text/plain': new Blob(['Late text'], { type: 'text/plain' }) }),
+      ]), { once: true });
     });
   });
   await page.keyboard.press('Shift+F10');

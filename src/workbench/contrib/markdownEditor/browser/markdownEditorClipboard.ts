@@ -1,4 +1,4 @@
-import { Fragment, Slice } from 'prosemirror-model';
+import { DOMParser, Fragment, Slice } from 'prosemirror-model';
 import type { Mark, Node as ProseMirrorNode } from 'prosemirror-model';
 import type { EditorProps, EditorView } from 'prosemirror-view';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
@@ -33,15 +33,37 @@ function applyPastedUnderline(document: Document, content: DocumentFragment, und
   }
 }
 
-/**
- * Supply the browser's clipboard formats to the same paste handler as a keyboard paste. With `plain`, read
- * only text/plain and insert it literally through ProseMirror's plain-text paste, as Ctrl/Cmd+Shift+V does.
- */
+function copiedFragmentText(document: Document, html: string): string | undefined {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  for (const element of template.content.querySelectorAll(discarded)) element.remove();
+  // ProseMirror marks the first element of the serialized fragment, including any table wrapper.
+  if (!template.content.firstElementChild?.hasAttribute('data-pm-slice')) return undefined;
+  const { content } = DOMParser.fromSchema(markdownSchema).parseSlice(template.content, { preserveWhitespace: 'full' });
+  return content.textBetween(0, content.size, '\n', node => node.type === markdownSchema.nodes.hard_break ? '\n' : '');
+}
+
+async function readPlainClipboardText(clipboard: Clipboard, document: Document): Promise<string> {
+  // Keep literal text paste available when the richer clipboard read is unavailable.
+  const items = await clipboard.read?.().catch(() => undefined);
+  if (!items) return clipboard.readText();
+  const plain = items.find(item => item.types.includes('text/plain'));
+  const item = plain ?? items.find(item => item.types.includes('text/html'));
+  if (item?.types.includes('text/html')) {
+    const html = await item.getType('text/html').then(blob => blob.text()).catch(() => undefined);
+    const visibleText = html === undefined ? undefined : copiedFragmentText(document, html);
+    if (visibleText !== undefined) return visibleText;
+  }
+  return plain ? (await plain.getType('text/plain')).text() : '';
+}
+
+/** Insert a copied fragment's visible text in plain mode, or use the browser's regular paste formats. */
 export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean, plain = false): Promise<void> {
-  const clipboard = view.dom.ownerDocument.defaultView?.navigator.clipboard;
+  const document = view.dom.ownerDocument;
+  const clipboard = document.defaultView?.navigator.clipboard;
   if (!clipboard) throw new Error('Clipboard access is unavailable');
   if (plain) {
-    const text = await clipboard.readText();
+    const text = await readPlainClipboardText(clipboard, document);
     if (text && isCurrent()) view.pasteText(text);
     return;
   }
