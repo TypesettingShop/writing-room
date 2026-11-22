@@ -794,7 +794,7 @@ it('keeps an indented code block outside a list after deleting the intervening p
   expect(reopened.child(1).textContent).toBe('code');
 });
 
-it('keeps the original code spelling after a wide list until that list is shortened', () => {
+it('keeps indented code spelling while the preceding wide list source is reused verbatim', () => {
   const source = '100. item\n \t\n\n    code\n\nlast';
   const doc = parseMarkdown(source);
   const edited = editText(doc, 'last', 'changed');
@@ -805,6 +805,31 @@ it('keeps the original code spelling after a wide list until that list is shorte
   const saved = serializeMarkdown(renumbered);
   expect(saved).toBe('1. item\n \t\n\n```\ncode\n```\n\nchanged');
   expect(normalizedTree(parseMarkdown(saved))).toEqual(normalizedTree(renumbered));
+});
+
+it('keeps indented blocks separate from what preceded the deleted paragraph', () => {
+  const blocks = ['   para', '  # h', '  > q', '  ***', '  | a |\n  | - |\n  | b |', '  * b', '  1. b', '  [^n]: d'];
+  const sources = [
+    ...blocks.map(block => '- a\n\nx\n\n' + block + '\n'),
+    '    a\n\nx\n\n    b\n',
+    '\ta\n\nx\n\n\tb\n',
+  ];
+  for (const source of sources) {
+    const doc = parseMarkdown(source);
+    const state = EditorState.create({ doc });
+    const from = doc.child(0).nodeSize;
+    const edited = state.apply(state.tr.delete(from, from + doc.child(1).nodeSize)).doc;
+    const saved = serializeMarkdown(edited);
+    expect.soft(normalizedTree(parseMarkdown(saved)), source).toEqual(normalizedTree(edited));
+  }
+});
+
+it('keeps a class-like paragraph from attaching to the block moved before it', () => {
+  const doc = parseMarkdown('[r]: /u\n\n{.y}\n\npara\n');
+  expect(doc.child(1).textContent).toBe('{.y}');
+  const moved = doc.copy(Fragment.fromArray([doc.child(0), doc.child(2), doc.child(1)]));
+  const saved = serializeMarkdown(moved);
+  expect(normalizedTree(parseMarkdown(saved))).toEqual(normalizedTree(moved));
 });
 
 it('writes a nested ordered list starting after one as a list', () => {

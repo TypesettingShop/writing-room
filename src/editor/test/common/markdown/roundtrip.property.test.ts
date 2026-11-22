@@ -256,7 +256,7 @@ it('keeps generated separators with their original neighbors across edits to dup
 });
 
 it('keeps generated indented code blocks outside containers after a move', () => {
-  const containers = ['- item', '1. item', '[^note]: definition'];
+  const containers = ['- item', '1. item', '- item\n  - nested', '[^note]: definition'];
   const codeSources = [
     ['    code\n    ```\n      tail', '````\ncode\n```\n  tail\n````'],
     ['\tcode\n\ttail', '```\ncode\ntail\n```'],
@@ -266,7 +266,8 @@ it('keeps generated indented code blocks outside containers after a move', () =>
   for (const eol of ['\n', '\r\n', '\r']) {
     const gap = eol + ' \t' + eol + eol;
     const fresh = eol + eol;
-    for (const container of containers) {
+    for (const spelled of containers) {
+      const container = spelled.replaceAll('\n', eol);
       for (const [raw, fenced] of codeSources) {
         const code = raw.replaceAll('\n', eol);
         const source = [container, 'anchor', code, 'end'].join(gap) + eol;

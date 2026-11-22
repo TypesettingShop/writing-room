@@ -607,13 +607,12 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
   let previous: SourcePiece | undefined;
   let previousWasOriginal = false;
   let previousWasListOrFootnote = false;
+  let previousWasIndentedCode = false;
   let previousList: ListMarker | undefined;
   doc.forEach((node, _offset, index) => {
     const match = pieces.get(node);
     const raw = match ? source.slice(match.start, match.end) : '';
     const linkMayResolveDifferently = linksChanged && node.type.name !== 'raw_block' && raw.includes('[');
-    const trailerMayAttach = index > 0 && match?.index === 0 && node.type.name === 'paragraph' &&
-      raw.trimStart().startsWith('{.');
     const list = listMarker(node);
     const writtenList = list && separateListMarker(list, previousList);
     const differentMarker = writtenList && list?.marker !== writtenList.marker;
@@ -623,12 +622,17 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     const gap = previous && piece?.index === previous.index + 1
       ? source.slice(previous.end, piece.start)
       : '';
-    // A blank line alone cannot stop indented Markdown from continuing a list or footnote.
-    // Reuse indented code only when both sides of that source boundary survive verbatim.
-    const codeMayContinueContainer = previousWasListOrFootnote && node.type.name === 'code_block' &&
-      /^[ \t]/.test(raw) && !(previousWasOriginal && gap);
+    // The original parse holds across this boundary only when both sides survive verbatim.
+    const boundaryKept = Boolean(previousWasOriginal && gap);
+    // A class line that starts a paragraph can attach to whichever block now precedes it.
+    const trailerMayAttach = index > 0 && !boundaryKept && node.type.name === 'paragraph' &&
+      raw.trimStart().startsWith('{.');
+    // A blank line alone cannot stop indented Markdown from continuing a list or footnote,
+    // or indented code from continuing the indented code before it.
+    const indentedMayContinue = !boundaryKept && /^[ \t]/.test(raw) &&
+      (previousWasListOrFootnote || (previousWasIndentedCode && node.type.name === 'code_block'));
     const keep = Boolean(match && (match.reusable || index === doc.childCount - 1) &&
-      !linkMayResolveDifferently && !trailerMayAttach && !differentMarker && !codeMayContinueContainer);
+      !linkMayResolveDifferently && !trailerMayAttach && !differentMarker && !indentedMayContinue);
     const attrs = differentMarker
       ? { ...node.attrs, [node.type.name === 'bullet_list' ? 'bullet' : 'markup']: writtenList.marker }
       : null;
@@ -646,6 +650,8 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     previous = piece;
     previousWasOriginal = keep;
     previousWasListOrFootnote = Boolean(writtenList) || node.type.name === 'footnote_definition';
+    // Regenerated code is fenced, so only reused indented code runs on into the next block.
+    previousWasIndentedCode = keep && node.type.name === 'code_block' && node.attrs.markup === null;
     previousList = writtenList;
   });
 
