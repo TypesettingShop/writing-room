@@ -632,11 +632,13 @@ describe('MarkdownEditorModel', () => {
           expect(sync.state.selection.empty).toBe(true);
           expect(sync.state.selection.$head.parent.inlineContent).toBe(true);
         };
-        expectState(typed ?? external);
+        const composedSource = typed ?? external + '\n\n요';
+        const composedText = typed ? survivingText + '요' : '요';
+        expectState(composedSource);
+        expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, composedText));
+        expect(sync.undo()).toBe(true);
+        expectState(external);
         if (typed) {
-          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, survivingText + '요'));
-          expect(sync.undo()).toBe(true);
-          expectState(external);
           expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, survivingText, survivor));
         }
         if (external !== initialSource) {
@@ -650,11 +652,9 @@ describe('MarkdownEditorModel', () => {
           expectState(external);
           expect(sync.state.selection.head).toBe(Selection.atEnd(sync.state.doc).head);
         }
-        if (typed) {
-          expect(sync.redo()).toBe(true);
-          expectState(typed);
-          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, survivingText + '요'));
-        }
+        expect(sync.redo()).toBe(true);
+        expectState(composedSource);
+        expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, composedText));
         expect(sync.canRedo).toBe(false);
       } finally {
         listener.dispose();
@@ -677,6 +677,7 @@ describe('MarkdownEditorModel', () => {
       const header = '| A | B |\n| --- | --- |\n';
       const source = header + original;
       const external = header + original.replace(from, to);
+      const composed = typed ? header + typed : external + '\n\n요';
       const model = new TestTextModel(URI.parse('file:///table.md'), source);
       const listener = model.onDidChangeContent(event => {
         if (event.versionId === 2) sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
@@ -698,11 +699,16 @@ describe('MarkdownEditorModel', () => {
         sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
         const start = header.length + original.indexOf(from);
         applyOffsets(model, start, start + from.length, to);
-        expectSource(typed ? header + typed : external);
+        expectSource(composed);
         if (typed) {
           expect(sync.state.selection.head).toBe(tablePosition());
-          expect(sync.undo()).toBe(true);
-          expectSource(external);
+        } else {
+          expect(sync.state.selection.$head.parent).toBe(sync.state.doc.lastChild);
+          expect(sync.state.selection.$head.parent.textContent).toBe('요');
+        }
+        expect(sync.undo()).toBe(true);
+        expectSource(external);
+        if (typed) {
           expect(sync.state.selection.head).toBe(tablePosition());
         }
         expect(sync.undo()).toBe(true);
@@ -711,9 +717,9 @@ describe('MarkdownEditorModel', () => {
         expect(sync.canUndo).toBe(false);
         expect(sync.redo()).toBe(true);
         expectSource(external);
+        expect(sync.redo()).toBe(true);
+        expectSource(composed);
         if (typed) {
-          expect(sync.redo()).toBe(true);
-          expectSource(header + typed);
           expect(sync.state.selection.head).toBe(tablePosition());
         }
         expect(sync.canRedo).toBe(false);
@@ -1178,6 +1184,104 @@ describe('MarkdownEditorModel', () => {
         expect(model.getValue()).toBe(original);
         expect(sync.canUndo).toBe(false);
       } finally {
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
+
+  it('recovers only the final native replacement across two source edits', () => {
+    const original = 'First\n\n> **요리**\n\nLast';
+    const firstEdit = 'First\n\n---\n\nLast';
+    const secondEdit = 'First\n\n---\n\nLater';
+    const model = new TestTextModel(URI.parse('file:///quote.md'), original);
+    const listener = model.onDidChangeContent(event => {
+      if (event.versionId !== 2) return;
+      sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      const { state } = sync;
+      sync.dispatch(state.tr.insertText('금', state.selection.head - 1, state.selection.head).setMeta('composition', 1),
+        false, { text: '요금', lastInputWasEmpty: false });
+      applyOffsets(model, firstEdit.indexOf('Last'), firstEdit.length, 'Later');
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    const quote = sync.state.doc.child(1);
+    const initial = sync.state.doc.firstChild!.nodeSize + quote.nodeSize - 2;
+    const expectSource = (text: string) => {
+      expect(model.getValue()).toBe(text);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(text).doc)).toBe(true);
+    };
+    const recovered = 'First\n\n---\n\n요금\n\nLater';
+    try {
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
+      applyOffsets(model, original.indexOf('>'), original.indexOf('\n\nLast'), '---');
+      expectSource(recovered);
+      expect(sync.state.selection.$head.parent).toBe(sync.state.doc.child(2));
+      expect(sync.state.selection.$head.parentOffset).toBe(2);
+      expect(sync.state.selection.$head.parent.firstChild?.marks).toEqual([]);
+      for (const text of [secondEdit, firstEdit, original]) {
+        expect(sync.undo()).toBe(true);
+        expectSource(text);
+      }
+      expect(sync.state.selection.head).toBe(initial);
+      expect(sync.canUndo).toBe(false);
+      for (const text of [firstEdit, secondEdit, recovered]) {
+        expect(sync.redo()).toBe(true);
+        expectSource(text);
+      }
+      expect(sync.state.selection.$head.parent).toBe(sync.state.doc.child(2));
+      expect(sync.state.selection.$head.parentOffset).toBe(2);
+      expect(sync.canRedo).toBe(false);
+    } finally {
+      listener.dispose();
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each(['empty update', 'native cancel', 'native update without a step', 'empty end with text', 'ordinary insertion'] as const)(
+    'handles %s while a composing list disappears', mode => {
+      const original = '- Old';
+      const model = new TestTextModel(URI.parse('file:///list.md'), original);
+      const input = { text: '요', lastInputWasEmpty: false };
+      const listener = model.onDidChangeContent(event => {
+        if (event.versionId !== 2) return;
+        const { state } = sync;
+        const insertion = state.tr.insertText('요');
+        if (mode !== 'ordinary insertion') insertion.setMeta('composition', 1);
+        sync.dispatch(insertion, false, input);
+        if (mode === 'empty update') {
+          sync.dispatch(state.tr.delete(state.selection.head - 1, state.selection.head).setMeta('composition', 1));
+        } else if (mode === 'native cancel') {
+          // The DOM returns to the old value, so the final flush need not dispatch a document step.
+          input.lastInputWasEmpty = true;
+        } else if (mode === 'native update without a step') {
+          input.text = 'Old';
+        }
+      });
+      const sync = new MarkdownEditorModel(model, [], () => {});
+      const expected = mode === 'empty end with text' ? '요' : '';
+      try {
+        sync.dispatch(sync.state.tr.setSelection(Selection.atEnd(sync.state.doc)));
+        applyOffsets(model, 0, original.length, '');
+        expect(model.getValue()).toBe(expected);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(expected).doc)).toBe(true);
+        if (expected) {
+          expect(sync.state.selection.head).toBe(2);
+          expect(sync.undo()).toBe(true);
+          expect(model.getValue()).toBe('');
+        }
+        expect(sync.undo()).toBe(true);
+        expect(model.getValue()).toBe(original);
+        expect(sync.canUndo).toBe(false);
+        expect(sync.redo()).toBe(true);
+        expect(model.getValue()).toBe('');
+        if (expected) {
+          expect(sync.redo()).toBe(true);
+          expect(model.getValue()).toBe(expected);
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        listener.dispose();
         sync.dispose();
         model.dispose();
       }
