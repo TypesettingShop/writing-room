@@ -3,9 +3,11 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { expect, test } from 'vitest';
 import { colorRegistry } from '../../../../../platform/theme/common/colorRegistry.js';
-import { ColorScheme } from '../../../../../platform/theme/common/themeService.js';
+import { ColorScheme, DefaultThemeService } from '../../../../../platform/theme/common/themeService.js';
 
 const srcRoot = join(process.cwd(), 'src');
+const workbenchCss = readFileSync(join(srcRoot, 'workbench/browser/workbench.css'), 'utf8');
+const firstPaintRule = /\.workbench\s*\{[^}]*\}/;
 
 /** Variables the stylesheets read that are not colors; the theme service does not set them. */
 const NON_COLOR_VARIABLES = new Set(['--vscode-editor-font-family']);
@@ -15,6 +17,12 @@ function stylesheets(directory: string): string[] {
     const path = join(directory, entry.name);
     return entry.isDirectory() ? stylesheets(path) : entry.name.endsWith('.css') ? [path] : [];
   });
+}
+
+function firstPaintColors(): Map<string, string> {
+  const [rule] = workbenchCss.match(firstPaintRule)!;
+  return new Map([...rule.matchAll(/--vscode-([\w-]+):\s*([^;]+);/g)]
+    .map(([, name, value]) => [name.replace(/-/g, '.'), value.trim()]));
 }
 
 test('every color variable a stylesheet reads is registered and set by both built-in themes', () => {
@@ -39,14 +47,21 @@ test('every color variable a stylesheet reads is registered and set by both buil
 });
 
 test('the variables workbench.css sets for the first paint are the dark theme\'s values', () => {
-  const css = readFileSync(join(srcRoot, 'workbench/browser/workbench.css'), 'utf8');
-  const block = /\.workbench\s*\{([^}]*)\}/.exec(css)![1];
-  const variables = [...block.matchAll(/(--vscode-[\w-]+):\s*([^;]+);/g)];
-  expect(variables.length).toBeGreaterThan(0);
-  for (const [, name, value] of variables) {
-    expect(colorRegistry.resolve(name.slice('--vscode-'.length).replace(/-/g, '.'), ColorScheme.DARK), name).toBe(value.trim());
+  const colors = firstPaintColors();
+  expect(colors.size).toBeGreaterThan(0);
+  for (const [id, value] of colors) {
+    expect(colorRegistry.resolve(id, ColorScheme.DARK), id).toBe(value);
   }
   // Colors come from variables: no hex color is written into a rule of the workbench's own stylesheet.
-  const rules = css.replace(/\.workbench\s*\{[^}]*\}/, '');
+  const rules = workbenchCss.replace(firstPaintRule, '');
   expect(rules.match(/#[\da-f]{3,8}\b/gi)).toBeNull();
+});
+
+test('DefaultThemeService uses the workbench first-paint colors', () => {
+  const theme = new DefaultThemeService().getColorTheme();
+  const colors = firstPaintColors();
+  expect(colors.size).toBeGreaterThan(0);
+  for (const [id, value] of colors) {
+    expect(theme.getColor(id), id).toBe(value);
+  }
 });

@@ -1,5 +1,5 @@
 import type { Locator } from '@playwright/test';
-import { box, expect, screenshotColors, test } from './fixtures.js';
+import { box, expect, screenshotColor, screenshotColors, test } from './fixtures.js';
 import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
@@ -136,6 +136,8 @@ test('tab and Explorer selection colors stay readable in high contrast light and
   await expect(tab).toHaveAttribute('aria-selected', 'false');
   await expect(row).toHaveAttribute('aria-selected', 'true');
   await expect(activeTab).toHaveAttribute('aria-selected', 'true');
+  // The split pane applies its pending focus when Monaco attaches to the document.
+  await expect(right.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
 
   const expectColors = async (background: Locator, text: Locator, [fill, ink]: readonly [string, string]) => {
     await expect(background).toHaveCSS('background-color', rgb(fill));
@@ -309,10 +311,25 @@ test('nested editor group separators follow the current theme and survive layout
     )));
     const workbenchBorders = borders.map(([name, , , , installed], index) => {
       const [before, line, after] = pixels.slice(index * 3, index * 3 + 3);
-      const expected = slug === 'installed' ? installed : name === 'tab bar' && !tabBorder ? before : groupBorder;
+      // High contrast leaves `editorGroupHeader.tabsBorder` unset by default, so no line is drawn below the tab bar.
+      const expected = slug === 'installed' ? installed : name === 'tab bar' && slug.startsWith('hc-') ? before : groupBorder;
       expect(line, `${label} ${name} border pixel`).toBe(expected);
       return { name, before, line, after, ratios: [contrast(line, before), contrast(line, after)] };
     });
+    if (slug === 'dark') {
+      // Hover backgrounds of the full-width activity bar buttons and the panel tabs must not cover the part borders.
+      const activityItem = page.locator('.activitybar .composite-bar button').first();
+      const activityItemBox = await box(activityItem);
+      await activityItem.hover();
+      expect(await screenshotColor(page, activity.x + activity.width - 1, Math.floor(activityItemBox.y + activityItemBox.height / 2)),
+        'activity bar border under a hovered item').toBe(groupBorder);
+      const panelTab = page.locator('.panel .composite-bar button').first();
+      const panelTabBox = await box(panelTab);
+      await panelTab.hover();
+      expect(await screenshotColor(page, Math.floor(panelTabBox.x + panelTabBox.width / 2), panel.y),
+        'panel border above a hovered tab').toBe(groupBorder);
+      await page.mouse.move(10, 10);
+    }
     if (tabBorder) {
       // The screenshot waits for fonts. Read the centered body's position after any resulting layout.
       const paperBox = await box(markdown.nth(1));
