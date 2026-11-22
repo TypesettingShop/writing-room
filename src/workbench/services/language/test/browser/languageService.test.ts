@@ -13,11 +13,23 @@ import type { IExtensionService } from '../../../extensions/common/extensions.js
 import { MonacoLanguageBridge } from '../../browser/monacoLanguages.js';
 import { languageContributions, WorkbenchLanguageService } from '../../common/languageService.js';
 
-const monaco = vi.hoisted(() => ({ current: undefined as unknown }));
+const monaco = vi.hoisted(() => ({
+  current: undefined as unknown,
+  onLoad: undefined as ((namespace: unknown) => void) | undefined,
+}));
+vi.mock('../../../../../platform/theme/browser/editorThemeHook.js', () => ({
+  onDidLoadEditor(listener: (namespace: unknown) => void) {
+    monaco.onLoad = listener;
+    return { dispose: () => { monaco.onLoad = undefined; } };
+  },
+}));
 vi.mock('../../../../../editor/browser/monaco.js', async () => {
   const { FakeMonaco } = await import('../../../../../editor/test/browser/fakeMonaco.js');
   monaco.current = new FakeMonaco();
-  return { loadMonaco: async () => monaco.current };
+  return { loadMonaco: async () => {
+    monaco.onLoad?.(monaco.current);
+    return monaco.current;
+  } };
 });
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -201,7 +213,7 @@ test('a contributed configuration of a built-in language is set after Monaco set
     .toEqual(['built-in', { comments: { lineComment: '%%' } }]);
 });
 
-test('learns the built-in languages once Monaco is there, and gives them to a model that fell back to plain text', async () => {
+test('announces built-in languages before the first model is added', async () => {
   const { models, languages } = createBridge();
   const resource = URI.parse('vscode-vfs://writing-room/workspace/app.js');
   expect(languages.guessLanguageIdByFilepathOrFirstLine(resource)).toBeNull();
@@ -211,7 +223,7 @@ test('learns the built-in languages once Monaco is there, and gives them to a mo
     models.createModel('', undefined, resource),
     models.createModel('', 'plaintext', URI.parse('vscode-vfs://writing-room/workspace/pinned.js')),
   ]);
-  expect(initialLanguages).toEqual(['plaintext', 'plaintext']);
+  expect(initialLanguages).toEqual(['javascript', 'plaintext']);
   await flush();
   expect(languages.isRegisteredLanguageId('javascript')).toBe(true);
   expect(model.getLanguageId()).toBe('javascript');
