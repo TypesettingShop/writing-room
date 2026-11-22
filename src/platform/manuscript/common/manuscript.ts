@@ -54,6 +54,7 @@ export const manuscriptLimits = {
   title: 200,
   nodes: 10_000,
   metadata: 64 * 1024,
+  workMetadata: 16 * 1024 * 1024,
   document: 8 * 1024 * 1024,
 } as const;
 

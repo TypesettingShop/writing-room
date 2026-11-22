@@ -146,6 +146,8 @@ export interface IEditorGroupsService extends BrandedService {
   /** The active group's active editor changed, or another group became active. */
   readonly onDidActiveEditorChange: Event<void>;
 
+  /** Whether a saved editor snapshot was present at startup, even if empty or unreadable. */
+  readonly hasStoredState: boolean;
   readonly activeGroup: IEditorGroup;
   /** The groups in creation order. */
   readonly groups: readonly IEditorGroup[];
