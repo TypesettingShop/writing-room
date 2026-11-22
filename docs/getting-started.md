@@ -23,6 +23,12 @@ WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
 
 서버 코드 수정을 반영하며 작업할 때는 같은 환경 변수로 `npm run dev:server`를 실행한다. 기본 API 주소는 `127.0.0.1:8787`이고 Vite 개발 서버와 프리뷰가 같은 오리진의 `/api` 요청을 전달한다. API 포트를 바꾸면 두 프로세스에 같은 `WRITING_ROOM_API_PORT`를 지정한다. 앱을 기본 개발 주소인 `http://127.0.0.1:5173` 또는 `http://localhost:5173` 외의 주소에서 열면 API 서버에 실제 앱 오리진을 `WRITING_ROOM_PUBLIC_ORIGIN`으로 지정한다. 개발 인증은 루프백 주소에서만 쓸 수 있다.
 
+기본 Vite 프리뷰(`http://127.0.0.1:4173`)에서 원고를 저장하려면 API 서버에 해당 오리진을 허용한다.
+
+```sh
+WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
+```
+
 ## 편집하고 배치하기
 
 - 위쪽 메뉴 바의 **File → New Text File**로 Monaco 편집기를 연다. 에디터 툴바의 **Split Editor Right**는 같은 문서를 두 그룹에서 보여 준다. 한쪽에서 편집한 내용은 다른 쪽에도 반영된다.
