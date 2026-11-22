@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import type { IFileService } from '../../../../../platform/files/common/files.js';
 import { StorageScope, StorageTarget, storageKey, WillSaveStateReason } from '../../../../../platform/storage/common/storage.js';
+import type { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { ExtensionStorage } from '../../../../api/browser/mainThreadStorage.js';
 import {
   BrowserStorageService, registerStorageMigration, STORAGE_PREFIX, STORAGE_SCHEMA_VERSION, STORAGE_VERSION_KEY,
 } from '../../browser/storageService.js';
+
+// These tests install their own migrations. Use the installed extension address without registering the production migration.
+vi.mock('../../../extensionManagement/browser/webExtensionsScannerService.js', () => ({ userExtensionsKey: 'extensions.user' }));
 
 const storageProperty = `${'local'}Storage` as const;
 const scope = StorageScope.PROFILE;
@@ -258,6 +264,54 @@ describe('Work scope', () => {
     expect(area.getItem(workKey(workA))).toBeNull();
     expect(area.getItem(workKey(workB))).toBe('state B');
     expect(area.getItem(legacyKey)).toBe('legacy state');
+  });
+
+  test('counts persisted Profile, legacy and Work state once across the origin without exposing it in other Works', async () => {
+    const owner = 'test.sample';
+    const key = 'extensions.state.' + owner;
+    const fullValue = 'x'.repeat(256 * 1024 - '{"value":""}'.length);
+    const full = JSON.stringify({ value: fullValue });
+    const small = '{"value":"a"}';
+    const legacyPrefix = STORAGE_PREFIX + storageKey(workspace, '');
+    const workPrefix = (id: string) => STORAGE_PREFIX + 'work:' + id + ':' + storageKey(workspace, '');
+
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    area.setItem(workPrefix(workA) + key, small);
+    const first = openWorkStorage(workA);
+    const firstState = disposables.add(new ExtensionStorage(first, {} as IFileService, {} as IWorkspaceContextService));
+    const second = openWorkStorage(workB);
+    const events = vi.fn();
+    first.onDidChangeValue(workspace, undefined, disposables)(events);
+
+    // Seed the physical backend without updating A's cache. Only the persisted data should decide the limit.
+    area.setItem(workPrefix(workA) + key, full);
+    const profilePrefix = STORAGE_PREFIX + storageKey(scope, '');
+    for (const prefix of [profilePrefix, legacyPrefix, workPrefix(workA), workPrefix(workB)]) {
+      area.setItem(prefix + 'extensions.state.test.first', full);
+      if (prefix !== workPrefix(workA)) {
+        area.setItem(prefix + 'extensions.state.test.second', full);
+      }
+    }
+    const foreignKey = 'extensions.state.test.second';
+    storageEvent(workPrefix(workB) + foreignKey, full);
+    expect(second.get(foreignKey, workspace)).toBe(full);
+    expect(first.get(foreignKey, workspace)).toBeUndefined();
+    expect(events).not.toHaveBeenCalled();
+
+    const update = (name: string, json: string | undefined) => firstState.update(owner, 'workspace', name, json, () => true);
+    // At exactly 2 MiB, a new key would exceed the limit. The target itself must not be counted twice.
+    await expect(firstState.update('test.new', 'global', 'value', '"x"', () => true)).rejects.toThrow('2 MiB');
+    expect(first.get(key, workspace)).toBe(small);
+    expect(area.getItem(workPrefix(workA) + key)).toBe(full);
+    expect(first.usesMemory).toBe(false);
+    await update('value', JSON.stringify(fullValue.slice(1)));
+    await update('value', JSON.stringify(fullValue));
+    area.setItem(legacyPrefix + 'extensions.state.test.over', small);
+    await update('value', '"shorter"');
+    expect(first.get(key, workspace)).toBe('{"value":"shorter"}');
+    await update('value', undefined);
+    expect(area.getItem(workPrefix(workA) + key)).toBeNull();
+    expect(area.getItem(workPrefix(workB) + foreignKey)).toBe(full);
   });
 
   test('ignores other workspace events while a same-work event reads the latest persisted value', () => {

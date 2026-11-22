@@ -55,6 +55,8 @@ export interface IStorageService {
    * Use the `storeImmediately` snapshot for decisions that must see persisted values across tabs.
    */
   keys(scope: StorageScope): string[];
+  /** UTF-8 bytes of persisted workspace values with this key prefix outside the current workspace. */
+  getPersistedWorkspaceValueSizeOutsideCurrent(keyPrefix: string): number;
 
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void;
   /**
@@ -175,6 +177,10 @@ export abstract class AbstractStorageService implements IStorageService, IDispos
       }
     }
     return keys;
+  }
+
+  getPersistedWorkspaceValueSizeOutsideCurrent(_keyPrefix: string): number {
+    return 0;
   }
 
   store(key: string, value: StorageValue, scope: StorageScope, target: StorageTarget): void {
