@@ -219,9 +219,10 @@ registerAction2(class SignOutAction extends Action2 {
     }
     try {
       await auth.signOut();
-      await openWelcomeWorks(groups);
     } catch (error) {
       notifications.error(error instanceof Error ? error.message : 'Could not sign out. Try again.');
+      return;
     }
+    await openWelcomeWorks(groups);
   }
 });

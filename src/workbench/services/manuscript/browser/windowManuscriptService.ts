@@ -34,7 +34,8 @@ export class ManuscriptStatus extends Disposable {
       return;
     }
     const signedIn = availability === 'unavailable' ? this.authenticated : availability === 'ready';
-    if (signedIn === false && signedIn !== this.authenticated) {
+    // A response that signs the window out, or back in (another tab signed in), outdates the requests sent before it.
+    if (signedIn !== this.authenticated && (signedIn === false || this.authenticated === false)) {
       this.sessionRevision++;
     }
     this.update(availability, signedIn, 'request');

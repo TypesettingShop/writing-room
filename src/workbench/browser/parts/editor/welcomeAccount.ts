@@ -61,6 +61,8 @@ export class WelcomeAccount extends Disposable {
 
   hide(): void {
     if (!this.visible) {
+      // A message shown before the form appeared, such as a canceled Google sign-in, must not outlive it.
+      this.showError('');
       return;
     }
     this.providers = undefined;

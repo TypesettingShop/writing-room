@@ -131,6 +131,30 @@ it('keeps an explicit account change when an older Works response arrives late',
   }
 });
 
+it('keeps a sign-in from another tab when an earlier unauthorized response arrives late', async () => {
+  let settle!: (response: Response) => void;
+  const late = new Promise<Response>(resolve => { settle = resolve; });
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(new Response(null, { status: 401 }))
+    .mockReturnValueOnce(late)
+    .mockResolvedValueOnce(Response.json({ works: [] }));
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, fetch));
+  const auth = vi.fn();
+  const listener = service.onDidChangeAuth(auth);
+  try {
+    await expect(service.store.listWorks()).rejects.toMatchObject({ code: 'unauthorized' });
+    const stale = service.store.listWorks();
+    await expect(service.store.listWorks()).resolves.toEqual([]);
+    settle(new Response(null, { status: 401 }));
+    await expect(stale).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(service.signedIn).toBe(true);
+    expect(auth.mock.calls).toEqual([[{ signedIn: false, reason: 'request' }], [{ signedIn: true, reason: 'request' }]]);
+  } finally {
+    listener.dispose();
+    service.dispose();
+  }
+});
+
 it('explains address rejection for both document stats and JSON requests', async () => {
   const message = 'Host must be a loopback address or an allowed origin.';
   const fetch = vi.fn()

@@ -160,7 +160,10 @@ export class WelcomeEditorPane extends EditorPane {
   override clearInput(): void {
     super.clearInput();
     this.generation++;
-    this.account?.hide();
+    if (this.account) {
+      this.account.hide();
+      this.newWork.hidden = false;
+    }
   }
 
   private async refreshWorks(): Promise<void> {
