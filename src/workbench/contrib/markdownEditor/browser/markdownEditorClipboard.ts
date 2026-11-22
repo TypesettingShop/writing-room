@@ -1,6 +1,7 @@
 import { DOMParser, Fragment, Slice } from 'prosemirror-model';
 import type { Mark, Node as ProseMirrorNode } from 'prosemirror-model';
 import type { EditorProps, EditorView } from 'prosemirror-view';
+import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
@@ -17,6 +18,7 @@ const safeAttributes = new Set([
 const alignments = new Set(['left', 'center', 'right', 'justify']);
 // The schema reads bold and italics from these declarations (Google Docs wraps its HTML in `<b style="font-weight:normal">`).
 const emphasisStyles = ['font-weight', 'font-style'] as const;
+const clipboardRenderer = createMarkdownIt();
 
 function applyPastedUnderline(document: Document, content: DocumentFragment, underlined: ReadonlySet<Element>): void {
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
@@ -51,9 +53,8 @@ const lastCopyLimit = 1 << 20;
 let lastCopy: { readonly markdown: string; readonly text: string } | undefined;
 const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n');
 
-function rememberCopy(view: EditorView, markdown: string, content: Fragment): void {
+function rememberCopy(browserWindow: Window | null, markdown: string, content: Fragment): void {
   lastCopy = { markdown: lineBreaks(markdown), text: visibleText(content) };
-  const browserWindow = view.dom.ownerDocument.defaultView;
   if (lastCopy.markdown.length + lastCopy.text.length <= lastCopyLimit) {
     const serialized = JSON.stringify(lastCopy);
     if (new TextEncoder().encode(serialized).byteLength <= lastCopyLimit) {
@@ -62,6 +63,22 @@ function rememberCopy(view: EditorView, markdown: string, content: Fragment): vo
     }
   }
   writeTabStorage(browserWindow, lastCopyKey, undefined);
+}
+
+export async function copyMarkdownFragment(browserWindow: Window, slice: Slice, format: 'markdown' | 'html'): Promise<void> {
+  const clipboard = browserWindow.navigator.clipboard;
+  if (!clipboard) throw new Error('Clipboard access is unavailable');
+  const markdown = serializeClipboardMarkdown(slice, format === 'html');
+  if (format === 'markdown') {
+    await clipboard.writeText(markdown);
+    rememberCopy(browserWindow, markdown, slice.content);
+  } else {
+    const html = clipboardRenderer.render(markdown);
+    await clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([html], { type: 'text/plain' }),
+    })]);
+  }
 }
 
 function copiedPlainText(view: EditorView, text: string): string {
@@ -204,26 +221,28 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
 
   clipboardTextSerializer(slice, view) {
     const markdown = serializeClipboardMarkdown(slice);
-    rememberCopy(view, markdown, slice.content);
+    rememberCopy(view.dom.ownerDocument.defaultView, markdown, slice.content);
     return markdown;
   },
 };
 
-function serializeClipboardMarkdown(slice: Slice): string {
+function serializeClipboardMarkdown(slice: Slice, preserveBlocks = false): string {
   let { content, openStart, openEnd } = slice;
   // A cell selection over the whole table copies the table, opened only at its rows.
   if (content.childCount === 1 && content.firstChild!.type === markdownSchema.nodes.table && openStart === 1 && openEnd === 1) {
     return serializeMarkdown(markdownSchema.topNodeType.create(null, content));
   }
-  // A selection inside one block copies that block's text, not the markers of the blocks around it.
-  while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
-    content = content.firstChild!.content;
-    openStart--;
-    openEnd--;
-  }
-  if (content.childCount === 1 && openStart > 0 && openEnd > 0 && content.firstChild!.isTextblock) {
-    if (content.firstChild!.type.spec.code) return content.firstChild!.textContent;
-    content = content.firstChild!.content;
+  // Markdown text from one block omits surrounding markers. HTML renders the enclosing blocks and their classes.
+  if (!preserveBlocks) {
+    while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
+      content = content.firstChild!.content;
+      openStart--;
+      openEnd--;
+    }
+    if (content.childCount === 1 && openStart > 0 && openEnd > 0 && content.firstChild!.isTextblock) {
+      if (content.firstChild!.type.spec.code) return content.firstChild!.textContent;
+      content = content.firstChild!.content;
+    }
   }
   content = content.firstChild?.isInline
     ? Fragment.from(markdownSchema.nodes.paragraph.create(null, content)) : content;

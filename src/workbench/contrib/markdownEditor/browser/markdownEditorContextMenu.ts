@@ -25,6 +25,11 @@ export const markdownClipboardCommands = [
 ] as const;
 
 export type MarkdownClipboardOperation = (typeof markdownClipboardCommands)[number]['operation'];
+export const markdownCopyCommands = [
+  { id: 'markdownEditor.copyAsMarkdown', label: 'Copy as Markdown', format: 'markdown' },
+  { id: 'markdownEditor.copyAsHTML', label: 'Copy as HTML', format: 'html' },
+] as const;
+
 export const MARKDOWN_SELECT_ALL_COMMAND = 'markdownEditor.selectAll';
 
 export function getReadOnlyMarkdownSelection(view: EditorView): globalThis.Selection | undefined {
@@ -115,6 +120,10 @@ export function showMarkdownContextMenu(
     ? menus.getMenuActions(MenuId.MarkdownEditorSelection, context).map(([group, actions]) =>
       [group, canFormat ? actions : actions.map(action => ({ ...action, enabled: false }))] as const)
     : [];
+  const clipboard = markdownClipboardCommands.flatMap(({ id, operation, label, key }) => {
+    const item = action(id, label, operation === 'copy' ? selected : view.editable && (operation !== 'cut' || selected), key);
+    return operation === 'copy' ? [item, ...markdownCopyCommands.map(({ id, label }) => action(id, label, selected))] : [item];
+  });
   return contextMenu.showContextMenu({
     label: 'Markdown editor',
     horizontalGroup: markdownSelectionFormattingGroup,
@@ -122,8 +131,7 @@ export function showMarkdownContextMenu(
     getActions: () => [
       ...formatting,
       ['history', [action('undo', 'Undo', history.canUndo), action('redo', 'Redo', history.canRedo)]],
-      ['clipboard', markdownClipboardCommands.map(({ id, operation, label, key }) => action(id, label,
-        operation === 'copy' ? selected : view.editable && (operation !== 'cut' || selected), key))],
+      ['clipboard', clipboard],
       ['selection', [action(MARKDOWN_SELECT_ALL_COMMAND, 'Select All', true)]],
     ],
   });
