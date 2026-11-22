@@ -117,9 +117,16 @@ test('aligns Navigator branches with their parent toggles and reaches document i
       return {
         verticalX: bounds.left + parseFloat(vertical.left) + parseFloat(vertical.width) / 2,
         gap: iconOrToggle.left - (bounds.left + parseFloat(horizontal.left) + parseFloat(horizontal.width)),
-        colors: [vertical.backgroundColor, horizontal.backgroundColor],
       };
     });
+  }
+
+  /** The colors of every stroke a row's guides draw: pipes, tees and ends. */
+  async function strokes(item: Locator): Promise<string[]> {
+    return item.locator('.manuscript-twig > span').evaluateAll(segments => segments.flatMap(segment => ['::before', '::after']
+      .map(pseudo => getComputedStyle(segment, pseudo))
+      .filter(stroke => stroke.content !== 'none' && stroke.content !== 'normal')
+      .map(stroke => stroke.backgroundColor)));
   }
 
   const partX = await toggleCenter(part);
@@ -136,10 +143,10 @@ test('aligns Navigator branches with their parent toggles and reaches document i
   expect.soft(Math.abs(introductionBranch.verticalX - partX), 'part to document').toBeLessThanOrEqual(1);
   expect.soft(Math.abs(sceneBranch.verticalX - chapterX), 'chapter to document').toBeLessThanOrEqual(1);
   expect.soft(Math.abs(pipeX - partX), 'part branch continues past the first chapter').toBeLessThanOrEqual(1);
-  expect(chapterBranch.gap).toBeGreaterThanOrEqual(0);
-  for (const gap of [introductionBranch.gap, sceneBranch.gap]) {
-    expect.soft(gap).toBeGreaterThanOrEqual(0);
-    expect.soft(gap).toBeLessThanOrEqual(chapterBranch.gap);
+  expect(chapterBranch.gap, 'folder branch stops before its toggle').toBeGreaterThanOrEqual(0);
+  for (const [name, gap] of [['part document', introductionBranch.gap], ['chapter document', sceneBranch.gap]] as const) {
+    expect.soft(gap, `${name} branch stops before its icon`).toBeGreaterThanOrEqual(0);
+    expect.soft(gap, `${name} branch reaches its icon`).toBeLessThanOrEqual(1);
   }
 
   for (const [theme, kind] of [
@@ -149,7 +156,8 @@ test('aligns Navigator branches with their parent toggles and reaches document i
     await chooseTheme(page, theme);
     await expect.poll(() => kindClass(page)).toBe(kind);
     const color = rgb(await colorVariable(page, 'descriptionForeground'));
-    expect((await branch(scene)).colors).toEqual([color, color]);
+    // The chapter's tee (2 strokes) and the scene's pipe (1) and end (2).
+    expect([...await strokes(chapter), ...await strokes(scene)]).toEqual(Array(5).fill(color));
   }
 });
 

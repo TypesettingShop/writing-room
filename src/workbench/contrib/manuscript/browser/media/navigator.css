@@ -145,6 +145,14 @@
   inset-inline-end: calc(0px - var(--manuscript-indent) - var(--manuscript-row-gap));
 }
 
+@media (forced-colors: active) {
+  /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
+  .manuscript-twig {
+    forced-color-adjust: none;
+    color: CanvasText;
+  }
+}
+
 .manuscript-inline-editor {
   position: absolute;
   z-index: 1;
