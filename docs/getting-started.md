@@ -40,6 +40,13 @@ npm run dev
 - 새 탭을 원문 모드로 열려면 사용자 설정에 `"markdownEditor.defaultMode": "source"`를 추가한다. 기본값은 `wysiwyg`이고, `workbench.editorAssociations`에서 지정한 에디터가 새 탭에 우선한다. 열려 있는 탭은 새로고침 뒤에도 선택했던 모드와 저장하지 않은 초안을 복원한다.
 - 원문과 WYSIWYG는 파일 내용과 dirty 표시를 공유한다. WYSIWYG의 **Edit → Undo**와 **Edit → Redo**, **Ctrl+Z**, **Ctrl+Shift+Z**, **Ctrl+Y**(macOS에서는 **Cmd**)는 같은 이력에 적용된다. 500ms 안에 이어서 입력한 글자는 한 번에 되돌아가며, 서식 명령과 외부 편집은 각각 한 단계다.
 - 모드를 전환하면 전환 순간의 파일 내용이 새 이력의 시작점이 된다. 그 뒤에 한 첫 편집을 되돌리면 전환 순간의 내용으로 돌아온다. 원문 이력은 같은 파일의 Monaco 창이 공유한다.
+- Ubuntu GNOME Wayland의 Chrome에는 fcitx5 한글 입력 시 알려진 한계가 있다.
+  조합 중 다른 곳을 클릭하면 입력기가 마지막 조합 글자를 지운다. WYSIWYG는 클릭이나
+  포커스 이동 직전에 지워진 글자를 원래 자리에 되살린다. **Backspace**로
+  마지막 조합 글자를 지운 직후에도 같은 순서로 이벤트가 오면 그 글자가 되살아날
+  수 있다. 원문 모드(Monaco)와 커맨드 팔레트 같은 일반 입력칸에서는 클릭할 때
+  마지막 조합 글자가 사라질 수 있다. Chrome을 `--ozone-platform=x11`로
+  실행하면 클릭할 때 입력기가 마지막 글자를 확정한다.
 - 확장이 제공하는 **Markdown Preview**는 **View: Reopen Editor With...**에서 선택할 수 있다. Monaco의 언어 기능 및 편집기 전용 확장 명령은 원문 모드에서 사용한다. [마크다운 저장 규칙](markdown-editor.md)
 
 ### 서식 툴바
@@ -202,4 +209,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn

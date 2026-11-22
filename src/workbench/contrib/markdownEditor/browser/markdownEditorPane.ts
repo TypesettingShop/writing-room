@@ -40,6 +40,7 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
+import { flushMarkdownComposition, MarkdownCompositionRecovery } from './markdownCompositionRecovery.js';
 import { bindMarkdownGutter, MarkdownEditorView, moveFromMarkdownCaretParagraph, onMarkdownScrollbar } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
@@ -239,6 +240,7 @@ export class MarkdownEditorPane extends EditorPane {
         return;
       }
       const sync = this.sync = this.getTabModel(input, resolved);
+      const composition = new MarkdownCompositionRecovery();
       const view = this.view = new MarkdownEditorView(this.surface, {
         state: sync.state,
         editable: () => !input.isReadonly(),
@@ -270,6 +272,7 @@ export class MarkdownEditorPane extends EditorPane {
         },
         dispatchTransaction: transaction => {
           if (!transaction.docChanged || !input.isReadonly()) {
+            composition.observeTransaction(transaction);
             // Native read-only selection and table cell drags can arrive without the pointer flag.
             // Keep the viewport in place unless the transaction requested scrolling.
             this.pointerSelection = transaction.getMeta('pointer') === true
@@ -284,6 +287,7 @@ export class MarkdownEditorPane extends EditorPane {
         },
         handleDOMEvents: {
           ...markdownClipboardEvents,
+          ...composition.handleDOMEvents,
           // ProseMirror handles mousedown even in read-only views and cancels native selection.
           mousedown: view => !view.editable,
           keydown: (_view, event) => {
@@ -293,7 +297,8 @@ export class MarkdownEditorPane extends EditorPane {
             }
             return this.keybindings.dispatchDuringComposition?.(event, compositionCommands) ?? false;
           },
-          compositionend: () => {
+          compositionend: (view, event) => {
+            composition.handleDOMEvents.compositionend(view, event);
             queueMicrotask(() => {
               if (this.view === view) this.scheduleTypewriter();
             });
@@ -308,6 +313,7 @@ export class MarkdownEditorPane extends EditorPane {
           },
         },
       });
+      this.session.add(composition.bind(view));
       this.session.add(toDisposable(() => view.destroy()));
       // Finish native input before ProseMirror or the surface moves the selection under the pointer.
       // A touch keeps ProseMirror's own touchstart handling: blurring there would close the on-screen keyboard.
@@ -387,8 +393,7 @@ export class MarkdownEditorPane extends EditorPane {
       if (view.isDestroyed) return;
       // Blur lets the browser finish the native composition. Drain ProseMirror's observer now
       // so the following command, source change, or view destruction sees the final mutation.
-      const { domObserver } = view as EditorView & { domObserver: { forceFlush(always: boolean): void } };
-      domObserver.forceFlush(true);
+      flushMarkdownComposition(view);
       const activeElement = view.root.activeElement;
       if (focused && restoreFocus && (!activeElement || activeElement === view.dom.ownerDocument.body)) {
         view.focus();
