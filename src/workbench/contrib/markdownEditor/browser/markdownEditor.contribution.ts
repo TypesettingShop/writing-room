@@ -30,6 +30,7 @@ import {
 import { MarkdownEditorInput, MarkdownEditorInputSerializer } from './markdownEditorInput.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
 import './markdownEditorToolbar.contribution.js';
+import './markdownEditorContextMenu.contribution.js';
 import './markdownWriting.contribution.js';
 import './markdownFocusMode.contribution.js';
 

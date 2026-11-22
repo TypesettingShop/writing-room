@@ -1,7 +1,7 @@
-import { baseKeymap } from 'prosemirror-commands';
+import { baseKeymap, selectAll } from 'prosemirror-commands';
 import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import { NodeSelection, TextSelection } from 'prosemirror-state';
+import { TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
@@ -39,11 +39,14 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
-import { bindMarkdownGutter } from './markdownEditorGutter.js';
+import { bindMarkdownGutter, onMarkdownScrollbar } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
-import { markdownClipboard } from './markdownEditorClipboard.js';
-import { showMarkdownContextToolbox } from './markdownEditorContextToolbox.js';
+import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
+import {
+  getReadOnlyMarkdownSelection, isOverMarkdownSelection, moveMarkdownContextCaret, showMarkdownContextMenu,
+} from './markdownEditorContextMenu.js';
+import type { MarkdownClipboardOperation } from './markdownEditorContextMenu.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
 import { setFormattingPreset } from './markdownEditorPresets.js';
 import type { PresetAxisId } from './markdownEditorPresets.js';
@@ -68,7 +71,7 @@ export class MarkdownEditorPane extends EditorPane {
   private view: EditorView | undefined;
   private sync: MarkdownEditorModel | undefined;
   private readonly session = this._register(new DisposableStore());
-  private readonly contextToolbox = this._register(new MutableDisposable<IDisposable>());
+  private readonly contextMenu = this._register(new MutableDisposable<IDisposable>());
   private readonly tabModels = new Map<MarkdownEditorInput, { model: MarkdownEditorModel; lifetime: IDisposable }>();
   private readonly historyChanged = this._register(new Emitter<void>());
   readonly onDidChangeHistory = this.historyChanged.event;
@@ -201,7 +204,7 @@ export class MarkdownEditorPane extends EditorPane {
         }
       }));
       this._register(this.groups.onDidChangeActiveGroup(active => {
-        if (active !== group) this.contextToolbox.clear();
+        if (active !== group) this.contextMenu.clear();
       }));
     }
     this.error = append(parent, $('.markdown-editor-error', { hidden: '', role: 'alert', tabindex: '-1' }));
@@ -238,7 +241,10 @@ export class MarkdownEditorPane extends EditorPane {
       const view = this.view = new EditorView(this.surface, {
         state: sync.state,
         editable: () => !input.isReadonly(),
-        attributes: { role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true' },
+        attributes: () => ({
+          role: 'textbox', 'aria-label': 'Markdown editor', 'aria-multiline': 'true',
+          'aria-readonly': String(input.isReadonly()), tabindex: '0',
+        }),
         ...markdownClipboard,
         handleScrollToSelection: view => {
           if (this.pointerSelection) return false;
@@ -275,35 +281,11 @@ export class MarkdownEditorPane extends EditorPane {
         },
         handleDOMEvents: {
           keydown: (_view, event) => {
-            if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && this.openContextToolbox()) {
+            if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && this.openContextMenu()) {
               event.preventDefault();
               return true;
             }
             return this.keybindings.dispatchDuringComposition?.(event, compositionCommands) ?? false;
-          },
-          mousedown: (view, event) => {
-            if (event.button !== 2 || event.shiftKey || !this.hasContextToolboxSelection() ||
-              !this.isOverContextSelection(view, event)) return false;
-            // Keep the selected text when the browser would move the caret on a secondary press.
-            event.preventDefault();
-            return true;
-          },
-          contextmenu: (view, event) => {
-            if (event.shiftKey || !this.hasContextToolboxSelection()) return false;
-            const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
-            if (!this.isOverContextSelection(view, event)) {
-              if (hit) {
-                const at = view.state.doc.resolve(hit.pos);
-                view.dispatch(view.state.tr.setSelection(TextSelection.between(at, at)).setMeta('pointer', true));
-                view.focus();
-              }
-              return false;
-            }
-            // Anchor below the pressed line so the selected text remains readable.
-            const y = hit ? Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) : event.clientY;
-            if (!this.openContextToolbox({ x: event.clientX, y })) return false;
-            event.preventDefault();
-            return true;
           },
           compositionend: () => {
             queueMicrotask(() => {
@@ -326,12 +308,22 @@ export class MarkdownEditorPane extends EditorPane {
       this.session.add(addDisposableListener(this.surface, 'pointerdown', event => {
         if (event.pointerType !== 'touch') this.commitComposition();
       }, true));
-      this.session.add(addDisposableListener(this.surface, 'scroll', () => this.contextToolbox.clear()));
+      const isOverScrollbar = (event: MouseEvent) => event.target === this.surface && onMarkdownScrollbar(this.surface, event);
+      this.session.add(addDisposableListener(this.surface, 'mousedown', event => {
+        // The app positions the caret on contextmenu. Keep the browser from changing the selection first.
+        if (event.button === 2 && !event.shiftKey && !isOverScrollbar(event)) event.preventDefault();
+      }, true));
+      this.session.add(addDisposableListener(this.surface, 'contextmenu', event => {
+        if (event.shiftKey || isOverScrollbar(event)) return;
+        const keyboard = event.button === 0 && event.clientX === 0 && event.clientY === 0;
+        if (this.openContextMenu(keyboard ? undefined : event)) event.preventDefault();
+      }, true));
+      this.session.add(addDisposableListener(this.surface, 'scroll', () => this.contextMenu.clear()));
       this.session.add(input.onWillSave(() => this.commitComposition()));
       this.session.add(addDisposableListener(view.dom.ownerDocument.defaultView!, 'blur', () => this.commitComposition()));
       this.session.add(input.onDidChangeLabel(() => {
         this.commitComposition();
-        if (input.isReadonly()) this.contextToolbox.clear();
+        this.contextMenu.clear();
         view.setProps({});
         // Unchanged task items keep their node views, so their checkboxes follow the read-only state here.
         for (const checkbox of view.dom.querySelectorAll<HTMLInputElement>('li[data-task-checked] > input[type="checkbox"]')) {
@@ -357,7 +349,7 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   override clearInput(): void {
-    this.contextToolbox.clear();
+    this.contextMenu.clear();
     this.commitComposition(false);
     this.request++;
     this.pendingFocus = false;
@@ -397,36 +389,29 @@ export class MarkdownEditorPane extends EditorPane {
     }
   }
 
-  private hasContextToolboxSelection(): boolean {
-    const selection = this.formattingState?.selection;
-    return selection !== undefined && !selection.empty && !(selection instanceof NodeSelection);
-  }
-
-  private isOverContextSelection(view: EditorView, { target, clientX, clientY }: MouseEvent): boolean {
-    const { selection } = view.state;
-    if (selection instanceof CellSelection) {
-      return target instanceof Element && Boolean(target.closest('.selectedCell'));
-    }
-    // Positions round to an insertion point, including clicks in the blank space next to a selection.
-    const start = view.domAtPos(selection.from, 1);
-    const end = view.domAtPos(selection.to, -1);
-    const range = view.dom.ownerDocument.createRange();
-    range.setStart(start.node, start.offset);
-    range.setEnd(end.node, end.offset);
-    return Array.from(range.getClientRects()).some(rect => rect.width > 0 &&
-      clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom);
-  }
-
-  private openContextToolbox(point?: { x: number; y: number }): boolean {
+  private openContextMenu(event?: MouseEvent): boolean {
     this.commitComposition();
     const view = this.view;
     const scope = this.scoped;
-    if (!view || !scope || !this.hasContextToolboxSelection()) return false;
+    if (!view || !scope) return false;
     const group = this.groups.groups.find(group => group.activeEditorPane === this);
     if (!group) return false;
-    this.contextToolbox.clear();
-    if (!point) {
-      const caret = view.coordsAtPos(view.state.selection.head);
+    this.contextMenu.clear();
+    this.groups.activateGroup(group);
+    this.focus();
+
+    let point: { x: number; y: number };
+    if (event) {
+      const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+      const inside = isOverMarkdownSelection(view, event);
+      if (!inside) moveMarkdownContextCaret(this.surface, view, event, hit);
+      // Leave the clicked line visible when preserving a selection.
+      const y = inside && hit ? Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) : event.clientY;
+      point = { x: event.clientX, y };
+    } else {
+      const readOnly = view.editable ? undefined : getReadOnlyMarkdownSelection(view);
+      const head = readOnly?.focusNode ? view.posAtDOM(readOnly.focusNode, readOnly.focusOffset) : view.state.selection.head;
+      const caret = view.coordsAtPos(head);
       point = { x: caret.left, y: caret.bottom };
     }
     // The head can be scrolled out of the surface (after Select All, for example); open at the nearest visible edge.
@@ -435,13 +420,40 @@ export class MarkdownEditorPane extends EditorPane {
       x: Math.min(Math.max(point.x, surface.left), surface.right),
       y: Math.min(Math.max(point.y, surface.top), surface.bottom),
     };
-    this.groups.activateGroup(group);
-    view.focus();
-    const isCurrent = () => this.view === view && view.editable && this.groups.activeGroup.activeEditorPane === this;
-    this.contextToolbox.value = this.instantiation.invokeFunction(
-      showMarkdownContextToolbox, view, scope, anchor, isCurrent,
+    const isCurrent = () => this.view === view && this.groups.activeGroup.activeEditorPane === this;
+    this.contextMenu.value = this.instantiation.invokeFunction(
+      showMarkdownContextMenu, view, scope, anchor, this, isCurrent,
     );
-    return this.contextToolbox.value !== undefined;
+    return this.contextMenu.value !== undefined;
+  }
+
+  async runClipboardCommand(operation: MarkdownClipboardOperation, warn: (message: string) => void): Promise<void> {
+    this.commitComposition();
+    const view = this.view;
+    if (!view?.hasFocus() || (operation !== 'copy' && !view.editable)) return;
+    const { doc, selection } = view.state;
+    const isCurrent = () => this.view === view && this.groups.activeGroup.activeEditorPane === this;
+    const isPaste = operation === 'paste' || operation === 'pastePlainText';
+    try {
+      if (isPaste) {
+        // Clipboard permission can outlast focus, the tab, or the original destination.
+        await pasteFromMarkdownClipboard(view, () => isCurrent() && view.editable && view.hasFocus()
+          && view.state.doc === doc && selection.eq(view.state.selection), operation === 'pastePlainText');
+      } else {
+        const selected = view.editable ? !selection.empty : getReadOnlyMarkdownSelection(view)?.isCollapsed === false;
+        if (selected && !view.dom.ownerDocument.execCommand(operation)) throw new Error('Clipboard command is unavailable');
+      }
+    } catch {
+      if (isCurrent()) warn(`Could not ${isPaste ? 'paste' : operation} using the clipboard. Try the keyboard shortcut.`);
+    }
+  }
+
+  selectAll(): void {
+    this.commitComposition();
+    const view = this.view;
+    if (!view?.hasFocus()) return;
+    if (view.editable) selectAll(view.state, view.dispatch);
+    else view.dom.ownerDocument.getSelection()?.selectAllChildren(view.dom);
   }
 
   private scheduleTypewriter(): void {
@@ -477,8 +489,10 @@ export class MarkdownEditorPane extends EditorPane {
     ], state => {
       if (this.input === input) {
         const previous = this.view?.state;
-        if (previous && (previous.doc !== state.doc || !previous.selection.eq(state.selection))) {
-          this.contextToolbox.clear();
+        // The read-only context menu already uses the native DOM selection, before PM observes it.
+        if (previous && (previous.doc !== state.doc
+          || (this.view?.editable && !previous.selection.eq(state.selection)))) {
+          this.contextMenu.clear();
         }
         this.view?.updateState(state);
         if (!this.pointerSelection && (previous?.doc !== state.doc || previous?.selection.head !== state.selection.head)) {
@@ -601,8 +615,10 @@ export class MarkdownEditorPane extends EditorPane {
 
   override focus(): void {
     this.pendingFocus = false;
-    if (this.view) {
+    if (this.view?.editable) {
       this.view.focus();
+    } else if (this.view) {
+      this.view.dom.focus({ preventScroll: true });
     } else if (!this.error.hidden) {
       this.error.focus();
     } else {

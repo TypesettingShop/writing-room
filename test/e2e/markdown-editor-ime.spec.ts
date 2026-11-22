@@ -3,7 +3,9 @@ import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 
-for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode switch', 'link', 'image', 'context toolbox'] as const) {
+for (const action of [
+  'click', 'Tab', 'toolbar', 'window blur', 'save', 'mode switch', 'link', 'image', 'context toolbox', 'context menu key',
+] as const) {
   test(`preserves the final Hangul composition on ${action}`, async ({ appPage: page }) => {
     const name = 'hangul.md';
     await waitForStorage(page);
@@ -31,6 +33,8 @@ for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode sw
         document.documentElement.dataset.testCompositionEnd = (event as CompositionEvent).data;
         document.documentElement.dataset.testQuickInputAtCompositionEnd =
           String(document.querySelector('.wr-quick-input-box') !== null);
+        document.documentElement.dataset.testContextMenuAtCompositionEnd =
+          String(document.querySelector('.wr-menu[aria-label="Markdown editor"]') !== null);
       }, { once: true });
     });
     const cdp = await page.context().newCDPSession(page);
@@ -69,13 +73,27 @@ for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode sw
           return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         });
         await page.mouse.click(point.x, point.y, { button: 'right' });
-        const menu = page.getByRole('menu', { name: 'Markdown selection' });
+        const menu = page.getByRole('menu', { name: 'Markdown editor' });
         await expect(menu).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');
+        await expect(page.locator('html')).toHaveAttribute('data-test-context-menu-at-composition-end', 'false');
+        await expect(menu.getByRole('menuitem', { name: 'Undo' })).toBeEnabled();
+        await expect(menu.getByRole('menuitem', { name: 'Copy' })).toBeEnabled();
         await menu.getByRole('menuitemcheckbox', { name: 'Underline' }).click();
         await expect(first.locator('u.underline')).toHaveText('요');
         await expect(editor).toBeFocused();
         savedFirst = '안녕하세[요]{.underline}';
+        break;
+      }
+      case 'context menu key': {
+        await page.keyboard.press('Shift+F10');
+        const menu = page.getByRole('menu', { name: 'Markdown editor' });
+        await expect(menu.getByRole('menuitem', { name: 'Undo' })).toBeFocused();
+        await expect(menu.getByRole('group')).toHaveCount(0);
+        await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');
+        await expect(page.locator('html')).toHaveAttribute('data-test-context-menu-at-composition-end', 'false');
+        await page.keyboard.press('Escape');
+        await expect(editor).toBeFocused();
         break;
       }
       case 'window blur':
