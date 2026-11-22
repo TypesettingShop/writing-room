@@ -16,11 +16,25 @@ function editLine(model: TestTextModel, line: number, startColumn: number, endCo
   model.applyEdits([{ range: { startLineNumber: line, startColumn, endLineNumber: line, endColumn }, text }]);
 }
 
+function applyOffsets(model: TestTextModel, from: number, to: number, text: string): void {
+  const start = model.getPositionAt(from);
+  const end = model.getPositionAt(to);
+  model.applyEdits([{
+    range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column },
+    text,
+  }]);
+}
+
 function placeRuleCaret(sync: MarkdownEditorModel, index: number, side: -1 | 1): void {
+  expect(sync.state.doc.child(index).type.name).toBe('horizontal_rule');
+  placeAtomCaret(sync, index, side);
+}
+
+function placeAtomCaret(sync: MarkdownEditorModel, index: number, side: -1 | 1): void {
   const { state } = sync;
-  const rule = state.doc.child(index);
-  expect(rule.type.name).toBe('horizontal_rule');
-  let gap = side === 1 ? rule.nodeSize : 0;
+  const atom = state.doc.child(index);
+  expect(atom.isAtom).toBe(true);
+  let gap = side === 1 ? atom.nodeSize : 0;
   for (let before = 0; before < index; before++) gap += state.doc.child(before).nodeSize;
   const tr = state.tr.insert(gap, createMarkdownCaretParagraph(state.schema.nodes.paragraph, side));
   sync.dispatch(tr.setSelection(TextSelection.create(tr.doc, gap + 1))
@@ -418,6 +432,94 @@ describe('MarkdownEditorModel', () => {
   });
 
   it.each([
+    { event: 'exact', removeFirst: true, target: 0, expected: 'Bravo' },
+    { event: 'exact', removeFirst: true, target: 2, expected: 'BravoX' },
+    { event: 'exact', removeFirst: false, target: 0, expected: 'BravoX' },
+    { event: 'exact', removeFirst: false, target: 2, expected: 'Bravo' },
+    { event: 'reload', removeFirst: true, target: 0, expected: 'Bravo' },
+    { event: 'reload', removeFirst: true, target: 2, expected: 'Bravo' },
+    { event: 'skipped', removeFirst: true, target: 0, expected: 'Bravo\n\nEnd' },
+    { event: 'skipped', removeFirst: true, target: 2, expected: 'Bravo\n\nEnd' },
+  ] as const)('tracks the duplicate paragraph $target through $event (remove first: $removeFirst)',
+    ({ event, removeFirst, target, expected }) => {
+      const original = 'Bravo\n\nAlpha\n\nBravo';
+      const external = event === 'skipped' ? 'Bravo\n\nEnd' : 'Bravo';
+      const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+      const removeRange = () => applyOffsets(model, removeFirst ? 0 : 5, removeFirst ? 14 : 19, '');
+      let sync: MarkdownEditorModel;
+      const earlier = model.onDidChangeContent(change => {
+        if (change.versionId !== 2) return;
+        const { doc, tr } = sync.state;
+        const end = target === 0 ? doc.firstChild!.nodeSize - 1 : doc.content.size - 1;
+        sync.dispatch(tr.insertText('X', end));
+        if (event === 'skipped') removeRange();
+      });
+      sync = new MarkdownEditorModel(model, [], () => {});
+      const later = model.onDidChangeContent(change => {
+        if (change.versionId === 2 && event === 'skipped') editLine(model, 1, 6, 6, '\n\nEnd');
+      });
+      try {
+        if (event === 'exact') removeRange();
+        else model.setValue(event === 'skipped' ? original : external);
+
+        const expectSource = (source: string) => {
+          expect(model.getValue()).toBe(source);
+          expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+        };
+        expectSource(expected);
+        if (expected !== external) {
+          expect(sync.undo()).toBe(true);
+          expectSource(external);
+        }
+        expect(sync.undo()).toBe(true);
+        expectSource(original);
+        expect(sync.canUndo).toBe(false);
+        expect(sync.redo()).toBe(true);
+        expectSource(external);
+        if (expected !== external) {
+          expect(sync.redo()).toBe(true);
+          expectSource(expected);
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        later.dispose();
+        earlier.dispose();
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
+
+  it.each([
+    { start: 8, end: 11, text: 'IAN', expected: 'Same\n\nAlIANBravoX\n\nSame' },
+    { start: 6, end: 16, text: 'Replaced', expected: 'Same\n\nReplacedX\n\nSame' },
+    { start: 11, end: 11, text: '\n\n', expected: 'Same\n\nAlpha\n\nBravoX\n\nSame' },
+  ])('rebases a pending edit after a single paragraph change at $start ($text)', ({ start, end, text, expected }) => {
+    const original = 'Same\n\nAlphaBravo\n\nSame';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const listener = model.onDidChangeContent(change => {
+      if (change.versionId !== 2) return;
+      const { doc, tr } = sync.state;
+      sync.dispatch(tr.insertText('X', doc.firstChild!.nodeSize + doc.child(1).nodeSize - 1));
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      applyOffsets(model, start, end, text);
+      expect(model.getValue()).toBe(expected);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(expected).doc)).toBe(true);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original.slice(0, start) + text + original.slice(end));
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      listener.dispose();
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
     { label: 'splits a paragraph', original: 'AlphaBravo\n\nCharlie\n\nDelta', external: 'Alpha\n\nBravo\n\nDelta',
       changes: [[5, 5, '\n\n'], [12, 21, '']], from: 5, to: 5 },
     { label: 'joins two paragraphs', original: 'Alpha\n\nBravo\n\nCharlie', external: 'Alpha Bravo\n\nAdded\n\nCharlie',
@@ -799,6 +901,53 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
+  it.each([
+    { original: 'Before\n\n---\n\nRemoved\n\nTail', external: 'Before\n\nReplacement', index: 1, side: -1,
+      from: 8, to: 26, text: 'Replacement', expected: 'Before!\n\nReplacement' },
+    { original: 'Before\n\n---\n\nAfter\n\nTail', external: 'Before\n\nReplacement\n\nAfter\n\nTail', index: 1, side: 1,
+      from: 8, to: 11, text: 'Replacement', expected: 'Before\n\nReplacement\n\n!After\n\nTail' },
+    { original: '[ref]: /path\n\nAfter', external: 'Replacement\n\nAfter', index: 0, side: -1,
+      from: 0, to: 12, text: 'Replacement', expected: 'Replacement\n\n!After' },
+    { original: 'Before\n\n---', external: 'Before\n\nReplacement', index: 1, side: 1,
+      from: 8, to: 11, text: 'Replacement', expected: 'Before!\n\nReplacement' },
+    { original: 'Repeat\n\n---\n\nRepeat\n\nTail', external: 'Repeat\n\nReplacement\n\nRepeat\n\nTail', index: 1, side: 1,
+      from: 8, to: 11, text: 'Replacement', expected: 'Repeat\n\nReplacement\n\n!Repeat\n\nTail' },
+    { original: 'Before\n\n---\n\nAfter', external: 'Before\n\nReplacement\n\nAfter', index: 1, side: -1,
+      expected: 'Before!\n\nReplacement\n\nAfter' },
+    { original: 'Before\n\n---\n\nAfter', external: 'Replacement', index: 1, side: 1,
+      expected: '!Replacement' },
+    { original: 'Before\n\n---', external: 'Replacement', index: 1, side: 1,
+      expected: 'Replacement!' },
+  ] as const)('moves a deleted gutter caret toward surviving text ($original → $external, $side)',
+    ({ original, external, index, side, expected, ...edit }) => {
+      const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+      const sync = new MarkdownEditorModel(model, [], () => {});
+      try {
+        placeAtomCaret(sync, index, side);
+        if (edit.from !== undefined) {
+          applyOffsets(model, edit.from, edit.to, edit.text);
+        } else {
+          model.setValue(external);
+        }
+        expect(model.getValue()).toBe(external);
+        expect(sync.state.selection).toBeInstanceOf(TextSelection);
+        expect(sync.state.selection.empty).toBe(true);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(external).doc)).toBe(true);
+        expect(model.getVersionId()).toBe(2);
+        sync.dispatch(sync.state.tr.insertText('!'));
+        expect(model.getValue()).toBe(expected);
+        expect(sync.undo()).toBe(true);
+        expect(model.getValue()).toBe(external);
+        expect(sync.undo()).toBe(true);
+        expect(model.getValue()).toBe(original);
+        expect(sync.canUndo).toBe(false);
+      } finally {
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
+
   it('rebases input from a temporary caret flushed during an external source change', () => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---');
     let sync: MarkdownEditorModel;
@@ -838,7 +987,7 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
-  it.each([true, false])('rebases a queued caret edit in a source batch if the rule survives (%s)', keepRule => {
+  it.each([true, false])('keeps a queued composition through a source batch (rule survives: %s)', keepRule => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
     const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
       sync.dispatch(sync.state.tr.insertText('Added').setMeta('composition', 1));
@@ -849,8 +998,192 @@ describe('MarkdownEditorModel', () => {
         { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, text: 'Altered' },
         { range: { startLineNumber: keepRule ? 5 : 3, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
       ]);
-      // Current behavior (backlog wr-d821) discards flushed input when the rule is removed.
-      expect(model.getValue()).toBe(keepRule ? 'Altered\n\n---\n\nAdded\n\nReplaced' : 'Altered\n\nReplaced');
+      const external = keepRule ? 'Altered\n\n---\n\nReplaced' : 'Altered\n\nReplaced';
+      const expected = keepRule ? 'Altered\n\n---\n\nAdded\n\nReplaced' : 'Added\n\nAltered\n\nReplaced';
+      const expectSource = (source: string) => {
+        expect(model.getValue()).toBe(source);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      };
+      expectSource(expected);
+      expect(sync.state.selection.$head.parent.textContent).toBe('Added');
+      expect(sync.undo()).toBe(true);
+      expectSource(external);
+      expect(sync.undo()).toBe(true);
+      expectSource('First\n\n---\n\nLast');
+      expect(sync.canUndo).toBe(false);
+      expect(sync.redo()).toBe(true);
+      expectSource(external);
+      expect(sync.redo()).toBe(true);
+      expectSource(expected);
+      expect(sync.canRedo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each(['single edit', 'skipped version', 'cancelled', 'ordinary typing', 'cross-block'] as const)(
+    'handles pending input at a deleted link definition (%s)', kind => {
+      const original = 'First\n\n[ref]: /path\n\nLast';
+      const external = kind === 'skipped version' ? 'New First\n\nLast' : 'First\n\nLast';
+      const recovers = kind === 'single edit' || kind === 'skipped version';
+      const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+      let sync: MarkdownEditorModel;
+      const first = model.onDidChangeContent(event => {
+        if (event.versionId === 2 && kind === 'skipped version') editLine(model, 1, 1, 1, 'New ');
+      });
+      const enqueue = () => {
+        const { state } = sync;
+        if (state.doc.childCount !== 4) return;
+        const { head } = state.selection;
+        const tr = state.tr.insertText('요');
+        if (kind === 'cancelled') tr.delete(head, head + 1);
+        if (kind === 'cross-block') tr.insertText('X', 1);
+        if (kind !== 'ordinary typing') tr.setMeta('composition', 1);
+        sync.dispatch(tr);
+      };
+      sync = new MarkdownEditorModel(model, [], () => {}, undefined, enqueue);
+      const last = model.onDidChangeContent(event => {
+        if (event.versionId === 2 && kind === 'skipped version') {
+          applyOffsets(model, 11, 25, '');
+        }
+      });
+      const other = new MarkdownEditorModel(model, [], () => {});
+      try {
+        placeAtomCaret(sync, 1, 1);
+        if (kind === 'skipped version') {
+          // The reload event is read first. On its delivery, v4 (deletion) arrives before v3 (prefix).
+          model.setValue(original);
+        } else {
+          applyOffsets(model, 7, 21, '');
+        }
+        const expected = recovers ? external.replace('Last', '요\n\nLast') : external;
+        const expectSource = (source: string) => {
+          const parsed = parseMarkdownWithSource(source).doc;
+          expect(model.getValue()).toBe(source);
+          expect(sync.state.doc.eq(parsed)).toBe(true);
+          expect(other.state.doc.eq(parsed)).toBe(true);
+        };
+        expectSource(expected);
+        if (recovers) {
+          expect(sync.state.selection.$head.parent.textContent).toBe('요');
+          expect(sync.state.selection.$head.parentOffset).toBe(1);
+          expect(sync.undo()).toBe(true);
+          expectSource(external);
+        }
+        expect(sync.undo()).toBe(true);
+        expectSource(original);
+        expect(sync.canUndo).toBe(false);
+        expect(sync.redo()).toBe(true);
+        expectSource(external);
+        if (recovers) {
+          expect(sync.redo()).toBe(true);
+          expectSource(expected);
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        first.dispose();
+        last.dispose();
+        other.dispose();
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
+
+  it.each([-1, 1] as const)('recovers the pending composition when the source loses its only block (%s)', side => {
+    const original = '---';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      if (markdownCaretParagraphSide(sync.state.selection.$head.parent) !== undefined) {
+        sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      }
+    });
+    try {
+      placeRuleCaret(sync, 0, side);
+      applyOffsets(model, 0, original.length, '');
+      const expectSource = (source: string) => {
+        expect(model.getValue()).toBe(source);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      };
+      expectSource('요');
+      expect(sync.state.selection.$head.parent.textContent).toBe('요');
+      expect(sync.undo()).toBe(true);
+      expectSource('');
+      expect(sync.undo()).toBe(true);
+      expectSource(original);
+      expect(sync.redo()).toBe(true);
+      expectSource('');
+      expect(sync.redo()).toBe(true);
+      expectSource('요');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('undoes a recovered composition and its later updates together', () => {
+    const original = 'First\n\n[ref]: /path\n\nLast';
+    const external = 'First\n\nLast';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      if (markdownCaretParagraphSide(sync.state.selection.$head.parent) !== undefined) {
+        sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      }
+    });
+    try {
+      placeAtomCaret(sync, 1, 1);
+      applyOffsets(model, 7, 21, '');
+      expect(model.getValue()).toBe('First\n\n요\n\nLast');
+      const { head } = sync.state.selection;
+      sync.dispatch(sync.state.tr.insertText('욤', head - 1, head).setMeta('composition', 1));
+      expect(model.getValue()).toBe('First\n\n욤\n\nLast');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(external);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('recovers only the last composition queued for one lost paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n[ref]: /path\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      const { state } = sync;
+      if (markdownCaretParagraphSide(state.selection.$head.parent) === undefined) return;
+      // Both flushes read the DOM against the same deferred state. The second IME composition
+      // therefore also contains the first one's committed text.
+      sync.dispatch(state.tr.insertText('요').setMeta('composition', 1));
+      sync.dispatch(state.tr.insertText('요리').setMeta('composition', 2));
+    });
+    try {
+      placeAtomCaret(sync, 1, 1);
+      applyOffsets(model, 7, 21, '');
+      expect(model.getValue()).toBe('First\n\n요리\n\nLast');
+      expect(sync.state.doc.eq(parseMarkdownWithSource('First\n\n요리\n\nLast').doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps a gutter caret beside a repeated rule when a batch leaves the text unchanged', () => {
+    const original = 'A\n\n---\n\nB\n\n---';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      const caret = sync.state.selection.$head.parent;
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 2 }, text: 'A' },
+        { range: { startLineNumber: 3, startColumn: 1, endLineNumber: 3, endColumn: 4 }, text: '---' },
+      ]);
+      expect(model.getValue()).toBe(original);
+      expect(sync.state.selection.$head.parent).toBe(caret);
+      expect(sync.state.selection.$head.before()).toBe(sync.state.doc.child(0).nodeSize + sync.state.doc.child(1).nodeSize);
     } finally {
       sync.dispose();
       model.dispose();
