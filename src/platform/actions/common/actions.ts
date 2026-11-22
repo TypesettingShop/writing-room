@@ -88,6 +88,7 @@ export class MenuId {
   static readonly MarkdownEditorToolbar = new MenuId('MarkdownEditorToolbar');
   static readonly MarkdownEditorSelection = new MenuId('MarkdownEditorSelection');
   static readonly ExplorerContext = new MenuId('ExplorerContext');
+  static readonly ManuscriptNavigatorContext = new MenuId('ManuscriptNavigatorContext');
   static readonly WebviewContext = new MenuId('WebviewContext');
   static readonly ViewTitle = new MenuId('ViewTitle');
   static readonly ViewItemContext = new MenuId('ViewItemContext');

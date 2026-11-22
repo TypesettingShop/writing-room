@@ -21,7 +21,7 @@ export class ViewPane extends Disposable {
     document: Document,
     private readonly focusedView: IContextKey<string>,
     @IContextKeyService contextKeyService: IContextKeyService,
-    @IInstantiationService instantiationService: IInstantiationService,
+    @IInstantiationService private readonly instantiationService: IInstantiationService,
   ) {
     super();
     this.element = document.createElement('section');
@@ -78,7 +78,7 @@ export class ViewPane extends Disposable {
 
   private renderBody(): IViewBody | void {
     try {
-      return this.descriptor.renderBody(this.body);
+      return this.descriptor.renderBody(this.body, this.instantiationService);
     } catch (error) {
       // One failing view must not stop its container or the workbench from starting.
       console.error(`View ${this.descriptor.id} failed to render.`, error);

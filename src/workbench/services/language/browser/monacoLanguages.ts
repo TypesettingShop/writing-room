@@ -1,9 +1,9 @@
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
-import { loadMonaco } from '../../../../editor/browser/monaco.js';
 import type { MonacoNamespace } from '../../../../editor/browser/monaco.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { onDidLoadEditor } from '../../../../platform/theme/browser/editorThemeHook.js';
 import { readLanguageConfiguration } from '../../../contrib/codeEditor/common/languageConfigurationExtensionPoint.js';
 import { IExtensionService } from '../../extensions/common/extensions.js';
 import { WorkbenchLanguageService } from '../common/languageService.js';
@@ -55,7 +55,6 @@ export class MonacoLanguageBridge extends Disposable {
   static readonly ID = 'workbench.contrib.monacoLanguages';
 
   private monaco: MonacoNamespace | undefined;
-  private connecting: Promise<MonacoNamespace | undefined> | undefined;
   private readonly builtinDefinitions = new Map<string, MonacoLanguageDefinition>();
   private readonly requested = new Set<string>();
   private readonly configurations = new Map<string, { signature: string; registrations: DisposableStore }>();
@@ -67,8 +66,6 @@ export class MonacoLanguageBridge extends Disposable {
     @IFileService private readonly fileService: IFileService,
   ) {
     super();
-    // A model exists only once Monaco has loaded, so connecting then never loads it early.
-    this._register(watchRequestedLanguages(modelService, languageId => this.request(languageId)));
     this._register(languageService.onDidChange(() => {
       if (this.monaco) {
         this.registerLanguageIds(this.monaco);
@@ -77,6 +74,10 @@ export class MonacoLanguageBridge extends Disposable {
         }
       }
     }));
+    // The loader announces its namespace before returning it to ModelService. The first
+    // model can therefore choose its language without a temporary plain-text document.
+    this._register(onDidLoadEditor<MonacoNamespace>(monaco => this.connect(monaco)));
+    this._register(watchRequestedLanguages(modelService, languageId => this.request(languageId)));
     this._register(toDisposable(() => {
       for (const { registrations } of this.configurations.values()) {
         registrations.dispose();
@@ -85,35 +86,29 @@ export class MonacoLanguageBridge extends Disposable {
     }));
   }
 
-  private connect(): Promise<MonacoNamespace | undefined> {
-    this.connecting ??= loadMonaco().then(monaco => {
-      if (this.monaco) {
-        return this.monaco;
-      }
-      this.monaco = monaco;
-      const service = this.languageService;
-      for (const definition of monaco.languages.getLanguages()) {
-        this.builtinDefinitions.set(definition.id, definition);
-      }
-      if (service instanceof WorkbenchLanguageService) {
-        service.setBuiltinLanguages([...this.builtinDefinitions.values()].map((definition): ILanguageDefinition => ({
-          id: definition.id,
-          aliases: definition.aliases?.filter((alias): alias is string => typeof alias === 'string'),
-          extensions: definition.extensions,
-          filenames: definition.filenames,
-          filenamePatterns: definition.filenamePatterns,
-          firstLine: definition.firstLine,
-          mimetypes: definition.mimetypes,
-        })));
-      }
-      this.registerLanguageIds(monaco);
-      return monaco;
-    }, error => {
-      this.connecting = undefined;
-      console.warn('Could not connect the languages to the editor:', error);
-      return undefined;
-    });
-    return this.connecting;
+  private connect(monaco: MonacoNamespace): void {
+    if (this.monaco) {
+      return;
+    }
+    for (const definition of monaco.languages.getLanguages()) {
+      this.builtinDefinitions.set(definition.id, definition);
+    }
+    if (this.languageService instanceof WorkbenchLanguageService) {
+      this.languageService.setBuiltinLanguages([...this.builtinDefinitions.values()].map((definition): ILanguageDefinition => ({
+        id: definition.id,
+        aliases: definition.aliases?.filter((alias): alias is string => typeof alias === 'string'),
+        extensions: definition.extensions,
+        filenames: definition.filenames,
+        filenamePatterns: definition.filenamePatterns,
+        firstLine: definition.firstLine,
+        mimetypes: definition.mimetypes,
+      })));
+    }
+    this.monaco = monaco;
+    this.registerLanguageIds(monaco);
+    for (const languageId of this.requested) {
+      void this.updateConfiguration(languageId);
+    }
   }
 
   private registerLanguageIds(monaco: MonacoNamespace): void {
@@ -129,7 +124,7 @@ export class MonacoLanguageBridge extends Disposable {
     this.requested.add(languageId);
     void this.extensionService.activateByEvent(`onLanguage:${languageId}`).catch(() => {});
     void this.extensionService.activateByEvent('onLanguage').catch(() => {});
-    void this.connect().then(() => this.updateConfiguration(languageId));
+    void this.updateConfiguration(languageId);
   }
 
   private async updateConfiguration(languageId: string): Promise<void> {
