@@ -26,7 +26,8 @@ async function closeEditors(groups: IEditorGroupsService): Promise<boolean> {
     for (const editor of group.editors) {
       if (editor.isDirty() || editor.closeHandler?.showConfirm()) {
         if (!editor.closeHandler) {
-          return false;
+          // Nothing can ask about these changes, and closing the tab would drop them. Say why nothing happens.
+          throw new Error(`Save or revert '${editor.getName()}' before you switch Works.`);
         }
         dirty.add(editor);
         if (!asking.some(({ editor: other }) => sharesChanges(editor, other))) {
@@ -38,6 +39,10 @@ async function closeEditors(groups: IEditorGroupsService): Promise<boolean> {
   const save: IEditorIdentifier[] = [];
   const discard: IEditorIdentifier[] = [];
   for (const entry of asking) {
+    // A tab can close while an earlier question is open. Do not ask about changes that already left.
+    if (entry.editor.isDisposed()) {
+      continue;
+    }
     switch (await entry.editor.closeHandler!.confirm([entry])) {
       case ConfirmResult.SAVE: save.push(entry); break;
       case ConfirmResult.DONT_SAVE: discard.push(entry); break;

@@ -59,12 +59,18 @@ export class WelcomePageContribution {
   }
 
   private async openWorks(groups: IEditorGroupsService): Promise<void> {
-    const pane = await openWelcome(groups);
-    if (pane instanceof WelcomeEditorPane && window.location.hash === '#works') {
-      pane.focusWorks();
-      const url = new URL(window.location.href);
-      url.hash = '';
-      window.history.replaceState(window.history.state, '', url);
+    try {
+      const pane = await openWelcome(groups);
+      if (pane instanceof WelcomeEditorPane && window.location.hash === '#works') {
+        pane.focusWorks();
+      }
+    } finally {
+      // Consume the hash even when the Welcome did not open, so a later reload does not try again.
+      if (window.location.hash === '#works') {
+        const url = new URL(window.location.href);
+        url.hash = '';
+        window.history.replaceState(window.history.state, '', url);
+      }
     }
   }
 }
@@ -78,9 +84,9 @@ export class WelcomeEditorPane extends EditorPane {
   private worksStatus!: HTMLElement;
   private worksList!: HTMLUListElement;
   private readonly workButtons = this._register(new DisposableStore());
+  private renderedWorks: string | undefined;
   private generation = 0;
   private lastRefresh = 0;
-  private loading = false;
 
   constructor(
     @ICommandService private readonly commandService: ICommandService,
@@ -110,8 +116,9 @@ export class WelcomeEditorPane extends EditorPane {
     }));
     this.worksStatus = append(this.works, $('p', { role: 'status' }));
     this.worksList = append(this.works, $('ul'));
+    // A request that never settles must not stop later reads, so only the 30-second spacing limits them.
     this._register(addDisposableListener(parent.ownerDocument.defaultView!, 'focus', () => {
-      if (this.input && !this.loading && Date.now() - this.lastRefresh >= 30_000) {
+      if (this.input && Date.now() - this.lastRefresh >= 30_000) {
         void this.refreshWorks();
       }
     }));
@@ -128,16 +135,16 @@ export class WelcomeEditorPane extends EditorPane {
   override clearInput(): void {
     super.clearInput();
     this.generation++;
-    this.loading = false;
   }
 
   private async refreshWorks(): Promise<void> {
     const generation = ++this.generation;
     this.lastRefresh = Date.now();
-    this.loading = true;
-    this.worksStatus.textContent = 'Loading Works...';
-    this.workButtons.clear();
-    this.worksList.replaceChildren();
+    // Keep the buttons until the answer arrives. The click that brings the window back fires `focus`
+    // first, and clearing the list then would drop that click.
+    if (!this.worksList.childElementCount) {
+      this.worksStatus.textContent = 'Loading Works...';
+    }
 
     try {
       const works = await this.manuscript.store.listWorks();
@@ -146,26 +153,37 @@ export class WelcomeEditorPane extends EditorPane {
       }
     } catch {
       if (generation === this.generation) {
+        this.clearWorks();
         this.worksStatus.textContent = this.manuscript.availability === 'signedOut'
           ? 'Sign in to see your Works.'
           : 'The Works server is not available.';
       }
-    } finally {
-      if (generation === this.generation) {
-        this.loading = false;
-      }
     }
+  }
+
+  private clearWorks(): void {
+    this.renderedWorks = undefined;
+    this.workButtons.clear();
+    this.worksList.replaceChildren();
   }
 
   private renderWorks(works: ManuscriptWork[]): void {
     this.worksStatus.textContent = works.length ? '' : 'No Works yet.';
     const recent = [...works].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
-    for (const entry of recent.slice(0, 20)) {
-      const label = entry.title + (entry.id === this.work.current?.id ? ' (current)' : '');
-      this.addWorkButton(label, entry.id);
-    }
+    const entries: [label: string, id?: string][] = recent.slice(0, 20).map(entry =>
+      [entry.title + (entry.id === this.work.current?.id ? ' (current)' : ''), entry.id]);
     if (recent.length > 20) {
-      this.addWorkButton('More...');
+      entries.push(['More...']);
+    }
+    // An unchanged list keeps its buttons, so a press in progress still ends in a click.
+    const rendered = JSON.stringify(entries);
+    if (rendered === this.renderedWorks) {
+      return;
+    }
+    this.clearWorks();
+    this.renderedWorks = rendered;
+    for (const [label, id] of entries) {
+      this.addWorkButton(label, id);
     }
   }
 
