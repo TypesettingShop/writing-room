@@ -48,8 +48,13 @@ interface ContainerComposition {
   readonly doc: Node;
   readonly target: number;
   readonly containerEnd: number;
+  readonly id: number;
+  readonly start: number;
   readonly text: string;
+  /** The native caret's offset in `text`. */
+  readonly caretOffset: number;
   readonly input?: IMarkdownCompositionInput;
+  previous?: ContainerComposition;
 }
 
 type DeferredComposition = { readonly caret: CaretParagraph } | ContainerComposition;
@@ -66,7 +71,7 @@ const markdownHistory = history({ newGroupDelay: 500 });
 // An empty Enter paragraph has no Markdown spelling. Remember its gutter side for Redo.
 const caretEnterParagraphs = new WeakMap<Node['attrs'], -1 | 1>();
 // Redo of a whole block insertion otherwise puts the caret in the following block.
-const recoveredCompositionParagraphs = new WeakSet<Node['attrs']>();
+const recoveredCompositionCarets = new WeakMap<Node['attrs'], number>();
 
 // Exclude most Markdown delimiters and indentation before parsing a line outside its document context.
 // Markdown syntax is ASCII, so prose punctuation and symbols beyond ASCII stay plain text. A line that
@@ -557,24 +562,29 @@ function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null
 }
 
 /** The native text can extend past the changed range when a replacement shares letters with the selection. */
-function pendingCompositionText(doc: Node, from: number, to: number, input?: IMarkdownCompositionInput): string {
+function pendingCompositionText(
+  doc: Node, from: number, to: number, input?: IMarkdownCompositionInput,
+): { readonly text: string; readonly start: number } {
   const inserted = doc.textBetween(from, to);
   const native = input?.text;
-  if (!native || !inserted) return inserted;
-  if (inserted.includes(native)) return native;
+  if (!native) return { text: inserted, start: from };
+  const within = inserted.indexOf(native);
+  if (within !== -1) return { text: native, start: from + within };
   const $from = doc.resolve(from);
-  for (let offset = native.indexOf(inserted); offset !== -1; offset = native.indexOf(inserted, offset + 1)) {
+  // A preedit that keeps only part of the selection it replaced can leave a pure deletion step.
+  for (let offset = 0; offset + inserted.length <= native.length; offset++) {
+    if (!native.startsWith(inserted, offset)) continue;
     const start = from - offset;
     const end = start + native.length;
-    if (start >= $from.start() && end <= $from.end() && doc.textBetween(start, end) === native) return native;
+    if (start >= $from.start() && end <= $from.end() && doc.textBetween(start, end) === native) return { text: native, start };
   }
-  return '';
+  return { text: '', start: from };
 }
 
 /** Record only a contiguous plain-text edit inside a single nested textblock. */
-function containerComposition(transaction: Transaction, input?: IMarkdownCompositionInput): ContainerComposition | undefined {
+function containerComposition(transaction: Transaction, id: number, input?: IMarkdownCompositionInput): ContainerComposition | undefined {
   const [first] = transaction.steps;
-  if (!(first instanceof ReplaceStep)) return;
+  if (!(first instanceof ReplaceStep) || transaction.getMeta('addToHistory') === false) return;
   const $start = transaction.before.resolve(first.from);
   if ($start.depth < 2 || !$start.parent.isTextblock) return;
   const container = $start.node(1);
@@ -594,13 +604,47 @@ function containerComposition(transaction: Transaction, input?: IMarkdownComposi
     from = Math.min(from, step.from);
     to = Math.max(step.from + step.slice.size, to + step.slice.size - (step.to - step.from));
   }
-  const text = pendingCompositionText(transaction.doc, from, to, input);
-  return { doc: transaction.before, target, containerEnd: $start.after(1), text, input };
+  const { text, start } = pendingCompositionText(transaction.doc, from, to, input);
+  // Keep a native caret inside its preedit, as a recovered temporary paragraph does.
+  const { empty, head } = transaction.selection;
+  const caretOffset = empty && head >= start && head <= start + text.length ? head - start : text.length;
+  return { doc: transaction.before, target, containerEnd: $start.after(1), id, start, text, caretOffset, input };
 }
 
 function sameCompositionTarget(before: DeferredComposition, after: DeferredComposition): boolean {
   if ('caret' in before) return 'caret' in after && before.caret.node === after.caret.node;
   return !('caret' in after) && before.doc === after.doc && before.target === after.target;
+}
+
+function sameNativeComposition(before: ContainerComposition, after: ContainerComposition): boolean {
+  return before.input && after.input ? before.input === after.input : before.id === after.id;
+}
+
+function recoverableCompositionText(doc: Node, composition: ContainerComposition): { text: string; caretOffset: number } {
+  const target = doc.nodeAt(composition.target)!;
+  const contentStart = composition.target + 1;
+  const parts: ContainerComposition[] = [];
+  for (let part: ContainerComposition | undefined = composition; part; part = part.previous) {
+    const { start, text, input } = part;
+    if (!text || /[\r\n]/.test(text) || input?.lastInputWasEmpty || (input?.text && input.text !== text)) continue;
+    const end = start + text.length;
+    // The last DOM snapshot is authoritative. Keep earlier commits that are still present
+    // at their recorded positions and have not been replaced by a newer composition.
+    if (start < contentStart || end > contentStart + target.content.size ||
+        doc.textBetween(start, end) !== text || parts.some(next => start < next.start + next.text.length && next.start < end)) {
+      continue;
+    }
+    parts.push(part);
+  }
+  parts.sort((left, right) => left.start - right.start);
+  const text = parts.map(part => part.text).join('');
+  if (!parts.includes(composition)) return { text, caretOffset: text.length };
+  let caretOffset = composition.caretOffset;
+  for (const part of parts) {
+    if (part === composition) break;
+    caretOffset += part.text.length;
+  }
+  return { text, caretOffset };
 }
 
 /** One pane's ProseMirror state, synchronized with the shared text file. */
@@ -748,7 +792,7 @@ export class MarkdownEditorModel extends Disposable {
     let composition: DeferredComposition | undefined;
     if (transaction.docChanged && typeof id === 'number') {
       const caret = selectedCaretParagraph(before);
-      composition = caret ? { caret } : containerComposition(transaction, input);
+      composition = caret ? { caret } : containerComposition(transaction, id, input);
     }
     const mapping = new Mapping();
     this.deferred.pending.push({ owner: this, mapping, composition, run: () => {
@@ -756,13 +800,15 @@ export class MarkdownEditorModel extends Disposable {
       if (rebased) {
         this.applyDispatch(rebased, isolate);
       } else if (composition) {
-        // A later flush against the same old target contains the net DOM change, which can
-        // supersede this update or remove the preedit altogether.
-        const updated = this.deferred.pending.some(edit => edit.owner === this
-          && edit.composition && sameCompositionTarget(composition, edit.composition));
+        // A later flush of the same native composition supersedes the old preedit. A new
+        // composition can share that flush window with the one that just committed.
+        const updated = this.deferred.pending.find(edit => edit.owner === this
+          && edit.composition && sameCompositionTarget(composition, edit.composition))?.composition;
         if (!updated) {
           if ('caret' in composition) this.recoverDeferredComposition(transaction, composition.caret, mapping);
           else this.recoverContainerComposition(transaction, composition, mapping);
+        } else if (!('caret' in composition) && !('caret' in updated)) {
+          updated.previous = sameNativeComposition(composition, updated) ? composition.previous : composition;
         }
       }
     } });
@@ -861,9 +907,9 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   private recoverContainerComposition(transaction: Transaction, composition: ContainerComposition, over: Mapping): void {
-    const { text, target, containerEnd, input } = composition;
-    if (!text || /[\r\n]/.test(text) || input?.lastInputWasEmpty || (input?.text && input.text !== text) ||
-        transaction.getMeta('addToHistory') === false) return;
+    const { target, containerEnd } = composition;
+    const { text, caretOffset } = recoverableCompositionText(transaction.doc, composition);
+    if (!text) return;
     let inside = target + 1;
     for (let index = over.from; index < over.to; index++) {
       const change = over.maps[index];
@@ -871,10 +917,10 @@ export class MarkdownEditorModel extends Disposable {
         // A separate paragraph at the mapped outer boundary leaves every surviving item and cell intact.
         const { schema } = this.state;
         const paragraph = schema.nodes.paragraph.create({}, schema.text(text));
-        recoveredCompositionParagraphs.add(paragraph.attrs);
+        recoveredCompositionCarets.set(paragraph.attrs, caretOffset);
         const gap = over.map(containerEnd, 1);
         const { recovered, position } = this.insertCompositionParagraph(paragraph, gap, -1, transaction.time);
-        recovered.setSelection(TextSelection.create(recovered.doc, position + paragraph.nodeSize - 1))
+        recovered.setSelection(TextSelection.create(recovered.doc, position + 1 + caretOffset))
           .setMeta('composition', transaction.getMeta('composition'));
         if (transaction.scrolledIntoView) recovered.scrollIntoView();
         this.applyDispatch(closeHistory(recovered), false);
@@ -1031,11 +1077,15 @@ export class MarkdownEditorModel extends Disposable {
       if (!(step instanceof ReplaceStep) || step.slice.openStart || step.slice.openEnd ||
           step.slice.content.childCount !== 1) continue;
       const paragraph = step.slice.content.firstChild!;
-      if (!recoveredCompositionParagraphs.has(paragraph.attrs)) continue;
-      const position = transaction.mapping.slice(index + 1).map(step.from, 1);
+      const offset = recoveredCompositionCarets.get(paragraph.attrs);
+      if (offset === undefined) continue;
+      const remaining = transaction.mapping.slice(index + 1);
+      const position = remaining.map(step.from, 1);
       const restored = transaction.doc.nodeAt(position);
       if (restored?.attrs !== paragraph.attrs) continue;
-      transaction.setSelection(TextSelection.create(transaction.doc, position + restored.nodeSize - 1));
+      const caret = remaining.map(step.from + 1 + Math.min(offset, paragraph.content.size), 1);
+      const inside = Math.max(position + 1, Math.min(caret, position + restored.nodeSize - 1));
+      transaction.setSelection(TextSelection.create(transaction.doc, inside));
       return;
     }
   }

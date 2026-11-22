@@ -10,6 +10,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
 import * as markdownSerialization from '../../../../../editor/common/markdown/serializer.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
+import { flushMarkdownComposition, MarkdownCompositionRecovery } from '../../browser/markdownCompositionRecovery.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
 import { createMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide } from '../../browser/markdownEditorSelection.js';
 
@@ -1287,6 +1288,104 @@ describe('MarkdownEditorModel', () => {
       }
     },
   );
+
+  it.each([
+    // The preedit replaces the selected 요리. PM's DOM diff leaves out the shared 요 and only deletes 리.
+    { label: 'a preedit that keeps the start of its replaced selection', selection: 2, composed: '요', caret: 1 },
+    { label: 'a native caret inside the preedit', selection: 0, composed: '요금', caret: 1 },
+  ])('recovers $label when its list disappears', ({ selection, composed, caret }) => {
+    const original = '- 요리';
+    const model = new TestTextModel(URI.parse('file:///list.md'), original);
+    const listener = model.onDidChangeContent(event => {
+      if (event.versionId !== 2) return;
+      const { state } = sync;
+      const { from, to } = state.selection;
+      const tr = selection ? state.tr.delete(to - 1, to) : state.tr.insertText(composed, to);
+      tr.setSelection(TextSelection.create(tr.doc, from + caret)).setMeta('composition', 1);
+      sync.dispatch(tr, false, { text: composed, lastInputWasEmpty: false });
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const end = Selection.atEnd(sync.state.doc).head;
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, end - selection, end)));
+      applyOffsets(model, 0, original.length, 'Other');
+      expect(model.getValue()).toBe('Other\n\n' + composed);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+      expect(sync.state.selection.empty).toBe(true);
+      expect(sync.state.selection.$head.parent).toBe(sync.state.doc.lastChild);
+      expect(sync.state.selection.$head.parentOffset).toBe(caret);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('Other');
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe('Other\n\n' + composed);
+      expect(sync.state.selection.$head.parent).toBe(sync.state.doc.lastChild);
+      expect(sync.state.selection.$head.parentOffset).toBe(caret);
+    } finally {
+      listener.dispose();
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([false, true])('keeps a committed preedit when another starts during the same source change (cancel: %s)', cancel => {
+    const original = '- Old';
+    const model = new TestTextModel(URI.parse('file:///list.md'), original);
+    const recovery = new MarkdownCompositionRecovery();
+    const host = document.createElement('div');
+    document.body.append(host);
+    const compositionIds: unknown[] = [];
+    const compositionEvent = (type: string, data = '') => {
+      view.dom.dispatchEvent(new CompositionEvent(type, { bubbles: true, data }));
+    };
+    const update = (data: string, content: string) => {
+      compositionEvent('compositionupdate', data);
+      const input = { bubbles: true, inputType: 'insertCompositionText', isComposing: true, data };
+      view.dom.dispatchEvent(new InputEvent('beforeinput', input));
+      const text = view.dom.querySelector('li p')!.firstChild as Text;
+      text.data = content;
+      document.getSelection()!.collapse(text, content.length);
+      view.dom.dispatchEvent(new InputEvent('input', input));
+      flushMarkdownComposition(view);
+    };
+    const sync = new MarkdownEditorModel(model, [], state => view.updateState(state), undefined, () => {
+      if (model.getVersionId() !== 2) return;
+      compositionEvent('compositionstart');
+      update('요', 'Old요');
+      compositionEvent('compositionend', '요');
+      compositionEvent('compositionstart');
+      update('금', 'Old요금');
+      if (cancel) update('', 'Old요');
+      compositionEvent('compositionend', cancel ? '' : '금');
+    });
+    const view = new EditorView(host, {
+      state: sync.state,
+      handleDOMEvents: recovery.handleDOMEvents,
+      handleScrollToSelection: () => true,
+      dispatchTransaction: transaction => {
+        if (transaction.docChanged) compositionIds.push(transaction.getMeta('composition'));
+        sync.dispatch(transaction, false, recovery.deferredInput);
+      },
+    });
+    view.dom.style.whiteSpace = 'pre-wrap';
+    try {
+      view.focus();
+      view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)));
+      applyOffsets(model, 0, original.length, 'Other');
+      expect(compositionIds).toEqual(cancel ? [1, 2, 2] : [1, 2]);
+      const expected = cancel ? 'Other\n\n요' : 'Other\n\n요금';
+      expect(model.getValue()).toBe(expected);
+      expect(sync.state.selection.$head.parentOffset).toBe(cancel ? 1 : 2);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('Other');
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(expected);
+    } finally {
+      view.destroy();
+      host.remove();
+      sync.dispose();
+      model.dispose();
+    }
+  });
 
   it('rebases input from a temporary caret flushed during an external source change', () => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---');
