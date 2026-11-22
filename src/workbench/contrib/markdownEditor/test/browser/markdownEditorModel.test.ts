@@ -674,20 +674,24 @@ describe('MarkdownEditorModel', () => {
     header?: string;
     headerEdits?: [string, string][];
     newTarget?: number;
-    label?: string;
+    label: string;
   }>([
-    { original: '| Alpha | Bravo |', from: 'Bravo', to: 'Zulu', target: 0, typed: '| Alpha요 | Zulu |' },
-    { original: '| Bravo | Bravo |', from: 'Bravo', to: 'Zulu', target: 1, typed: '| Zulu | Bravo요 |' },
-    { original: 'A\\|B | Bravo', from: 'Bravo', to: 'Zulu', target: 0, typed: '| A\\|B요 | Zulu |' },
-    { original: '| | Alpha |', from: ' Alpha |', to: ' Zulu |', target: 0, typed: '| 요 | Zulu |' },
-    { original: '| Alpha | Bravo |', from: 'Alpha', to: 'Zulu', target: 0 },
-    { original: '| Alpha | Bravo |', from: 'Alpha | Bravo', to: 'Bravo | Alpha', target: 0 },
-    { original: '| Alpha | Bravo |', from: 'ph', to: '|', target: 0 },
+    { label: 'edited neighbor cell', original: '| Alpha | Bravo |', from: 'Bravo', to: 'Zulu', target: 0, typed: '| Alpha요 | Zulu |' },
+    { label: 'repeated neighbor text', original: '| Bravo | Bravo |', from: 'Bravo', to: 'Zulu', target: 1, typed: '| Zulu | Bravo요 |' },
+    { label: 'escaped pipe', original: 'A\\|B | Bravo', from: 'Bravo', to: 'Zulu', target: 0, typed: '| A\\|B요 | Zulu |' },
+    { label: 'explicit empty cell', original: '| | Alpha |', from: ' Alpha |', to: ' Zulu |', target: 0, typed: '| 요 | Zulu |' },
+    { label: 'replaced target cell', original: '| Alpha | Bravo |', from: 'Alpha', to: 'Zulu', target: 0 },
+    { label: 'swapped cells', original: '| Alpha | Bravo |', from: 'Alpha | Bravo', to: 'Bravo | Alpha', target: 0 },
+    { label: 'split target cell', original: '| Alpha | Bravo |', from: 'ph', to: '|', target: 0 },
     { label: 'padded cell', original: '| Alpha |', from: 'Alpha', to: 'Zulu', target: 1, typed: '| Zulu | 요 |' },
     { label: 'padded cell without outer pipes', original: 'Alpha', from: 'Alpha', to: 'Zulu', target: 1, typed: '| Zulu | 요 |' },
     { label: 'new explicit empty cell', original: '| Alpha |', from: 'Alpha', to: 'Zulu |', target: 1 },
     { label: 'lost opening boundary', original: '| Alpha |', from: '| Alpha', to: 'Zulu', target: 1 },
     { label: 'split row', original: '| Alpha |', from: 'ph', to: 'ph |\n| Br', target: 1 },
+    {
+      label: 'untouched unpiped row beside a deleted row', original: 'Alpha\nBravo', from: '\nBravo', target: 1,
+      typed: '| Alpha | 요 |',
+    },
     {
       label: 'inserted column before surviving header', original: '| Alpha |', target: 1, newTarget: 2, typed: '| Alpha |  | 요 |',
       headerEdits: [['| A', '| X | A'], ['--- | ---', '--- | --- | ---']],
@@ -712,7 +716,7 @@ describe('MarkdownEditorModel', () => {
     {
       label: 'reordered distinct headers', original: '| Alpha |', target: 1, headerEdits: [['A | B', 'B | A']],
     },
-  ])('keeps a queued composition only in a proven table cell ($label, $original, $from → $to, cell $target)',
+  ])('keeps a queued composition only in a proven table cell ($label, cell $target)',
     ({ original, from, to = '', target, typed, header = '| A | B |\n| --- | --- |\n', headerEdits = [], newTarget = target }) => {
       const source = header + original;
       const edits = headerEdits.map(([search, text]) => ({ offset: header.indexOf(search), length: search.length, text }));

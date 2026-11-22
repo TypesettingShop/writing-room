@@ -543,7 +543,8 @@ function sourceChangeMap(
           appendMatches(tableRowMatches(source.children, match.block.children, children, unchanged),
             unchangedTableColumns(source, match.block, previous, unchanged));
         } else {
-          if (paddedRow && columns && tableRowBoundariesMatch(source, match.block, unchanged)) {
+          // An untouched row is its own evidence. Its boundary newlines can belong to an edited neighbor line.
+          if (paddedRow && columns && (match.intact || tableRowBoundariesMatch(source, match.block, unchanged))) {
             // Padding comes after the explicit cells on both sides, in the order of the proven header columns.
             for (const [column, nextColumn] of columns) {
               const cell = source.children[column];

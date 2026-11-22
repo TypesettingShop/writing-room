@@ -239,8 +239,8 @@ for (const editContext of [true, false]) {
           await page.keyboard.press('ControlOrMeta+s');
           await expect.poll(() => readWorkspaceText(page, name)).toBe(header + source);
         };
-        await expectVersion(scenario.composed, scenario.composedCells);
         await expectCaret();
+        await expectVersion(scenario.composed, scenario.composedCells);
         await page.keyboard.press('ControlOrMeta+z');
         await expectVersion(scenario.external, scenario.externalCells);
         await page.keyboard.press('ControlOrMeta+z');
