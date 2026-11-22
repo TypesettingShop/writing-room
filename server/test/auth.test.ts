@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { InMemoryManuscriptRepository } from '../../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import type { ManuscriptRepository } from '../../src/platform/manuscript/common/manuscriptStore.js';
 import { AttemptLimit } from '../auth/attemptLimit.js';
@@ -145,6 +145,27 @@ describe('email authentication with memory storage', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get('retry-after')).toBe('900');
     expect((await post('/api/auth/signup', { email: 'different@example.test', password: '' })).status).toBe(400);
+  });
+
+  it('logs a generic failure without recording passwords or session tokens', async () => {
+    const auth = new MemoryAuthStore();
+    const logs = (['error', 'log', 'warn', 'info', 'debug'] as const)
+      .map(method => vi.spyOn(console, method).mockImplementation(() => {}));
+    try {
+      const { post } = await startApi(testOrigin, { store: auth });
+      const signup = await post('/api/auth/signup', { email, password });
+      const cookie = readSessionCookie(signup);
+      const token = cookie.slice('wr_session='.length);
+      vi.spyOn(auth, 'deleteSession').mockRejectedValue(new Error('Storage failed for ' + password + ' ' + token));
+      const response = await post('/api/auth/logout', undefined, cookie);
+      expect(response.status).toBe(500);
+      expect(logs[0]).toHaveBeenCalledWith('Unexpected failure handling an API request.');
+      const logged = JSON.stringify(logs.flatMap(log => log.mock.calls));
+      expect(logged).not.toContain(password);
+      expect(logged).not.toContain(token);
+    } finally {
+      logs.forEach(log => log.mockRestore());
+    }
   });
 
   it('uses the trusted proxy’s appended address when enabled', async () => {
