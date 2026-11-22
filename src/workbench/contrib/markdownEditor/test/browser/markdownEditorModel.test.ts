@@ -414,6 +414,94 @@ describe('MarkdownEditorModel', () => {
   });
 
   it.each([
+    { event: 'exact', removeFirst: true, target: 0, expected: 'Bravo' },
+    { event: 'exact', removeFirst: true, target: 2, expected: 'BravoX' },
+    { event: 'exact', removeFirst: false, target: 0, expected: 'BravoX' },
+    { event: 'exact', removeFirst: false, target: 2, expected: 'Bravo' },
+    { event: 'reload', removeFirst: true, target: 0, expected: 'Bravo' },
+    { event: 'reload', removeFirst: true, target: 2, expected: 'Bravo' },
+    { event: 'skipped', removeFirst: true, target: 0, expected: 'Bravo\n\nEnd' },
+    { event: 'skipped', removeFirst: true, target: 2, expected: 'Bravo\n\nEnd' },
+  ] as const)('tracks the duplicate paragraph $target through $event (remove first: $removeFirst)',
+    ({ event, removeFirst, target, expected }) => {
+      const original = 'Bravo\n\nAlpha\n\nBravo';
+      const external = event === 'skipped' ? 'Bravo\n\nEnd' : 'Bravo';
+      const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+      const removeRange = () => applyOffsets(model, removeFirst ? 0 : 5, removeFirst ? 14 : 19, '');
+      let sync: MarkdownEditorModel;
+      const earlier = model.onDidChangeContent(change => {
+        if (change.versionId !== 2) return;
+        const { doc, tr } = sync.state;
+        const end = target === 0 ? doc.firstChild!.nodeSize - 1 : doc.content.size - 1;
+        sync.dispatch(tr.insertText('X', end));
+        if (event === 'skipped') removeRange();
+      });
+      sync = new MarkdownEditorModel(model, [], () => {});
+      const later = model.onDidChangeContent(change => {
+        if (change.versionId === 2 && event === 'skipped') editLine(model, 1, 6, 6, '\n\nEnd');
+      });
+      try {
+        if (event === 'exact') removeRange();
+        else model.setValue(event === 'skipped' ? original : external);
+
+        const expectSource = (source: string) => {
+          expect(model.getValue()).toBe(source);
+          expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+        };
+        expectSource(expected);
+        if (expected !== external) {
+          expect(sync.undo()).toBe(true);
+          expectSource(external);
+        }
+        expect(sync.undo()).toBe(true);
+        expectSource(original);
+        expect(sync.canUndo).toBe(false);
+        expect(sync.redo()).toBe(true);
+        expectSource(external);
+        if (expected !== external) {
+          expect(sync.redo()).toBe(true);
+          expectSource(expected);
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        later.dispose();
+        earlier.dispose();
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
+
+  it.each([
+    { start: 8, end: 11, text: 'IAN', expected: 'Same\n\nAlIANBravoX\n\nSame' },
+    { start: 6, end: 16, text: 'Replaced', expected: 'Same\n\nReplacedX\n\nSame' },
+    { start: 11, end: 11, text: '\n\n', expected: 'Same\n\nAlpha\n\nBravoX\n\nSame' },
+  ])('rebases a pending edit after a single paragraph change at $start ($text)', ({ start, end, text, expected }) => {
+    const original = 'Same\n\nAlphaBravo\n\nSame';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const listener = model.onDidChangeContent(change => {
+      if (change.versionId !== 2) return;
+      const { doc, tr } = sync.state;
+      sync.dispatch(tr.insertText('X', doc.firstChild!.nodeSize + doc.child(1).nodeSize - 1));
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      applyOffsets(model, start, end, text);
+      expect(model.getValue()).toBe(expected);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(expected).doc)).toBe(true);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original.slice(0, start) + text + original.slice(end));
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      listener.dispose();
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
     { label: 'splits a paragraph', original: 'AlphaBravo\n\nCharlie\n\nDelta', external: 'Alpha\n\nBravo\n\nDelta',
       changes: [[5, 5, '\n\n'], [12, 21, '']], from: 5, to: 5 },
     { label: 'joins two paragraphs', original: 'Alpha\n\nBravo\n\nCharlie', external: 'Alpha Bravo\n\nAdded\n\nCharlie',
