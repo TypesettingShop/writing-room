@@ -2,12 +2,22 @@
 import { EditorState, TextSelection } from 'prosemirror-state';
 import { expect, it } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
+import { createMarkdownCaretParagraph } from '../../browser/markdownEditorSelection.js';
 import { markdownSections, markdownSectionsKey, markdownSectionStarts } from '../../browser/markdownEditorSections.js';
 
 it('counts top-level separators and numbers the first eligible block per section', () => {
   const doc = parseMarkdown('a\n\n---\n\n> ***\n>\n> x\n\nb\n\n***\n\n- a list\n\n___\n\n# c\n\nd');
   expect(markdownSectionStarts(doc).map(({ from, section }) => [doc.nodeAt(from)?.textContent, section]))
     .toEqual([['a', 1], ['b', 2], ['c', 4]]);
+});
+
+it('keeps a temporary gutter paragraph from taking the section number', () => {
+  const doc = parseMarkdown('First paragraph');
+  const temporary = createMarkdownCaretParagraph(doc.type.schema.nodes.paragraph, -1);
+  const state = EditorState.create({ doc });
+  const changed = state.apply(state.tr.insert(0, temporary)).doc;
+  const starts = markdownSectionStarts(changed);
+  expect(starts).toEqual([{ from: temporary.nodeSize, to: changed.content.size, section: 1 }]);
 });
 
 it('reuses decorations for selection changes and leaves them empty when disabled', () => {
