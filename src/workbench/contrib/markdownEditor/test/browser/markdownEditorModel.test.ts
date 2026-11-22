@@ -1,4 +1,4 @@
-import { toggleMark } from 'prosemirror-commands';
+import { baseKeymap, splitBlock, toggleMark } from 'prosemirror-commands';
 import { undo } from 'prosemirror-history';
 import { InputRule, inputRules, undoInputRule } from 'prosemirror-inputrules';
 import type { EditorState } from 'prosemirror-state';
@@ -7,9 +7,10 @@ import { EditorView } from 'prosemirror-view';
 import { describe, expect, it, vi } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
+import * as markdownSerialization from '../../../../../editor/common/markdown/serializer.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
-import { createMarkdownCaretParagraph, markdownCaretParagraphKey } from '../../browser/markdownEditorSelection.js';
+import { createMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide } from '../../browser/markdownEditorSelection.js';
 
 function editLine(model: TestTextModel, line: number, startColumn: number, endColumn: number, text: string): void {
   model.applyEdits([{ range: { startLineNumber: line, startColumn, endLineNumber: line, endColumn }, text }]);
@@ -696,6 +697,42 @@ describe('MarkdownEditorModel', () => {
   });
 
   it.each([
+    { name: 'blank lines', gap: '\n\n\n', first: 'a', middle: 'b', last: 'c' },
+    { name: 'a whitespace-only line and repeated paragraphs', gap: '\n\n \t\n', first: 'same', middle: 'same', last: 'same' },
+  ])('preserves $name before a paragraph split after an incremental source edit', ({ gap, first, middle, last }) => {
+    const original = `${first}${gap}${middle}\n\n\n${last}\n`;
+    const external = `${first}a${gap}${middle}\n\n\n${last}\n`;
+    const written = `${first}a${gap}${middle}\n\nx\n\n${last}\n`;
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const middleBeforeEdit = sync.state.doc.child(1);
+      editLine(model, 1, first.length + 1, first.length + 1, 'a');
+      expect(sync.state.doc.child(1)).toBe(middleBeforeEdit);
+      const { doc } = sync.state;
+      const end = doc.child(0).nodeSize + doc.child(1).nodeSize - 1;
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(doc, end)));
+      expect(splitBlock(sync.state, tr => sync.dispatch(tr.setTime(1000)))).toBe(true);
+      expect(model.getValue()).toBe(external);
+      sync.dispatch(sync.state.tr.insertText('x').setTime(1100));
+      expect(model.getValue()).toBe(written);
+
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(external);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(external);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(written);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
     { where: 'after the final rule', original: 'First\n\n---\n', side: 1, written: 'First!\n\n---\n\nAdded\n' },
     { where: 'before a middle rule', original: 'First\n\n---\n\nLast\n', side: -1, written: 'First!\n\nAdded\n\n---\n\nLast\n' },
   ] as const)('writes $where after an external paragraph edit and replays both history events', ({ original, side, written }) => {
@@ -957,6 +994,202 @@ describe('MarkdownEditorModel', () => {
       sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 1)));
       expect(sync.state.doc.eq(parseMarkdownWithSource(original).doc)).toBe(true);
     } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([-1, 1] as const)('records one empty paragraph when baseKeymap handles Enter in gutter %s', side => {
+    const original = 'First\n\n\n---\n \t\n\nLast\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const source = sync.state.doc;
+      placeRuleCaret(sync, 1, side);
+      const start = sync.state.selection.head;
+      const checkEnter = () => {
+        const { doc, selection } = sync.state;
+        expect(doc.childCount).toBe(source.childCount + 2);
+        const authored = doc.nodeAt(start - 1)!;
+        expect(authored.type.name).toBe('paragraph');
+        expect(authored.childCount).toBe(0);
+        expect(markdownCaretParagraphSide(authored)).toBeUndefined();
+        expect(selection.head).toBe(start + authored.nodeSize);
+        expect(markdownCaretParagraphSide(selection.$head.parent)).toBe(side);
+        expect(model.getValue()).toBe(original);
+        expect(model.getVersionId()).toBe(1);
+      };
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      checkEnter();
+      if (side === -1) {
+        sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 1)));
+        expect(sync.state.doc.childCount).toBe(source.childCount + 1);
+        expect(sync.state.doc.nodeAt(start - 1)?.textContent).toBe('');
+      }
+
+      expect(sync.undo()).toBe(true);
+      expect(sync.canUndo).toBe(false);
+      expect(sync.state.doc.eq(source)).toBe(true);
+      expect(model.getVersionId()).toBe(1);
+      expect(sync.redo()).toBe(true);
+      checkEnter();
+
+      sync.dispatch(sync.state.tr.insertText('Added'));
+      expect(model.getValue()).toBe(side === -1 ? 'First\n\nAdded\n\n---\n \t\n\nLast\n'
+        : 'First\n\n\n---\n\nAdded\n\nLast\n');
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(source.childCount + 1);
+      expect(model.getValue()).toBe(original);
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.eq(source)).toBe(true);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('undoes a deletion spanning the authored blank and its temporary continuation', () => {
+    const original = 'First\n\n---\n\nLast\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, -1);
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      const { doc, selection } = sync.state;
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(doc, doc.child(0).nodeSize - 1, selection.head)));
+      expect(baseKeymap.Backspace(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      expect(sync.state.doc.childCount).toBe(3);
+      expect(model.getValue()).toBe(original);
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(4);
+      expect(sync.state.doc.child(1).textContent).toBe('');
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(3);
+      expect(model.getValue()).toBe(original);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
+    { side: -1, line: 9, written: 'First\n\n---\n\nMid\n\nAdded\n\n---\n\nLast!\n' },
+    { side: 1, line: 1, written: 'Firs!t\n\n---\n\nMid\n\n---\n\nAdded\n\nLast\n' },
+  ] as const)('keeps the temporary paragraph at a repeated rule when the source changes after Enter in gutter $side',
+    ({ side, line, written }) => {
+      const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nMid\n\n---\n\nLast\n');
+      const sync = new MarkdownEditorModel(model, [], () => {});
+      try {
+        placeRuleCaret(sync, 3, side);
+        expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+        editLine(model, line, 5, 5, '!');
+        const { $head } = sync.state.selection;
+        expect(markdownCaretParagraphSide($head.parent)).toBe(side);
+        const rule = side === 1 ? sync.state.doc.resolve($head.before()).nodeBefore
+          : sync.state.doc.resolve($head.after()).nodeAfter;
+        expect(rule?.type.name).toBe('horizontal_rule');
+        // The Enter blank leaves with the source change, and the caret stays beside the second rule.
+        expect($head.index(0)).toBe(side === 1 ? 4 : 3);
+        sync.dispatch(sync.state.tr.insertText('Added'));
+        expect(model.getValue()).toBe(written);
+      } finally {
+        sync.dispose();
+        model.dispose();
+      }
+    });
+
+  it('keeps the authored blank ahead of its temporary continuation through a source batch with identical text', () => {
+    const original = 'First\n\n---\n\nLast\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      const head = sync.state.selection.head;
+      const gap = sync.state.selection.$head.before();
+      const authored = sync.state.doc.resolve(gap).nodeBefore;
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 2 }, text: 'F' },
+        { range: { startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 2 }, text: 'L' },
+      ]);
+      expect(model.getValue()).toBe(original);
+      expect(sync.state.selection.head).toBe(head);
+      expect(markdownCaretParagraphSide(sync.state.selection.$head.parent)).toBe(1);
+      expect(sync.state.doc.resolve(gap).nodeBefore).toBe(authored);
+      expect(sync.undo()).toBe(true);
+      expect(sync.canUndo).toBe(false);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(original).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('undoes removal of both Enter paragraphs after the final rule', () => {
+    const original = 'First\n\n---\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      const gap = sync.state.selection.$head.before();
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      // Delete the full blocks, including the final temporary paragraph.
+      sync.dispatch(sync.state.tr.delete(gap, sync.state.doc.content.size));
+      expect(sync.state.doc.childCount).toBe(2);
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(3);
+      expect(sync.state.doc.lastChild?.type.name).toBe('paragraph');
+      expect(sync.state.doc.lastChild?.content.size).toBe(0);
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(2);
+      expect(model.getValue()).toBe(original);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('preserves gaps around a changed heading while a middle Enter blank is still visible', () => {
+    const original = '# First\n\n\nSecond\n\n---\n\nLast\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 2, 1);
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      const { doc, tr } = sync.state;
+      sync.dispatch(tr.setNodeMarkup(0, undefined, { ...doc.child(0).attrs, level: 2 }));
+      expect(sync.state.doc.childCount).toBe(6);
+      expect(model.getValue()).toBe('#' + original);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('passes edited block marks to serialization when reattaching incremental source attrs', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n\nMiddle\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    const serialize = vi.spyOn(markdownSerialization, 'serializeMarkdown');
+    // The current Markdown schema excludes top-level marks. Allow one here to exercise the
+    // handoff of a marked block to the serializer independently of the schema and its spelling.
+    const allowBlockMarks = vi.spyOn(sync.state.doc.type, 'allowsMarks').mockReturnValue(true);
+    try {
+      editLine(model, 1, 6, 6, '!');
+      const { doc, tr, schema } = sync.state;
+      const from = doc.child(0).nodeSize;
+      const mark = schema.marks.strong.create();
+      tr.insertText('!', from + 1);
+      const block = tr.doc.child(1);
+      sync.dispatch(tr.replaceWith(from, from + block.nodeSize, block.mark([mark])));
+      expect(sync.state.doc.child(1).attrs).toBe(doc.child(1).attrs);
+      const writtenBlock = serialize.mock.lastCall?.[0].child(1);
+      expect(writtenBlock?.attrs).not.toBe(doc.child(1).attrs);
+      expect(writtenBlock?.textContent).toBe('!Middle');
+      expect(writtenBlock?.marks).toEqual([mark]);
+    } finally {
+      allowBlockMarks.mockRestore();
+      serialize.mockRestore();
       sync.dispose();
       model.dispose();
     }
