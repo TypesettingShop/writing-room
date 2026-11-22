@@ -1,0 +1,171 @@
+.view-pane-body.manuscript-navigator {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.manuscript-location,
+.manuscript-notice,
+.manuscript-empty {
+  padding: 5px 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.manuscript-location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manuscript-empty p {
+  margin: 0 0 6px;
+}
+
+.manuscript-empty button {
+  margin: 0 4px 4px 0;
+}
+
+.manuscript-tree {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline-offset: -1px;
+}
+
+.manuscript-rows {
+  position: relative;
+}
+
+.manuscript-row {
+  height: 24px;
+  box-sizing: border-box;
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 8px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.manuscript-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.manuscript-row[aria-selected="true"] {
+  background: var(--vscode-list-inactiveSelectionBackground);
+  color: var(--vscode-list-inactiveSelectionForeground);
+}
+
+.manuscript-tree:focus-visible .manuscript-row[aria-selected="true"] {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.manuscript-tree:focus-visible .manuscript-cursor {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.manuscript-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manuscript-toggle,
+.manuscript-toggle-spacer {
+  flex: 0 0 16px;
+}
+
+.manuscript-toggle {
+  color: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.manuscript-toggle:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.manuscript-twig {
+  display: flex;
+  height: 100%;
+  align-items: stretch;
+  color: var(--vscode-descriptionForeground);
+  font-family: monospace;
+  white-space: pre;
+}
+
+.manuscript-twig span {
+  position: relative;
+  width: 12px;
+  font-size: 0;
+}
+
+.manuscript-twig-pipe::before,
+.manuscript-twig-tee::before,
+.manuscript-twig-end::before,
+.manuscript-twig-tee::after,
+.manuscript-twig-end::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 4px;
+  background: currentColor;
+}
+
+.manuscript-twig-pipe::before,
+.manuscript-twig-tee::before,
+.manuscript-twig-end::before {
+  width: 1px;
+  inset-block: 0;
+}
+
+.manuscript-twig-end::before {
+  inset-block-end: 50%;
+}
+
+.manuscript-twig-tee::after,
+.manuscript-twig-end::after {
+  height: 1px;
+  top: 50%;
+  inset-inline-end: 0;
+}
+
+.manuscript-inline-editor {
+  position: absolute;
+  z-index: 1;
+  inset-inline: 8px;
+}
+
+.manuscript-inline-editor input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 24px;
+  padding: 2px 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-focusBorder);
+}
+
+.manuscript-inline-error {
+  padding: 4px;
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-input-background));
+  color: var(--vscode-input-foreground);
+}
+
+.manuscript-row[data-manuscript-drop='before'] {
+  box-shadow: inset 0 2px var(--vscode-focusBorder);
+}
+
+.manuscript-row[data-manuscript-drop='after'] {
+  box-shadow: inset 0 -2px var(--vscode-focusBorder);
+}
+
+.manuscript-row[data-manuscript-drop='into'],
+.manuscript-drop-end {
+  background: var(--vscode-list-dropBackground);
+}
