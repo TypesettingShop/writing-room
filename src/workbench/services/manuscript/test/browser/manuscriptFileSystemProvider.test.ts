@@ -171,3 +171,25 @@ it('explains address rejection for both document stats and JSON requests', async
     service.dispose();
   }
 });
+
+it('reports a reachable API when a router error confirms reachability but not the session', async () => {
+  const fetch = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Connection refused'))
+    .mockResolvedValueOnce(Response.json({
+      error: { code: 'forbidden_origin', message: 'Origin is required and must be allowed.' },
+    }, { status: 403 }));
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, fetch));
+  const auth = vi.fn();
+  const listener = service.onDidChangeAuth(auth);
+  try {
+    await expect(service.store.listWorks()).rejects.toThrow('The manuscript server is unavailable.');
+    expect(service.availability).toBe('unavailable');
+    await expect(service.store.createWork({ title: 'Work' })).rejects.toThrow('Origin is required and must be allowed.');
+    expect(service.availability).toBe('ready');
+    expect(service.signedIn).toBeUndefined();
+    expect(auth).not.toHaveBeenCalled();
+  } finally {
+    listener.dispose();
+    service.dispose();
+  }
+});

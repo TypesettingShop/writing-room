@@ -213,10 +213,44 @@ test('keeps a dirty manuscript and its backup when the save is unauthorized', as
   await expect(selectedTab(group)).toHaveAccessibleDescription('');
 });
 
+test('waits for the session before offering sign-in and gives one warning on session loss', async ({ page, authApi }) => {
+  const workId = crypto.randomUUID();
+  let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  await page.route(/\/api\/works(?:[/?]|$)/, async route => {
+    await delayed;
+    await route.fallback();
+  });
+  try {
+    await page.goto('/?work=' + workId);
+    const pendingMenu = await workMenu(page);
+    await expect(pendingMenu.getByRole('menuitem', { name: 'Open Work...' })).toBeVisible();
+    await expect(pendingMenu.getByRole('menuitem', { name: 'Sign In...' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+  } finally {
+    release();
+  }
+  const lostSession = page.getByText('You are signed out. Sign in to keep saving.', { exact: true });
+  await expect(accountForm(page)).toBeVisible();
+  await expect(lostSession).toHaveCount(0);
+  const guestMenu = await workMenu(page);
+  await expect(guestMenu.getByRole('menuitem', { name: 'Sign In...' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await submitCredentials(page, 'session@example.test', password, true);
+  await expect(worksSection(page).getByText('No Works yet.')).toBeVisible();
+  expect((await page.request.get(authApi + '/api/auth/me')).status()).toBe(200);
+  await page.context().clearCookies({ name: 'wr_session' });
+  await (await workMenu(page)).getByRole('menuitem', { name: 'Open Work...' }).click();
+  await expect(lostSession).toHaveCount(1);
+  await expect(accountForm(page)).toBeVisible();
+  await expect(page.getByText('Sign in to open your Works.', { exact: true })).toHaveCount(0);
+});
+
 test.describe('Google available', () => {
   test.use({ googleEnabled: true });
 
-  test('returns through the fake Google provider and consumes the cancellation marker once', async ({ page, authApi }) => {
+  test('returns through the fake Google provider and consumes the cancellation marker once', async ({ page, authApi, baseURL }) => {
     await page.goto('/?keep=a%20b');
     const google = worksSection(page).getByRole('link', { name: 'Continue with Google' });
     const href = await google.getAttribute('href');
@@ -229,10 +263,19 @@ test.describe('Google available', () => {
     await expect(worksSection(page).getByText('No Works yet.')).toBeVisible();
     expect((await (await page.request.get(authApi + '/api/auth/me')).json()).user.email).toBe('google@example.test');
 
+    const title = 'Google writer’s Work';
+    const created = await page.request.post(authApi + '/api/works', {
+      headers: { Origin: new URL(baseURL!).origin }, data: { title },
+    });
+    expect(created.status()).toBe(201);
+    const { work } = await created.json();
+    const workUrl = '/?keep=a%20b&work=' + work.id;
+    await page.goto(workUrl);
+    await expect(page).toHaveTitle(title);
     await (await workMenu(page)).getByRole('menuitem', { name: 'Sign Out' }).click();
     await google.click();
     await page.getByRole('link', { name: 'Cancel' }).click();
-    await expect(page).toHaveURL('/');
+    await expect(page).toHaveURL(workUrl);
     await expect(worksSection(page)).toBeFocused();
     await expect(worksSection(page).getByRole('alert')).toHaveText('Google sign-in was canceled.');
     await page.reload();

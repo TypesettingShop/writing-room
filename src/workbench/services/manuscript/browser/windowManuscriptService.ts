@@ -41,6 +41,12 @@ export class ManuscriptStatus extends Disposable {
     this.update(availability, signedIn, 'request');
   }
 
+  reportReachable(revision: number): void {
+    if (revision === this.sessionRevision) {
+      this.update('ready', this.authenticated, 'request');
+    }
+  }
+
   setAccount(signedIn: boolean): void {
     this.sessionRevision++;
     this.update(signedIn ? 'ready' : 'signedOut', signedIn, 'account');

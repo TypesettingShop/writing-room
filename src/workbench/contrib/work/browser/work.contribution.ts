@@ -32,6 +32,29 @@ async function unavailable(notifications: INotificationService, groups: IEditorG
   await openWelcome(groups);
 }
 
+async function requestWork<T>(
+  request: () => Promise<T>, manuscript: IManuscriptService, work: IWorkService,
+  notifications: INotificationService, groups: IEditorGroupsService,
+): Promise<T | undefined> {
+  const wasSignedOut = manuscript.signedIn === false;
+  try {
+    return await request();
+  } catch (error) {
+    if (!(error instanceof ManuscriptStoreError)) {
+      await unavailable(notifications, groups, 'The Works server is not available.');
+    } else if (error.code !== 'unauthorized') {
+      notifications.error(error.message);
+    } else if (!work.current) {
+      notifications.info('Sign in to open your Works.');
+      await openWelcomeWorks(groups);
+    } else if (wasSignedOut && manuscript.signedIn === false) {
+      // The session listener opens Welcome on the first 401. Reopen it when the Work was already signed out.
+      await openWelcomeWorks(groups);
+    }
+    return undefined;
+  }
+}
+
 registerAction2(class NewWorkAction extends Action2 {
   constructor() {
     super({
@@ -64,17 +87,11 @@ registerAction2(class NewWorkAction extends Action2 {
       return;
     }
     await work.createAndOpen(async () => {
-      try {
-        const created = await manuscript.store.createWork({ title: normalizeManuscriptTitle(title, false) });
-        return created.id;
-      } catch (error) {
-        if (error instanceof ManuscriptStoreError && error.code !== 'unauthorized') {
-          notifications.error(error.message);
-        } else {
-          await unavailable(notifications, groups, 'Sign in to open your Works.');
-        }
-        return undefined;
-      }
+      const created = await requestWork(
+        () => manuscript.store.createWork({ title: normalizeManuscriptTitle(title, false) }),
+        manuscript, work, notifications, groups,
+      );
+      return created?.id;
     });
   }
 });
@@ -102,24 +119,13 @@ registerAction2(class OpenWorkAction extends Action2 {
       if (id === work.current?.id) {
         return;
       }
-      try {
-        await manuscript.store.getWork(id);
-      } catch (error) {
-        if (error instanceof ManuscriptStoreError && error.code !== 'unauthorized') {
-          notifications.error(error.message);
-        } else {
-          await unavailable(notifications, groups, 'Sign in to open your Works.');
-        }
-        return;
+      if (await requestWork(() => manuscript.store.getWork(id), manuscript, work, notifications, groups)) {
+        await work.open(id);
       }
-      await work.open(id);
       return;
     }
-    let works;
-    try {
-      works = await manuscript.store.listWorks();
-    } catch {
-      await unavailable(notifications, groups, 'Sign in to open your Works.');
+    const works = await requestWork(() => manuscript.store.listWorks(), manuscript, work, notifications, groups);
+    if (!works) {
       return;
     }
     const items = works.map(entry => ({
@@ -152,7 +158,7 @@ registerAction2(class CloseWorkAction extends Action2 {
 });
 
 const signedInContext = new RawContextKey<boolean>('signedIn', false);
-const workAccountContext = new RawContextKey<boolean>('workAccountAvailable', false);
+const workSessionKnown = new RawContextKey<boolean>('workSessionKnown', false);
 
 class WorkAuthContribution extends Disposable {
   constructor(
@@ -166,13 +172,18 @@ class WorkAuthContribution extends Disposable {
     if (!manuscript.auth) {
       return;
     }
-    workAccountContext.bindTo(context).set(true);
+    const sessionKnown = workSessionKnown.bindTo(context);
     const signedInKey = signedInContext.bindTo(context);
+    sessionKnown.set(manuscript.signedIn !== undefined);
     signedInKey.set(manuscript.signedIn === true);
     this._register(manuscript.onDidChangeAuth(({ signedIn, reason }) => {
+      const wasSignedIn = signedInKey.get() === true;
       signedInKey.set(signedIn);
+      sessionKnown.set(true);
       if (!signedIn && reason === 'request' && work.current) {
-        notifications.warn('You are signed out. Sign in to keep saving.');
+        if (wasSignedIn) {
+          notifications.warn('You are signed out. Sign in to keep saving.');
+        }
         void openWelcomeWorks(groups).catch(console.error);
       }
     }));
@@ -189,7 +200,7 @@ registerWorkbenchContribution2('workbench.contrib.workAuth', WorkAuthContributio
 
 registerAction2(class SignInAction extends Action2 {
   constructor() {
-    const when = ContextKeyExpr.and(workAccountContext.isEqualTo(true), signedInContext.toNegated());
+    const when = ContextKeyExpr.and(workSessionKnown.isEqualTo(true), signedInContext.toNegated());
     super({
       id: 'work.signIn', title: 'Sign In...', category: 'Work', f1: true, precondition: when,
       menu: { id: MenubarWorkMenu, group: '3_account', order: 1, when },

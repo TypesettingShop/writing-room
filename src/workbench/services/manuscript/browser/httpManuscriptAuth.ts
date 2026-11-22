@@ -3,6 +3,8 @@ import type { ManuscriptAuth } from '../common/manuscriptService.js';
 import type { ManuscriptFetch } from './httpManuscriptStore.js';
 import type { ManuscriptStatus } from './windowManuscriptService.js';
 
+const authTimeoutMs = 10_000;
+
 export class HttpManuscriptAuth implements ManuscriptAuth {
   private pending = false;
 
@@ -12,7 +14,9 @@ export class HttpManuscriptAuth implements ManuscriptAuth {
   ) {}
 
   async hasGoogle(): Promise<boolean> {
-    const response = await this.fetcher('/api/auth/providers', { credentials: 'same-origin' });
+    const response = await this.fetcher('/api/auth/providers', {
+      credentials: 'same-origin', signal: AbortSignal.timeout(authTimeoutMs),
+    });
     if (!response.ok) {
       return false;
     }
@@ -40,7 +44,8 @@ export class HttpManuscriptAuth implements ManuscriptAuth {
     }
     this.pending = true;
     try {
-      const init: RequestInit = { method: 'POST', credentials: 'same-origin' };
+      const signal = AbortSignal.timeout(authTimeoutMs);
+      const init: RequestInit = { method: 'POST', credentials: 'same-origin', signal };
       if (credentials) {
         init.headers = { 'Content-Type': 'application/json' };
         init.body = JSON.stringify(credentials);
@@ -48,6 +53,9 @@ export class HttpManuscriptAuth implements ManuscriptAuth {
       const response = await this.fetcher('/api/auth/' + action, init).catch(() => undefined);
       if (response?.status !== expectedStatus) {
         const body: unknown = await response?.json().catch(() => undefined);
+        if (signal.aborted) {
+          throw new Error('The account request timed out. Try again.');
+        }
         const message = isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string'
           ? body.error.message
           : fallback;

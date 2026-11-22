@@ -180,6 +180,7 @@ export class HttpManuscriptStore implements ManuscriptStore {
         throw new Error(body.error.message);
       }
       if (code === 'forbidden_origin' || code === 'unsupported_media_type' || code === 'method_not_allowed') {
+        this.status.reportReachable(revision);
         throw new Error(body.error.message);
       }
     }
