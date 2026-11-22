@@ -69,6 +69,29 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
     }));
   });
 
+  it('rejects metadata growth beyond the work budget and still serves the tree', async () => {
+    const owner = repository.forUser(contractOwner);
+    const work = await owner.createWork({ title: 'Work with metadata' });
+    const { node } = await owner.createNode(work.id, { kind: 'document', parentId: null, title: '' }, 0);
+    const metadata = { text: 'a'.repeat(manuscriptLimits.metadata - '{"text":""}'.length) };
+    await pool.query(`
+      INSERT INTO nodes (work_id, kind, position, metadata)
+      SELECT $1, 'part', position, $3 FROM generate_series(1, $2::integer) AS position
+    `, [work.id, manuscriptLimits.workMetadata / manuscriptLimits.metadata, metadata]);
+    const api = await startTestApi({ store: 'postgres', repository });
+    try {
+      const browser = httpContractStore(api.fetch, 'owner');
+      await expect(browser.updateNode(work.id, node.id, { metadata: { key: 'value' } }, 1))
+        .rejects.toMatchObject({ code: 'too_large' });
+      const tree = await browser.getTree(work.id);
+      expect(tree.revision).toBe(1);
+      expect(tree.nodes[0].metadata).toEqual({});
+      expect(tree.nodes.at(-1)?.metadata).toEqual(metadata);
+    } finally {
+      await api.close();
+    }
+  }, 30_000);
+
   it('serializes migrations, tracks checksums, and rolls back a failed migration', async () => {
     expect((await pool.query('SELECT version FROM schema_migrations')).rows).toEqual([{ version: '0001' }]);
     await expect(migrate(pool, [{ version: '0001', sql: 'SELECT 1' }])).rejects.toThrow('Checksum changed for migration 0001');
