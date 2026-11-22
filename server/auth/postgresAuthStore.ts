@@ -1,6 +1,8 @@
 import type { Pool, PoolClient } from 'pg';
 import { inTransaction } from '../store/transaction.js';
-import type { ActiveSession, AuthStore, AuthUser, GoogleIdentity, PasswordUser, SessionRecord } from './authStore.js';
+import {
+  sessionActivityIntervalMs, type ActiveSession, type AuthStore, type AuthUser, type GoogleIdentity, type PasswordUser, type SessionRecord,
+} from './authStore.js';
 
 async function insertSession(client: PoolClient, userId: string, session: SessionRecord): Promise<void> {
   await client.query(`
@@ -54,6 +56,13 @@ export class PostgresAuthStore implements AuthStore {
         WHERE provider = 'google' AND subject = $1
       `, [identity.subject]);
       if (existing) {
+        if (identity.email !== null && identity.email !== existing.email) {
+          await client.query('UPDATE users SET email = $2 WHERE id = $1', [existing.id, identity.email]);
+          await client.query(`
+            UPDATE oauth_identities SET email = $2 WHERE provider = 'google' AND subject = $1
+          `, [identity.subject, identity.email]);
+          existing.email = identity.email;
+        }
         await replaceExpiredSessions(client, existing.id, session);
         return existing;
       }
@@ -72,13 +81,23 @@ export class PostgresAuthStore implements AuthStore {
   }
 
   async findSession(tokenHash: Buffer, now: Date): Promise<ActiveSession | undefined> {
-    const { rows: [row] } = await this.pool.query<AuthUser & { token_hash: Buffer }>(`
-      UPDATE sessions AS session SET last_seen_at = GREATEST(session.last_seen_at, $2)
-      FROM users
-      WHERE session.token_hash = $1 AND session.expires_at > $2 AND users.id = session.user_id
-      RETURNING users.id, users.email, session.token_hash
+    const { rows: [row] } = await this.pool.query<AuthUser & { token_hash: Buffer; last_seen_at: Date }>(`
+      SELECT users.id, users.email, session.token_hash, session.last_seen_at
+      FROM sessions AS session
+      JOIN users ON users.id = session.user_id
+      WHERE session.token_hash = $1 AND session.expires_at > $2
     `, [tokenHash, now]);
-    return row && { user: { id: row.id, email: row.email }, tokenHash: row.token_hash };
+    if (!row) {
+      return undefined;
+    }
+    const activityCutoff = new Date(now.getTime() - sessionActivityIntervalMs);
+    if (row.last_seen_at <= activityCutoff) {
+      await this.pool.query(`
+        UPDATE sessions SET last_seen_at = $2
+        WHERE token_hash = $1 AND expires_at > $2 AND last_seen_at <= $3
+      `, [tokenHash, now, activityCutoff]);
+    }
+    return { user: { id: row.id, email: row.email }, tokenHash: row.token_hash };
   }
 
   async deleteSession(tokenHash: Buffer): Promise<void> {

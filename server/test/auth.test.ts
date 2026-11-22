@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, scrypt } from 'node:crypto';
 import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { InMemoryManuscriptRepository } from '../../src/platform/manuscript/common/inMemoryManuscriptStore.js';
@@ -12,8 +12,15 @@ import { newSession } from '../auth/session.js';
 import { readApiConfig } from '../config.js';
 import { migrate } from '../store/migrate.js';
 import manuscriptMigration from '../store/migrations/0001_manuscript.sql?raw';
+import authMigration from '../store/migrations/0002_auth.sql?raw';
+import oauthMigration from '../store/migrations/0003_oauth.sql?raw';
 import { createPostgresPool, PostgresManuscriptRepository } from '../store/postgresManuscriptRepository.js';
 import { startTestApi, testOrigin } from './apiFixture.js';
+
+vi.mock('node:crypto', async importOriginal => {
+  const crypto = await importOriginal<typeof import('node:crypto')>();
+  return { ...crypto, scrypt: vi.fn(crypto.scrypt) };
+});
 
 const databaseUrl = process.env.WRITING_ROOM_TEST_DATABASE_URL;
 const email = 'author@example.test';
@@ -65,8 +72,19 @@ function authFixture(store: 'memory' | 'postgres', fixture: () => { auth: AuthSt
     const duplicate = await post('/api/auth/signup', { email, password });
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toMatchObject({ error: { message: 'An account with this email already exists.' } });
-    const wrong = await post('/api/auth/login', { email, password: password.trim() });
-    const missing = await post('/api/auth/login', { email: 'missing@example.test', password });
+    async function rejectedLogin(address: string) {
+      const hash = vi.mocked(scrypt);
+      const before = hash.mock.calls.length;
+      const response = await post('/api/auth/login', { email: address, password: password.trim() });
+      const calls = hash.mock.calls.slice(before);
+      expect(calls).toHaveLength(1);
+      const [input, salt, keyLength, options] = calls[0];
+      expect((salt as Buffer).byteLength).toBe(16);
+      return { response, work: { input, keyLength, options } };
+    }
+    const { response: wrong, work: wrongWork } = await rejectedLogin(email);
+    const { response: missing, work: missingWork } = await rejectedLogin('missing@example.test');
+    expect(wrongWork).toEqual(missingWork);
     expect([wrong.status, missing.status]).toEqual([401, 401]);
     expect(await wrong.json()).toEqual(await missing.json());
     const login = await post('/api/auth/login', { email, password }, first);
@@ -135,8 +153,8 @@ describe('email authentication with memory storage', () => {
     expect(registered.headers.get('set-cookie')).toContain('; Secure');
   });
 
-  it('shares the fixed attempt window across signup and login and ignores forwarded addresses by default', async () => {
-    const { post } = await startApi();
+  it('shares the account window across signup, login and different client addresses', async () => {
+    const { post } = await startApi(testOrigin, { trustProxy: true });
     for (let attempt = 0; attempt < 9; attempt++) {
       expect((await post('/api/auth/signup', { email, password: '' })).status).toBe(400);
     }
@@ -168,17 +186,79 @@ describe('email authentication with memory storage', () => {
     }
   });
 
-  it('uses the trusted proxy’s appended address when enabled', async () => {
+  it('limits changing emails by trusted address, including proxy ports and IPv6 prefixes', async () => {
     const { post } = await startApi(testOrigin, { trustProxy: true });
-    const body = { email, password: '' };
-    for (let attempt = 0; attempt < 10; attempt++) {
-      expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.1' })).status).toBe(400);
+    const signup = (index: number, forwarded: string) => post(
+      '/api/auth/signup', { email: `proxy${index}@example.test`, password: '' }, '', { 'x-forwarded-for': forwarded },
+    );
+    for (let index = 0; index < 60; index++) {
+      expect((await signup(index, '[2001:db8:0:1::1]:5678')).status).toBe(400);
     }
-    expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.2, 192.0.2.1' })).status).toBe(429);
-    expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.2' })).status).toBe(400);
-    expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.2, 192.0.2.1:5678' })).status).toBe(429);
-    expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '[2001:db8::1]:5678' })).status).toBe(400);
+    const limited = await signup(60, '192.0.2.1, 2001:0db8:0:1:ffff::abcd');
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toBe('900');
+    expect((await signup(60, '[2001:db8:0:2::1]:5678')).status).toBe(400);
+
+    for (let index = 0; index < 60; index++) {
+      expect((await signup(index, '192.0.2.1:5678')).status).toBe(400);
+    }
+    expect((await signup(60, '192.0.2.2, [::ffff:192.0.2.1]:5678')).status).toBe(429);
+    expect((await signup(60, '192.0.2.1, 192.0.2.2:5678')).status).toBe(400);
   });
+
+  it('uses the socket when forwarding is disabled even if requests present distinct addresses', async () => {
+    const { post } = await startApi();
+    for (let index = 0; index < 61; index++) {
+      const response = await post('/api/auth/signup', { email: `socket${index}@example.test`, password: '' },
+        '', { 'x-forwarded-for': '192.0.2.' + (index + 1) });
+      expect(response.status).toBe(index === 60 ? 429 : 400);
+    }
+  });
+
+  it('clears only the email window after successful signup and login', async () => {
+    const { post } = await startApi();
+    expect((await post('/api/auth/signup', { email, password })).status).toBe(201);
+    for (let cycle = 0; cycle < 2; cycle++) {
+      for (let attempt = 0; attempt < 9; attempt++) {
+        expect((await post('/api/auth/signup', { email, password: '' })).status).toBe(400);
+      }
+      expect((await post('/api/auth/login', { email, password })).status).toBe(200);
+    }
+    for (let index = 0; index < 39; index++) {
+      expect((await post('/api/auth/signup', { email: `remaining${index}@example.test`, password: '' })).status).toBe(400);
+    }
+    expect((await post('/api/auth/login', { email, password })).status).toBe(429);
+  });
+
+  it('returns 503 while the scrypt work queue is full and resumes after it drains', async () => {
+    const { post } = await startApi();
+    let released = false;
+    const waiting: (() => void)[] = [];
+    const work = vi.mocked(scrypt);
+    await work.withImplementation((_password, _salt, keyLength, _options, callback) => {
+      const finish = () => callback(null, Buffer.alloc(keyLength));
+      if (released) {
+        finish();
+      } else {
+        waiting.push(finish);
+      }
+    }, async () => {
+      const completed: Response[] = [];
+      const requests = Array.from({ length: 21 }, async (_, index) => {
+        const response = await post('/api/auth/login', { email: `queue${index}@example.test`, password });
+        completed.push(response);
+      });
+      try {
+        await vi.waitFor(() => expect(completed).toHaveLength(requests.length - waiting.length - 16), { timeout: 3_000 });
+        expect(completed.every(response => response.status === 503 && response.headers.get('retry-after') === '1')).toBe(true);
+      } finally {
+        released = true;
+        waiting.forEach(finish => finish());
+        await Promise.allSettled(requests);
+      }
+    });
+    expect((await post('/api/auth/login', { email, password })).status).toBe(401);
+  }, 12_000);
 });
 
 describe.skipIf(!databaseUrl)('email authentication with PostgreSQL storage', () => {
@@ -186,6 +266,8 @@ describe.skipIf(!databaseUrl)('email authentication with PostgreSQL storage', ()
   let pool: Pool;
   const schema = 'test_auth_' + randomUUID().replaceAll('-', '');
   const legacyUserId = randomUUID();
+  const legacyUpdatedUserId = randomUUID();
+  const originalUpdate = new Date(0);
   const startApi = authFixture('postgres', () => ({
     auth: new PostgresAuthStore(pool), repository: new PostgresManuscriptRepository(pool),
   }));
@@ -195,7 +277,13 @@ describe.skipIf(!databaseUrl)('email authentication with PostgreSQL storage', ()
     await admin.query('CREATE SCHEMA ' + schema);
     pool = createPostgresPool(databaseUrl!, 10, '-c search_path=' + schema);
     await migrate(pool, [{ version: '0001', sql: manuscriptMigration }]);
-    await pool.query('INSERT INTO users (id) VALUES ($1)', [legacyUserId]);
+    await pool.query('INSERT INTO users (id) VALUES ($1), ($2)', [legacyUserId, legacyUpdatedUserId]);
+    // Exercise 0004 on a database that has already recorded the 0002 and 0003 checksums.
+    await migrate(pool, [
+      { version: '0002', sql: authMigration },
+      { version: '0003', sql: oauthMigration },
+    ]);
+    await pool.query('UPDATE users SET updated_at = $2 WHERE id = $1', [legacyUpdatedUserId, originalUpdate]);
     await migrate(pool);
   }, 25_000);
 
@@ -229,6 +317,31 @@ describe.skipIf(!databaseUrl)('email authentication with PostgreSQL storage', ()
     expect((await get('/api/auth/me', cookie)).status).toBe(200);
   });
 
+  it('updates real user changes in the forward migration and keeps session touches hourly', async () => {
+    const { rows: [before] } = await pool.query('SELECT updated_at FROM users WHERE id = $1', [legacyUpdatedUserId]);
+    expect(before.updated_at).toEqual(originalUpdate);
+    const { rows: [unchanged] } = await pool.query('UPDATE users SET email = email WHERE id = $1 RETURNING updated_at', [legacyUpdatedUserId]);
+    expect(unchanged.updated_at).toEqual(before.updated_at);
+    const { rows: [updated] } = await pool.query('UPDATE users SET email = $2 WHERE id = $1 RETURNING updated_at',
+      [legacyUpdatedUserId, 'updated@example.test']);
+    expect(updated.updated_at.getTime()).toBeGreaterThan(before.updated_at.getTime());
+
+    const store = new PostgresAuthStore(pool);
+    const { session } = newSession(start);
+    const { tokenHash } = session;
+    await store.createSession(legacyUserId, session);
+    const hour = 60 * 60 * 1000;
+    async function lastSeen(): Promise<Date> {
+      return (await pool.query('SELECT last_seen_at FROM sessions WHERE token_hash = $1', [tokenHash])).rows[0].last_seen_at;
+    }
+    expect(await store.findSession(tokenHash, new Date(start + hour - 1))).toBeDefined();
+    expect(await lastSeen()).toEqual(new Date(start));
+    expect(await store.findSession(tokenHash, new Date(start + hour))).toBeDefined();
+    expect(await lastSeen()).toEqual(new Date(start + hour));
+    expect(await store.findSession(tokenHash, new Date(start + hour + 1))).toBeDefined();
+    expect(await lastSeen()).toEqual(new Date(start + hour));
+  });
+
   it('rolls back signup when its session cannot be written and prunes expired rows', async () => {
     const store = new PostgresAuthStore(pool);
     const a = newSession(start).session;
@@ -245,41 +358,41 @@ describe.skipIf(!databaseUrl)('email authentication with PostgreSQL storage', ()
 });
 
 it('bounds the fixed-window map and restores access at the expiry boundary', () => {
-  const limits = new AttemptLimit();
+  const limits = new AttemptLimit(10, 900_000, 10_000);
   for (let attempt = 0; attempt < 10; attempt++) {
-    expect(limits.take('ip', email, start)).toBeUndefined();
+    expect(limits.take(email, start)).toBeUndefined();
   }
-  expect(limits.take('ip', email, start + 899_999)).toBe(1);
-  expect(limits.take('ip', email, start + 900_000)).toBeUndefined();
+  expect(limits.take(email, start + 899_999)).toBe(1);
+  expect(limits.take(email, start + 900_000)).toBeUndefined();
   for (let index = 0; index < 10_000; index++) {
-    limits.take('ip', `author${index}@example.test`, start + 900_000);
+    limits.take(`author${index}@example.test`, start + 900_000);
   }
   for (let attempt = 0; attempt < 10; attempt++) {
-    expect(limits.take('ip', email, start + 900_000)).toBeUndefined();
+    expect(limits.take(email, start + 900_000)).toBeUndefined();
   }
-  expect(limits.take('ip', email, start + 900_000)).toBe(900);
+  expect(limits.take(email, start + 900_000)).toBe(900);
 });
 
 it('keeps an exhausted window through a flood of new keys and ignores windows left expired by a clock step', () => {
-  const limits = new AttemptLimit();
+  const limits = new AttemptLimit(10, 900_000, 10_000);
   for (let attempt = 0; attempt < 10; attempt++) {
-    limits.take('ip', email, start);
+    limits.take(email, start);
   }
   for (let index = 0; index < 20_000; index++) {
-    expect(limits.take('ip', `junk${index}@example.test`, start)).toBeUndefined();
+    expect(limits.take(`junk${index}@example.test`, start)).toBeUndefined();
   }
-  expect(limits.take('ip', email, start)).toBe(900);
+  expect(limits.take(email, start)).toBe(900);
 
-  const stepped = new AttemptLimit();
+  const stepped = new AttemptLimit(10, 900_000, 10_000);
   for (let attempt = 0; attempt < 10; attempt++) {
-    stepped.take('ip', 'later@example.test', start + 600_000);
+    stepped.take('later@example.test', start + 600_000);
   }
   for (let attempt = 0; attempt < 10; attempt++) {
-    stepped.take('ip', email, start);
+    stepped.take(email, start);
   }
   // The window exhausted first expires last, so pruning in order stops before the expired one.
-  expect(stepped.take('ip', email, start + 900_000)).toBeUndefined();
-  expect(stepped.take('ip', 'later@example.test', start + 900_000)).toBe(600);
+  expect(stepped.take(email, start + 900_000)).toBeUndefined();
+  expect(stepped.take('later@example.test', start + 900_000)).toBe(600);
 });
 
 it('preserves explicit loopback dev auth and defaults to Secure outside loopback development', () => {

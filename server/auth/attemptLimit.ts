@@ -1,7 +1,3 @@
-const windowMs = 15 * 60 * 1000;
-const attemptsPerWindow = 10;
-const maxKeys = 10_000;
-
 interface Window {
   expiresAt: number;
   attempts: number;
@@ -29,11 +25,17 @@ export class AttemptLimit {
   // Exhausted windows, kept apart so a flood of new keys evicts open windows first.
   private readonly exhausted = new Map<string, Window>();
 
+  constructor(private readonly attempts: number, private readonly windowMs: number, private readonly maxKeys: number) {}
+
+  reset(key: string): void {
+    this.open.delete(key);
+    this.exhausted.delete(key);
+  }
+
   /** Returns the remaining window in seconds when an attempt must wait. */
-  take(ip: string, email: string, now: number): number | undefined {
+  take(key: string, now: number): number | undefined {
     prune(this.open, now);
     prune(this.exhausted, now);
-    const key = JSON.stringify([ip, email]);
     // A wall clock that steps back can leave an expired window behind a live one, so check expiry here too.
     const exhausted = this.exhausted.get(key);
     if (exhausted && exhausted.expiresAt > now) {
@@ -45,13 +47,13 @@ export class AttemptLimit {
       window.attempts++;
     } else {
       this.open.delete(key);
-      if (this.open.size + this.exhausted.size >= maxKeys) {
+      if (this.open.size + this.exhausted.size >= this.maxKeys) {
         evictOldest(this.open.size > 0 ? this.open : this.exhausted);
       }
-      this.open.set(key, { expiresAt: now + windowMs, attempts: 1 });
+      this.open.set(key, { expiresAt: now + this.windowMs, attempts: 1 });
     }
     const current = this.open.get(key)!;
-    if (current.attempts === attemptsPerWindow) {
+    if (current.attempts === this.attempts) {
       this.open.delete(key);
       this.exhausted.set(key, current);
     }

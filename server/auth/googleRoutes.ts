@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import { ApiError, sendJson } from '../http/errors.js';
 import type { Route } from '../http/router.js';
+import { AttemptLimit } from './attemptLimit.js';
 import type { AuthOptions, AuthRouteContext } from './authRoutes.js';
+import { clientAddressKey } from './clientAddress.js';
 import { googleCallbackPath, googleStartPath } from './googleConfig.js';
 import { GoogleState, googleStateSeconds } from './googleState.js';
 import { exchangeGoogleCode, validateGoogleIdentity } from './googleToken.js';
@@ -26,7 +28,7 @@ function redirect(response: ServerResponse, location: string): void {
   response.writeHead(302, { Location: location }).end();
 }
 
-export function createGoogleRoutes({ google, store, allowLoopbackHttpCookies, now = Date.now }: AuthOptions): Route<AuthRouteContext>[] {
+export function createGoogleRoutes({ google, store, allowLoopbackHttpCookies, trustProxy, now = Date.now }: AuthOptions): Route<AuthRouteContext>[] {
   const providers: Route<AuthRouteContext> = {
     path: '/api/auth/providers',
     handlers: { GET: async ({ response }) => sendJson(response, 200, google ? ['google'] : []) },
@@ -38,13 +40,25 @@ export function createGoogleRoutes({ google, store, allowLoopbackHttpCookies, no
   const redirectUri = config.publicOrigin + googleCallbackPath;
   const secure = secureCookie(config.publicOrigin, allowLoopbackHttpCookies);
   const pending = new GoogleState();
+  const starts = new AttemptLimit(20, googleStateSeconds * 1000, 2_000);
 
   async function start({ request, response, query }: AuthRouteContext): Promise<void> {
     response.setHeader('Referrer-Policy', 'no-referrer');
+    const time = now();
+    const retryAfter = starts.take(clientAddressKey(request, trustProxy), time);
+    if (retryAfter !== undefined) {
+      response.setHeader('Retry-After', retryAfter);
+      throw new ApiError(429, 'too_many_attempts', 'Too many Google sign-in attempts. Try again later.');
+    }
     const returnTo = returnPath(query.get('returnTo'), config.publicOrigin);
     const existing = readCookie(request, browserCookie);
     const browser = isSecret(existing) ? existing : newSecret();
-    const { state, verifier, nonce } = pending.issue(browser, returnTo, now());
+    const signIn = pending.issue(browser, returnTo, time);
+    if (!signIn) {
+      response.setHeader('Retry-After', 10);
+      throw new ApiError(503, 'google_sign_in_busy', 'Google sign-in is busy. Try again shortly.');
+    }
+    const { state, verifier, nonce } = signIn;
     setCookie(response, browserCookie, browser, googleStateSeconds, secure);
     const url = new URL(config.authorizationEndpoint);
     const parameters = {

@@ -14,13 +14,10 @@ interface PendingSignIn {
 export class GoogleState {
   private readonly pending = new Map<string, PendingSignIn>();
 
-  issue(browser: string, returnTo: string, now: number): { state: string; verifier: string; nonce: string } {
+  issue(browser: string, returnTo: string, now: number): { state: string; verifier: string; nonce: string } | undefined {
     this.prune(now);
     if (this.pending.size === maxStates) {
-      const oldest = this.pending.keys().next();
-      if (!oldest.done) {
-        this.pending.delete(oldest.value);
-      }
+      return undefined;
     }
     const state = newSecret();
     const verifier = newSecret();

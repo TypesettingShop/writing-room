@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+export const sessionActivityIntervalMs = 60 * 60 * 1000;
+
 export interface AuthUser {
   id: string;
   email: string | null;
@@ -64,7 +66,8 @@ export class MemoryAuthStore implements AuthStore {
   }
 
   async signInWithGoogle(identity: GoogleIdentity, session: SessionRecord): Promise<AuthUser> {
-    const user = this.googleUsers.get(identity.subject) ?? { id: randomUUID(), email: identity.email };
+    const existing = this.googleUsers.get(identity.subject);
+    const user = { id: existing?.id ?? randomUUID(), email: identity.email ?? existing?.email ?? null };
     this.insertSession(user.id, session);
     this.users.set(user.id, user);
     this.googleUsers.set(identity.subject, user);
@@ -91,7 +94,7 @@ export class MemoryAuthStore implements AuthStore {
     }
     const user = this.users.get(session.userId);
     if (user) {
-      if (session.lastSeenAt < now) {
+      if (now.getTime() - session.lastSeenAt.getTime() >= sessionActivityIntervalMs) {
         session.lastSeenAt = now;
       }
       return { user: { id: user.id, email: user.email }, tokenHash: session.tokenHash };

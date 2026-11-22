@@ -1,13 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { isIP } from 'node:net';
 import { readJson } from '../http/body.js';
 import { ApiError, sendJson } from '../http/errors.js';
 import type { Route } from '../http/router.js';
 import { AttemptLimit } from './attemptLimit.js';
 import type { AuthStore } from './authStore.js';
+import { clientAddressKey } from './clientAddress.js';
 import type { GoogleConfig } from './googleConfig.js';
 import { createGoogleRoutes } from './googleRoutes.js';
-import { hashPassword, verifyPassword } from './password.js';
+import { hashPassword, PasswordWorkQueueFull, verifyPassword } from './password.js';
 import { endSession, newSession, secureCookie, sessionUser, writeSessionCookie } from './session.js';
 
 export interface AuthRouteContext {
@@ -24,23 +24,24 @@ export interface AuthOptions {
   google?: GoogleConfig;
 }
 
-function clientIp(request: IncomingMessage, trustProxy: boolean): string {
-  const forwarded = request.headers['x-forwarded-for'];
-  if (trustProxy && typeof forwarded === 'string') {
-    // The trusted immediate proxy appends the address it actually saw.
-    const nearest = forwarded.slice(forwarded.lastIndexOf(',') + 1).trim();
-    // Some proxies append the port too ("192.0.2.1:5678", "[2001:db8::1]:5678").
-    const address = /^\[([^\]]+)\]:\d+$/.exec(nearest)?.[1] ?? /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(nearest)?.[1] ?? nearest;
-    if (isIP(address)) {
-      return address;
+const attemptWindowMs = 15 * 60 * 1000;
+
+async function passwordWork<T>(response: ServerResponse, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof PasswordWorkQueueFull) {
+      response.setHeader('Retry-After', 1);
+      throw new ApiError(503, 'password_work_busy', 'Sign-in is busy. Try again shortly.');
     }
+    throw error;
   }
-  return request.socket.remoteAddress ?? '';
 }
 
 export function createAuthRoutes(options: AuthOptions): readonly Route<AuthRouteContext>[] {
   const { store, trustProxy, allowLoopbackHttpCookies, now = Date.now } = options;
-  const limits = new AttemptLimit();
+  const accountAttempts = new AttemptLimit(10, attemptWindowMs, 8_000);
+  const addressAttempts = new AttemptLimit(60, attemptWindowMs, 2_000);
 
   async function credentials({ request, response }: AuthRouteContext) {
     const body = await readJson(request);
@@ -49,7 +50,8 @@ export function createAuthRoutes(options: AuthOptions): readonly Route<AuthRoute
     if (email.length > 508 || [...email].length > 254 || /[\0\p{Surrogate}]/u.test(email) || at <= 0 || at !== email.lastIndexOf('@') || at === email.length - 1) {
       throw new ApiError(400, 'invalid_email', 'Enter a valid email address.');
     }
-    const retryAfter = limits.take(clientIp(request, trustProxy), email, now());
+    const time = now();
+    const retryAfter = addressAttempts.take(clientAddressKey(request, trustProxy), time) ?? accountAttempts.take(email, time);
     if (retryAfter !== undefined) {
       response.setHeader('Retry-After', retryAfter);
       throw new ApiError(429, 'too_many_attempts', 'Too many attempts. Try again later.');
@@ -72,12 +74,13 @@ export function createAuthRoutes(options: AuthOptions): readonly Route<AuthRoute
     if (!validPassword(password)) {
       throw new ApiError(400, 'invalid_password', 'Password must be 8 to 256 characters.');
     }
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await passwordWork(response, () => hashPassword(password));
     const { token, session } = newSession(now());
     const user = await store.register(email, passwordHash, session);
     if (!user) {
       throw new ApiError(409, 'email_exists', 'An account with this email already exists.');
     }
+    accountAttempts.reset(email);
     writeSessionCookie(response, token, secure);
     sendJson(response, 201, { user });
   }
@@ -87,12 +90,13 @@ export function createAuthRoutes(options: AuthOptions): readonly Route<AuthRoute
     const { email, password, secure } = await credentials(context);
     const valid = validPassword(password);
     const user = valid ? await store.findPasswordUser(email) : undefined;
-    const matches = await verifyPassword(valid ? password : '', user?.passwordHash);
+    const matches = await passwordWork(response, () => verifyPassword(valid ? password : '', user?.passwordHash));
     if (!user || !matches) {
       throw new ApiError(401, 'invalid_credentials', 'Email or password is incorrect.');
     }
     const { token, session } = newSession(now());
     await store.createSession(user.id, session);
+    accountAttempts.reset(email);
     writeSessionCookie(response, token, secure);
     sendJson(response, 200, { user: { id: user.id, email: user.email } });
   }

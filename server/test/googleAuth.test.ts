@@ -197,11 +197,17 @@ function googleFixture(store: 'memory' | 'postgres', fixture: () => { auth: Auth
     expect(await (await user(firstCookie(existing, 'wr_session'))).json()).toEqual(passwordAccount);
 
     const repeat = await begin();
-    const signedIn = await finish(await provider.authorize(repeat.url, { email_verified: true }), repeat.browser);
+    const updatedEmail = 'updated-google@example.test';
+    const signedIn = await finish(await provider.authorize(repeat.url, { email_verified: true, email: updatedEmail }), repeat.browser);
     expect(signedIn.headers.get('location')).toBe('/');
     const renewed = firstCookie(signedIn, 'wr_session');
     expect(renewed).not.toBe(cookie);
-    expect(await (await user(renewed)).json()).toEqual(googleAccount);
+    const updated = await (await user(renewed)).json();
+    expect(updated).toEqual({ user: { ...(googleAccount as { user: { id: string } }).user, email: updatedEmail } });
+    expect(await (await user(firstCookie(existing, 'wr_session'))).json()).toEqual(passwordAccount);
+    const withoutEmail = await begin();
+    const noClaim = await finish(await provider.authorize(withoutEmail.url, { email: undefined }), withoutEmail.browser);
+    expect(await (await user(firstCookie(noClaim, 'wr_session'))).json()).toEqual(updated);
   });
 
   return { open, moveClock: (value: number) => { now = value; } };
@@ -217,6 +223,20 @@ describe('Google authentication with memory storage and a fake provider', () => 
     expect(await (await fetch('/api/auth/providers')).json()).toEqual([]);
     expect((await fetch(googleStartPath)).status).toBe(404);
     expect((await fetch(googleCallbackPath)).status).toBe(404);
+  });
+
+  it('limits starts by address and allows a pending callback to complete after the limit', async () => {
+    const { begin, finish, provider, fetch } = await open();
+    const { url, browser } = await begin();
+    for (let attempt = 0; attempt < 19; attempt++) {
+      expect((await fetch(googleStartPath, { redirect: 'manual' })).status).toBe(302);
+    }
+    const limited = await fetch(googleStartPath, { redirect: 'manual' });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toBe('600');
+    expect((await finish(await provider.authorize(url), browser)).status).toBe(302);
+    moveClock(start + 600_000);
+    expect((await fetch(googleStartPath, { redirect: 'manual' })).status).toBe(302);
   });
 
   it('requires the state in the starting browser, rejects replay and expires it at ten minutes', async () => {
@@ -342,20 +362,34 @@ describe.skipIf(!databaseUrl)('Google authentication with PostgreSQL and a fake 
     `, [subject]);
     expect(rows).toEqual([{ email: 'concurrent@example.test', email_normalized: null, password_hash: null }]);
     expect((await pool.query('SELECT id FROM users WHERE email = $1', ['concurrent@example.test'])).rowCount).toBe(1);
+
+    const { url, browser } = await begin();
+    const newEmail = 'current@example.test';
+    const response = await finish(await provider.authorize(url, { sub: subject, email: newEmail }), browser);
+    expect(response.status).toBe(302);
+    const { rows: refreshed } = await pool.query(`
+      SELECT users.email, users.email_normalized, oauth_identities.email AS provider_email
+      FROM users JOIN oauth_identities ON oauth_identities.user_id = users.id
+      WHERE provider = 'google' AND subject = $1
+    `, [subject]);
+    expect(refreshed).toEqual([{ email: newEmail, email_normalized: null, provider_email: newEmail }]);
   });
 });
 
-it('bounds OAuth state and evicts the oldest entry when it is full', () => {
+it('rejects new OAuth state at capacity and preserves issued state', () => {
   const pending = new GoogleState();
   const browser = newSecret();
-  const first = pending.issue(browser, '/', start);
+  const first = pending.issue(browser, '/first', start)!;
   for (let index = 0; index < 9_999; index++) {
     pending.issue(browser, '/', start);
   }
-  const last = pending.issue(browser, '/last', start);
-  expect(pending.consume(first.state, browser, start)).toBeUndefined();
+  expect(pending.issue(browser, '/overflow', start)).toBeUndefined();
+  expect(pending.consume(first.state, browser, start)?.returnTo).toBe('/first');
+  const last = pending.issue(browser, '/last', start)!;
+  expect(pending.issue(browser, '/overflow', start)).toBeUndefined();
   expect(pending.consume(last.state, browser, start)?.returnTo).toBe('/last');
   expect(pending.consume(last.state, browser, start)).toBeUndefined();
+  expect(pending.issue(browser, '/', start + 600_000)).toBeDefined();
 });
 
 it('enables Google only with credentials and one public origin and pins the real Google endpoints', () => {
