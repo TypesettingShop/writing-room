@@ -4,7 +4,7 @@ import type { EditorProps, EditorView } from 'prosemirror-view';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
-
+import { readTabStorage, writeTabStorage } from '../../../services/storage/browser/storageService.js';
 import { normalizeMarkdownLink } from './markdownEditorInline.js';
 
 const htmlNamespace = 'http://www.w3.org/1999/xhtml';
@@ -53,26 +53,21 @@ const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n');
 
 function rememberCopy(view: EditorView, markdown: string, content: Fragment): void {
   lastCopy = { markdown: lineBreaks(markdown), text: visibleText(content) };
-  try {
-    const storage = view.dom.ownerDocument.defaultView?.sessionStorage;
-    if (!storage) return;
-    if (lastCopy.markdown.length + lastCopy.text.length <= lastCopyLimit) {
-      const serialized = JSON.stringify(lastCopy);
-      if (new TextEncoder().encode(serialized).byteLength <= lastCopyLimit) {
-        storage.setItem(lastCopyKey, serialized);
-        return;
-      }
+  const browserWindow = view.dom.ownerDocument.defaultView;
+  if (lastCopy.markdown.length + lastCopy.text.length <= lastCopyLimit) {
+    const serialized = JSON.stringify(lastCopy);
+    if (new TextEncoder().encode(serialized).byteLength <= lastCopyLimit) {
+      writeTabStorage(browserWindow, lastCopyKey, serialized);
+      return;
     }
-    storage.removeItem(lastCopyKey);
-  } catch {
-    // Without session storage the copy is remembered until a reload.
   }
+  writeTabStorage(browserWindow, lastCopyKey, undefined);
 }
 
 function copiedPlainText(view: EditorView, text: string): string {
   if (!lastCopy) {
     try {
-      const stored: unknown = JSON.parse(view.dom.ownerDocument.defaultView?.sessionStorage.getItem(lastCopyKey) ?? 'null');
+      const stored: unknown = JSON.parse(readTabStorage(view.dom.ownerDocument.defaultView, lastCopyKey) ?? 'null');
       if (stored && typeof stored === 'object' && 'markdown' in stored && 'text' in stored
         && typeof stored.markdown === 'string' && typeof stored.text === 'string') {
         lastCopy = { markdown: stored.markdown, text: stored.text };

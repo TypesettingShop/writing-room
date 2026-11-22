@@ -8,6 +8,7 @@ import { EditorView } from 'prosemirror-view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../../editor/common/markdown/schema.js';
+import { readTabStorage, writeTabStorage } from '../../../../services/storage/browser/storageService.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from '../../browser/markdownEditorClipboard.js';
 import { markdownTablePlugins } from '../../browser/markdownEditorTables.js';
 
@@ -90,7 +91,7 @@ describe('Markdown clipboard', () => {
     vi.resetModules();
     const reloaded = await import('../../browser/markdownEditorClipboard.js');
     expect(lines(reloaded.markdownClipboard.clipboardTextParser!(markdown, context, true, view))).toEqual(visible);
-    sessionStorage.clear();
+    writeTabStorage(window, 'writing-room:markdownEditor:lastCopy', undefined);
     vi.resetModules();
     const cleared = await import('../../browser/markdownEditorClipboard.js');
     expect(lines(cleared.markdownClipboard.clipboardTextParser!(markdown, context, true, view))[0]).toContain('{.underline}');
@@ -100,12 +101,12 @@ describe('Markdown clipboard', () => {
     const key = 'writing-room:markdownEditor:lastCopy';
     const small = parseMarkdown('**small**');
     markdownClipboard.clipboardTextSerializer!(small.slice(0, small.content.size), view);
-    expect(sessionStorage.getItem(key)).not.toBeNull();
+    expect(readTabStorage(window, key)).toBeDefined();
 
     const visible = '글'.repeat(180_000);
     const large = parseMarkdown(`**${visible}**`);
     const markdown = markdownClipboard.clipboardTextSerializer!(large.slice(0, large.content.size), view);
-    expect(sessionStorage.getItem(key) === null).toBe(true);
+    expect(readTabStorage(window, key) === undefined).toBe(true);
     const plain = markdownClipboard.clipboardTextParser!(markdown, parseMarkdown('x').resolve(1), true, view);
     expect(plain.content.firstChild!.textContent === visible).toBe(true);
   });

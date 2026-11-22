@@ -223,6 +223,26 @@ class LocalStorageDatabase implements IStorageDatabase {
   }
 }
 
+/** Read a value that belongs to the current browser tab and can survive a reload. */
+export function readTabStorage(browserWindow: Window | null, key: string): string | undefined {
+  try {
+    return browserWindow?.sessionStorage.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Write or remove a tab-session value without requiring the browser to allow storage. */
+export function writeTabStorage(browserWindow: Window | null, key: string, value: string | undefined): void {
+  try {
+    const storage = browserWindow?.sessionStorage;
+    if (value === undefined) storage?.removeItem(key);
+    else storage?.setItem(key, value);
+  } catch {
+    // Callers can still keep the value in memory.
+  }
+}
+
 export class BrowserStorageService extends AbstractStorageService {
   constructor(browserWindow: Window = window, schemaVersion = STORAGE_SCHEMA_VERSION) {
     const database = new LocalStorageDatabase(() => browserWindow.localStorage, schemaVersion);
