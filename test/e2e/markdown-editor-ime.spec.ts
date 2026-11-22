@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js';
+import { box, expect, test } from './fixtures.js';
 import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
@@ -62,6 +62,77 @@ test('restores the last Hangul syllable deleted by an IME reset before a click',
   await expect(first).toHaveText('안녕하세요');
   await expect(second).toHaveText('Click here');
 });
+
+for (const editContext of [true, false]) {
+  test(`keeps native composition when a source edit deletes its gutter target (${editContext ? 'EditContext' : 'textarea'})`,
+    async ({ appPage: page }) => {
+      test.skip(process.env.E2E_TARGET === 'preview', 'The test needs the dev module to apply a synchronous Monaco model edit.');
+      if (!editContext) {
+        await page.addInitScript(() => Object.defineProperty(window, 'EditContext', { value: undefined }));
+        await page.reload();
+      }
+      const name = 'hangul-deleted-gutter.md';
+      const original = 'First\n\n---\n\nLast';
+      const external = 'First\n\nLast';
+      const recovered = 'First\n\n요\n\nLast';
+      await waitForStorage(page);
+      await writeWorkspaceFile(page, name, original);
+      await treeItem(page, name).dblclick();
+      const editor = groups(page).first().getByRole('textbox', { name: 'Markdown editor' });
+      const rule = editor.locator('hr');
+      await expect(rule).toBeVisible({ timeout: 20_000 });
+      await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+      const source = groups(page).nth(1);
+      await source.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+      const input = source.locator(editContext ? '.native-edit-context' : 'textarea.inputarea');
+      await expect(input).toBeFocused({ timeout: 20_000 });
+
+      const paper = await box(editor);
+      const atom = await box(rule);
+      await page.mouse.click(paper.x + 12, atom.y + atom.height / 2);
+      const paragraphs = editor.locator(':scope > p');
+      await expect(paragraphs).toHaveText(['First', '', 'Last']);
+
+      // Apply the external edit within Chromium's native input event, before
+      // ProseMirror can record the DOM mutation against the old source version.
+      await editor.evaluate(async (element, file) => {
+        const modulePath = '/src/editor/browser/monaco.ts';
+        const { loadMonaco } = await import(modulePath) as typeof import('../../src/editor/browser/monaco.js');
+        const monaco = await loadMonaco();
+        const model = monaco.editor.getModels().find(candidate => candidate.uri.path.endsWith('/' + file))!;
+        element.addEventListener('input', event => {
+          if (!event.isTrusted || (event as InputEvent).inputType !== 'insertCompositionText') return;
+          model.applyEdits([{ range: new monaco.Range(3, 1, 5, 1), text: '' }]);
+        }, { capture: true, once: true });
+      }, name);
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
+      await expect(rule).toHaveCount(0);
+      await expect(paragraphs).toHaveText(['First', '요', 'Last']);
+      await expect.poll(() => paragraphs.nth(1).evaluate(paragraph => {
+        const selection = paragraph.ownerDocument.getSelection();
+        return selection?.focusOffset === 1 && paragraph.contains(selection.focusNode);
+      })).toBe(true);
+      await page.keyboard.press('ControlOrMeta+s');
+      await expect.poll(() => readWorkspaceText(page, name)).toBe(recovered);
+
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(paragraphs).toHaveText(['First', 'Last']);
+      await page.keyboard.press('ControlOrMeta+s');
+      await expect.poll(() => readWorkspaceText(page, name)).toBe(external);
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(rule).toBeVisible();
+      await page.keyboard.press('ControlOrMeta+s');
+      await expect.poll(() => readWorkspaceText(page, name)).toBe(original);
+      await page.keyboard.press('ControlOrMeta+Shift+z');
+      await expect(paragraphs).toHaveText(['First', 'Last']);
+      await page.keyboard.press('ControlOrMeta+Shift+z');
+      await expect(paragraphs).toHaveText(['First', '요', 'Last']);
+      await page.keyboard.press('ControlOrMeta+s');
+      await expect.poll(() => readWorkspaceText(page, name)).toBe(recovered);
+    },
+  );
+}
 
 for (const action of [
   'click', 'Tab', 'toolbar', 'window blur', 'save', 'mode switch', 'link', 'image', 'context toolbox', 'context menu key',
