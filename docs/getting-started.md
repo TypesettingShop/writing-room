@@ -84,6 +84,14 @@ WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5
 
 **Go to Symbol in Workspace**는 확장이 제공한 워크스페이스 기호를 검색한다. 키는 **Ctrl+T**(macOS에서는 **Cmd+T**)이다. 검색 화면은 입력이 `#`로 시작한 채 열리고, `#` 뒤에 기호 이름을 입력한다. 커맨드 팔레트에 `#`를 입력해서는 열리지 않는다. 브라우저 탭이 이 키를 가져가면 팔레트에서 **Go to Symbol in Workspace...**를 실행한다. 팔레트는 `>` 없이 커맨드만 보여 주는 화면으로 따로 열린다. 이 화면은 기호를 제공하는 확장이 활성화된 뒤에 결과를 낸다. 자세한 동작은 [언어 기능](extension-api-language-features.md#워크스페이스-기호-go-to-symbol-in-workspace)에 있다.
 
+## 작품 열기와 닫기
+
+- **Work → New Work...**에서 작품 제목을 입력한다. 열린 글의 저장 확인을 마치면 작품을 만들고 같은 브라우저 탭에서 연다. **Cancel**을 고르면 열린 글과 서버의 작품 목록이 그대로 남는다.
+- **Work → Open Work...**에서 작품을 고른다. Welcome의 **Works**에서도 최근에 수정한 작품 20개를 열 수 있다. **More...**는 전체 목록을 연다. 현재 작품에는 **(current)**가 붙는다.
+- **Work → Close Work**는 열린 글의 저장 여부를 확인한 뒤 Welcome의 **Works**에 초점을 둔다. 작품을 열기 전과 닫기 전의 확인에서 같은 글을 여러 편집기로 열고 있었다면 한 번만 묻는다.
+- 열린 작품은 탭 제목과 주소의 `?work=<uuid>`로 확인할 수 있다. 열린 문서와 레이아웃은 작품마다 따로 저장된다. Explorer의 연습 폴더와 사용자 설정은 같은 브라우저 프로필의 창이 공유한다.
+- Works에 로그인 안내나 서버 오류가 보이면 [API 서버 실행](#api-서버-실행)을 확인한다. 명시적인 브라우저 메모리 모드에서는 새로고침하면 임시 작품이 사라지므로 Works를 만들거나 열 때 서버 연결을 안내한다.
+
 ## 파일 다루기
 
 워크스페이스는 브라우저 저장소(IndexedDB)에 있는 폴더 하나(`vscode-vfs://writing-room/workspace`)다. 처음에는 비어 있다. **File → New File...**로 파일을 만들고 Explorer에서 폴더와 파일을 만들고 이름을 바꾸고 지운다. 파일을 올리고 내려받을 수도 있다. **Ctrl+S**로 저장하고 **File → Save As...**로 다른 이름으로 저장한다. 텍스트가 있는 제목 없는 탭과 고친 파일의 탭은 닫기 전에 **Save**, **Don't Save**, **Cancel**을 묻는다. 폴더 열기, 다중 루트, 로컬 디스크 연결은 없다. 같은 사이트 주소의 같은 브라우저 프로필에서만 파일이 보이며 브라우저가 사이트 데이터를 지우면 파일도 사라진다. 자세한 동작은 [파일 편집과 Explorer](files-and-explorer.md)에 있다.
@@ -265,4 +273,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk, wr-88fi

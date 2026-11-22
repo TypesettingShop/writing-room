@@ -54,7 +54,7 @@ function isCurrentInstallation(stored: string | undefined, installation: Install
 }
 
 function nextState(
-  id: string, name: string, json: string | undefined, stored: string | undefined, otherStates: Iterable<string>,
+  id: string, name: string, json: string | undefined, stored: string | undefined, otherStateSize: () => number,
 ): string | undefined {
   const state: Record<string, unknown> = Object.assign(Object.create(null), parseState(stored));
   if (json === undefined) {
@@ -70,24 +70,22 @@ function nextState(
   if (next === emptyState) {
     return undefined;
   }
-  let total = size;
-  for (const text of otherStates) {
-    total += measure(text);
-  }
-  if (total > maxAllState && size > (stored === undefined ? 0 : measure(stored))) {
+  if (size > (stored === undefined ? 0 : measure(stored)) && size + otherStateSize() > maxAllState) {
     throw new Error('Extensions exceed the 2 MiB total state limit.');
   }
   return next;
 }
 
-function* otherPersistedStates(snapshot: ReadonlyMap<string, string>, address: string): IterableIterator<string> {
+function sizeOfOtherPersistedStates(snapshot: ReadonlyMap<string, string>, address: string): number {
   const profilePrefix = storageKey(StorageScope.PROFILE, prefix);
   const workspacePrefix = storageKey(StorageScope.WORKSPACE, prefix);
+  let size = 0;
   for (const [other, text] of snapshot) {
     if (other !== address && (other.startsWith(profilePrefix) || other.startsWith(workspacePrefix))) {
-      yield text;
+      size += measure(text);
     }
   }
+  return size;
 }
 
 export const IExtensionStorage = createDecorator<ExtensionStorage>('extensionStorage');
@@ -141,7 +139,7 @@ export class ExtensionStorage extends Disposable {
           throw new Error(`Extension '${id}' is no longer installed.`);
         }
         const stored = this.storage.get(key, storageScope);
-        const next = nextState(id, name, json, stored, this.otherCachedStates(storageScope, key));
+        const next = nextState(id, name, json, stored, () => this.sizeOfOtherCachedStates(storageScope, key));
         if (next === undefined) {
           this.storage.remove(key, storageScope);
         } else {
@@ -159,22 +157,25 @@ export class ExtensionStorage extends Disposable {
         if (installation && !isCurrentInstallation(snapshot.get(installedAddress), installation)) {
           throw new Error(`Extension '${id}' is no longer installed.`);
         }
-        return nextState(id, name, json, stored, otherPersistedStates(snapshot, address));
+        return nextState(id, name, json, stored, () =>
+          sizeOfOtherPersistedStates(snapshot, address) + this.storage.getPersistedWorkspaceValueSizeOutsideCurrent(prefix));
       }, storageScope, StorageTarget.USER);
     }, () => this.storage.usesMemory);
   }
 
-  private *otherCachedStates(scope: StorageScope, key: string): IterableIterator<string> {
+  private sizeOfOtherCachedStates(scope: StorageScope, key: string): number {
+    let size = 0;
     for (const otherScope of Object.values(scopeFor)) {
       for (const otherKey of this.storage.keys(otherScope)) {
         if (otherKey.startsWith(prefix) && (otherKey !== key || otherScope !== scope)) {
           const text = this.storage.get(otherKey, otherScope);
           if (text !== undefined) {
-            yield text;
+            size += measure(text);
           }
         }
       }
     }
+    return size;
   }
 
   getSecret(id: string, name: string): string | undefined {
