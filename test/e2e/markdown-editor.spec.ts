@@ -38,6 +38,37 @@ async function openReadOnlyMarkdown(page: Page, fixture = 'Open Read-only Markdo
   return richEditor(groups(page).first());
 }
 
+test('draws a typed section divider in both themes and keeps its Markdown', async ({ appPage: page }) => {
+  const name = 'divider.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  await expect(editor).toBeVisible({ timeout: 20_000 });
+  await editor.focus();
+  await page.keyboard.type('---');
+  const divider = editor.locator('hr');
+  await expect(divider).toHaveCSS('border-top-style', 'dotted');
+  await divider.click();
+  await expect(divider).toHaveClass(/ProseMirror-selectednode/);
+  await expect(divider).toHaveCSS('outline-style', 'solid');
+
+  const color = () => divider.evaluate(element => ({
+    border: getComputedStyle(element).borderTopColor,
+    background: getComputedStyle(element.parentElement!).backgroundColor,
+  }));
+  const darkOrLight = await color();
+  expect(darkOrLight.border).not.toBe(darkOrLight.background);
+  const theme = await kindClass(page);
+  await chooseTheme(page, theme === 'vs' ? 'Writing Room Dark' : 'Writing Room Light');
+  await expect.poll(() => kindClass(page)).toBe(theme === 'vs' ? 'vs-dark' : 'vs');
+  const other = await color();
+  expect(other.border).not.toBe(other.background);
+  expect(other.border).not.toBe(darkOrLight.border);
+
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('---');
+});
+
 test('opens Markdown from Explorer and carries its draft and saved text through reloads', async ({ appPage: page }) => {
   const name = 'draft.markdown';
   const group = await openMarkdown(page, name, 'First\n=====\n\nHello\n');

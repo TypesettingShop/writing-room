@@ -140,6 +140,13 @@
   margin-top: 0;
 }
 
+.markdown-editor-surface .ProseMirror hr {
+  height: 0;
+  margin-block: 1em;
+  border: 0;
+  border-top: 1px dotted color-mix(in srgb, var(--vscode-descriptionForeground) 55%, transparent);
+}
+
 .markdown-editor-surface .ProseMirror img {
   max-width: 100%;
 }
