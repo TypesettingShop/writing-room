@@ -209,6 +209,10 @@ it('preserves document content through generated Markdown saves', () => {
     check('canonical', doc, normalized);
     const textEdit = editFirstText(doc);
     if (textEdit) check('text edit', textEdit, serializeMarkdown(textEdit));
+    // A new block changes the block count, so the edited block keeps its range by attrs alone.
+    const added = textEdit && textEdit.copy(textEdit.content.addToEnd(
+      textEdit.type.schema.nodes.paragraph.create(null, textEdit.type.schema.text('added'))));
+    if (added) check('text edit and new block', added, serializeMarkdown(added));
     const classEdit = editItemClass(doc);
     if (classEdit) check('class edit', classEdit, serializeMarkdown(classEdit));
   }

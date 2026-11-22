@@ -2,6 +2,7 @@ import type { Attrs, Mark, Node } from 'prosemirror-model';
 import { defaultMarkdownSerializer, MarkdownSerializer } from 'prosemirror-markdown';
 import type { MarkdownSerializerState } from 'prosemirror-markdown';
 import { getOriginalMarkdown } from './parser.js';
+import type { IParsedMarkdown } from './parser.js';
 import { isMarkdownClass } from './plugins/attrs.js';
 
 const defaultNodes = defaultMarkdownSerializer.nodes;
@@ -537,13 +538,18 @@ function isClosedBlock(node: Node, block: string): boolean {
     .test(lastLine.at(-1)!);
 }
 
-export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean } = {}): string {
-  const original = options.preserveSource === false ? undefined : getOriginalMarkdown(doc);
-  if (!original) return markdownSerializer.serialize(doc);
-  if (doc.eq(original.parsed.doc)) return original.source;
+interface SourcePieces {
+  readonly pieces: ReadonlyMap<Node, SourcePiece>;
+  readonly piecesByAttrs: ReadonlyMap<Attrs, SourcePiece | undefined>;
+  readonly starts: readonly (SourcePiece | undefined)[];
+}
 
-  const { source, parsed } = original;
-  const eol = /\r\n|\r|\n/.exec(source)?.[0] ?? '\n';
+// A parse never changes, so every save of the same file shares its block ranges.
+const sourcePiecesByParse = new WeakMap<IParsedMarkdown, SourcePieces>();
+
+function sourcePiecesOf(source: string, parsed: IParsedMarkdown): SourcePieces {
+  const cached = sourcePiecesByParse.get(parsed);
+  if (cached) return cached;
   const ranges = new Map(parsed.blocks.map(block => [block.from, block]));
   const pieces = new Map<Node, SourcePiece>();
   const piecesByAttrs = new Map<Attrs, SourcePiece | undefined>();
@@ -561,17 +567,34 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     piecesByAttrs.set(node.attrs, piecesByAttrs.has(node.attrs) ? undefined : piece);
   });
 
+  const result = { pieces, piecesByAttrs, starts };
+  sourcePiecesByParse.set(parsed, result);
+  return result;
+}
+
+export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean } = {}): string {
+  const original = options.preserveSource === false ? undefined : getOriginalMarkdown(doc);
+  if (!original) return markdownSerializer.serialize(doc);
+  if (doc.eq(original.parsed.doc)) return original.source;
+
+  const { source, parsed } = original;
+  const eol = /\r\n|\r|\n/.exec(source)?.[0] ?? '\n';
+  const { pieces, piecesByAttrs, starts } = sourcePiecesOf(source, parsed);
+
   // Parser-created attrs survive content edits. A split or copy can share them,
   // so an original range may supply separators only if exactly one block claims it.
+  // An unchanged parsed block keeps its own range even when a copy shares it.
   const candidates: (SourcePiece | undefined)[] = [];
-  const owners = new Map<SourcePiece, number | undefined>();
+  // The claiming block's index by original block index, or -1 once two blocks claim it.
+  const owners: (number | undefined)[] = new Array(parsed.doc.childCount);
   // Keep the positional fallback for one-for-one edits that rebuild the attrs.
   let aligned = doc.childCount === parsed.doc.childCount;
   doc.forEach((node, _offset, index) => {
     const piece = pieces.get(node) ?? piecesByAttrs.get(node.attrs);
-    if (!piece) return;
+    // An empty paragraph writes nothing, such as the half Enter leaves at the start of a paragraph.
+    if (!piece || (node.type.name === 'paragraph' && node.childCount === 0)) return;
     candidates[index] = piece;
-    owners.set(piece, owners.has(piece) ? undefined : index);
+    owners[piece.index] = owners[piece.index] === undefined ? index : -1;
     if (piece.index !== index) aligned = false;
   });
 
@@ -596,8 +619,8 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     const keep = Boolean(match && (match.reusable || index === doc.childCount - 1) &&
       !linkMayResolveDifferently && !trailerMayAttach && !differentMarker);
     const candidate = candidates[index];
-    const unique = candidate && owners.get(candidate) === index ? candidate : undefined;
-    const piece = unique ?? (aligned ? starts[index] : undefined);
+    const unique = candidate && owners[candidate.index] === index ? candidate : undefined;
+    const piece = match ?? unique ?? (aligned ? starts[index] : undefined);
     const attrs = differentMarker
       ? { ...node.attrs, [node.type.name === 'bullet_list' ? 'bullet' : 'markup']: writtenList.marker }
       : null;

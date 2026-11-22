@@ -219,6 +219,24 @@ describe('Markdown save normalization', () => {
     expect(parseMarkdown(saved).eq(edited)).toBe(true);
   });
 
+  it('keeps the separators of an unchanged block when a copy shares its identity or attrs', () => {
+    const doc = parseMarkdown('a\n\n\nb\n\n\nc\n\n\nd\n');
+    const b = doc.child(1);
+    for (const copy of [b, b.copy(Fragment.from(b.content.firstChild))]) {
+      const edited = doc.copy(Fragment.fromArray([doc.child(0), b, doc.child(2), doc.child(3), copy]));
+      expect(serializeMarkdown(edited)).toBe('a\n\n\nb\n\n\nc\n\n\nd\n\nb\n');
+    }
+  });
+
+  it('keeps every separator when Enter at the start of a paragraph leaves an empty half', () => {
+    const doc = parseMarkdown('a\n\n\nb\n\n\nc\n');
+    let state = EditorState.create({ doc, selection: TextSelection.create(doc, doc.child(0).nodeSize + 1) });
+    expect(splitBlock(state, transaction => { state = state.apply(transaction); })).toBe(true);
+    expect(state.doc.child(1).attrs).toBe(state.doc.child(2).attrs);
+
+    expect(serializeMarkdown(state.doc)).toBe('a\n\n\nb\n\n\nc\n');
+  });
+
   it('does not reuse positional separators when two edited blocks trade places', () => {
     const firstEdit = editText(parseMarkdown('a\n \n\nb\n\n\nc\n\t\n\nd'), 'b', 'new b');
     const doc = editText(firstEdit, 'c', 'new c');
