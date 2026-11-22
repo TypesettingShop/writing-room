@@ -37,6 +37,8 @@ WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_R
 
 API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 받고, 그 프록시가 `X-Forwarded-For` 맨 뒤에 실제 접속 주소를 추가할 때는 `WRITING_ROOM_TRUST_PROXY=true`로 설정한다. 기본값은 `false`이며, 시도 횟수 제한에 소켓의 접속 주소를 쓴다. 로컬 Vite에서 앱을 열 때는 기본값으로 충분하다.
 
+가입과 로그인 시도는 정규화한 이메일별로 15분에 10회, 접속 주소별로 15분에 60회까지 받는다. 가입이나 로그인이 성공하면 해당 이메일의 시도 횟수가 초기화된다. IPv6 주소는 /64 대역으로 센다. 시도 한도가 차면 API는 429와 `Retry-After`를 보내고, 비밀번호 처리 대기열이 차면 재시도를 요청하는 503을 보낸다.
+
 ### 개발 환경에서 Google 로그인 설정하기
 
 1. Google Cloud Console에서 프로젝트를 고른다. Google Auth Platform의 **Branding**에서 동의 화면을 설정하고 `openid`, `email`, `profile` 범위를 사용한다. 테스트 상태인 외부 앱은 **Audience**에서 로그인에 쓸 계정을 테스트 사용자로 추가한다. [Google OpenID Connect 설정](https://developers.google.com/identity/openid-connect/openid-connect#appsetup)
@@ -44,7 +46,7 @@ API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 �
 3. 받은 값을 API 서버 프로세스의 `WRITING_ROOM_GOOGLE_CLIENT_ID`, `WRITING_ROOM_GOOGLE_CLIENT_SECRET`에 설정한다. 비밀값은 Vite 클라이언트 설정이나 Git에 넣지 않는다. API 서버의 `WRITING_ROOM_PUBLIC_ORIGIN`은 하나의 오리진인 `http://localhost:5173`으로 설정한다. 콜백은 항상 이 오리진의 `/api/auth/oauth/google/callback`으로 돌아온다.
 4. 개발 주소를 고정하려면 `npm run dev -- --host localhost --port 5173 --strictPort`로 Vite를 실행하고 `http://localhost:5173`을 연다. 이메일·비밀번호 계정과 별도로 Google 계정이 만들어진다. 같은 이메일이라도 각 로그인 방식의 작품 목록은 서로 독립적이다.
 
-클라이언트 ID와 비밀값이 둘 다 비어 있으면 Google 로그인이 꺼지고 이메일 로그인은 계속 쓸 수 있다. 자동 테스트는 로컬 테스트 서버를 Google 대신 사용한다. 콘솔에 등록한 클라이언트로 실제 동의 화면과 콜백을 확인하려면 위 주소에서 Google 로그인을 한 번 진행한다.
+클라이언트 ID와 비밀값이 둘 다 비어 있으면 Google 로그인이 꺼지고 이메일 로그인은 계속 쓸 수 있다. Google 로그인 시작은 같은 접속 주소에서 10분에 20회까지 받는다. 서버의 대기 상태가 가득 차면 새 시작을 잠시 거절하고 이미 진행 중인 로그인은 계속 처리한다. 자동 테스트는 로컬 테스트 서버를 Google 대신 사용한다. 콘솔에 등록한 클라이언트로 실제 동의 화면과 콜백을 확인하려면 위 주소에서 Google 로그인을 한 번 진행한다.
 
 ### Postgres에 원고 저장하기
 
@@ -263,4 +265,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk
