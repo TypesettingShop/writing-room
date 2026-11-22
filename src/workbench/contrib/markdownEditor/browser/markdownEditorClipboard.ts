@@ -1,5 +1,7 @@
 import { DOMParser, Fragment, Slice } from 'prosemirror-model';
-import type { Mark, Node as ProseMirrorNode } from 'prosemirror-model';
+import type { Mark, Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model';
+import type { Selection } from 'prosemirror-state';
+import { CellSelection } from 'prosemirror-tables';
 import type { EditorProps, EditorView } from 'prosemirror-view';
 import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
@@ -65,15 +67,44 @@ function rememberCopy(browserWindow: Window | null, markdown: string, content: F
   writeTabStorage(browserWindow, lastCopyKey, undefined);
 }
 
-export async function copyMarkdownFragment(browserWindow: Window, slice: Slice, format: 'markdown' | 'html'): Promise<void> {
+/** An ordered list cut after its first items keeps the numbers its remaining items show. */
+function withListStarts(slice: Slice, $from: ResolvedPos): Slice {
+  const { ordered_list } = markdownSchema.nodes;
+  const edge = (fragment: Fragment, depth: number): Fragment => {
+    const first = fragment.firstChild;
+    if (!first || depth > Math.min(slice.openStart, $from.depth)) return fragment;
+    const source = $from.node(depth);
+    const attrs = first.type === ordered_list && source.type === ordered_list
+      ? { ...first.attrs, order: source.attrs.order + $from.index(depth) } : first.attrs;
+    return fragment.replaceChild(0, first.type.create(attrs, edge(first.content, depth + 1), first.marks));
+  };
+  return new Slice(edge(slice.content, 1), slice.openStart, slice.openEnd);
+}
+
+/** The selection with the blocks around it, which Copy as HTML renders. */
+function enclosedSlice(selection: Selection): Slice {
+  if (selection instanceof CellSelection) {
+    const slice = selection.content();
+    // A cell range smaller than the table keeps its table, as the regular copy's HTML does.
+    return slice.content.firstChild?.type === markdownSchema.nodes.table_row
+      ? new Slice(Fragment.from(selection.$anchorCell.node(-1).copy(slice.content)), 1, 1) : slice;
+  }
+  // A selected list item stays in its list. Text selections already include their parents.
+  const { $from, from, to } = selection;
+  return withListStarts($from.doc.slice(from, to, true), $from);
+}
+
+export async function copyMarkdownFragment(browserWindow: Window, selection: Selection, format: 'markdown' | 'html'): Promise<void> {
   const clipboard = browserWindow.navigator.clipboard;
   if (!clipboard) throw new Error('Clipboard access is unavailable');
+  const slice = format === 'html' ? enclosedSlice(selection) : selection.content();
   const markdown = serializeClipboardMarkdown(slice, format === 'html');
   if (format === 'markdown') {
     await clipboard.writeText(markdown);
     rememberCopy(browserWindow, markdown, slice.content);
   } else {
     const html = clipboardRenderer.render(markdown);
+    const { ClipboardItem } = browserWindow as Window & typeof globalThis;
     await clipboard.write([new ClipboardItem({
       'text/html': new Blob([html], { type: 'text/html' }),
       'text/plain': new Blob([html], { type: 'text/plain' }),

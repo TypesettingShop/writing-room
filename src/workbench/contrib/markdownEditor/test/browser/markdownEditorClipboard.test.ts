@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { AllSelection, EditorState } from 'prosemirror-state';
-import type { Transaction } from 'prosemirror-state';
+import { AllSelection, EditorState, NodeSelection, TextSelection } from 'prosemirror-state';
+import type { Selection, Transaction } from 'prosemirror-state';
 import { DOMParser } from 'prosemirror-model';
 import type { Slice } from 'prosemirror-model';
 import { CellSelection } from 'prosemirror-tables';
@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../../editor/common/markdown/schema.js';
 import { readTabStorage, writeTabStorage } from '../../../../services/storage/browser/storageService.js';
-import { markdownClipboard, pasteFromMarkdownClipboard } from '../../browser/markdownEditorClipboard.js';
+import { copyMarkdownFragment, markdownClipboard, pasteFromMarkdownClipboard } from '../../browser/markdownEditorClipboard.js';
 import { markdownTablePlugins } from '../../browser/markdownEditorTables.js';
 
 describe('Markdown clipboard', () => {
@@ -204,6 +204,28 @@ describe('Markdown context menu plain-text paste', () => {
     const withoutAlt = copied('![](blank.png)');
     expect(await paste({ read: async () => [item({ 'text/plain': withoutAlt.text, 'text/html': withoutAlt.html })] }))
       .toEqual([]);
+  });
+
+  it('copies part of a table or an ordered list as HTML with the table and the item numbers', async () => {
+    const copyHTML = async (selection: Selection) => {
+      let html = '';
+      const write = async ([item]: { data: Record<string, Blob> }[]) => { html = await item.data['text/html'].text(); };
+      const browserWindow = { ClipboardItem: class { constructor(readonly data: Record<string, Blob>) {} }, navigator: { clipboard: { write } } };
+      await copyMarkdownFragment(browserWindow as unknown as Window, selection, 'html');
+      return html;
+    };
+    const table = parseMarkdown('| *a* | b |\n| --- | --- |\n| \\# c | d |');
+    const cells: number[] = [];
+    table.descendants((node, pos) => { if (node.type.spec.tableRole?.endsWith('cell')) cells.push(pos); });
+    const column = await copyHTML(new CellSelection(table.resolve(cells[0]), table.resolve(cells[2])));
+    expect(column).toContain('<th><em>a</em></th>');
+    expect(column).toContain('<td># c</td>');
+    expect(column).not.toContain('<h1>');
+    const list = parseMarkdown('1. one\n2. two\n3. three');
+    let item = -1;
+    list.descendants((node, pos) => { if (node.type.name === 'list_item' && node.textContent === 'two') item = pos; });
+    expect(await copyHTML(TextSelection.create(list, item + 2, item + 4))).toBe('<ol start="2">\n<li>tw</li>\n</ol>\n');
+    expect(await copyHTML(NodeSelection.create(list, item))).toBe('<ol start="2">\n<li>two</li>\n</ol>\n');
   });
 
   it('does not ask for the clipboard text again after the browser refuses the clipboard read', async () => {

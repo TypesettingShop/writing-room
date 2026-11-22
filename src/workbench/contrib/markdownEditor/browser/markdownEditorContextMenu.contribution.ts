@@ -39,7 +39,7 @@ for (const { id, label, format } of markdownCopyCommands) {
       if (!browserWindow || !selection || selection.empty) return;
       const notifications = accessor.get(INotificationService);
       try {
-        await copyMarkdownFragment(browserWindow, selection.content(), format);
+        await copyMarkdownFragment(browserWindow, selection, format);
       } catch {
         notifications.warn(`Could not copy as ${format === 'html' ? 'HTML' : 'Markdown'} using the clipboard.`);
       }
