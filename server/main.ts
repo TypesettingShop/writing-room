@@ -2,14 +2,16 @@ import type { Pool } from 'pg';
 import { InMemoryManuscriptRepository } from '../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import type { ManuscriptRepository } from '../src/platform/manuscript/common/manuscriptStore.js';
 import { createApiServer } from './apiServer.js';
+import { MemoryAuthStore } from './auth/authStore.js';
 import { devAuthenticate, devUserId } from './auth/devAuth.js';
+import { PostgresAuthStore } from './auth/postgresAuthStore.js';
 import { readApiConfig } from './config.js';
 import { migrate } from './store/migrate.js';
 import { createPostgresPool, PostgresManuscriptRepository } from './store/postgresManuscriptRepository.js';
 
 async function main(): Promise<void> {
   const config = readApiConfig(process.env);
-  const authenticate = config.auth === 'dev' ? devAuthenticate : () => undefined;
+  const authenticate = config.auth === 'dev' ? devAuthenticate : undefined;
   let pool: Pool | undefined;
   try {
     let repository: ManuscriptRepository;
@@ -27,7 +29,14 @@ async function main(): Promise<void> {
     } else {
       throw new Error('The postgres store requires WRITING_ROOM_DATABASE_URL.');
     }
-    const server = createApiServer({ ...config, repository, authenticate });
+    const authStore = pool ? new PostgresAuthStore(pool) : new MemoryAuthStore();
+    await authStore.deleteExpiredSessions(new Date());
+    const server = createApiServer({
+      ...config,
+      repository,
+      authenticate,
+      accountAuth: { ...config, store: authStore },
+    });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(config.port, config.host, resolve);

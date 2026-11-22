@@ -29,6 +29,14 @@ WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
 WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
 ```
 
+### 이메일과 비밀번호로 로그인하기
+
+계정으로 원고를 저장할 때는 API 서버에서 `WRITING_ROOM_AUTH`를 설정하지 않고 실행한다. 이메일·비밀번호 가입과 로그인은 같은 오리진의 `/api/auth`에서 처리한다. 테스트나 개발 중에 계정과 원고를 메모리에 둘 때는 `WRITING_ROOM_STORE=memory npm run server`를 실행한다. 재시작한 뒤에도 계정, 세션, 원고를 유지하려면 아래 Postgres 명령에서 `WRITING_ROOM_AUTH=dev`를 빼고 실행한다.
+
+세션은 로그인 때마다 새로 발급되며 30일 뒤에 만료된다. 루프백에 바인딩한 개발 서버에서 루프백 HTTP 오리진으로 열 때는 HTTP에서도 쿠키를 사용할 수 있다. 그 외에는 HTTPS로 연다. 가입 응답은 이미 가입된 이메일을 알려 준다. 이메일 인증과 비밀번호 재설정은 지원 범위에서 제외했다.
+
+API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 받고, 그 프록시가 `X-Forwarded-For` 맨 뒤에 실제 접속 주소를 추가할 때는 `WRITING_ROOM_TRUST_PROXY=true`로 설정한다. 기본값은 `false`이며, 시도 횟수 제한에 소켓의 접속 주소를 쓴다. 로컬 Vite에서 앱을 열 때는 기본값으로 충분하다.
+
 ### Postgres에 원고 저장하기
 
 Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다.
