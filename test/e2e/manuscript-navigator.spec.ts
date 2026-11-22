@@ -1,8 +1,10 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { runCommand } from './configuration.helpers.js';
-import { problemsStatus } from './diagnostics.helpers.js';
+import { openProblemsCommand, problemNames, problemsStatus } from './diagnostics.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { groups } from './files.helpers.js';
+import { savedRecords } from './packages.helpers.js';
+import { installFromGallery, realPin, requireRealExtensions, routeFixtureGallery } from './real-extensions.helpers.js';
 
 async function createWork(request: APIRequestContext, baseURL: string) {
   const headers = { Origin: new URL(baseURL).origin };
@@ -350,4 +352,68 @@ test('exposes ordinary Markdown documents to extensions and keeps labels when sw
   await expect(page.getByRole('button', { name: 'Switch to WYSIWYG' })).toBeVisible();
   await expect(groups(page).first().locator('.view-lines')).toContainText('Draft probe', { timeout: 20_000 });
   await expect(page.getByRole('tab', { name: 'Shared document', exact: true })).toHaveCount(1);
+});
+
+
+test('lints an open manuscript with the signed markdownlint extension', async ({ page, request, baseURL }) => {
+  requireRealExtensions();
+  test.setTimeout(90_000);
+  const pin = await realPin('DavidAnson.vscode-markdownlint');
+  const work = await createWork(request, baseURL!);
+  const added = await request.post(work.nodes, {
+    headers: work.headers, data: { kind: 'document', title: 'Linted scene', parentId: null, expectedRevision: 0 },
+  });
+  expect(added.status()).toBe(201);
+  const { node } = await added.json();
+  const docURL = work.nodes.replace('/nodes', '/documents/') + node.id;
+  const original = '# Scene\n\n##Bad heading\n';
+  expect((await request.put(docURL, {
+    headers: { ...work.headers, 'Content-Type': 'text/markdown' }, data: original,
+  })).ok()).toBe(true);
+
+  await routeFixtureGallery(page);
+  await page.goto(work.url);
+  await row(page, 'Linted scene').dblclick();
+  await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toContainText('##Bad heading', { timeout: 20_000 });
+
+  await tree(page).focus();
+  const confirmation = await installFromGallery(page, 'markdownlint', 'markdownlint', /^Uninstall markdownlint/);
+  expect(confirmation).toContain('SHA-256: ' + pin.vsix.sha256);
+  expect(confirmation).toContain(`Signature: verified (${pin.publicKey})`);
+  expect(await savedRecords(page)).toEqual([expect.objectContaining({
+    identifier: 'davidanson.vscode-markdownlint', version: '0.62.1', source: 'gallery', signature: 'verified',
+    packageSha256: pin.vsix.sha256,
+  })]);
+
+  await runCommand(page, openProblemsCommand, /^View: Focus Problems/);
+  const rule = expect.stringContaining('markdownlint(MD018)');
+  await expect.poll(() => problemNames(page), { timeout: 10_000 }).toContainEqual(rule);
+  const toggleLint = () => runCommand(page, 'markdownlint: Toggle linting', /^markdownlint: Toggle linting on\/off/);
+  await toggleLint();
+  await expect.poll(() => problemNames(page), { timeout: 10_000 }).not.toContainEqual(rule);
+  await toggleLint();
+  await expect.poll(() => problemNames(page), { timeout: 10_000 }).toContainEqual(rule);
+  await page.getByRole('button', { name: 'Close Linted scene', exact: true }).click();
+  await expect.poll(() => problemNames(page), { timeout: 10_000 }).not.toContainEqual(rule);
+  await page.getByRole('button', { name: 'Manuscript', exact: true }).click();
+  await row(page, 'Linted scene').dblclick();
+  await expect.poll(() => problemNames(page), { timeout: 10_000 }).toContainEqual(rule);
+
+  await page.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  const group = groups(page).first();
+  const source = group.locator('.view-lines');
+  await expect(source).toContainText('##Bad heading');
+  await expect(group.locator('.squiggly-warning').first()).toBeVisible();
+  await source.locator('.view-line').filter({ hasText: '##Bad heading' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.insertText(' ');
+  await expect(source).toContainText(/##\sBad\sheading/);
+  await expect.poll(() => problemNames(page), { timeout: 10_000 }).not.toContainEqual(rule);
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(async () => (await request.get(docURL, { headers: work.headers })).text()).toBe(original.replace('##Bad', '## Bad'));
+  await page.getByRole('button', { name: 'Switch to WYSIWYG' }).click();
+  await expect(page.getByRole('heading', { name: 'Bad heading', level: 2 })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Linted scene', exact: true })).toHaveCount(1);
 });

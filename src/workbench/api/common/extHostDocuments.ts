@@ -1,20 +1,29 @@
 import type * as vscode from 'vscode';
 import type { CancellationToken } from '../../../base/common/cancellation.js';
-import { Emitter } from '../../../base/common/event.js';
+import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { Schemas } from '../../../base/common/network.js';
 import { URI } from '../../../base/common/uri.js';
 import type { IModelContentChangedEvent } from '../../../editor/common/model.js';
+import type { HostExtensionDescription } from '../../services/extensions/common/extensionHostProtocol.js';
 import { ExtHostDocumentData, fromModelRange } from './extHostDocumentData.js';
 import { ExtHostDocumentSaveParticipant } from './extHostDocumentSaveParticipant.js';
+import { ExtHostMarkdownlintDocuments, usesMarkdownlintDocumentAliases } from './extHostMarkdownlintDocuments.js';
 import { Disposable as ApiDisposable } from './extHostTypes.js';
 import type { DocumentDelta, MainThreadDocumentsShape, OpenDocumentOptions } from './extHost.protocol.documents.js';
 
 export enum TextDocumentChangeReason { Undo = 1, Redo = 2 }
 export enum TextDocumentSaveReason { Manual = 1, AfterDelay = 2, FocusOut = 3 }
 
+interface MarkdownlintRefresh {
+  readonly opened: Emitter<vscode.TextDocument>;
+  pending: boolean;
+}
+
 export class ExtHostDocuments extends Disposable {
   private readonly extensionIds = new Map<string, string>();
+  private readonly markdownlintRefresh = new Map<string, MarkdownlintRefresh>();
+  private readonly markdownlint = new ExtHostMarkdownlintDocuments();
   private readonly documents = new Map<string, ExtHostDocumentData>();
   private readonly byResource = new Map<string, string>();
   private readonly subscriptions = new Map<string, DisposableStore>();
@@ -26,12 +35,54 @@ export class ExtHostDocuments extends Disposable {
   private readonly saved = this._register(new Emitter<vscode.TextDocument>());
   private readonly saveParticipant = this._register(new ExtHostDocumentSaveParticipant());
 
-  constructor(readonly proxy: MainThreadDocumentsShape, private readonly isLive: (key: string) => boolean) {
+  constructor(
+    readonly proxy: MainThreadDocumentsShape,
+    private readonly isLive: (key: string) => boolean,
+    private readonly visibleDocuments: () => readonly vscode.TextDocument[] = () => [],
+  ) {
     super();
   }
 
-  associateExtension(key: string, id: string): void {
-    this.extensionIds.set(key, id.toLowerCase());
+  associateExtension(extension: HostExtensionDescription): void {
+    this.extensionIds.set(extension.key, extension.id.toLowerCase());
+    this.markdownlintRefresh.get(extension.key)?.opened.dispose();
+    this.markdownlintRefresh.delete(extension.key);
+    if (usesMarkdownlintDocumentAliases(extension)) {
+      this.markdownlintRefresh.set(extension.key, { opened: new Emitter(), pending: false });
+    }
+  }
+
+  documentFor(extension: string, document: vscode.TextDocument): vscode.TextDocument {
+    return this.markdownlintRefresh.has(extension) ? this.markdownlint.document(document) : document;
+  }
+
+  editorFor(extension: string, editor: vscode.TextEditor): vscode.TextEditor {
+    return this.markdownlintRefresh.has(extension) ? this.markdownlint.editor(editor) : editor;
+  }
+
+  documentResource(extension: string, uri: vscode.Uri): vscode.Uri {
+    return this.markdownlintRefresh.has(extension) ? this.markdownlint.resource(uri) : uri;
+  }
+
+  refreshMarkdownlintDocuments(extension: string): void {
+    const refresh = this.markdownlintRefresh.get(extension);
+    if (!refresh || refresh.pending) return;
+
+    // A collection reset tells us markdownlint is rebuilding its diagnostics. Its synchronous
+    // scan covers real TextEditors. Revisit the other open manuscripts after that scan starts.
+    refresh.pending = true;
+    queueMicrotask(() => {
+      if (this.markdownlintRefresh.get(extension) !== refresh) return;
+      refresh.pending = false;
+      if (!this.isLive(extension)) return;
+
+      const visible = new Set(this.visibleDocuments());
+      for (const { document } of this.documents.values()) {
+        if (document.uri.scheme === 'manuscript' && !visible.has(document)) {
+          refresh.opened.fire(document);
+        }
+      }
+    });
   }
 
   canRead(extension: string, document: vscode.TextDocument): boolean {
@@ -47,7 +98,8 @@ export class ExtHostDocuments extends Disposable {
   }
 
   allFor(extension: string): readonly vscode.TextDocument[] {
-    return [...this.documents.values()].map(data => data.document).filter(document => this.canRead(extension, document));
+    return [...this.documents.values()].map(data => data.document)
+      .filter(document => this.canRead(extension, document)).map(document => this.documentFor(extension, document));
   }
 
   get(id: string): vscode.TextDocument | undefined {
@@ -59,23 +111,26 @@ export class ExtHostDocuments extends Disposable {
     return id === undefined ? undefined : this.get(id);
   }
 
-  getId(document: vscode.TextDocument): string | undefined {
-    const id = this.byResource.get(document.uri.toString());
-    return id !== undefined && this.get(id) === document ? id : undefined;
+  getId(extension: string, document: vscode.TextDocument): string | undefined {
+    const uri = this.documentResource(extension, document.uri);
+    const id = this.byResource.get(uri.toString());
+    const original = id === undefined ? undefined : this.get(id);
+    return original && (original === document || this.documentFor(extension, original) === document) ? id : undefined;
   }
 
   async open(extension: string, target?: string | vscode.Uri | OpenDocumentOptions): Promise<vscode.TextDocument> {
-    const resource = typeof target === 'string' ? URI.file(target) : target;
+    const resource = typeof target === 'string' ? URI.file(target)
+      : URI.isUri(target) ? this.documentResource(extension, target as unknown as vscode.Uri) : target;
     const id = await this.proxy.$openDocument(extension, resource as URI | OpenDocumentOptions ?? {});
     const document = this.get(id);
     if (!document) {
       throw new Error('The text document is no longer available.');
     }
-    return document;
+    return this.documentFor(extension, document);
   }
 
   async setLanguage(extension: string, document: vscode.TextDocument, language: string): Promise<vscode.TextDocument> {
-    const id = this.getId(document);
+    const id = this.getId(extension, document);
     if (id === undefined || !this.canRead(extension, document)) {
       throw new Error('The text document is no longer available.');
     }
@@ -92,11 +147,13 @@ export class ExtHostDocuments extends Disposable {
     return new ApiDisposable(() => store.delete(disposable));
   }
 
-  event<T>(extension: string, event: vscode.Event<T>, filter: (value: T) => boolean = () => true): vscode.Event<T> {
+  event<T>(
+    extension: string, event: vscode.Event<T>, filter: (value: T) => boolean = () => true, project?: (value: T) => T,
+  ): vscode.Event<T> {
     return (listener, thisArg, disposables) => {
       const registration = this.own(extension, event(value => {
         if (this.isLive(extension) && filter(value)) {
-          listener.call(thisArg, value);
+          listener.call(thisArg, project ? project(value) : value);
         }
       }));
       disposables?.push(registration);
@@ -106,12 +163,19 @@ export class ExtHostDocuments extends Disposable {
 
   events(extension: string, id: string) {
     const readable = (document: vscode.TextDocument) => this.canRead(extension, document);
+    const view = (document: vscode.TextDocument) => this.documentFor(extension, document);
+    const viewEvent = <T extends { document: vscode.TextDocument }>(event: T): T => {
+      const document = view(event.document);
+      return document === event.document ? event : { ...event, document };
+    };
+    const refresh = this.markdownlintRefresh.get(extension);
+    const opened = refresh ? Event.any(this.opened.event, refresh.opened.event) : this.opened.event;
     return {
-      onDidOpenTextDocument: this.event(extension, this.opened.event, readable),
-      onDidCloseTextDocument: this.event(extension, this.closed.event, readable),
-      onDidChangeTextDocument: this.event(extension, this.changed.event, event => readable(event.document)),
-      onDidSaveTextDocument: this.event(extension, this.saved.event, readable),
-      onWillSaveTextDocument: this.event(extension, this.saveParticipant.event(extension, id), event => readable(event.document)),
+      onDidOpenTextDocument: this.event(extension, opened, readable, view),
+      onDidCloseTextDocument: this.event(extension, this.closed.event, readable, view),
+      onDidChangeTextDocument: this.event(extension, this.changed.event, event => readable(event.document), viewEvent),
+      onDidSaveTextDocument: this.event(extension, this.saved.event, readable, view),
+      onWillSaveTextDocument: this.event(extension, this.saveParticipant.event(extension, id), event => readable(event.document), viewEvent),
     };
   }
 
@@ -143,6 +207,8 @@ export class ExtHostDocuments extends Disposable {
     this.subscriptions.get(extension)?.dispose();
     this.subscriptions.delete(extension);
     this.extensionIds.delete(extension);
+    this.markdownlintRefresh.get(extension)?.opened.dispose();
+    this.markdownlintRefresh.delete(extension);
   }
 
   override dispose(): void {
@@ -153,6 +219,8 @@ export class ExtHostDocuments extends Disposable {
       data.close();
     }
     this.extensionIds.clear();
+    for (const refresh of this.markdownlintRefresh.values()) refresh.opened.dispose();
+    this.markdownlintRefresh.clear();
     this.documents.clear();
     this.byResource.clear();
     super.dispose();

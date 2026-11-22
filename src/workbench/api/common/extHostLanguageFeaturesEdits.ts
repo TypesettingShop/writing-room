@@ -351,7 +351,7 @@ export class ExtHostEdits implements ExtHostEditsShape, LanguageFeatureGroup {
       const version = document.version;
       const only = typeof context?.only === 'string' && context.only ? CodeActionKind.Empty.append(context.only) : undefined;
       const value = await adapter.provider.provideCodeActions(document, range, {
-        diagnostics: contextDiagnostics(this.features.diagnostics(document.uri), range, context?.markers),
+        diagnostics: contextDiagnostics(this.features.diagnostics(uri as unknown as vscode.Uri), range, context?.markers),
         only,
         triggerKind: context?.trigger === CodeActionTriggerKind.Automatic ? CodeActionTriggerKind.Automatic : CodeActionTriggerKind.Invoke,
       }, token as vscode.CancellationToken);
