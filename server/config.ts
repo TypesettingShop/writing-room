@@ -18,6 +18,18 @@ export function readApiPort(env: NodeJS.ProcessEnv): number {
   return port;
 }
 
+/** The address Vite's `/api` proxy reaches the API at, from the same variables the API listens on. */
+export function readApiProxyTarget(env: NodeJS.ProcessEnv): string {
+  const port = readApiPort(env);
+  if (port === 0) {
+    throw new Error('The /api proxy requires a fixed WRITING_ROOM_API_PORT, not 0.');
+  }
+  const host = env.WRITING_ROOM_API_HOST;
+  // A wildcard listener also accepts loopback connections.
+  const target = !host || host === 'localhost' || host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+  return 'http://' + (target.includes(':') ? '[' + target + ']' : target) + ':' + port;
+}
+
 export function readApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   const host = env.WRITING_ROOM_API_HOST === 'localhost' ? '127.0.0.1' : env.WRITING_ROOM_API_HOST ?? '127.0.0.1';
   const port = readApiPort(env);

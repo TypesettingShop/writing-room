@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { defineConfig, normalizePath } from 'vite';
 import type { Connect, Plugin, ViteDevServer } from 'vite';
-import { readApiPort } from './server/config.js';
+import { readApiProxyTarget } from './server/config.js';
 
 const webviewAssets = new Map([
   ['/webview/index.html', 'text/html; charset=utf-8'],
@@ -166,7 +166,7 @@ const require = createRequire(import.meta.url);
 const codiconModule = 'virtual:codicon-names';
 const resolvedCodiconModule = '\0' + codiconModule;
 
-const apiProxy = { '/api': 'http://127.0.0.1:' + readApiPort(process.env) };
+const apiProxy = { '/api': readApiProxyTarget(process.env) };
 
 export default defineConfig({
   appType: 'mpa',
