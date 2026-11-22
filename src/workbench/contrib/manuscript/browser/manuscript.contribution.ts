@@ -8,6 +8,7 @@ import './manuscriptLabels.js';
 import { IManuscriptOpener } from './manuscriptOpener.js';
 import { IManuscriptViewState, type ManuscriptViewState } from './manuscriptViewState.js';
 import { NavigatorView } from './navigatorView.js';
+import { PropertiesView } from './propertiesView.js';
 
 export const MANUSCRIPT_CONTAINER_ID = 'workbench.view.manuscript';
 export const NAVIGATOR_VIEW_ID = 'workbench.view.manuscript.navigator';
@@ -22,6 +23,11 @@ viewsRegistry.registerViews([{
   name: 'Navigator',
   when: workOpen,
   renderBody: (parent, instantiation) => instantiation?.createInstance(NavigatorView, parent),
+}, {
+  id: 'workbench.view.manuscript.properties',
+  name: 'Properties',
+  when: workOpen,
+  renderBody: (parent, instantiation) => instantiation?.createInstance(PropertiesView, parent),
 }], container);
 
 const folder = ContextKeyExpr.or(

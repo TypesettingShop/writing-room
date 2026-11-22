@@ -153,3 +153,42 @@ test('opens a document once and keeps the title and path current in its editor t
   await expect(page.getByRole('tab', { name: 'Next scene', exact: true })).toBeVisible();
   await expect(tab).toHaveAttribute('aria-selected', 'true');
 });
+
+test('edits only the selected node title in Properties and preserves other metadata', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const first = await request.post(work.nodes, {
+    headers: work.headers, data: { kind: 'part', title: 'First part', parentId: null, expectedRevision: 0 },
+  });
+  const { node } = await first.json();
+  expect(first.status()).toBe(201);
+  const changed = await request.patch(work.nodes + '/' + node.id, {
+    headers: work.headers, data: { metadata: { future: { key: 'keep' } }, expectedRevision: 1 },
+  });
+  expect(changed.ok()).toBe(true);
+  const second = await request.post(work.nodes, {
+    headers: work.headers, data: { kind: 'part', title: 'Second part', parentId: null, expectedRevision: 2 },
+  });
+  expect(second.status()).toBe(201);
+
+  await page.goto(work.url);
+  const properties = page.getByRole('region', { name: 'Properties', exact: true });
+  const field = properties.getByRole('textbox', { name: 'Title' });
+  await expect(properties.getByText('Select one item in the Navigator.')).toBeVisible();
+  await row(page, '1부 - First part').click();
+  await field.fill('Discard this');
+  await row(page, '2부 - Second part').click();
+  await expect(field).toHaveValue('Second part');
+  await expect(row(page, '1부 - First part')).toBeVisible();
+
+  await row(page, '1부 - First part').click();
+  await field.fill('<tag>');
+  await field.press('Enter');
+  await expect(row(page, '1부 - <tag>')).toBeVisible();
+  await expect(properties.getByText('1부 - <tag>', { exact: true })).toBeVisible();
+  expect(await properties.locator('tag').count()).toBe(0);
+  const snapshot = await (await request.get(work.nodes.replace('/nodes', '/tree'))).json();
+  expect(snapshot.nodes.find((item: { id: string }) => item.id === node.id).metadata).toEqual({ future: { key: 'keep' } });
+  await row(page, '2부 - Second part').click({ modifiers: ['ControlOrMeta'] });
+  await expect(properties.getByText('2 items selected.')).toBeVisible();
+  await expect(field).toBeHidden();
+});
