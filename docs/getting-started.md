@@ -13,6 +13,41 @@ npm run dev
 
 배포할 파일을 로컬에서 확인하려면 `npm run build`로 `dist/`를 새로 만들고 `npm run preview`로 연다. 개발 서버와 프리뷰의 주소가 다르면 브라우저는 각각의 오리진에 상태를 저장한다. 확장의 Webview는 앱과 다른 오리진에서 열린다. `127.0.0.1`로 연 개발 서버와 프리뷰는 같은 포트의 `localhost`를 Webview 오리진으로 쓰므로 설정이 필요 없다. coder 같은 포워딩 주소로 열 때는 [포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)를 따른다.
 
+## API 서버 실행
+
+원고 기능을 개발할 때는 Vite와 별도 터미널에서 API 서버를 띄운다. 아래 명령은 로컬 개발 인증과 메모리 저장을 켠다. 이 모드의 원고는 API 서버가 종료되면 사라진다.
+
+```sh
+WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
+```
+
+서버 코드 수정을 반영하며 작업할 때는 같은 환경 변수로 `npm run dev:server`를 실행한다. 기본 API 주소는 `127.0.0.1:8787`이고 Vite 개발 서버와 프리뷰가 같은 오리진의 `/api` 요청을 전달한다. API 포트를 바꾸면 두 프로세스에 같은 `WRITING_ROOM_API_PORT`를 지정한다. 앱을 기본 개발 주소인 `http://127.0.0.1:5173` 또는 `http://localhost:5173` 외의 주소에서 열면 API 서버에 실제 앱 오리진을 `WRITING_ROOM_PUBLIC_ORIGIN`으로 지정한다. 개발 인증은 루프백 주소에서만 쓸 수 있다.
+
+기본 Vite 프리뷰(`http://127.0.0.1:4173`)에서 원고를 저장하려면 API 서버에 해당 오리진을 허용한다.
+
+```sh
+WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
+```
+
+### Postgres에 원고 저장하기
+
+Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다.
+
+```sh
+npm run db:up
+WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=postgres WRITING_ROOM_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5432/writing_room' npm run server
+```
+
+예제 계정은 루프백에서만 쓰는 개발용이다. `.env.example`의 값을 셸 환경으로 내보내도 된다. 5432 포트를 이미 사용 중이면 `WRITING_ROOM_POSTGRES_PORT=25432 npm run db:up`처럼 Compose 포트를 바꾸고 DB URL에도 같은 포트를 넣는다.
+
+Postgres 인수 테스트는 테스트 DB URL을 지정해야 실행한다.
+
+```sh
+WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5432/writing_room_test' npm test
+```
+
+`npm run db:down`으로 컨테이너를 내리면 원고는 볼륨에 남는다. `npm run db:reset`은 볼륨과 로컬 원고를 지우고 개발용 DB를 다시 만든다.
+
 ## 편집하고 배치하기
 
 - 위쪽 메뉴 바의 **File → New Text File**로 Monaco 편집기를 연다. 에디터 툴바의 **Split Editor Right**는 같은 문서를 두 그룹에서 보여 준다. 한쪽에서 편집한 내용은 다른 쪽에도 반영된다.
@@ -204,10 +239,10 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 ## 검증하기
 
 - `npm run typecheck`는 TypeScript를 확인하고, `npm test`는 Vitest 단위 테스트를 실행한다. 단위 테스트가 쓰는 jsdom에는 레이아웃이 없어 `getBoundingClientRect()`가 크기 0의 사각형을 돌려준다.
-- 처음 브라우저 테스트를 실행하기 전에 `npx playwright install chromium`으로 Chromium을 설치한다. `npm run test:e2e -- --workers=2`는 개발 서버에서 브라우저 스위트를 실행한다. `E2E_TARGET=preview npm run test:e2e -- --workers=2`는 새 프로덕션 빌드를 만든 뒤 같은 스위트를 실행한다. 앱과 원격 확장 픽스처 서버는 Playwright가 각각 시작한다. 프리뷰 대상은 타입 검사와 빌드를 먼저 하므로 앱 서버를 기다리는 제한이 300초다(`playwright.config.ts`). 부하가 큰 컴퓨터에서는 빌드가 1분을 넘겨 개발 서버용 60초 제한에 걸렸다.
+- 처음 브라우저 테스트를 실행하기 전에 `npx playwright install chromium`으로 Chromium을 설치한다. `npm run test:e2e -- --workers=2`는 개발 서버에서 브라우저 스위트를 실행한다. `E2E_TARGET=preview npm run test:e2e -- --workers=2`는 새 프로덕션 빌드를 만든 뒤 같은 스위트를 실행한다. Playwright가 앱, 메모리 API 서버, 원격 확장 픽스처 서버를 각각 시작한다. 프리뷰 대상은 타입 검사와 빌드를 먼저 하므로 앱 서버를 기다리는 제한이 300초다(`playwright.config.ts`). 부하가 큰 컴퓨터에서는 빌드가 1분을 넘겨 개발 서버용 60초 제한에 걸렸다.
 - 실제 확장(Open VSX의 Markdown 확장 셋과 바닥 후보 셋)으로 하는 테스트는 `node scripts/fetch-real-extensions.mjs`가 채우는 캐시 `test/fixtures/real-extensions/cache/`(git이 무시한다)를 쓴다. 스크립트는 `test/fixtures/real-extensions/pins.json`의 sha256과 Open VSX의 Ed25519 서명을 확인하고, 고정값과 다른 캐시 파일은 덮어쓰지 않고 실패한다(그 파일을 지우고 다시 돌린다). `--offline`은 네트워크 없이 캐시만 검사한다. 캐시가 없거나 맞지 않으면 브라우저 스위트는 사유를 출력하고 실제 확장 테스트만 건너뛴다. `E2E_REQUIRE_REAL_EXTENSIONS=1`이면 대신 실행이 실패한다.
 - `node scripts/probe-extension.mjs [<확장 id>...]`는 고정한 확장을 지금 확장 호스트에 올려, 로드·활성화·첫 문서 단계별로 읽은·부른·없는 API 멤버와 오류를 `test/fixtures/real-extensions/cache/probe-results/<id>.json`에 쓴다. 브라우저는 127.0.0.1 밖의 호스트를 풀지 못하게 띄운다.
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n

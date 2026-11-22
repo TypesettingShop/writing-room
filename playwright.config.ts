@@ -47,6 +47,18 @@ if (!Number.isInteger(extensionPort) || extensionPort < 1 || extensionPort > 655
   throw new Error('E2E_EXTENSIONS_PORT must be a distinct TCP port between 1 and 65535.');
 }
 
+if (process.env.E2E_API_PORT === undefined) {
+  let available = await findAvailablePort();
+  while (available === port || available === extensionPort) {
+    available = await findAvailablePort();
+  }
+  process.env.E2E_API_PORT = String(available);
+}
+const apiPort = Number(process.env.E2E_API_PORT);
+if (!Number.isInteger(apiPort) || apiPort < 1 || apiPort > 65535 || apiPort === port || apiPort === extensionPort) {
+  throw new Error('E2E_API_PORT must be a distinct TCP port between 1 and 65535.');
+}
+
 // The real-extension cache (wr-jbmd). Specs that need it skip with the reason below; E2E_REQUIRE_REAL_EXTENSIONS=1
 // fails the run instead. Checked once: workers inherit the result like the ports above.
 if (process.env.E2E_REAL_EXTENSIONS === undefined) {
@@ -78,10 +90,24 @@ export default defineConfig({
   },
   webServer: [{
     command: start + ' -- --host ' + host + ' --port ' + port + ' --strictPort',
+    env: { WRITING_ROOM_API_PORT: String(apiPort) },
     // Wait for this process to bind. A URL probe alone can succeed on a competing server.
     wait: { stdout: new RegExp('Local:\\s+' + baseURL.replaceAll('.', '\\.') + '/') },
     // The preview target type-checks and builds first, which takes about a minute on a busy machine.
     timeout: target === 'preview' ? 300_000 : 60_000,
+    reuseExistingServer: false,
+  }, {
+    command: 'npm run server',
+    env: {
+      NODE_ENV: 'development',
+      WRITING_ROOM_API_HOST: host,
+      WRITING_ROOM_API_PORT: String(apiPort),
+      WRITING_ROOM_STORE: 'memory',
+      WRITING_ROOM_AUTH: 'dev',
+      WRITING_ROOM_PUBLIC_ORIGIN: baseURL,
+    },
+    wait: { stdout: new RegExp('^Writing Room API listening on ' + apiPort + '$', 'm') },
+    timeout: 60_000,
     reuseExistingServer: false,
   }, {
     command: 'node test/fixtures/serve-extensions.mjs ' + extensionPort,
