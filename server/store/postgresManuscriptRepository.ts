@@ -148,46 +148,32 @@ class PostgresManuscriptStore implements ManuscriptStore {
   }
 
   createNode(workId: string, input: CreateNode, expected: number): Promise<NodeChange> {
-    return this.mutate(workId, expected, (tree, _client, now) => {
+    return this.mutate(workId, expected, (tree, now) => {
       const node = tree.create(input, randomUUID(), now);
       return { result: { node }, inserted: node };
     });
   }
 
   updateNode(workId: string, nodeId: string, input: UpdateNode, expected: number): Promise<NodeChange> {
-    return this.mutate(workId, expected, (tree, _client, now) => ({ result: { node: tree.update(nodeId, input, now) } }));
+    return this.mutate(workId, expected, (tree, now) => ({ result: { node: tree.update(nodeId, input, now) } }));
   }
 
   moveNodes(workId: string, nodeIds: readonly string[], destination: NodeDestination, expected: number): Promise<TreeChange> {
-    return this.mutate(workId, expected, async (tree, client, now) => {
-      if (isManuscriptId(destination.parentId) && Array.isArray(nodeIds) && nodeIds.every(isManuscriptId)) {
-        const { rows } = await client.query<{ cycle: boolean }>(`
-          WITH RECURSIVE ancestors (id, parent_id) AS (
-            SELECT n.id, n.parent_id FROM nodes AS n JOIN works AS w ON w.id = n.work_id
-            WHERE w.id = $1 AND w.owner_id = $2 AND n.id = $3
-            UNION
-            SELECT n.id, n.parent_id FROM nodes AS n JOIN ancestors AS a ON n.id = a.parent_id
-            JOIN works AS w ON w.id = n.work_id WHERE w.id = $1 AND w.owner_id = $2
-          )
-          SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = ANY($4::uuid[])) AS cycle
-        `, [workId, this.ownerId, destination.parentId, nodeIds]);
-        if (rows[0].cycle) {
-          throw new ManuscriptStoreError('invalid');
-        }
-      }
+    return this.mutate(workId, expected, (tree, now) => {
+      // The work lock keeps this database snapshot stable while the shared editor checks ancestors.
       tree.move(nodeIds, destination, now);
       return { result: {} };
     });
   }
 
   deleteNode(workId: string, nodeId: string, expected: number): Promise<NodeDeletion> {
-    return this.mutate(workId, expected, (tree, _client, now) => ({
+    return this.mutate(workId, expected, (tree, now) => ({
       result: { deletedDocumentIds: tree.delete(nodeId, now) }, deleteRootId: nodeId,
     }));
   }
 
   private async mutate<T>(
-    workId: string, expected: number, edit: (tree: ManuscriptTreeEditor, client: PoolClient, now: number) => TreeEdit<T> | Promise<TreeEdit<T>>,
+    workId: string, expected: number, edit: (tree: ManuscriptTreeEditor, now: number) => TreeEdit<T>,
   ): Promise<T & TreeChange> {
     assertId(workId);
     return inTransaction(this.pool, async client => {
@@ -204,7 +190,7 @@ class PostgresManuscriptStore implements ManuscriptStore {
       `, scope);
       const tree = new ManuscriptTreeEditor(new Map(rows.map(row => [row.id, nodeFromRow(row)])));
       const now = this.now();
-      const { result, inserted, deleteRootId } = await edit(tree, client, now);
+      const { result, inserted, deleteRootId } = edit(tree, now);
       if (!tree.changed.size && !tree.deleted.size) {
         return { ...result, revision };
       }
