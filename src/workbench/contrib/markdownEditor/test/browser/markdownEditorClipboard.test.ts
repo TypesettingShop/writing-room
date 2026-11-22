@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../../editor/common/markdown/schema.js';
 import { readTabStorage, writeTabStorage } from '../../../../services/storage/browser/storageService.js';
-import { copyMarkdownFragment, markdownClipboard, pasteFromMarkdownClipboard } from '../../browser/markdownEditorClipboard.js';
+import { copyMarkdownFragment, markdownClipboard, markdownClipboardEvents, pasteFromMarkdownClipboard } from '../../browser/markdownEditorClipboard.js';
 import { markdownTablePlugins } from '../../browser/markdownEditorTables.js';
 
 describe('Markdown clipboard', () => {
@@ -97,6 +97,35 @@ describe('Markdown clipboard', () => {
     expect(lines(cleared.markdownClipboard.clipboardTextParser!(markdown, context, true, view))[0]).toContain('{.underline}');
   });
 
+  it('keeps the last copy when a selection drag serializes the selection, and updates it for the next copy', () => {
+    const copy = (markdown: string) => {
+      const source = parseMarkdown(markdown);
+      return markdownClipboard.clipboardTextSerializer!(source.slice(0, source.content.size), view);
+    };
+    const context = parseMarkdown('x').resolve(1);
+    const pasted = (markdown: string) => {
+      const slice = markdownClipboard.clipboardTextParser!(markdown, context, true, view);
+      return slice.content.textBetween(0, slice.content.size, '\n');
+    };
+    const first = copy('**첫 글**');
+    // ProseMirror's dragstart serializes the selection through the same property as a copy.
+    markdownClipboardEvents.dragstart!(view, new Event('dragstart') as DragEvent);
+    const dragged = copy('*둘째 글*');
+    expect(dragged).toBe('*둘째 글*');
+    expect(pasted(first)).toBe('첫 글');
+    expect(readTabStorage(window, 'writing-room:markdownEditor:lastCopy')).toBe(JSON.stringify({ markdown: first, text: '첫 글' }));
+    // The drag's own serialization ends the guard, so a copy right after it is remembered.
+    const next = copy('*셋째 글*');
+    expect(pasted(next)).toBe('셋째 글');
+    expect(pasted(first)).toBe(first);
+    // A drag that serializes nothing keeps the guard only until its event ends.
+    markdownClipboardEvents.dragstart!(view, new Event('dragstart') as DragEvent);
+    return Promise.resolve().then(() => {
+      const last = copy('*넷째 글*');
+      expect(pasted(last)).toBe('넷째 글');
+    });
+  });
+
   it('keeps the last copy only in memory when its serialized bytes exceed the session storage limit', () => {
     const key = 'writing-room:markdownEditor:lastCopy';
     const small = parseMarkdown('**small**');
@@ -172,10 +201,10 @@ describe('Markdown context menu plain-text paste', () => {
     getType: async (type: string) => new Blob([data[type]], { type }),
   }) as unknown as ClipboardItem;
   // jsdom has no ClipboardEvent for ProseMirror's plain-text paste, so record the text it receives.
-  const paste = async (clipboard: Partial<Clipboard>) => {
+  const paste = async (clipboard: Partial<Clipboard>, received = (text: string) => text) => {
     Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: clipboard });
     const pasted: string[] = [];
-    vi.spyOn(view, 'pasteText').mockImplementation(text => { pasted.push(text); return true; });
+    vi.spyOn(view, 'pasteText').mockImplementation(text => { pasted.push(received(text)); return true; });
     await pasteFromMarkdownClipboard(view, () => true, true);
     return pasted;
   };
@@ -187,6 +216,32 @@ describe('Markdown context menu plain-text paste', () => {
     expect(await paste({ read: async () => [item({ 'text/plain': text, 'text/html': wrapped })], readText })).toEqual(['first\nsecond']);
     const indented = html.replaceAll('</p><', '</p>\n  <');
     expect(await paste({ read: async () => [item({ 'text/plain': text, 'text/html': indented })], readText })).toEqual(['first\nsecond']);
+  });
+
+  // Run the parser as the real `pasteText` does, outside code blocks, so a second resolution of the text shows.
+  const pasteThroughParser = (clipboard: Partial<Clipboard>) => paste(clipboard, text => {
+    const slice = markdownClipboard.clipboardTextParser!(text, view.state.doc.resolve(1), true, view);
+    return slice.content.textBetween(0, slice.content.size, '\n');
+  });
+
+  it('resolves text/plain that equals the last copy to its visible text, as in a code block', async () => {
+    const { text } = copied('**굵게**');
+    expect(text).toBe('**굵게**');
+    // A Copy as Markdown holds only text/plain. ProseMirror's code block paste never calls clipboardTextParser.
+    expect(await paste({ read: async () => [item({ 'text/plain': text })] })).toEqual(['굵게']);
+    expect(await paste({ readText: async () => text })).toEqual(['굵게']);
+    expect(await paste({ readText: async () => `${text} ` })).toEqual([`${text} `]);
+  });
+
+  it('does not resolve the visible text of a copy again against an earlier copy', async () => {
+    const { text: earlier } = copied('**굵게**');
+    // The copy from another tab shows its asterisks as text, so its visible text equals the earlier Markdown.
+    const other = copied('\\*\\*굵게\\*\\*');
+    expect(other.text).toBe('\\*\\*굵게\\*\\*');
+    copied('**굵게**');
+    expect(await pasteThroughParser({ read: async () => [item({ 'text/plain': other.text, 'text/html': other.html })] }))
+      .toEqual([earlier]);
+    expect(await pasteThroughParser({ read: async () => [item({ 'text/plain': earlier })] })).toEqual(['굵게']);
   });
 
   it('pastes other clipboard text literally and reads it without clipboard.read', async () => {
