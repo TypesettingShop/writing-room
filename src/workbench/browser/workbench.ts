@@ -20,7 +20,6 @@ import { Layout } from './layout.js';
 import type { Part } from './part.js';
 import { ActivitybarPart } from './parts/activitybar/activitybarPart.js';
 import { EditorPart } from './parts/editor/editorPart.js';
-import { WelcomeEditorInput } from './parts/editor/welcomeEditor.js';
 import { IEditorGroupsService } from '../services/editor/common/editorGroupsService.js';
 import { PanelPart } from './parts/panel/panelPart.js';
 import { IPaneCompositePartService, PaneCompositePartService } from './parts/paneCompositePartService.js';
@@ -92,9 +91,6 @@ export class Workbench extends Layout {
     editor.restoreActiveEditors();
     sidebar.initializeViewContainers();
     panel.initializeViewContainers();
-    if (!editor.hasStoredState) {
-      void editor.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus: true }).catch(console.error);
-    }
 
     // Listen before the loop: a contribution that registers another while it starts is not in the list below.
     this._register(workbenchContributions.onDidRegister(([id, contribution]) => this.startContribution(id, contribution)));
