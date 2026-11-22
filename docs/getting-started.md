@@ -33,6 +33,10 @@ WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_R
 
 계정으로 원고를 저장할 때는 API 서버에서 `WRITING_ROOM_AUTH`를 설정하지 않고 실행한다. 이메일·비밀번호 가입과 로그인은 같은 오리진의 `/api/auth`에서 처리한다. 테스트나 개발 중에 계정과 원고를 메모리에 둘 때는 `WRITING_ROOM_STORE=memory npm run server`를 실행한다. 재시작한 뒤에도 계정, 세션, 원고를 유지하려면 아래 Postgres 명령에서 `WRITING_ROOM_AUTH=dev`를 빼고 실행한다.
 
+Welcome의 **Works**에서 **Email**과 **Password**를 입력하고 **Sign In**을 누른다. 처음이라면 **Create Account**로 전환한 뒤 같은 이름의 제출 버튼을 누른다. 로그인하면 Works에 계정의 작품이 표시된다. **Work → Sign In...**은 Works를 열고 **Work → Sign Out**은 세션을 끝내고 Works로 돌아간다.
+
+가입, 로그인, 로그아웃 응답이 10초 동안 오지 않으면 화면이 시간 초과를 알린다. 연결이 돌아오면 다시 시도할 수 있다. 작품을 저장하다 세션이 만료되면 Welcome이 열리고 저장 실패를 알린다. 고친 원고 탭과 작품별 로컬 초안은 남으므로 다시 로그인한 뒤 같은 탭에서 저장할 수 있다.
+
 세션은 로그인 때마다 새로 발급되며 30일 뒤에 만료된다. 루프백에 바인딩한 개발 서버에서 루프백 HTTP 오리진으로 열 때는 HTTP에서도 쿠키를 사용할 수 있다. 그 외에는 HTTPS로 연다. 가입 응답은 이미 가입된 이메일을 알려 준다. 이메일 인증과 비밀번호 재설정은 지원 범위에서 제외했다.
 
 API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 받고, 그 프록시가 `X-Forwarded-For` 맨 뒤에 실제 접속 주소를 추가할 때는 `WRITING_ROOM_TRUST_PROXY=true`로 설정한다. 기본값은 `false`이며, 시도 횟수 제한에 소켓의 접속 주소를 쓴다. 로컬 Vite에서 앱을 열 때는 기본값으로 충분하다.
@@ -46,7 +50,7 @@ API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 �
 3. 받은 값을 API 서버 프로세스의 `WRITING_ROOM_GOOGLE_CLIENT_ID`, `WRITING_ROOM_GOOGLE_CLIENT_SECRET`에 설정한다. 비밀값은 Vite 클라이언트 설정이나 Git에 넣지 않는다. API 서버의 `WRITING_ROOM_PUBLIC_ORIGIN`은 하나의 오리진인 `http://localhost:5173`으로 설정한다. 콜백은 항상 이 오리진의 `/api/auth/oauth/google/callback`으로 돌아온다.
 4. 개발 주소를 고정하려면 `npm run dev -- --host localhost --port 5173 --strictPort`로 Vite를 실행하고 `http://localhost:5173`을 연다. 이메일·비밀번호 계정과 별도로 Google 계정이 만들어진다. 같은 이메일이라도 각 로그인 방식의 작품 목록은 서로 독립적이다.
 
-클라이언트 ID와 비밀값이 둘 다 비어 있으면 Google 로그인이 꺼지고 이메일 로그인은 계속 쓸 수 있다. Google 로그인 시작은 같은 접속 주소에서 10분에 20회까지 받는다. 서버의 대기 상태가 가득 차면 새 시작을 잠시 거절하고 이미 진행 중인 로그인은 계속 처리한다. 자동 테스트는 로컬 테스트 서버를 Google 대신 사용한다. 콘솔에 등록한 클라이언트로 실제 동의 화면과 콜백을 확인하려면 위 주소에서 Google 로그인을 한 번 진행한다.
+설정이 끝나면 Welcome의 **Works**에서 **Continue with Google**을 누른다. Google 화면에서 취소하면 시작한 작품과 주소의 옵션을 유지한 채 Works로 돌아와 취소 안내를 한 번 표시한다. 클라이언트 ID와 비밀값이 둘 다 비어 있으면 이메일 폼을 이용할 수 있다. Google 로그인 시작은 같은 접속 주소에서 10분에 20회까지 받는다. 서버의 대기 상태가 가득 차면 새 시작을 잠시 거절하고 이미 진행 중인 로그인은 계속 처리한다. 자동 테스트는 로컬 테스트 서버를 Google 대신 사용한다. 콘솔에 등록한 클라이언트로 실제 동의 화면과 콜백을 확인하려면 위 주소에서 Google 로그인을 한 번 진행한다.
 
 ### Postgres에 원고 저장하기
 
@@ -90,7 +94,7 @@ WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5
 - **Work → Open Work...**에서 작품을 고른다. Welcome의 **Works**에서도 최근에 수정한 작품 20개를 열 수 있다. **More...**는 전체 목록을 연다. 현재 작품에는 **(current)**가 붙는다.
 - **Work → Close Work**는 열린 글의 저장 여부를 확인한 뒤 Welcome의 **Works**에 초점을 둔다. 작품을 열기 전과 닫기 전의 확인에서 같은 글을 여러 편집기로 열고 있었다면 한 번만 묻는다.
 - 열린 작품은 탭 제목과 주소의 `?work=<uuid>`로 확인할 수 있다. 열린 문서와 레이아웃은 작품마다 따로 저장된다. Explorer의 연습 폴더와 사용자 설정은 같은 브라우저 프로필의 창이 공유한다.
-- Works에 로그인 안내나 서버 오류가 보이면 [API 서버 실행](#api-서버-실행)을 확인한다. 명시적인 브라우저 메모리 모드에서는 새로고침하면 임시 작품이 사라지므로 Works를 만들거나 열 때 서버 연결을 안내한다.
+- Works에 서버 오류가 보이면 [API 서버 실행](#api-서버-실행)을 확인한다. 명시적인 브라우저 메모리 모드에서는 새로고침하면 임시 작품이 사라지므로 Works를 만들거나 열 때 서버 연결을 안내한다.
 
 ## 파일 다루기
 

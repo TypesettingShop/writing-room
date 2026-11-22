@@ -289,14 +289,14 @@ describe('Google authentication with memory storage and a fake provider', () => 
     },
   );
 
-  it('sends the fixed Works error location on cancellation and consumes the state', async () => {
+  it('returns to the original path and query on cancellation and consumes the state', async () => {
     const { begin, finish, provider } = await open();
-    const { url, browser } = await begin('/chapter');
+    const { url, browser } = await begin('/chapter?keep=a%20b&work=example&authError=stale#section');
     const callback = new URL(redirectUri);
     callback.search = new URLSearchParams({ state: url.searchParams.get('state')!, error: 'access_denied' }).toString();
     const response = await finish(callback, browser);
     expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe('/?authError=google#works');
+    expect(response.headers.get('location')).toBe('/chapter?keep=a%20b&work=example&authError=google#works');
     expect(response.headers.get('set-cookie')).toBeNull();
     expect((await finish(callback, browser)).status).toBe(400);
     expect(provider.exchanges).toHaveLength(0);

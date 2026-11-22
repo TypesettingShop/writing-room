@@ -13,6 +13,7 @@ import { IEditorGroupsService } from '../../../services/editor/common/editorGrou
 import { IManuscriptService } from '../../../services/manuscript/common/manuscriptService.js';
 import { IWorkService } from '../../../services/work/common/work.js';
 import { EditorPane } from './editorPane.js';
+import { WelcomeAccount } from './welcomeAccount.js';
 import './media/welcomeEditor.css';
 
 /** The Welcome page. There is one: every Welcome input matches every other. */
@@ -47,6 +48,13 @@ export function openWelcome(groups: IEditorGroupsService, preserveFocus = false)
   return groups.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus });
 }
 
+export async function openWelcomeWorks(groups: IEditorGroupsService, googleCanceled = false): Promise<void> {
+  const pane = await openWelcome(groups);
+  if (pane instanceof WelcomeEditorPane) {
+    pane.focusWorks(googleCanceled);
+  }
+}
+
 export class WelcomePageContribution {
   static readonly ID = 'workbench.contrib.welcomePage';
 
@@ -60,15 +68,15 @@ export class WelcomePageContribution {
 
   private async openWorks(groups: IEditorGroupsService): Promise<void> {
     try {
-      const pane = await openWelcome(groups);
-      if (pane instanceof WelcomeEditorPane && window.location.hash === '#works') {
-        pane.focusWorks();
-      }
+      const googleCanceled = new URLSearchParams(window.location.search).get('authError') === 'google';
+      await openWelcomeWorks(groups, googleCanceled);
     } finally {
-      // Consume the hash even when the Welcome did not open, so a later reload does not try again.
-      if (window.location.hash === '#works') {
-        const url = new URL(window.location.href);
+      // Consume the deep link even when the Welcome did not open.
+      const url = new URL(window.location.href);
+      if (url.hash === '#works') {
         url.hash = '';
+        const pairs = url.search.slice(1).split('&').filter(pair => new URLSearchParams(pair).get('authError') !== 'google');
+        url.search = pairs.join('&');
         window.history.replaceState(window.history.state, '', url);
       }
     }
@@ -81,6 +89,8 @@ export class WelcomeEditorPane extends EditorPane {
 
   private page!: HTMLElement;
   private works!: HTMLElement;
+  private account!: WelcomeAccount;
+  private newWork!: HTMLButtonElement;
   private worksStatus!: HTMLElement;
   private worksList!: HTMLUListElement;
   private readonly workButtons = this._register(new DisposableStore());
@@ -109,13 +119,25 @@ export class WelcomeEditorPane extends EditorPane {
 
     this.works = append(this.page, $('section', { 'aria-label': 'Works', tabindex: -1 }));
     append(this.works, $('h2', null, 'Works'));
-    append(this.works, $('.welcome-works-account'));
-    const newWork = append(this.works, $('button', { type: 'button' }, 'New Work...'));
-    this._register(addDisposableListener(newWork, 'click', () => {
+    this.account = this._register(new WelcomeAccount(append(this.works, $('.welcome-works-account')), this.manuscript.auth));
+    this.newWork = append(this.works, $('button', { type: 'button' }, 'New Work...'));
+    this._register(addDisposableListener(this.newWork, 'click', () => {
       void this.commandService.executeCommand('work.new');
     }));
     this.worksStatus = append(this.works, $('p', { role: 'status' }));
     this.worksList = append(this.works, $('ul'));
+    this._register(this.manuscript.onDidChangeAuth(({ signedIn, reason }) => {
+      if (!this.input) {
+        return;
+      }
+      if (!signedIn) {
+        this.generation++;
+        this.showSignedOut();
+      } else if (this.account.visible || reason === 'account') {
+        this.hideAccount();
+        void this.refreshWorks();
+      }
+    }));
     // A request that never settles must not stop later reads, so only the 30-second spacing limits them.
     this._register(addDisposableListener(parent.ownerDocument.defaultView!, 'focus', () => {
       if (this.input && Date.now() - this.lastRefresh >= 30_000) {
@@ -128,6 +150,9 @@ export class WelcomeEditorPane extends EditorPane {
     const wasVisible = this.input === input;
     await super.setInput(input, options);
     if (!wasVisible && this.input === input) {
+      if (this.manuscript.signedIn === false) {
+        this.showSignedOut();
+      }
       void this.refreshWorks();
     }
   }
@@ -135,6 +160,10 @@ export class WelcomeEditorPane extends EditorPane {
   override clearInput(): void {
     super.clearInput();
     this.generation++;
+    if (this.account) {
+      this.account.hide();
+      this.newWork.hidden = false;
+    }
   }
 
   private async refreshWorks(): Promise<void> {
@@ -142,7 +171,7 @@ export class WelcomeEditorPane extends EditorPane {
     this.lastRefresh = Date.now();
     // Keep the buttons until the answer arrives. The click that brings the window back fires `focus`
     // first, and clearing the list then would drop that click.
-    if (!this.worksList.childElementCount) {
+    if (!this.worksList.childElementCount && !this.account.visible) {
       this.worksStatus.textContent = 'Loading Works...';
     }
 
@@ -153,11 +182,29 @@ export class WelcomeEditorPane extends EditorPane {
       }
     } catch {
       if (generation === this.generation) {
-        this.clearWorks();
-        this.worksStatus.textContent = this.manuscript.availability === 'signedOut'
-          ? 'Sign in to see your Works.'
-          : 'The Works server is not available.';
+        if (this.manuscript.signedIn === false) {
+          this.showSignedOut();
+        } else {
+          this.clearWorks();
+          this.worksStatus.textContent = 'The Works server is not available.';
+        }
       }
+    }
+  }
+
+  private showSignedOut(): void {
+    this.clearWorks();
+    this.account.show();
+    this.newWork.hidden = this.account.visible;
+    this.worksStatus.textContent = 'Sign in to see your Works.';
+  }
+
+  private hideAccount(): void {
+    const restoreFocus = this.account.visible && this.works.contains(this.works.ownerDocument.activeElement);
+    this.account.hide();
+    this.newWork.hidden = false;
+    if (restoreFocus) {
+      this.focusWorks();
     }
   }
 
@@ -168,6 +215,7 @@ export class WelcomeEditorPane extends EditorPane {
   }
 
   private renderWorks(works: ManuscriptWork[]): void {
+    this.hideAccount();
     this.worksStatus.textContent = works.length ? '' : 'No Works yet.';
     const recent = [...works].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     const entries: [label: string, id?: string][] = recent.slice(0, 20).map(entry =>
@@ -195,8 +243,11 @@ export class WelcomeEditorPane extends EditorPane {
     }));
   }
 
-  focusWorks(): void {
+  focusWorks(googleCanceled = false): void {
     this.works.focus();
+    if (googleCanceled) {
+      this.account.showGoogleCancellation();
+    }
   }
 
   override layout(dimension: Dimension): void {

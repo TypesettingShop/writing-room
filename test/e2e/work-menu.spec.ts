@@ -16,7 +16,7 @@ test('creates a Work from the menu and identifies it in the Work picker', async 
   await expect(labels.nth(0)).toHaveText('Work');
   await expect(labels.nth(1)).toHaveText('File');
   const menu = await workMenu(page);
-  await expect(menu.getByRole('menuitem')).toHaveText(['New Work...', 'Open Work...', 'Close Work']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['New Work...', 'Open Work...', 'Close Work', 'Sign Out']);
   await expect(menu.getByRole('menuitem', { name: 'Close Work' })).toHaveAttribute('aria-disabled', 'true');
 
   await menu.getByRole('menuitem', { name: 'New Work...' }).click();
