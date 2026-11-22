@@ -696,9 +696,21 @@ export class MarkdownEditorModel extends Disposable {
     }
 
     const { gap, direction, mapCount } = (over.maps[lost] as CaretParagraphRemovalMap).recovery!;
-    const $gap = this.state.doc.resolve(over.slice(lost + mapCount).map(gap, direction));
-    const position = !$gap.depth ? $gap.pos : direction < 0 ? $gap.after(1) : $gap.before(1);
-    const recovered = this.state.tr.insert(position, paragraph.type.create(null, paragraph.content)).setTime(transaction.time);
+    const { doc } = this.state;
+    const $gap = doc.resolve(over.slice(lost + mapCount).map(gap, direction));
+    // Parsing empty Markdown supplies a placeholder paragraph. Fill it as the only
+    // authored block so the rich tree agrees with a fresh parse of the recovered text.
+    const placeholder = !this.lastSource.trim() && doc.childCount === 1 && doc.firstChild?.type === paragraph.type
+      && !doc.firstChild.content.size;
+    const boundary = $gap.depth === 0 ? $gap.pos : direction < 0 ? $gap.after(1) : $gap.before(1);
+    const position = placeholder ? 0 : boundary;
+    const restored = paragraph.type.create(null, paragraph.content);
+    const recovered = this.state.tr.setTime(transaction.time);
+    if (placeholder) {
+      recovered.replaceWith(0, doc.content.size, restored);
+    } else {
+      recovered.insert(position, restored);
+    }
     const offset = new Mapping([StepMap.offset(position - caret.pos)]);
     const { selection } = transaction;
     const inside = selection.from > caret.pos && selection.to < caret.pos + paragraph.nodeSize;

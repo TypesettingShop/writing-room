@@ -1073,6 +1073,37 @@ describe('MarkdownEditorModel', () => {
     },
   );
 
+  it.each([-1, 1] as const)('recovers the pending composition when the source loses its only block (%s)', side => {
+    const original = '---';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      if (markdownCaretParagraphSide(sync.state.selection.$head.parent) !== undefined) {
+        sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      }
+    });
+    try {
+      placeRuleCaret(sync, 0, side);
+      applyOffsets(model, 0, original.length, '');
+      const expectSource = (source: string) => {
+        expect(model.getValue()).toBe(source);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      };
+      expectSource('요');
+      expect(sync.state.selection.$head.parent.textContent).toBe('요');
+      expect(sync.undo()).toBe(true);
+      expectSource('');
+      expect(sync.undo()).toBe(true);
+      expectSource(original);
+      expect(sync.redo()).toBe(true);
+      expectSource('');
+      expect(sync.redo()).toBe(true);
+      expectSource('요');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
   it('keeps an extended range when its anchor leaves with the temporary paragraph', () => {
     const original = 'First\n\n---\n\nLast';
     const model = new TestTextModel(URI.parse('file:///draft.md'), original);
