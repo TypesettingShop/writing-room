@@ -4,7 +4,7 @@ import { keymap } from 'prosemirror-keymap';
 import { TextSelection } from 'prosemirror-state';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
-import { EditorView } from 'prosemirror-view';
+import type { EditorView } from 'prosemirror-view';
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -40,8 +40,8 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
-import { bindMarkdownGutter, onMarkdownScrollbar } from './markdownEditorGutter.js';
-import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
+import { bindMarkdownGutter, MarkdownEditorView, onMarkdownScrollbar } from './markdownEditorGutter.js';
+import { markdownCaretParagraphKey, toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
 import {
@@ -239,7 +239,7 @@ export class MarkdownEditorPane extends EditorPane {
         return;
       }
       const sync = this.sync = this.getTabModel(input, resolved);
-      const view = this.view = new EditorView(this.surface, {
+      const view = this.view = new MarkdownEditorView(this.surface, {
         state: sync.state,
         editable: () => !input.isReadonly(),
         attributes: () => ({
@@ -268,11 +268,13 @@ export class MarkdownEditorPane extends EditorPane {
           }, () => !input.isReadonly()),
         },
         dispatchTransaction: transaction => {
-          if (!transaction.docChanged || !input.isReadonly()) {
-            // A click or drag only moves the selection; centering it would move the text under the pointer.
-            // prosemirror-tables selects cells under the mouse without the pointer flag or a scroll request.
-            this.pointerSelection = !transaction.docChanged && (transaction.getMeta('pointer') === true
-              || (transaction.selection instanceof CellSelection && !transaction.scrolledIntoView));
+          // Read-only gutters may need a display-only paragraph to hold a collapsed selection.
+          if (!transaction.docChanged || !input.isReadonly() || transaction.getMeta(markdownCaretParagraphKey) === true) {
+            // Native read-only selection and table cell drags can arrive without the pointer flag.
+            // Keep the viewport in place unless the transaction requested scrolling.
+            this.pointerSelection = transaction.getMeta('pointer') === true
+              || (!transaction.docChanged && !transaction.scrolledIntoView
+                && ((!view.editable && transaction.selectionSet) || transaction.selection instanceof CellSelection));
             try {
               sync.dispatch(transaction);
             } finally {
@@ -281,6 +283,8 @@ export class MarkdownEditorPane extends EditorPane {
           }
         },
         handleDOMEvents: {
+          // ProseMirror handles mousedown even in read-only views and cancels native selection.
+          mousedown: view => !view.editable,
           keydown: (_view, event) => {
             if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && this.openContextMenu()) {
               event.preventDefault();

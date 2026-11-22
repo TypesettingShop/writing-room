@@ -11,6 +11,7 @@ import type { IMarkdownSourceBlock, IParsedMarkdown } from '../../../../editor/c
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
 import { getTextModelEdit } from '../../../../editor/common/model.js';
 import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
+import { isEmptyMarkdownCaretParagraph } from './markdownEditorSelection.js';
 
 interface SourceDocument {
   readonly doc: Node;
@@ -66,6 +67,25 @@ function parseSource(text: string): SourceDocument {
     }
   });
   return { doc, text, paragraphIndices };
+}
+
+/**
+ * A new empty top-level paragraph writes no Markdown, but it would still shift the serializer's block
+ * alignment and so the source gaps it keeps. Omit newly added trailing paragraphs and empty
+ * pointer caret paragraphs so that creating a caret does not rewrite or dirty the file.
+ */
+function withoutUnwrittenParagraphs(doc: Node, source: Node): Node {
+  const blocks = doc.content.content.filter(node => !isEmptyMarkdownCaretParagraph(node));
+  let content = blocks.length && blocks.length !== doc.childCount ? Fragment.fromArray(blocks) : doc.content;
+  let parsed: Set<Node> | undefined;
+  while (content.childCount > 1) {
+    const last = content.lastChild!;
+    if (last.type.name !== 'paragraph' || last.childCount !== 0) break;
+    parsed ??= new Set(source.content.content);
+    if (parsed.has(last)) break;
+    content = content.cut(0, content.size - last.nodeSize);
+  }
+  return content === doc.content ? doc : doc.copy(content);
 }
 
 function appendChangedRange(ranges: number[], start: number, end: { a: number; b: number }): void {
@@ -503,8 +523,9 @@ export class MarkdownEditorModel extends Disposable {
     this.onStateChange(this.state);
   }
 
-  private serializeDocument(doc: Node): string {
+  private serializeDocument(edited: Node): string {
     const source = this.sourceDoc;
+    const doc = withoutUnwrittenParagraphs(edited, source.doc);
     if (source.incrementalText === undefined) {
       return serializeMarkdown(source.doc.copy(doc.content));
     }

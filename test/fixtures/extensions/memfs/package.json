@@ -11,7 +11,8 @@
   "contributes": {
     "commands": [
       { "command": "fixture.memfs.openReadOnlyMarkdown", "title": "Open Read-only Markdown Fixture" },
-      { "command": "fixture.memfs.openReadOnlyTypewriter", "title": "Open Read-only Typewriter Fixture" }
+      { "command": "fixture.memfs.openReadOnlyTypewriter", "title": "Open Read-only Typewriter Fixture" },
+      { "command": "fixture.memfs.openReadOnlyRule", "title": "Open Read-only Rule Fixture" }
     ]
   }
 }

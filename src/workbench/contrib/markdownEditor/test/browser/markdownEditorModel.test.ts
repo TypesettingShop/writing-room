@@ -9,6 +9,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
+import { createMarkdownCaretParagraph } from '../../browser/markdownEditorSelection.js';
 
 function editLine(model: TestTextModel, line: number, startColumn: number, endColumn: number, text: string): void {
   model.applyEdits([{ range: { startLineNumber: line, startColumn, endLineNumber: line, endColumn }, text }]);
@@ -677,6 +678,47 @@ describe('MarkdownEditorModel', () => {
       editLine(model, 3, 4, 4, ' 오늘');
       expect(sync.state.doc.child(2)).toBe(heading);
       expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps edited source gaps when an empty paragraph is added after a final rule', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '\nFirst\n\n\n\nSecond\n  \n---\n');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      sync.dispatch(sync.state.tr.insertText('!', 6));
+      const edited = model.getValue();
+      expect(edited).toBe('\nFirst!\n\n\n\nSecond\n  \n---\n');
+      const version = model.getVersionId();
+      const end = sync.state.doc.content.size;
+      sync.dispatch(sync.state.tr.insert(end, sync.state.schema.nodes.paragraph.create()).setMeta('addToHistory', false));
+      expect(model.getValue()).toBe(edited);
+      expect(model.getVersionId()).toBe(version);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps edited source gaps when an empty caret paragraph sits before a middle rule', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '\nFirst\n\n\n\nSecond\n  \n---\n\nLast\n');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      sync.dispatch(sync.state.tr.insertText('!', 6));
+      const edited = model.getValue();
+      expect(edited).toBe('\nFirst!\n\n\n\nSecond\n  \n---\n\nLast\n');
+      const version = model.getVersionId();
+      let rule = -1;
+      sync.state.doc.forEach((node, offset) => {
+        if (node.type.name === 'horizontal_rule') rule = offset;
+      });
+      const caret = createMarkdownCaretParagraph(sync.state.schema.nodes.paragraph);
+      sync.dispatch(sync.state.tr.insert(rule, caret).setMeta('addToHistory', false));
+      expect(sync.state.doc.childCount).toBe(5);
+      expect(model.getValue()).toBe(edited);
+      expect(model.getVersionId()).toBe(version);
     } finally {
       sync.dispose();
       model.dispose();

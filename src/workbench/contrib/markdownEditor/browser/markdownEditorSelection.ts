@@ -1,10 +1,26 @@
-import type { Node } from 'prosemirror-model';
-import { TextSelection } from 'prosemirror-state';
+import type { Node, NodeType } from 'prosemirror-model';
+import { PluginKey, TextSelection } from 'prosemirror-state';
 import type { Selection } from 'prosemirror-state';
 import type { IParsedMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
 import type { ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
+
+export const markdownCaretParagraphKey = new PluginKey('markdownCaretParagraph');
+
+// A paragraph keeps its attrs through edits and undo. Give each caret paragraph its own attrs
+// so an empty caret can be skipped without skipping authored paragraphs.
+const caretParagraphs = new WeakSet<Node['attrs']>();
+
+export function createMarkdownCaretParagraph(type: NodeType): Node {
+  const paragraph = type.create({});
+  caretParagraphs.add(paragraph.attrs);
+  return paragraph;
+}
+
+export function isEmptyMarkdownCaretParagraph(node: Node): boolean {
+  return node.childCount === 0 && caretParagraphs.has(node.attrs);
+}
 
 interface Range {
   readonly from: number;
@@ -28,8 +44,10 @@ function mapBlocks(model: ITextModel, doc: Node, parsed?: IParsedMarkdown): Bloc
   });
 
   const blocks: Block[] = [];
-  doc.forEach((node, offset, index) => {
-    const range = sourceBlocks[index];
+  let index = 0;
+  doc.forEach((node, offset) => {
+    if (isEmptyMarkdownCaretParagraph(node)) return;
+    const range = sourceBlocks[index++];
     if (!range) {
       return;
     }
@@ -68,16 +86,36 @@ function mapPosition(blocks: readonly Block[], value: number, from: 'document' |
   }
   const text = block.text.find(item => value <= item[from].to) ?? block.text.at(-1);
   if (!text) {
-    return block[to].from;
+    // A position after the last mapped block, such as an empty paragraph below a final rule, follows that block.
+    return value >= block[from].to ? block[to].to : block[to].from;
   }
   const delta = Math.max(0, Math.min(value, text[from].to) - text[from].from);
   return text[to].from + delta;
 }
 
+function mapSourcePosition(doc: Node, blocks: readonly Block[], value: number): number {
+  const last = blocks.at(-1);
+  if (last && value < last.document.to && isEmptyMarkdownCaretParagraph(doc.resolve(value).parent)) {
+    // A display-only paragraph before a block has no source line. Land in nearby text so typing
+    // after switching modes cannot prefix a Markdown delimiter such as a horizontal rule.
+    let previous: number | undefined;
+    for (const block of blocks) {
+      if (block.document.from > value) {
+        const at = previous ?? block.text[0]?.source.from;
+        if (at !== undefined) return at;
+      } else {
+        previous = block.text.at(-1)?.source.to ?? previous;
+      }
+    }
+    return last.source.to;
+  }
+  return mapPosition(blocks, value, 'document', 'source');
+}
+
 export function toSourceSelection(model: ITextModel, doc: Node, from: number, to: number): ITextEditorSelection {
   const blocks = mapBlocks(model, doc);
-  const start = model.getPositionAt(mapPosition(blocks, from, 'document', 'source'));
-  const end = model.getPositionAt(mapPosition(blocks, to, 'document', 'source'));
+  const start = model.getPositionAt(mapSourcePosition(doc, blocks, from));
+  const end = model.getPositionAt(mapSourcePosition(doc, blocks, to));
   return { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column };
 }
 

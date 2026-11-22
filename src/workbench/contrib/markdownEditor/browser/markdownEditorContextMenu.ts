@@ -13,7 +13,7 @@ import { IContextMenuService } from '../../../../platform/contextview/browser/co
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { markdownSelectionFormattingGroup } from '../common/markdownEditor.js';
-import { markdownGutterSelection } from './markdownEditorGutter.js';
+import { markdownGutterCaretTransaction, syncReadOnlyMarkdownSelection } from './markdownEditorGutter.js';
 
 // These keys retain the browser's trusted clipboard events. The command IDs also let
 // the menu offer the same operations when no native keyboard event is available.
@@ -60,6 +60,12 @@ export function setMarkdownContextSelection(
   surface: HTMLElement, view: EditorView, event: MouseEvent, hit: ReturnType<EditorView['posAtCoords']>,
 ): void {
   const { doc, schema, selection } = view.state;
+  const gutter = markdownGutterCaretTransaction(surface, view, event);
+  if (gutter) {
+    if (gutter.docChanged || !selection.eq(gutter.selection)) view.dispatch(gutter);
+    if (!view.editable) syncReadOnlyMarkdownSelection(view);
+    return;
+  }
   const inside = hit?.inside ?? -1;
   const node = view.editable && inside >= 0 ? doc.nodeAt(inside) : null;
   if (node && node.type === schema.nodes.image && NodeSelection.isSelectable(node)) {
@@ -67,8 +73,7 @@ export function setMarkdownContextSelection(
     return;
   }
   const at = doc.resolve(hit?.pos ?? selection.head);
-  const next = markdownGutterSelection(surface, view, event)
-    ?? (event.clientY < view.dom.getBoundingClientRect().top ? Selection.atStart(doc) : TextSelection.between(at, at));
+  const next = event.clientY < view.dom.getBoundingClientRect().top ? Selection.atStart(doc) : TextSelection.between(at, at);
   if (!view.editable) {
     // A read-only view only syncs a native selection that is already inside it, so place that one first.
     const { node, offset } = view.domAtPos(next.head);
