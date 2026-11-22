@@ -1,7 +1,7 @@
 import { closeHistory, history, isHistoryTransaction, redo, redoDepth, undo, undoDepth } from 'prosemirror-history';
 import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
-import { EditorState, TextSelection } from 'prosemirror-state';
+import { EditorState, Selection, TextSelection } from 'prosemirror-state';
 import type { Command, Plugin, Transaction } from 'prosemirror-state';
 import { Mapping, StepMap } from 'prosemirror-transform';
 import type { Step } from 'prosemirror-transform';
@@ -11,7 +11,9 @@ import type { IMarkdownSourceBlock, IParsedMarkdown } from '../../../../editor/c
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
 import { getTextModelEdit } from '../../../../editor/common/model.js';
 import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
-import { isEmptyMarkdownCaretParagraph } from './markdownEditorSelection.js';
+import {
+  authorMarkdownCaretParagraph, isEmptyMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide,
+} from './markdownEditorSelection.js';
 
 interface SourceDocument {
   readonly doc: Node;
@@ -88,11 +90,79 @@ function withoutUnwrittenParagraphs(doc: Node, source: Node): Node {
   return content === doc.content ? doc : doc.copy(content);
 }
 
+interface CaretParagraph {
+  readonly pos: number;
+  readonly node: Node;
+  readonly side: -1 | 1;
+}
+
+function selectedCaretParagraph(state: EditorState): CaretParagraph | undefined {
+  const { $head } = state.selection;
+  const side = markdownCaretParagraphSide($head.parent);
+  if ($head.depth === 1 && side !== undefined) {
+    return { pos: $head.before(), node: $head.parent, side };
+  }
+}
+
+/** Find the same source block and return the boundary on the originally clicked side. */
+function remapCaretGap(
+  caret: CaretParagraph, oldDoc: Node, newDoc: Node,
+  before?: IParsedMarkdown, matches?: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>,
+): number | undefined {
+  const $gap = oldDoc.resolve(caret.pos);
+  const target = caret.side === 1 ? $gap.nodeBefore : $gap.nodeAfter;
+  if (!target) return;
+  const from = caret.side === 1 ? caret.pos - target.nodeSize : caret.pos;
+  const oldBlock = before?.blocks.find(block => block.from === from);
+  if (oldBlock && matches) {
+    const match = matches.get(oldBlock)?.block;
+    const updated = match && newDoc.nodeAt(match.from);
+    if (match && updated && (target.isLeaf ? updated.type === target.type : target.eq(updated))) {
+      return caret.side === 1 ? match.to : match.from;
+    }
+    // An edit that rewrote the block's own text, such as a minimal reload diff spanning it,
+    // leaves no surviving range even when an equal block remains. Look for it below.
+  }
+
+  // When the ranges cannot establish a match, a unique equal block can still be found
+  // anywhere. Repeated blocks must also lie in an unchanged prefix or suffix.
+  let oldCount = 0;
+  let newCount = 0;
+  let candidate = 0;
+  oldDoc.forEach(node => { if (node.eq(target)) oldCount++; });
+  newDoc.forEach((node, pos) => {
+    if (node.eq(target)) {
+      newCount++;
+      candidate = pos;
+    }
+  });
+  if (oldCount !== newCount) return;
+  if (newCount > 1) {
+    const start = oldDoc.content.findDiffStart(newDoc.content);
+    const end = oldDoc.content.findDiffEnd(newDoc.content);
+    if (start === null || from + target.nodeSize <= start) {
+      candidate = from;
+    } else if (end && from >= end.a) {
+      candidate = from + end.b - end.a;
+    } else {
+      return;
+    }
+  }
+  const updated = newDoc.nodeAt(candidate);
+  if (updated && target.eq(updated)) {
+    return caret.side === 1 ? candidate + target.nodeSize : candidate;
+  }
+}
+
 function appendChangedRange(ranges: number[], start: number, end: { a: number; b: number }): void {
   // Equal prefixes and suffixes can overlap for repeated text.
   const overlap = Math.max(0, start - Math.min(end.a, end.b));
   ranges.push(start, end.a + overlap - start, end.b + overlap - start);
 }
+
+// A deferred edit inside a temporarily detached caret can skip the source changes
+// between this removal and its mirrored reinsertion.
+class CaretParagraphRemovalMap extends StepMap {}
 
 class SourceBatchMap extends StepMap {
   constructor(ranges: number[], private readonly unmatched: readonly { from: number; to: number }[]) {
@@ -113,13 +183,13 @@ interface SourceBlockMatch {
 
 function sourceBlockMatches(
   before: IParsedMarkdown, after: IParsedMarkdown, previous: string, next: string, changes: readonly IModelContentChange[],
-): ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null> {
+): ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null> | undefined {
   const forward = new Map<IMarkdownSourceBlock, SourceBlockMatch | null>();
   const backward = new Map<IMarkdownSourceBlock, IMarkdownSourceBlock | null>();
   const ordered = (blocks: readonly IMarkdownSourceBlock[]) =>
     blocks.every((block, index) => index === 0 || blocks[index - 1].endOffset <= block.startOffset);
   if (!ordered(before.blocks) || !ordered(after.blocks)) {
-    return forward;
+    return;
   }
   let oldIndex = 0;
   let newIndex = 0;
@@ -162,14 +232,14 @@ function sourceBlockMatches(
     const newEnd = newStart + rangeOffset - oldStart;
     if (rangeOffset < oldStart || previous.slice(oldStart, rangeOffset) !== next.slice(newStart, newEnd) ||
         !next.startsWith(text, newEnd)) {
-      return new Map();
+      return;
     }
     matchUnchanged(rangeOffset);
     oldStart = rangeOffset + rangeLength;
     newStart = newEnd + text.length;
   }
   if (previous.slice(oldStart) !== next.slice(newStart)) {
-    return new Map();
+    return;
   }
   matchUnchanged(previous.length);
   // A split or merge has surviving text in more than one block on at least one side.
@@ -183,9 +253,8 @@ function sourceBlockMatches(
 
 function sourceBatchChangeMap(
   doc: Node, before: IParsedMarkdown, after: IParsedMarkdown,
-  previous: string, next: string, changes: readonly IModelContentChange[],
+  matches?: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>,
 ): StepMap {
-  const matches = doc.eq(before.doc) ? sourceBlockMatches(before, after, previous, next, changes) : undefined;
   const oldBlocks = new Map(before.blocks.map(block => [block.from, block]));
   const newNodes = new Map<number, Node>();
   after.doc.forEach((node, offset) => newNodes.set(offset, node));
@@ -248,10 +317,19 @@ function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null
   if (!mapped) {
     return null;
   }
-  for (let index = firstBatch; index < remap.to; index++) {
+  let removedCaret: number | undefined;
+  for (let index = start; index < remap.to; index++) {
     const batch = remap.maps[index];
-    if (!(batch instanceof SourceBatchMap)) {
-      continue;
+    if (batch instanceof CaretParagraphRemovalMap) removedCaret = index;
+    if (!(batch instanceof SourceBatchMap)) continue;
+    if (removedCaret !== undefined && (remap.getMirror(removedCaret) ?? -1) > index) {
+      const beforeCaret = remap.slice(start, removedCaret);
+      const removal = remap.maps[removedCaret];
+      // `deleted` holds exactly for the positions the mirrored reinsertion recovers, including
+      // the paragraph's own boundaries on their inner side.
+      if (positions.every(({ pos, assoc }) => removal.mapResult(beforeCaret.map(pos, assoc), assoc).deleted)) {
+        continue;
+      }
     }
     const before = remap.slice(start, index);
     let from = Infinity;
@@ -398,14 +476,13 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   dispatch(transaction: Transaction, isolate = false): void {
-    if (!this.shouldDeferEdit()) {
-      this.applyDispatch(transaction, isolate);
+    if (isHistoryTransaction(transaction)) {
+      // Recompute native beforeinput history against the current source and without a temporary caret.
+      this.runCommand(transaction.getMeta(markdownHistory).redo ? redo : undo);
       return;
     }
-    if (isHistoryTransaction(transaction)) {
-      // ProseMirror's native beforeinput history handler dispatches a history transaction as well.
-      // Its history state was computed before the pending change, so rerun the command.
-      this.runCommand(transaction.getMeta(markdownHistory).redo ? redo : undo);
+    if (!this.shouldDeferEdit()) {
+      this.applyDispatch(transaction, isolate);
       return;
     }
     const before = this.state;
@@ -425,7 +502,15 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   private runCommand(command: Command, isolate = false): boolean {
-    const run = () => command(this.state, transaction => this.applyDispatch(transaction, isolate));
+    const run = () => {
+      const caret = command === undo || command === redo ? selectedCaretParagraph(this.state) : undefined;
+      if (caret && command(this.state)) {
+        const mapping = new Mapping();
+        this.removeCaretParagraph(caret, mapping);
+        this.mapDeferredEdits(mapping);
+      }
+      return command(this.state, transaction => this.applyDispatch(transaction, isolate));
+    };
     if (!this.shouldDeferEdit()) {
       return run();
     }
@@ -468,19 +553,28 @@ export class MarkdownEditorModel extends Disposable {
       }
       remap.appendMap(step.getMap(), transaction.steps.length - 1 - index);
     }
+    this.copyTransactionState(transaction, rebased, remap.slice(), over);
+    return rebased;
+  }
+
+  private copyTransactionState(
+    transaction: Transaction, copy: Transaction, selection: Mapping, over: Mapping, inputRulesTransform = copy,
+  ): void {
     if (transaction.selectionSet) {
-      rebased.setSelection(transaction.selection.map(rebased.doc, remap.slice()));
+      copy.setSelection(transaction.selection.map(copy.doc, selection));
     }
     if (transaction.storedMarksSet) {
-      rebased.setStoredMarks(transaction.storedMarks);
+      copy.setStoredMarks(transaction.storedMarks);
     }
     if (transaction.scrolledIntoView) {
-      rebased.scrollIntoView();
+      copy.scrollIntoView();
     }
+    const caret = transaction.getMeta(markdownCaretParagraphKey);
+    if (caret) copy.setMeta(markdownCaretParagraphKey, true);
     for (const key of ['addToHistory', 'uiEvent', 'paste', 'pointer', 'composition']) {
       const value = transaction.getMeta(key);
       if (value !== undefined) {
-        rebased.setMeta(key, value);
+        copy.setMeta(key, value);
       }
     }
     for (const plugin of this.plugins) {
@@ -491,19 +585,96 @@ export class MarkdownEditorModel extends Disposable {
       if (plugin.spec.isInputRules) {
         const from = over.map(value.from, 1);
         const to = Math.max(from, over.map(value.to, -1));
-        rebased.setMeta(plugin, { ...value, transform: rebased, from, to });
+        copy.setMeta(plugin, { ...value, transform: inputRulesTransform, from, to });
       } else {
-        rebased.setMeta(plugin, value);
+        copy.setMeta(plugin, value);
       }
     }
-    return rebased;
+  }
+
+  private removeCaretParagraph(caret: CaretParagraph, mapping: Mapping): void {
+    const tr = this.state.tr.delete(caret.pos, caret.pos + caret.node.nodeSize);
+    const gap = tr.doc.resolve(caret.pos);
+    const { selection, storedMarks } = this.state;
+    if (selection.empty) {
+      tr.setSelection(TextSelection.between(gap, gap, caret.side));
+      if (storedMarks && tr.selection.$head.parent.inlineContent) tr.setStoredMarks(storedMarks);
+    } else if (selection instanceof TextSelection) {
+      // Plain mapping would collapse the range or select the target block. Keep the anchor and
+      // move the head to text on the paragraph's side of the gap, away from the target block.
+      const head = Selection.findFrom(gap, caret.side, true) ?? Selection.findFrom(gap, -caret.side, true);
+      if (head) tr.setSelection(TextSelection.between(tr.doc.resolve(tr.mapping.map(selection.anchor)), head.$head));
+    }
+    const removal = new CaretParagraphRemovalMap([caret.pos, caret.node.nodeSize, 0]);
+    this.applyState(tr.setMeta('addToHistory', false), mapping, { map: removal });
+  }
+
+  private removeUnusedCaretParagraphs(mapping: Mapping): void {
+    const { state } = this;
+    const active = selectedCaretParagraph(state);
+    const tr = state.tr;
+    const { selection } = state;
+    let anchorSide: -1 | 1 | undefined;
+    state.doc.forEach((node, pos) => {
+      const side = pos === active?.pos ? undefined : markdownCaretParagraphSide(node);
+      if (side !== undefined) {
+        if (pos < selection.anchor && selection.anchor < pos + node.nodeSize) anchorSide = side;
+        const from = tr.mapping.map(pos);
+        tr.delete(from, from + node.nodeSize);
+      }
+    });
+    if (!tr.docChanged) return;
+    if (selection instanceof TextSelection && !selection.empty) {
+      const anchor = tr.doc.resolve(tr.mapping.map(selection.anchor));
+      const head = tr.doc.resolve(tr.mapping.map(selection.head));
+      // Keep an extended selection when its old anchor was inside the retired paragraph. Its
+      // replacement lies on the paragraph's side of the gap, so the target block is not pulled in.
+      const outside = anchor.parent.inlineContent ? anchor
+        : Selection.findFrom(anchor, anchorSide ?? (selection.anchor < selection.head ? -1 : 1), true)?.$head ?? anchor;
+      tr.setSelection(TextSelection.between(outside, head));
+    }
+    this.applyState(tr.setMeta('addToHistory', false), mapping);
+  }
+
+  private editsCaretParagraph(transaction: Transaction, caret: CaretParagraph): boolean {
+    const { doc, mapping } = transaction;
+    const inside = caret.pos + 1;
+    return doc.nodeAt(mapping.map(caret.pos, 1)) !== caret.node
+      || mapping.map(inside, -1) !== mapping.map(inside, 1);
   }
 
   private applyDispatch(transaction: Transaction, isolate: boolean): void {
     isolate ||= transaction.getMeta('uiEvent') === 'paste' || transaction.getMeta('uiEvent') === 'drop';
     const previousDoc = this.state.doc;
-    this.applyTransaction(transaction, isolate);
-    if (previousDoc !== this.state.doc) {
+    const caret = selectedCaretParagraph(this.state);
+    const mapping = new Mapping();
+    let displayOnly = transaction.getMeta(markdownCaretParagraphKey) === true;
+    let firstMap: { map: StepMap; mirror?: number } | undefined;
+    if (caret && transaction.docChanged && !displayOnly && this.editsCaretParagraph(transaction, caret)) {
+      displayOnly = withoutUnwrittenParagraphs(previousDoc, this.sourceDoc.doc)
+        .eq(withoutUnwrittenParagraphs(transaction.doc, this.sourceDoc.doc));
+      if (displayOnly) {
+        transaction.setMeta('addToHistory', false);
+      } else {
+        // History starts with the authored insertion. Undo can remove the whole paragraph,
+        // and Redo has an insertion to replay even after the cursor has moved.
+        this.removeCaretParagraph(caret, mapping);
+        authorMarkdownCaretParagraph(caret.node);
+        const authored = this.state.tr.insert(caret.pos, caret.node).setTime(transaction.time);
+        for (const step of transaction.steps) authored.step(step);
+        const identity = new Mapping();
+        // Setting a selection clears stored marks, so place it before copying the transaction's marks.
+        if (!transaction.selectionSet) authored.setSelection(transaction.selection.map(authored.doc, identity));
+        this.copyTransactionState(transaction, authored, identity, identity, transaction);
+        transaction = closeHistory(authored);
+        firstMap = { map: authored.mapping.maps[0], mirror: 0 };
+      }
+    }
+    this.applyTransaction(transaction, isolate && !displayOnly, mapping, firstMap);
+    const changedDocument = this.state.doc !== previousDoc;
+    if (caret || displayOnly) this.removeUnusedCaretParagraphs(mapping);
+    this.mapDeferredEdits(mapping);
+    if (changedDocument && !displayOnly) {
       const fromHistory = isHistoryTransaction(transaction);
       const snapshot = fromHistory ? this.snapshots.get(this.state.doc.content) : undefined;
       if (snapshot) {
@@ -576,29 +747,33 @@ export class MarkdownEditorModel extends Disposable {
       && range.endLineNumber === edit.range.endLineNumber && range.endColumn === edit.range.endColumn;
   }
 
-  private applyTransaction(transaction: Transaction, isolate: boolean, externalMap?: StepMap): void {
+  private applyTransaction(
+    transaction: Transaction, isolate: boolean, mapping: Mapping, firstMap?: { map: StepMap; mirror?: number },
+  ): void {
     isolate &&= transaction.docChanged;
-    this.applyState(isolate ? closeHistory(transaction) : transaction, externalMap);
+    this.applyState(isolate ? closeHistory(transaction) : transaction, mapping, firstMap);
     if (isolate) {
-      this.applyState(closeHistory(this.state.tr));
+      this.applyState(closeHistory(this.state.tr), mapping);
     }
   }
 
-  private applyState(transaction: Transaction, externalMap?: StepMap): void {
+  private applyState(transaction: Transaction, mapping: Mapping, firstMap?: { map: StepMap; mirror?: number }): void {
     const { state, transactions } = this.state.applyTransaction(transaction);
     this.state = state;
-    this.mapDeferredEdits(transactions, transactions.length ? externalMap : undefined);
+    for (const applied of transactions) {
+      if (applied === transaction && firstMap) {
+        mapping.appendMap(firstMap.map, firstMap.mirror);
+        mapping.appendMapping(applied.mapping.slice(1));
+      } else {
+        mapping.appendMapping(applied.mapping);
+      }
+    }
   }
 
-  private mapDeferredEdits(transactions: readonly Transaction[], externalMap?: StepMap): void {
+  private mapDeferredEdits(change: Mapping): void {
     for (const { owner, mapping } of this.deferred.pending) {
       if (owner === this && mapping) {
-        if (externalMap) {
-          mapping.appendMap(externalMap);
-        }
-        for (let index = externalMap ? 1 : 0; index < transactions.length; index++) {
-          mapping.appendMapping(transactions[index].mapping);
-        }
+        mapping.appendMapping(change);
       }
     }
   }
@@ -608,60 +783,89 @@ export class MarkdownEditorModel extends Disposable {
     // If the writer changed the edit, the rich state represents the intended text. The event's
     // ranges describe a different starting text, so use a full parse for the actual result.
     const previous = expectedWrite ?? this.lastSource;
-    const hasDeferredMapping = this.deferred.pending.length > 0 && this.deferred.pending.some(edit => edit.owner === this && edit.mapping);
-    const batch = hasDeferredMapping && expectedWrite === undefined && event && !event.isFlush && event.changes.length > 1
-      ? event.changes : undefined;
+    const hasDeferredMapping = this.deferred.pending.some(edit => edit.owner === this && edit.mapping);
+    const changes = expectedWrite === undefined && event && !event.isFlush ? event.changes : undefined;
+    const caret = selectedCaretParagraph(this.state);
+    const batch = (hasDeferredMapping || caret) && changes && changes.length > 1 ? changes : undefined;
     if (next === previous && !batch) {
       return;
     }
-    const { state } = this;
-    const source = next === previous ? this.sourceDoc
+    const updatedSource = next === previous ? this.sourceDoc
       : (event && expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
+    const mapping = new Mapping();
+    const { selection, storedMarks } = this.state;
+    // The source change's history snapshots contain only source blocks. If its anchor survives,
+    // restore the temporary paragraph at the new gap after recording the external edit.
+    if (caret) this.removeCaretParagraph(caret, mapping);
+    const { state } = this;
+    const doc = next === previous ? state.doc : updatedSource.doc;
+    let before: IParsedMarkdown | undefined;
+    let matches: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null> | undefined;
     let externalMap: StepMap | undefined;
-    if (batch) {
+    if (changes && (batch || caret)) {
       const original = getOriginalMarkdown(this.sourceDoc.doc);
       // A rich write or incremental paragraph edit may have left older parser ranges.
-      const before = original?.source === previous ? original.parsed : parseMarkdownWithSource(previous);
-      const after = next === previous ? before : getOriginalMarkdown(source.doc)!.parsed;
-      externalMap = sourceBatchChangeMap(state.doc, before, after, previous, next, batch);
-    }
-    if (next === previous) {
-      // A batch can replace a paragraph with identical text while a different copy survives.
-      // Rebase over the move without adding a no-op source change to history.
-      this.mapDeferredEdits([], externalMap);
-      return;
-    }
-    const doc = source.doc;
-    this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });
-    this.lastSource = next;
-    const start = state.doc.content.findDiffStart(doc.content);
-    const end = state.doc.content.findDiffEnd(doc.content);
-    this.sourceDoc = source;
-    this.serializerProvenance = undefined;
-    // The replacement keeps exact source states in history, including spelling-only changes.
-    // For a local paragraph edit both slices share every untouched block.
-    const transaction = state.tr.replaceWith(0, state.doc.content.size, doc.content);
-    this.snapshots.set(transaction.doc.content, { text: next, provenance: source });
-    const map = (pos: number) => {
-      if (start === null || end === null || pos <= start) {
-        return pos;
+      const parsed = original?.source === previous ? original.parsed : parseMarkdownWithSource(previous);
+      const after = next === previous ? parsed : getOriginalMarkdown(doc)?.parsed ?? parseMarkdownWithSource(next);
+      if (state.doc.eq(parsed.doc)) {
+        before = parsed;
+        matches = sourceBlockMatches(parsed, after, previous, next, changes);
       }
-      return pos >= end.a ? Math.max(start, pos + end.b - end.a) : Math.max(start, end.b);
-    };
-    const anchor = transaction.doc.resolve(map(state.selection.anchor));
-    const head = transaction.doc.resolve(map(state.selection.head));
-    transaction.setSelection(TextSelection.between(anchor, head));
-    // History needs the full replacement above to retain source snapshots. Deferred edits need
-    // only the changed positions.
-    if (hasDeferredMapping && !externalMap) {
+      if (hasDeferredMapping && batch) {
+        externalMap = sourceBatchChangeMap(state.doc, parsed, after, matches);
+      }
+    }
+    const caretGap = caret && remapCaretGap(caret, state.doc, doc, before, matches);
+    let afterSource = mapping.maps.length;
+    if (next !== previous) {
+      this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });
+      this.lastSource = next;
+      this.sourceDoc = updatedSource;
+      this.serializerProvenance = undefined;
+      const start = state.doc.content.findDiffStart(doc.content);
+      const end = state.doc.content.findDiffEnd(doc.content);
       const ranges: number[] = [];
-      if (start !== null && end !== null) {
-        appendChangedRange(ranges, start, end);
+      if (start !== null && end !== null) appendChangedRange(ranges, start, end);
+      const diff = new StepMap(ranges);
+      // Keep the exact source fragments in history, including spelling-only changes.
+      // Queued rich edits and the visible selection should move by the changed positions.
+      const transaction = state.tr.replaceWith(0, state.doc.content.size, doc.content);
+      this.snapshots.set(transaction.doc.content, { text: next, provenance: updatedSource });
+      if (caret && selection.empty) {
+        const gap = transaction.doc.resolve(diff.map(caret.pos, caret.side === 1 ? -1 : 1));
+        transaction.setSelection(TextSelection.between(gap, gap, caret.side));
+      } else if (state.selection.empty && !(state.selection instanceof TextSelection)) {
+        // A read-only caret between atoms maps itself. TextSelection.between would select an atom.
+        transaction.setSelection(state.selection.map(transaction.doc, diff));
+      } else {
+        const map = (pos: number) => {
+          if (start === null || end === null || pos <= start) return pos;
+          return pos >= end.a ? Math.max(start, pos + end.b - end.a) : Math.max(start, end.b);
+        };
+        const anchor = transaction.doc.resolve(map(state.selection.anchor));
+        const head = transaction.doc.resolve(map(state.selection.head));
+        transaction.setSelection(TextSelection.between(anchor, head));
       }
-      externalMap = new StepMap(ranges);
+      afterSource++;
+      this.applyTransaction(transaction, true, mapping, { map: externalMap ?? diff });
+    } else if (externalMap) {
+      // Identical text can hide a batch that removed one copy and left another in its place.
+      // Rebase without adding a no-op source step to history.
+      mapping.appendMap(externalMap);
+      afterSource++;
     }
-    this.applyTransaction(transaction, true, externalMap);
-    this.onStateChange(this.state);
+    if (caret && caretGap !== undefined) {
+      const gap = mapping.slice(afterSource).map(caretGap, caret.side === 1 ? -1 : 1);
+      const tr = this.state.tr.insert(gap, caret.node);
+      const anchor = selection.empty ? gap + 1 : tr.mapping.map(mapping.map(selection.anchor));
+      tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(gap + 1)));
+      if (storedMarks && tr.selection.empty) tr.setStoredMarks(storedMarks);
+      // Mirror removal and reinsertion so an edit flushed by the DOM observer still targets
+      // the inside of this paragraph. With no surviving anchor, that edit maps to a deletion.
+      this.applyState(tr.setMeta('addToHistory', false), mapping, { map: tr.mapping.maps[0], mirror: 0 });
+    }
+    this.mapDeferredEdits(mapping);
+    if (next !== previous || caret) this.onStateChange(this.state);
   }
 
   private updatePlainParagraph(event: IModelContentChangedEvent, next: string): SourceDocument | undefined {

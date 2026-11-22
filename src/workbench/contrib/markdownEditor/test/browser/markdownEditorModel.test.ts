@@ -2,17 +2,28 @@ import { toggleMark } from 'prosemirror-commands';
 import { undo } from 'prosemirror-history';
 import { InputRule, inputRules, undoInputRule } from 'prosemirror-inputrules';
 import type { EditorState } from 'prosemirror-state';
-import { TextSelection } from 'prosemirror-state';
+import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { describe, expect, it, vi } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
-import { createMarkdownCaretParagraph } from '../../browser/markdownEditorSelection.js';
+import { createMarkdownCaretParagraph, markdownCaretParagraphKey } from '../../browser/markdownEditorSelection.js';
 
 function editLine(model: TestTextModel, line: number, startColumn: number, endColumn: number, text: string): void {
   model.applyEdits([{ range: { startLineNumber: line, startColumn, endLineNumber: line, endColumn }, text }]);
+}
+
+function placeRuleCaret(sync: MarkdownEditorModel, index: number, side: -1 | 1): void {
+  const { state } = sync;
+  const rule = state.doc.child(index);
+  expect(rule.type.name).toBe('horizontal_rule');
+  let gap = side === 1 ? rule.nodeSize : 0;
+  for (let before = 0; before < index; before++) gap += state.doc.child(before).nodeSize;
+  const tr = state.tr.insert(gap, createMarkdownCaretParagraph(state.schema.nodes.paragraph, side));
+  sync.dispatch(tr.setSelection(TextSelection.create(tr.doc, gap + 1))
+    .setMeta(markdownCaretParagraphKey, true).setMeta('addToHistory', false));
 }
 
 describe('MarkdownEditorModel', () => {
@@ -684,6 +695,273 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
+  it.each([
+    { where: 'after the final rule', original: 'First\n\n---\n', side: 1, written: 'First!\n\n---\n\nAdded\n' },
+    { where: 'before a middle rule', original: 'First\n\n---\n\nLast\n', side: -1, written: 'First!\n\nAdded\n\n---\n\nLast\n' },
+  ] as const)('writes $where after an external paragraph edit and replays both history events', ({ original, side, written }) => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, side);
+      expect(model.getVersionId()).toBe(1);
+      expect(sync.canUndo).toBe(false);
+      editLine(model, 1, 6, 6, '!');
+      const externallyEdited = original.replace('First', 'First!');
+      expect(sync.state.selection.$head.parent.textContent).toBe('');
+      expect(model.getVersionId()).toBe(2);
+      sync.dispatch(sync.state.tr.insertText('Added'));
+      expect(model.getValue()).toBe(written);
+      expect(model.getVersionId()).toBe(3);
+
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(externallyEdited);
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(externallyEdited);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe(written);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('moves to surviving text when the targeted rule is deleted, even with another identical rule', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast\n\n---\n');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 3, 1);
+      model.applyEdits([{ range: { startLineNumber: 7, startColumn: 1, endLineNumber: 8, endColumn: 1 }, text: '' }]);
+      expect(sync.state.doc.eq(parseMarkdownWithSource(model.getValue()).doc)).toBe(true);
+      expect(sync.state.selection.$head.parent.textContent).toBe('Last');
+      sync.dispatch(sync.state.tr.insertText('!'));
+      expect(model.getValue()).toBe('First\n\n---\n\nLast!\n\n');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('rebases input from a temporary caret flushed during an external source change', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---');
+    let sync: MarkdownEditorModel;
+    sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      sync.dispatch(sync.state.tr.insertText('Added').setMeta('composition', 1));
+    });
+    try {
+      placeRuleCaret(sync, 1, 1);
+      editLine(model, 1, 1, 1, 'Changed ');
+      expect(model.getValue()).toBe('Changed First\n\n---\n\nAdded');
+      expect(sync.state.selection.$head.parent.textContent).toBe('Added');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('Changed First\n\n---');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('preserves a final caret when the source is fully reloaded and undo removes only the reload', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast\n\n---');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 3, 1);
+      model.setValue('Changed\n\n---\n\nLast\n\n---');
+      expect(sync.state.selection.$head.parent).toBe(sync.state.doc.lastChild);
+      expect(sync.state.doc.lastChild?.type.name).toBe('paragraph');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe('First\n\n---\n\nLast\n\n---');
+      expect(sync.state.doc.lastChild?.type.name).toBe('horizontal_rule');
+      expect(sync.canUndo).toBe(false);
+      expect(sync.redo()).toBe(true);
+      expect(model.getValue()).toBe('Changed\n\n---\n\nLast\n\n---');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([true, false])('rebases a queued caret edit in a source batch if the rule survives (%s)', keepRule => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      sync.dispatch(sync.state.tr.insertText('Added').setMeta('composition', 1));
+    });
+    try {
+      placeRuleCaret(sync, 1, 1);
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, text: 'Altered' },
+        { range: { startLineNumber: keepRule ? 5 : 3, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
+      ]);
+      // Current behavior (backlog wr-d821) discards flushed input when the rule is removed.
+      expect(model.getValue()).toBe(keepRule ? 'Altered\n\n---\n\nAdded\n\nReplaced' : 'Altered\n\nReplaced');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps an extended range when its anchor leaves with the temporary paragraph', () => {
+    const original = 'First\n\n---\n\nLast';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, -1);
+      const { doc, selection, tr } = sync.state;
+      sync.dispatch(tr.setSelection(TextSelection.create(doc, selection.anchor, doc.content.size - 1)));
+      expect(sync.state.doc.eq(parseMarkdownWithSource(original).doc)).toBe(true);
+      expect(sync.state.selection.$anchor.parent.textContent).toBe('First');
+      expect(sync.state.selection.$head.parent.textContent).toBe('Last');
+      expect(model.getVersionId()).toBe(1);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([
+    { side: 1, head: 'Last', removed: 'First\n\n---\n\nst' },
+    { side: -1, head: 'First', removed: 'Fi\n\n---\n\nLast' },
+  ] as const)('leaves the target rule out when a range leaves the temporary paragraph ($side)', ({ side, head, removed }) => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, side);
+      const { doc, selection, tr } = sync.state;
+      // Extend away from the rule: down into Last below it, or up into First above it.
+      sync.dispatch(tr.setSelection(TextSelection.create(doc, selection.anchor, side === 1 ? selection.anchor + 4 : 3)));
+      expect(sync.state.selection.$anchor.parent.textContent).toBe(head);
+      sync.dispatch(sync.state.tr.deleteSelection());
+      expect(model.getValue()).toBe(removed);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('restores a text range, not the rule, when undoing typing over a range ending in the temporary paragraph', () => {
+    const original = 'First\n\n---\n\nLast';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, -1);
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 3, sync.state.selection.head)));
+      sync.dispatch(sync.state.tr.insertText('X'));
+      expect(model.getValue()).toBe('FiX\n\n---\n\nLast');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.state.selection).toBeInstanceOf(TextSelection);
+      sync.dispatch(sync.state.tr.insertText('Y'));
+      expect(model.getValue()).toBe('FiY\n\n---\n\nLast');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps the range anchor when an external change leaves no gap for the temporary paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nMid\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 2, -1);
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 2, sync.state.selection.head)));
+      model.applyEdits([{ range: { startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 4 }, text: '***' }]);
+      expect(sync.state.selection.anchor).toBe(2);
+      expect(sync.state.selection.$head.parent.textContent).toBe('Mid');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('rebases a queued replacement of the whole temporary paragraph over a source batch', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      const { state } = sync;
+      const { $head } = state.selection;
+      const paragraph = state.schema.nodes.paragraph.create(null, state.schema.text('Pasted'));
+      sync.dispatch(state.tr.replaceWith($head.before(), $head.after(), paragraph).setMeta('uiEvent', 'paste'));
+    });
+    try {
+      placeRuleCaret(sync, 1, 1);
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, text: 'Altered' },
+        { range: { startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
+      ]);
+      expect(model.getValue()).toBe('Altered\n\n---\n\nPasted\n\nReplaced');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps the temporary paragraph when one source edit rewrites the text around and over the rule', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      // A minimal reload diff starts in the first block and ends in the last one.
+      model.applyEdits([{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Primo\n\n---\n\nUltimo' }]);
+      expect(sync.state.selection.$head.parent.textContent).toBe('');
+      sync.dispatch(sync.state.tr.insertText('Added'));
+      expect(model.getValue()).toBe('Primo\n\n---\n\nAdded\n\nUltimo');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps stored marks set by the first input in the temporary paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      const { head } = sync.state.selection;
+      const strong = sync.state.schema.marks.strong.create();
+      sync.dispatch(sync.state.tr.insertText('A', head, head).setStoredMarks([strong]));
+      expect(sync.state.storedMarks).toEqual([strong]);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps a read-only caret between atoms through a source change', async () => {
+    await import('../../browser/markdownEditorGutter.js');
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '---');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const gap = Selection.fromJSON(sync.state.doc, { type: 'markdownReadOnlyGap', pos: 0 });
+      sync.dispatch(sync.state.tr.setSelection(gap));
+      model.applyEdits([{ range: { startLineNumber: 1, startColumn: 4, endLineNumber: 1, endColumn: 4 }, text: '\n\n***' }]);
+      expect(sync.state.selection).not.toBeInstanceOf(NodeSelection);
+      expect(sync.state.selection.empty).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps an empty split of the temporary paragraph out of the document history', () => {
+    const original = 'First\n\n---\n\nLast';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      sync.dispatch(sync.state.tr.split(sync.state.selection.head));
+      expect(sync.state.doc.childCount).toBe(4);
+      expect(sync.canUndo).toBe(false);
+      expect(model.getVersionId()).toBe(1);
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 1)));
+      expect(sync.state.doc.eq(parseMarkdownWithSource(original).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
   it('keeps edited source gaps when an empty paragraph is added after a final rule', () => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), '\nFirst\n\n\n\nSecond\n  \n---\n');
     const sync = new MarkdownEditorModel(model, [], () => {});
@@ -714,8 +992,10 @@ describe('MarkdownEditorModel', () => {
       sync.state.doc.forEach((node, offset) => {
         if (node.type.name === 'horizontal_rule') rule = offset;
       });
-      const caret = createMarkdownCaretParagraph(sync.state.schema.nodes.paragraph);
-      sync.dispatch(sync.state.tr.insert(rule, caret).setMeta('addToHistory', false));
+      const caret = createMarkdownCaretParagraph(sync.state.schema.nodes.paragraph, -1);
+      const tr = sync.state.tr.insert(rule, caret);
+      sync.dispatch(tr.setSelection(TextSelection.create(tr.doc, rule + 1))
+        .setMeta(markdownCaretParagraphKey, true).setMeta('addToHistory', false));
       expect(sync.state.doc.childCount).toBe(5);
       expect(model.getValue()).toBe(edited);
       expect(model.getVersionId()).toBe(version);
