@@ -180,10 +180,12 @@ function adaptBlockRules(
         const endOffset = offset + text.length;
         const afterLine = env.lines[token.map[1]];
         const closingPipe = text.endsWith('|') && text.at(-2) !== '\\';
-        rowBoundaries.set(token, {
-          start: text.startsWith('|') ? offset : env.lines[line] - 1,
-          end: closingPipe ? endOffset - 1 : afterLine === undefined ? undefined : afterLine - 1,
-        });
+        if (state.tokens[cursor + 1]?.type === 'td_open') {
+          rowBoundaries.set(token, {
+            start: text.startsWith('|') ? offset : env.lines[line] - 1,
+            end: closingPipe ? endOffset - 1 : afterLine === undefined ? undefined : afterLine - 1,
+          });
+        }
         cells = tableCellSources(text, offset, token.map);
         padding = { range: token.map, startOffset: endOffset, endOffset, tableCell: 'padding' };
         column = 0;
