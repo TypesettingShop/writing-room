@@ -3,6 +3,66 @@ import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
 
+test('restores the last Hangul syllable deleted by an IME reset before a click', async ({ appPage: page }) => {
+  const name = 'hangul-reset.md';
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, name, '안녕하세\n\nClick here');
+  await treeItem(page, name).dblclick();
+  const editor = groups(page).first().getByRole('textbox', { name: 'Markdown editor' });
+  const first = editor.locator('p').first();
+  const second = editor.locator('p').last();
+  await expect(first).toHaveText('안녕하세', { timeout: 20_000 });
+  await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+  const source = groups(page).nth(1);
+  await source.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(source.locator('.view-lines')).toContainText('안녕하세', { timeout: 20_000 });
+
+  await first.click();
+  await page.keyboard.press('End');
+  await editor.evaluate(element => {
+    const updateComposition = (data: string) => {
+      element.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data }));
+      const input = { bubbles: true, inputType: 'insertCompositionText', data, isComposing: true };
+      element.dispatchEvent(new InputEvent('beforeinput', input));
+      // Synthetic events do not apply the browser's native edit.
+      const text = element.querySelector('p')!.firstChild as Text;
+      text.data = '안녕하세' + data;
+      document.getSelection()!.collapse(text, text.length);
+      element.dispatchEvent(new InputEvent('input', input));
+    };
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    updateComposition('요');
+    // The OS removes the composing text before the pointer event reaches the editor.
+    window.addEventListener('pointerdown', () => {
+      updateComposition('');
+      element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+    }, { capture: true, once: true });
+  });
+  await expect(source.locator('.view-lines')).toContainText('안녕하세요');
+  await second.click({ position: { x: 1, y: 5 } });
+  await expect(first).toHaveText('안녕하세요');
+  await expect.poll(() => second.evaluate(paragraph => {
+    const selection = paragraph.ownerDocument.getSelection();
+    return selection?.anchorOffset === 0 && paragraph.contains(selection.anchorNode);
+  })).toBe(true);
+  await page.keyboard.insertText('X');
+  await expect(first).toHaveText('안녕하세요');
+  await expect(second).toHaveText('XClick here');
+  await expect(source.locator('.view-lines')).toContainText('XClick here');
+  await expect(source.locator('.view-lines')).toContainText('안녕하세요');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('안녕하세요\n\nXClick here');
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(second).toHaveText('Click here');
+  await expect(first).toHaveText('안녕하세요');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(first).toHaveText('안녕하세');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(first).toHaveText('안녕하세요');
+  await expect(second).toHaveText('Click here');
+});
+
 for (const action of [
   'click', 'Tab', 'toolbar', 'window blur', 'save', 'mode switch', 'link', 'image', 'context toolbox', 'context menu key',
 ] as const) {
