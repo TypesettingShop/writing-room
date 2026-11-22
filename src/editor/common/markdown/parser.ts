@@ -63,7 +63,10 @@ function imageAlt(tokens: readonly Token[]): string {
     ? imageAlt(token.children ?? [])
     : token.type === 'softbreak' || token.type === 'hardbreak'
       ? '\n'
-      : ['text', 'code_inline', 'text_special'].includes(token.type) ? token.content : '').join('');
+      // An alt is plain text, so a footnote in it keeps its spelling.
+      : token.type === 'footnote_ref'
+        ? token.meta.label == null ? '^[' + (token.meta.source ?? '') + ']' : '[^' + token.meta.label + ']'
+        : ['text', 'code_inline', 'text_special', 'unresolved_footnote_ref'].includes(token.type) ? token.content : '').join('');
 }
 
 const tokenSpecs: Record<string, ParseSpec> = {
@@ -91,6 +94,7 @@ const tokenSpecs: Record<string, ParseSpec> = {
   softbreak: { node: 'soft_break' },
   footnote_reference: { block: 'footnote_definition', getAttrs: token => ({ ...blockAttrs(token), label: token.meta.label }) },
   footnote_ref: { node: 'footnote_reference', getAttrs: token => ({ label: token.meta.label, source: token.meta.source }) },
+  unresolved_footnote_ref: { node: 'footnote_reference', getAttrs: token => ({ label: token.content.slice(2, -1) }) },
   raw_source: { node: 'raw_block', getAttrs: token => ({ ...blockAttrs(token), source: token.content }) },
   em: { mark: 'em', getAttrs: token => ({ markup: token.markup }) },
   strong: { mark: 'strong', getAttrs: token => ({ markup: token.markup }) },
@@ -118,6 +122,21 @@ function adaptBlockRules(markdownIt: MarkdownIt): void {
   }, ['paragraph', 'reference']);
   // Keep definitions in place, including definitions that have no references.
   markdownIt.disable('footnoteTail');
+}
+
+function keepUnresolvedFootnotes(markdownIt: MarkdownIt): void {
+  const reference = /\[\^[^\] \n]+\]/y;
+  // Links and the regular footnote rule already had a chance to consume the reference.
+  markdownIt.inline.ruler.after('footnote_ref', 'unresolved_footnote_ref', (state, silent) => {
+    // A silent call scans a link label. Leave the brackets as text there so `[a [^x]](url)` stays a link.
+    if (silent || !state.src.startsWith('[^', state.pos)) return false;
+    reference.lastIndex = state.pos;
+    const match = reference.exec(state.src);
+    if (!match || reference.lastIndex > state.posMax) return false;
+    state.push('unresolved_footnote_ref', '', 0).content = match[0];
+    state.pos = reference.lastIndex;
+    return true;
+  });
 }
 
 function adaptTaskItems(tokens: Token[]): void {
@@ -196,6 +215,7 @@ export function getOriginalMarkdown(doc: Node): IOriginalMarkdown | undefined {
 export function createMarkdownParser(options?: IMarkdownItOptions): (source: string) => IParsedMarkdown {
   const markdownIt = createMarkdownIt(options);
   adaptBlockRules(markdownIt);
+  keepUnresolvedFootnotes(markdownIt);
   const supported = supportedTokenTypes();
   markdownIt.core.ruler.push('prosemirror_source', state => {
     const env = state.env as IParseEnvironment;

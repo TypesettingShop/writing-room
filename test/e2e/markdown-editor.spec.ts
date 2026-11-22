@@ -38,6 +38,169 @@ async function openReadOnlyMarkdown(page: Page, fixture = 'Open Read-only Markdo
   return richEditor(groups(page).first());
 }
 
+test('draws a typed section divider in both themes and keeps its Markdown', async ({ appPage: page }) => {
+  const name = 'divider.md';
+  const group = await openMarkdown(page, name, '');
+  const editor = richEditor(group);
+  await expect(editor).toBeVisible({ timeout: 20_000 });
+  await editor.focus();
+  await page.keyboard.type('---');
+  const divider = editor.locator('hr');
+  await expect(divider).toHaveCSS('border-top-style', 'dotted');
+  const paintedColors = async () => {
+    const screenshot = await divider.screenshot();
+    return page.evaluate(async png => {
+      const bitmap = await createImageBitmap(await (await fetch('data:image/png;base64,' + png)).blob());
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext('2d')!;
+      context.drawImage(bitmap, 0, 0);
+      const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+      const colors = new Set<string>();
+      for (let i = 0; i < data.length; i += 4) colors.add(data.slice(i, i + 3).join(','));
+      return [...colors];
+    }, screenshot.toString('base64'));
+  };
+  const initialColors = await paintedColors();
+  expect(initialColors.length).toBeGreaterThan(1);
+  const theme = await kindClass(page);
+  await chooseTheme(page, theme === 'vs' ? 'Writing Room Dark' : 'Writing Room Light');
+  await expect.poll(() => kindClass(page)).toBe(theme === 'vs' ? 'vs-dark' : 'vs');
+  const otherColors = await paintedColors();
+  expect(otherColors.length).toBeGreaterThan(1);
+  expect(otherColors).not.toEqual(initialColors);
+  await divider.click();
+  await expect(divider).toHaveClass(/ProseMirror-selectednode/);
+  await expect(divider).toHaveCSS('outline-style', 'solid');
+
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe('---');
+});
+
+test('shows section numbers without changing selection, copy, counts, or composition', async ({ appPage: page }) => {
+  const name = 'section-numbers.md';
+  const source = 'First\n\n***\n\n안녕하세 {.center}\n\nLast';
+  const group = await openMarkdown(page, name, source);
+  const editor = richEditor(group);
+  const second = editor.locator('p').nth(1);
+  const number = () => second.evaluate(element => getComputedStyle(element, '::before').content);
+  const counts = page.getByText('3 words · 15 characters · 13 without spaces');
+  await expect(second).toHaveText('안녕하세', { timeout: 20_000 });
+  await expect(counts).toBeVisible();
+  expect(await number()).toBe('none');
+  await runCommand(page, 'Toggle Section Numbers', /^Markdown: Toggle Section Numbers$/);
+  await expect.poll(number).toBe('"2"');
+  await expect(counts).toBeVisible();
+  await second.click();
+  await expect(second).toHaveAttribute('data-markdown-active-block', '');
+  await expect(second).toHaveAttribute('data-markdown-section', '2');
+  await page.keyboard.press('ControlOrMeta+a');
+  expect(await editor.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    element.dispatchEvent(new ClipboardEvent('copy', { clipboardData, cancelable: true, bubbles: true }));
+    return clipboardData.getData('text/plain');
+  })).toBe(source);
+  await page.keyboard.press('ControlOrMeta+s');
+  expect(await readWorkspaceText(page, name)).toBe(source);
+
+  await second.click();
+  await page.keyboard.press('End');
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
+    await cdp.send('Input.insertText', { text: '요' });
+    await expect(second).toHaveText('안녕하세요');
+    await expect.poll(number).toBe('"2"');
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect.poll(() => readWorkspaceText(page, name)).toBe(source.replace('안녕하세', '안녕하세요'));
+  } finally {
+    await cdp.detach();
+  }
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Appearance', exact: true }).click();
+  const menuItem = page.getByRole('menuitemcheckbox', { name: 'Section Numbers', exact: true });
+  await expect(menuItem).toHaveAttribute('aria-checked', 'true');
+  await menuItem.click();
+  await expect.poll(number).toBe('none');
+});
+
+test('shows ordered footnotes, navigates, refreshes, and remembers hiding the panel', async ({ appPage: page }) => {
+  const name = 'footnotes.md';
+  const source = 'Intro[^two] ^[an *inline* note] [^one] [^two] [^missing]\n\n'
+    + Array.from({ length: 75 }, (_, index) => `Paragraph ${index + 1}\n\n`).join('')
+    + '[^one]: First definition\n\n[^two]: Second <img src=x> definition\n\n[^unused]: Extra\n\nLast line';
+  const group = await openMarkdown(page, name, source);
+  const editor = richEditor(group);
+  const panel = group.getByRole('region', { name: 'Footnotes' });
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+  await expect(panel.locator('li')).toHaveText([
+    '[two]Second <img src=x> definition', 'an inline note', '[one]First definition',
+    '[missing]Missing definition', '[unused]ExtraUnused',
+  ]);
+  await expect(panel.locator('img')).toHaveCount(0);
+  const firstFootnote = panel.getByRole('button', { name: /Second <img/ });
+  await firstFootnote.click();
+  await expect(editor).toBeFocused();
+  const definition = editor.locator('[data-footnote="two"] p');
+  await expect(definition).toHaveAttribute('data-markdown-active-block', '');
+  await expect(definition).toBeInViewport();
+  await page.keyboard.insertText('Updated ');
+  await expect(firstFootnote).toHaveText('[two]Updated Second <img src=x> definition');
+
+  await panel.getByRole('button', { name: 'an inline note' }).click();
+  await expect(editor.locator('p').first()).toHaveAttribute('data-markdown-active-block', '');
+  await expect(editor.locator('p').first()).toBeInViewport();
+  await page.keyboard.press('ControlOrMeta+a');
+  const copied = await editor.evaluate(element => {
+    const data = new DataTransfer();
+    element.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return data.getData('text/plain');
+  });
+  expect(copied).not.toContain('Missing definition');
+  expect(copied).not.toContain('Footnotes');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toBe(source.replace('Second <img', 'Updated Second \\<img'));
+  await page.keyboard.press('ControlOrMeta+End');
+  await expect(editor.getByText('Last line')).toBeInViewport();
+
+  await panel.getByRole('button', { name: 'Hide Footnotes Panel' }).click();
+  await expect(panel).toBeHidden();
+  await expect.poll(() => persistedSettings(page)).toMatch(/"markdownEditor\.footnotes\.panel":\s*false/);
+  await page.reload();
+  await expect(editor.getByText('Last line')).toBeAttached({ timeout: 20_000 });
+  await expect(panel).toBeHidden();
+  await runCommand(page, 'Toggle Footnotes Panel', /^Markdown: Toggle Footnotes Panel$/);
+  await expect(panel).toBeVisible();
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+  await expect(panel).toBeVisible();
+  await runCommand(page, 'Toggle Focus Mode', /^Markdown: Toggle Focus Mode$/);
+
+  await openMarkdown(page, 'without-notes.md', 'No notes here');
+  await expect(editor).toContainText('No notes here');
+  await expect(panel).toBeHidden();
+  await treeItem(page, name).dblclick();
+  await expect(panel).toBeVisible();
+});
+
+test('centers a footnote in the writing surface with typewriter scrolling enabled', async ({ page }) => {
+  const name = 'typewriter-notes.md';
+  const source = 'Opening[^n]\n\n' + 'Paragraph text\n\n'.repeat(24) + '[^n]: Definition\n\nEnding';
+  const group = await openTypewriterMarkdown(page, name, source);
+  const editor = richEditor(group);
+  const panel = group.getByRole('region', { name: 'Footnotes' });
+  await panel.getByRole('button', { name: /Definition/ }).click({ timeout: 20_000 });
+  const definition = editor.locator('[data-footnote="n"] p');
+  await expect(definition).toHaveAttribute('data-markdown-active-block', '');
+  await expect.poll(() => definition.evaluate(paragraph => {
+    const block = paragraph.getBoundingClientRect();
+    const surface = paragraph.closest('.markdown-editor-surface')!.getBoundingClientRect();
+    return Math.abs((block.top + block.bottom - surface.top - surface.bottom) / 2);
+  })).toBeLessThan(10);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.insertText(' edited');
+  await expect(editor.getByText('Ending edited')).toBeInViewport();
+});
+
 test('opens Markdown from Explorer and carries its draft and saved text through reloads', async ({ appPage: page }) => {
   const name = 'draft.markdown';
   const group = await openMarkdown(page, name, 'First\n=====\n\nHello\n');
@@ -1806,6 +1969,25 @@ test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage
   expect(data.markdown).toBe('## Heading\n\nOne **bold** [link](https://example.test/)');
   expect(data.html).toContain('<strong>bold</strong>');
   expect(data.html).toContain('<a href="https://example.test/">link</a>');
+});
+
+test('shows the same grapheme counts for Unicode text and selections in both modes', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'unicode-counts.md', '한 한 é 👩‍👩‍👧‍👦\n\nTail');
+  const editor = richEditor(group);
+  const total = page.getByText('5 words · 12 characters · 8 without spaces', { exact: true });
+  const selection = page.getByText('Selection · 4 words · 7 characters · 4 without spaces', { exact: true });
+  await expect(total).toBeVisible({ timeout: 20_000 });
+  await editor.locator('p').first().click();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+End');
+  await expect(selection).toBeVisible();
+
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
+  await page.keyboard.press('ControlOrMeta+Home');
+  await expect(total).toBeVisible();
+  await page.keyboard.press('Shift+End');
+  await expect(selection).toBeVisible();
 });
 
 test('updates word counts and navigates the outline in visual and source Markdown', async ({ appPage: page }) => {

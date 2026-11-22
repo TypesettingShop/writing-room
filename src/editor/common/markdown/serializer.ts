@@ -329,7 +329,7 @@ const markdownSerializer = new MarkdownSerializer({
     // Trailing hard breaks write nothing, so such a paragraph is empty in Markdown too.
     let blank = true;
     node.forEach(child => { if (child.type.name !== 'hard_break') blank = false; });
-    if (blank && suffix && (isListItem(parent) || parent.type.name === 'blockquote')) {
+    if (blank && suffix) {
       state.write('[]' + (looseTrailer ? '{}' : suffix));
       if (itemSuffix) state.write(' ' + itemSuffix);
       if (looseTrailer) {

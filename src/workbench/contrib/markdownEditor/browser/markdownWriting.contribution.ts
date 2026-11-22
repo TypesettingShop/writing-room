@@ -11,7 +11,7 @@ import type { IStatusbarEntryAccessor } from '../../../services/statusbar/browse
 import { TextFileEditor } from '../../files/browser/editors/textFileEditor.js';
 import { EXPLORER_VIEWLET_ID } from '../../files/browser/explorerActions.js';
 import { getMarkdownEditorMode } from '../common/markdownEditor.js';
-import { currentMarkdownHeading, markdownCounts, markdownHeadings } from '../common/markdownWriting.js';
+import { createSourceMarkdownCounter, currentMarkdownHeading, markdownCounts, markdownHeadings } from '../common/markdownWriting.js';
 import type { MarkdownCounts, MarkdownHeading } from '../common/markdownWriting.js';
 import { MarkdownEditorPane } from './markdownEditorPane.js';
 import { sourceWritingPositions } from './markdownEditorSelection.js';
@@ -22,15 +22,16 @@ interface WritingState {
   readonly ranges: readonly { readonly from: number; readonly to: number }[];
   readonly head: number;
   readonly selected: boolean;
+  readonly count?: typeof markdownCounts;
   /** Brings a pending source reparse up to date before positions are used. */
   sync?(): void;
   reveal(position: number): void;
 }
 
-function selectionCounts({ doc, ranges }: WritingState): MarkdownCounts {
+function selectionCounts({ doc, ranges, count = markdownCounts }: WritingState): MarkdownCounts {
   let total: MarkdownCounts = { characters: 0, nonWhitespace: 0, words: 0 };
   for (const { from, to } of ranges) {
-    const counts = markdownCounts(doc, from, to);
+    const counts = count(doc, from, to);
     total = {
       characters: total.characters + counts.characters,
       nonWhitespace: total.nonWhitespace + counts.nonWhitespace,
@@ -189,6 +190,7 @@ class MarkdownWritingContribution extends Disposable {
       this.update(undefined);
       return;
     }
+    const count = createSourceMarkdownCounter();
     let version = -1;
     let parsed: ReturnType<typeof parseMarkdownWithSource>;
     let positions: ReturnType<typeof sourceWritingPositions>;
@@ -208,7 +210,7 @@ class MarkdownWritingContribution extends Disposable {
       const head = selection ? positions.toDocument(model.getOffsetAt(selection.getPosition())) : from;
       this.immediate = true;
       this.update({
-        doc: parsed.doc, ranges: [{ from, to }], head, selected: selection ? !selection.isEmpty() : false,
+        doc: parsed.doc, ranges: [{ from, to }], head, selected: selection ? !selection.isEmpty() : false, count,
         sync: () => {
           if (version !== model.getVersionId()) update();
         },
@@ -247,7 +249,7 @@ class MarkdownWritingContribution extends Disposable {
     if (state?.doc !== this.cachedDoc) {
       this.recount.cancel();
       this.cachedDoc = state?.doc;
-      this.counts = state && markdownCounts(state.doc);
+      this.counts = state && (state.count ?? markdownCounts)(state.doc);
       this.headings = state ? markdownHeadings(state.doc) : [];
     }
     this.render();
