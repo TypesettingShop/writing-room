@@ -14,6 +14,8 @@ export interface IWorkService extends BrandedService {
   /** The work selected by the URL at startup, fixed for the lifetime of the window. */
   readonly current: WindowWork | undefined;
   open(id: string): Promise<void>;
+  /** Resolve the new Work's ID only after its window can leave the current editors. */
+  createAndOpen(create: () => Promise<string | undefined>): Promise<void>;
   close(): Promise<void>;
 }
 

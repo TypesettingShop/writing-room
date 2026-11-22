@@ -81,3 +81,35 @@ test('a canceled Work switch leaves earlier groups and their changes open', asyn
   await expect(page).toHaveURL('/?work=' + work.id);
   await expect(page).toHaveTitle(work.title);
 });
+
+test('canceling New Work at the save prompt leaves the server list unchanged', async ({ page, request }) => {
+  const workTitle = 'Work creation cancellation';
+  const listCreated = async () => {
+    const response = await request.get('/api/works');
+    expect(response.ok()).toBe(true);
+    const { works } = await response.json();
+    return works.filter((work: { title: string }) => work.title === workTitle);
+  };
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New Text File...' }).click();
+  const draft = page.getByRole('textbox', { name: 'Editor content' });
+  await expect(draft).toBeFocused({ timeout: 20_000 });
+  await page.keyboard.type('unsaved text');
+
+  const submitNewWork = async () => {
+    await (await workMenu(page)).getByRole('menuitem', { name: 'New Work...' }).click();
+    await page.getByRole('textbox', { name: 'Enter text' }).fill(workTitle);
+    await page.keyboard.press('Enter');
+  };
+  await submitNewWork();
+  await answerCloseQuestion(page, 'Untitled-1', 'Cancel');
+  await expect(page).toHaveURL('/');
+  await expectEditorText(groups(page).first(), 'unsaved text');
+  expect(await listCreated()).toHaveLength(0);
+
+  await submitNewWork();
+  await answerCloseQuestion(page, 'Untitled-1', "Don't Save");
+  await expect(page).toHaveURL(/\?work=[0-9a-f-]{36}$/);
+  await expect(page).toHaveTitle(workTitle);
+  expect(await listCreated()).toHaveLength(1);
+});

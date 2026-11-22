@@ -9,70 +9,94 @@ import { IManuscriptService } from '../../manuscript/common/manuscriptService.js
 import { IWorkService, readWindowWork } from '../common/work.js';
 
 // Drop only the work pairs. Re-serializing searchParams would re-encode the other pairs.
-function otherQueryPairs(url: URL): string[] {
-  return url.search ? url.search.slice(1).split('&').filter(pair => !new URLSearchParams('?' + pair).has('work')) : [];
+function setWorkQuery(url: URL, id?: string): void {
+  const pairs = url.search ? url.search.slice(1).split('&').filter(pair => !new URLSearchParams('?' + pair).has('work')) : [];
+  if (id) {
+    pairs.push('work=' + id);
+  }
+  url.search = pairs.length ? '?' + pairs.join('&') : '';
+}
+
+function workUrl(id?: string): URL {
+  const url = new URL(window.location.href);
+  setWorkQuery(url, id);
+  if (!id) {
+    url.hash = '#works';
+  } else if (url.hash === '#works') {
+    url.hash = '';
+  }
+  return url;
 }
 
 function sharesChanges(editor: EditorInput, other: EditorInput): boolean {
-  return editor.matches(other) || editor.closeHandler?.sharesDirtyState?.(other) === true
+  return editor === other || editor.closeHandler?.sharesDirtyState?.(other) === true
     || other.closeHandler?.sharesDirtyState?.(editor) === true;
 }
 
-/** Confirm the whole window before closing any of its tabs, including tabs in inactive groups. */
-async function closeEditors(groups: IEditorGroupsService): Promise<boolean> {
+function needsConfirmation(editor: EditorInput): boolean {
+  return editor.isDirty() || editor.closeHandler?.showConfirm() === true;
+}
+
+function liveEditor(editors: readonly IEditorIdentifier[]): IEditorIdentifier | undefined {
+  return editors.find(({ editor }) => !editor.isDisposed());
+}
+
+/** Collect answers for every dirty model before acting on any of them. */
+async function prepareClose(groups: IEditorGroupsService): Promise<{
+  dirty: ReadonlySet<EditorInput>;
+  discard: readonly IEditorIdentifier[][];
+} | undefined> {
   const dirty = new Set<EditorInput>();
-  const asking: IEditorIdentifier[] = [];
+  const asking: IEditorIdentifier[][] = [];
   for (const group of groups.groups) {
-    for (const editor of group.editors) {
-      if (editor.isDirty() || editor.closeHandler?.showConfirm()) {
-        if (!editor.closeHandler) {
-          // Nothing can ask about these changes, and closing the tab would drop them. Say why nothing happens.
-          throw new Error(`Save or revert '${editor.getName()}' before you switch Works.`);
-        }
-        dirty.add(editor);
-        if (!asking.some(({ editor: other }) => sharesChanges(editor, other))) {
-          asking.push({ groupId: group.id, editor });
+    for (const editor of group.editors.filter(needsConfirmation)) {
+      if (!editor.closeHandler) {
+        throw new Error(`Save or revert '${editor.getName()}' before you switch Works.`);
+      }
+      dirty.add(editor);
+      const related = asking.find(([first]) => sharesChanges(editor, first.editor));
+      const entry = { groupId: group.id, editor };
+      if (related) {
+        related.push(entry);
+      } else {
+        asking.push([entry]);
+      }
+    }
+  }
+  const save: IEditorIdentifier[][] = [];
+  const discard: IEditorIdentifier[][] = [];
+  for (const editors of asking) {
+    // If a tab disappeared during an earlier question, any remaining tab can speak for the model.
+    const entry = liveEditor(editors);
+    if (entry) {
+      switch (await entry.editor.closeHandler!.confirm([entry])) {
+        case ConfirmResult.SAVE: save.push(editors); break;
+        case ConfirmResult.DONT_SAVE: discard.push(editors); break;
+        default: return undefined;
+      }
+    }
+  }
+  for (const editors of save) {
+    const entry = liveEditor(editors);
+    if (entry) {
+      const { editor, groupId } = entry;
+      const saved = await editor.save(groupId, { reason: 'explicit' });
+      if (!saved || (saved === editor && editor.isDirty())) {
+        return undefined;
+      }
+      if (saved === editor) {
+        // A new edit while the Work is being created must be confirmed again.
+        for (const { editor } of editors) {
+          dirty.delete(editor);
         }
       }
     }
   }
-  const save: IEditorIdentifier[] = [];
-  const discard: IEditorIdentifier[] = [];
-  for (const entry of asking) {
-    // A tab can close while an earlier question is open. Do not ask about changes that already left.
-    if (entry.editor.isDisposed()) {
-      continue;
-    }
-    switch (await entry.editor.closeHandler!.confirm([entry])) {
-      case ConfirmResult.SAVE: save.push(entry); break;
-      case ConfirmResult.DONT_SAVE: discard.push(entry); break;
-      default: return false;
-    }
-  }
-  for (const { groupId, editor } of save) {
-    if (!editor.isDisposed() && !await editor.save(groupId, { reason: 'explicit' })) {
-      return false;
-    }
-  }
-  for (const { groupId, editor } of discard) {
-    if (!editor.isDisposed()) {
-      await editor.revert(groupId, { soft: true });
-    }
-  }
-  // An editor can open while a save is pending. Only reuse confirmation for inputs we asked about.
-  if (groups.groups.some(group => group.editors.some(editor => !dirty.has(editor)
-    && (editor.isDirty() || editor.closeHandler?.showConfirm())))) {
-    return false;
-  }
-  for (const group of [...groups.groups]) {
-    if (groups.getGroup(group.id) === group) {
-      await group.closeAllEditors(dirty);
-      if (!group.isEmpty) {
-        return false;
-      }
-    }
-  }
-  return groups.groups.every(group => group.isEmpty);
+  return { dirty, discard };
+}
+
+function hasUnconfirmedChanges(groups: IEditorGroupsService, dirty: ReadonlySet<EditorInput>): boolean {
+  return groups.groups.some(group => group.editors.some(editor => !dirty.has(editor) && needsConfirmation(editor)));
 }
 
 export class WorkService implements IWorkService {
@@ -84,35 +108,60 @@ export class WorkService implements IWorkService {
 
   async open(id: string): Promise<void> {
     if (isManuscriptId(id) && id !== this.current?.id) {
-      await this.navigate(id);
+      await this.navigate(() => workUrl(id));
     }
+  }
+
+  async createAndOpen(create: () => Promise<string | undefined>): Promise<void> {
+    await this.navigate(async () => {
+      const id = await create();
+      return isManuscriptId(id) ? workUrl(id) : undefined;
+    });
   }
 
   async close(): Promise<void> {
     if (this.current) {
-      await this.navigate(undefined);
+      await this.navigate(() => workUrl());
     }
   }
 
-  private async navigate(id: string | undefined): Promise<void> {
+  private async navigate(destination: () => URL | undefined | Promise<URL | undefined>): Promise<void> {
     if (this.navigating) {
       return;
     }
     this.navigating = true;
     try {
       const groups = this.instantiation.invokeFunction(accessor => accessor.get(IEditorGroupsService));
-      if (await closeEditors(groups)) {
-        const url = new URL(window.location.href);
-        const pairs = otherQueryPairs(url);
-        if (id) {
-          pairs.push('work=' + id);
-          if (url.hash === '#works') {
-            url.hash = '';
-          }
-        } else {
-          url.hash = '#works';
+      const plan = await prepareClose(groups);
+      if (!plan || hasUnconfirmedChanges(groups, plan.dirty)) {
+        return;
+      }
+      const url = await destination();
+      if (!url) {
+        return;
+      }
+      if (hasUnconfirmedChanges(groups, plan.dirty)) {
+        throw new Error('Save or revert new changes before you switch Works.');
+      }
+      // Work creation can fail. Keep the drafts until the destination exists.
+      for (const editors of plan.discard) {
+        const entry = liveEditor(editors);
+        if (entry) {
+          await entry.editor.revert(entry.groupId, { soft: true });
         }
-        url.search = pairs.length ? '?' + pairs.join('&') : '';
+      }
+      if (hasUnconfirmedChanges(groups, plan.dirty)) {
+        return;
+      }
+      for (const group of [...groups.groups]) {
+        if (groups.getGroup(group.id) === group) {
+          await group.closeAllEditors(plan.dirty);
+          if (!group.isEmpty) {
+            return;
+          }
+        }
+      }
+      if (groups.groups.every(group => group.isEmpty)) {
         window.location.assign(url);
       }
     } catch (error) {
@@ -143,8 +192,7 @@ export class WorkLinkContribution {
       }).catch(() => { /* Keep the default window title when Works cannot be loaded. */ });
     } else if (url.searchParams.has('work')) {
       notifications.warn('The Work link is not valid.');
-      const pairs = otherQueryPairs(url);
-      url.search = pairs.length ? '?' + pairs.join('&') : '';
+      setWorkQuery(url);
       window.history.replaceState(window.history.state, '', url);
     }
   }

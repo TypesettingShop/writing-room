@@ -60,16 +60,19 @@ registerAction2(class NewWorkAction extends Action2 {
     if (title === undefined) {
       return;
     }
-    try {
-      const created = await manuscript.store.createWork({ title: normalizeManuscriptTitle(title, false) });
-      await work.open(created.id);
-    } catch (error) {
-      if (error instanceof ManuscriptStoreError && error.code !== 'unauthorized') {
-        notifications.error(error.message);
-      } else {
-        await unavailable(notifications, groups, 'Sign in to open your Works.');
+    await work.createAndOpen(async () => {
+      try {
+        const created = await manuscript.store.createWork({ title: normalizeManuscriptTitle(title, false) });
+        return created.id;
+      } catch (error) {
+        if (error instanceof ManuscriptStoreError && error.code !== 'unauthorized') {
+          notifications.error(error.message);
+        } else {
+          await unavailable(notifications, groups, 'Sign in to open your Works.');
+        }
+        return undefined;
       }
-    }
+    });
   }
 });
 
