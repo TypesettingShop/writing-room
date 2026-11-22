@@ -11,6 +11,8 @@
 # npm, Vite and Playwright
 node_modules/
 dist/
+/dist-server/
+/.env
 test-results/
 playwright-report/
 
