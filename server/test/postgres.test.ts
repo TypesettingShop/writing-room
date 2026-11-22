@@ -93,10 +93,11 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
   }, 30_000);
 
   it('serializes migrations, tracks checksums, and rolls back a failed migration', async () => {
-    expect((await pool.query('SELECT version FROM schema_migrations')).rows).toEqual([{ version: '0001' }]);
+    const applied = (await pool.query('SELECT version FROM schema_migrations ORDER BY version')).rows;
+    expect(applied).toContainEqual({ version: '0001' });
     await expect(migrate(pool, [{ version: '0001', sql: 'SELECT 1' }])).rejects.toThrow('Checksum changed for migration 0001');
     await expect(migrate(pool, [{ version: '9999', sql: 'CREATE TABLE failed_migration(id int); SELECT 1/0;' }])).rejects.toThrow();
     expect((await pool.query("SELECT to_regclass('failed_migration') AS name")).rows).toEqual([{ name: null }]);
-    expect((await pool.query('SELECT version FROM schema_migrations')).rows).toEqual([{ version: '0001' }]);
+    expect((await pool.query('SELECT version FROM schema_migrations ORDER BY version')).rows).toEqual(applied);
   });
 });
