@@ -25,6 +25,7 @@ import './services/themes/browser/themes.contribution.js';
 import './contrib/search/browser/search.contribution.js';
 import './contrib/customEditor/browser/customEditor.contribution.js';
 import './contrib/markdownEditor/browser/markdownEditor.contribution.js';
+import './contrib/markdownEditor/browser/markdownEditorPresentation.contribution.js';
 
 // Preferences
 import './contrib/preferences/browser/preferences.contribution.js';
