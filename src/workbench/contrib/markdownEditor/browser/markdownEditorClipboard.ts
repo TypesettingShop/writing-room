@@ -33,20 +33,64 @@ function applyPastedUnderline(document: Document, content: DocumentFragment, und
   }
 }
 
+/** The text a copied fragment shows: blocks and hard breaks become line breaks, soft breaks spaces, other leaves nothing. */
+function visibleText(content: Fragment): string {
+  const { hard_break, soft_break } = markdownSchema.nodes;
+  return content.textBetween(0, content.size, '\n', node => node.type === hard_break ? '\n' : node.type === soft_break ? ' ' : '');
+}
+
+// The native Ctrl/Cmd+Shift+V paste event carries only text/plain, which holds the Markdown this editor wrote on copy.
+// The last copy's Markdown and visible text are kept, also in this browser tab's session storage so they outlive a
+// reload, and a plain paste of exactly that Markdown inserts the visible text. Other text/plain stays literal.
+const lastCopyKey = 'writing-room:markdownEditor:lastCopy';
+const lastCopyLimit = 1 << 20;
+let lastCopy: { readonly markdown: string; readonly text: string } | undefined;
+const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n');
+
+function rememberCopy(view: EditorView, markdown: string, content: Fragment): void {
+  lastCopy = { markdown: lineBreaks(markdown), text: visibleText(content) };
+  try {
+    const storage = view.dom.ownerDocument.defaultView?.sessionStorage;
+    if (lastCopy.markdown.length + lastCopy.text.length > lastCopyLimit) storage?.removeItem(lastCopyKey);
+    else storage?.setItem(lastCopyKey, JSON.stringify(lastCopy));
+  } catch {
+    // Without session storage the copy is remembered until a reload.
+  }
+}
+
+function copiedPlainText(view: EditorView, text: string): string {
+  if (!lastCopy) {
+    try {
+      const stored: unknown = JSON.parse(view.dom.ownerDocument.defaultView?.sessionStorage.getItem(lastCopyKey) ?? 'null');
+      if (stored && typeof stored === 'object' && 'markdown' in stored && 'text' in stored
+        && typeof stored.markdown === 'string' && typeof stored.text === 'string') {
+        lastCopy = { markdown: stored.markdown, text: stored.text };
+      }
+    } catch {
+      // An unreadable entry is treated as no copy.
+    }
+  }
+  return lastCopy && lineBreaks(text) === lastCopy.markdown ? lastCopy.text : text;
+}
+
 function copiedFragmentText(document: Document, html: string): string | undefined {
   const template = document.createElement('template');
   template.innerHTML = html;
   for (const element of template.content.querySelectorAll(discarded)) element.remove();
   // ProseMirror marks the first element of the serialized fragment, including any table wrapper.
   if (!template.content.firstElementChild?.hasAttribute('data-pm-slice')) return undefined;
-  const { content } = DOMParser.fromSchema(markdownSchema).parseSlice(template.content, { preserveWhitespace: 'full' });
-  return content.textBetween(0, content.size, '\n', node => node.type === markdownSchema.nodes.hard_break ? '\n' : '');
+  // As in ProseMirror's own clipboard parse, a block parent drops whitespace between blocks, such as the line
+  // breaks around a Windows CF_HTML fragment. The container belongs to the inert template document.
+  const root = template.content.ownerDocument.createElement('div');
+  root.append(template.content);
+  return visibleText(DOMParser.fromSchema(markdownSchema).parseSlice(root, { preserveWhitespace: true }).content);
 }
 
 async function readPlainClipboardText(clipboard: Clipboard, document: Document): Promise<string> {
-  // Keep literal text paste available when the richer clipboard read is unavailable.
-  const items = await clipboard.read?.().catch(() => undefined);
-  if (!items) return clipboard.readText();
+  // Keep literal text paste available when the richer clipboard read is unavailable. A rejected read (a denied or
+  // dismissed permission request) is not retried with readText, which would ask the person a second time.
+  if (!clipboard.read) return clipboard.readText();
+  const items = await clipboard.read();
   const plain = items.find(item => item.types.includes('text/plain'));
   const item = plain ?? items.find(item => item.types.includes('text/html'));
   if (item?.types.includes('text/html')) {
@@ -136,10 +180,10 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
     return template.innerHTML;
   },
 
-  clipboardTextParser(text, $context, plain) {
+  clipboardTextParser(text, $context, plain, view) {
     if (plain) {
       const { paragraph } = markdownSchema.nodes;
-      const blocks = text.split(/\r\n?|\n/).map(line => paragraph.create(
+      const blocks = copiedPlainText(view, text).split(/\r\n?|\n/).map(line => paragraph.create(
         null, line ? markdownSchema.text(line) : undefined,
       ));
       return Slice.maxOpen(Fragment.fromArray(blocks));
@@ -152,26 +196,32 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
       : new Slice(content, 0, 0);
   },
 
-  clipboardTextSerializer(slice) {
-    let { content, openStart, openEnd } = slice;
-    // A cell selection over the whole table copies the table, opened only at its rows.
-    if (content.childCount === 1 && content.firstChild!.type === markdownSchema.nodes.table && openStart === 1 && openEnd === 1) {
-      return serializeMarkdown(markdownSchema.topNodeType.create(null, content));
-    }
-    // A selection inside one block copies that block's text, not the markers of the blocks around it.
-    while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
-      content = content.firstChild!.content;
-      openStart--;
-      openEnd--;
-    }
-    if (content.childCount === 1 && openStart > 0 && openEnd > 0 && content.firstChild!.isTextblock) {
-      if (content.firstChild!.type.spec.code) return content.firstChild!.textContent;
-      content = content.firstChild!.content;
-    }
-    content = content.firstChild?.isInline
-      ? Fragment.from(markdownSchema.nodes.paragraph.create(null, content)) : content;
-    return markdownSchema.topNodeType.validContent(content)
-      ? serializeMarkdown(markdownSchema.topNodeType.create(null, content))
-      : content.textBetween(0, content.size, '\n\n');
+  clipboardTextSerializer(slice, view) {
+    const markdown = serializeClipboardMarkdown(slice);
+    rememberCopy(view, markdown, slice.content);
+    return markdown;
   },
 };
+
+function serializeClipboardMarkdown(slice: Slice): string {
+  let { content, openStart, openEnd } = slice;
+  // A cell selection over the whole table copies the table, opened only at its rows.
+  if (content.childCount === 1 && content.firstChild!.type === markdownSchema.nodes.table && openStart === 1 && openEnd === 1) {
+    return serializeMarkdown(markdownSchema.topNodeType.create(null, content));
+  }
+  // A selection inside one block copies that block's text, not the markers of the blocks around it.
+  while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
+    content = content.firstChild!.content;
+    openStart--;
+    openEnd--;
+  }
+  if (content.childCount === 1 && openStart > 0 && openEnd > 0 && content.firstChild!.isTextblock) {
+    if (content.firstChild!.type.spec.code) return content.firstChild!.textContent;
+    content = content.firstChild!.content;
+  }
+  content = content.firstChild?.isInline
+    ? Fragment.from(markdownSchema.nodes.paragraph.create(null, content)) : content;
+  return markdownSchema.topNodeType.validContent(content)
+    ? serializeMarkdown(markdownSchema.topNodeType.create(null, content))
+    : content.textBetween(0, content.size, '\n\n');
+}

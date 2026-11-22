@@ -1261,7 +1261,22 @@ test('pastes a copied WYSIWYG fragment as visible text with block boundaries', a
   };
   await target.focus();
   await paste('Paste as Plain Text');
-  await expect(target.locator(':scope > p')).toHaveText(['안녕하세요. 코드 링크 클래스', '다음 문단', '첫 항목', '둘째 항목']);
+  const visible = ['안녕하세요. 코드 링크 클래스', '다음 문단', '첫 항목', '둘째 항목'];
+  await expect(target.locator(':scope > p')).toHaveText(visible);
+  await expect(target.locator('strong, em, s, u, code, a, .size-24pt, ul')).toHaveCount(0);
+
+  // The native Ctrl/Cmd+Shift+V event carries only the copy's Markdown text/plain, also after a reload.
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(target.locator(':scope > p')).toHaveText(visible);
+  await expect(target.locator('strong, em, s, u, code, a, .size-24pt, ul')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Delete');
+  await page.reload();
+  await expect(target).toBeVisible({ timeout: 20_000 });
+  await target.focus();
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(target.locator(':scope > p')).toHaveText(visible);
   await expect(target.locator('strong, em, s, u, code, a, .size-24pt, ul')).toHaveCount(0);
 
   await page.keyboard.press('ControlOrMeta+a');
@@ -1276,6 +1291,10 @@ test('pastes a copied WYSIWYG fragment as visible text with block boundaries', a
   await page.evaluate(() => navigator.clipboard.writeText('**글**'));
   await page.keyboard.press('ControlOrMeta+a');
   await paste('Paste as Plain Text');
+  await expect(target.locator(':scope > p')).toHaveText(['**글**']);
+  await expect(target.locator('strong')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+Shift+v');
   await expect(target.locator(':scope > p')).toHaveText(['**글**']);
   await expect(target.locator('strong')).toHaveCount(0);
 });

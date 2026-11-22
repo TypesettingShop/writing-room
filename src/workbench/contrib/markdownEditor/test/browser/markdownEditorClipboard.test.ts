@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
-import { EditorState } from 'prosemirror-state';
+import { AllSelection, EditorState } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
 import { DOMParser } from 'prosemirror-model';
 import type { Slice } from 'prosemirror-model';
 import { CellSelection } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../../editor/common/markdown/schema.js';
-import { markdownClipboard } from '../../browser/markdownEditorClipboard.js';
+import { markdownClipboard, pasteFromMarkdownClipboard } from '../../browser/markdownEditorClipboard.js';
 import { markdownTablePlugins } from '../../browser/markdownEditorTables.js';
 
 describe('Markdown clipboard', () => {
@@ -72,6 +72,30 @@ describe('Markdown clipboard', () => {
     expect(plain.content.firstChild!.textContent).toBe('**literal**');
   });
 
+  it('pastes the Markdown of the last copy as its visible text in plain mode, also after a reload', async () => {
+    const source = parseMarkdown('[***~~안녕~~***]{.underline} `코드` [링크](https://example.test/)\n\n- 첫 항목\n- 둘째');
+    const markdown = markdownClipboard.clipboardTextSerializer!(source.slice(0, source.content.size), view);
+    expect(markdown).toContain('{.underline}');
+    const context = parseMarkdown('x').resolve(1);
+    const lines = (slice: Slice) => Array.from({ length: slice.content.childCount }, (_, i) => slice.content.child(i).textContent);
+    const visible = ['안녕 코드 링크', '첫 항목', '둘째'];
+    expect(lines(markdownClipboard.clipboardTextParser!(markdown, context, true, view))).toEqual(visible);
+    expect(lines(markdownClipboard.clipboardTextParser!(markdown.replaceAll('\n', '\r\n'), context, true, view))).toEqual(visible);
+    expect(lines(markdownClipboard.clipboardTextParser!(markdown + ' ', context, true, view))[0]).toContain('{.underline}');
+    // A regular paste of the same text still parses the Markdown.
+    const regular = markdownClipboard.clipboardTextParser!(markdown, context, false, view);
+    expect(regular.content.firstChild!.type.name).toBe('paragraph');
+    expect(regular.content.child(1).type.name).toBe('bullet_list');
+
+    vi.resetModules();
+    const reloaded = await import('../../browser/markdownEditorClipboard.js');
+    expect(lines(reloaded.markdownClipboard.clipboardTextParser!(markdown, context, true, view))).toEqual(visible);
+    sessionStorage.clear();
+    vi.resetModules();
+    const cleared = await import('../../browser/markdownEditorClipboard.js');
+    expect(lines(cleared.markdownClipboard.clipboardTextParser!(markdown, context, true, view))[0]).toContain('{.underline}');
+  });
+
   it('keeps emphasis declarations and the editor slice context but no other attributes', () => {
     const html = markdownClipboard.transformPastedHTML!([
       '<b style="font-weight:normal;color:red" id="x"><span style="font-weight:700">Bold</span> ',
@@ -106,5 +130,59 @@ describe('Markdown clipboard', () => {
       '<a href="/plain"><span>b</span></a>',
       '<a href="/explicit"><u>c</u></a></p>',
     ].join(''));
+  });
+});
+
+describe('Markdown context menu plain-text paste', () => {
+  let view: EditorView;
+  beforeEach(() => { view = new EditorView(document.createElement('div'), { state: EditorState.create({ doc: parseMarkdown('') }) }); });
+  afterEach(() => {
+    view.destroy();
+    delete (window.navigator as { clipboard?: Clipboard }).clipboard;
+  });
+
+  const copied = (markdown: string) => {
+    const source = new EditorView(document.createElement('div'), {
+      state: EditorState.create({ doc: parseMarkdown(markdown) }), ...markdownClipboard,
+    });
+    try {
+      const { dom, text } = source.serializeForClipboard(new AllSelection(source.state.doc).content());
+      return { html: dom.innerHTML, text };
+    } finally {
+      source.destroy();
+    }
+  };
+  const item = (data: Record<string, string>) => ({
+    types: Object.keys(data),
+    getType: async (type: string) => new Blob([data[type]], { type }),
+  }) as unknown as ClipboardItem;
+  // jsdom has no ClipboardEvent for ProseMirror's plain-text paste, so record the text it receives.
+  const paste = async (clipboard: Partial<Clipboard>) => {
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: clipboard });
+    const pasted: string[] = [];
+    vi.spyOn(view, 'pasteText').mockImplementation(text => { pasted.push(text); return true; });
+    await pasteFromMarkdownClipboard(view, () => true, true);
+    return pasted;
+  };
+
+  it('pastes the visible text of an editor copy without the whitespace around or between its blocks', async () => {
+    const { html, text } = copied('**first**\n\nsecond');
+    const readText = async () => text;
+    const wrapped = `<html><body>\r\n<!--StartFragment-->${html}<!--EndFragment-->\r\n</body>\r\n</html>`;
+    expect(await paste({ read: async () => [item({ 'text/plain': text, 'text/html': wrapped })], readText })).toEqual(['first\nsecond']);
+    const indented = html.replaceAll('</p><', '</p>\n  <');
+    expect(await paste({ read: async () => [item({ 'text/plain': text, 'text/html': indented })], readText })).toEqual(['first\nsecond']);
+  });
+
+  it('pastes other clipboard text literally and reads it without clipboard.read', async () => {
+    expect(await paste({ read: async () => [item({ 'text/plain': '**글**', 'text/html': '<b>글</b>' })] })).toEqual(['**글**']);
+    expect(await paste({ readText: async () => '**글**' })).toEqual(['**글**']);
+  });
+
+  it('does not ask for the clipboard text again after the browser refuses the clipboard read', async () => {
+    const readText = vi.fn(async () => 'text');
+    const read = () => Promise.reject(new DOMException('Read permission denied.', 'NotAllowedError'));
+    await expect(paste({ read, readText })).rejects.toThrow('Read permission denied.');
+    expect(readText).not.toHaveBeenCalled();
   });
 });
