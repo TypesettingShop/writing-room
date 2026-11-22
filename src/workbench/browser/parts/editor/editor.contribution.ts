@@ -24,7 +24,7 @@ import { WorkbenchContextKeysHandler } from '../../contextkeys.js';
 import { EditorOpenerContribution } from './editorOpener.js';
 import { ErrorPlaceholderEditorPane } from './editorPlaceholder.js';
 import { TextEditorPane } from './textEditor.js';
-import { WelcomeEditorInput, WelcomeEditorPane } from './welcomeEditor.js';
+import { WelcomeEditorInput, WelcomeEditorPane, WelcomePageContribution } from './welcomeEditor.js';
 
 // The services other areas meet at start with these implementations. The language, theme and file members
 // register theirs under the same identifiers from modules imported after this one; the last
@@ -49,3 +49,4 @@ paneRegistry.registerEditorPane(
 
 registerWorkbenchContribution2(EditorOpenerContribution.ID, EditorOpenerContribution);
 registerWorkbenchContribution2(WorkbenchContextKeysHandler.ID, WorkbenchContextKeysHandler);
+registerWorkbenchContribution2(WelcomePageContribution.ID, WelcomePageContribution);

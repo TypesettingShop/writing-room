@@ -8,6 +8,16 @@ import { matchRoute, splitTarget } from './http/router.js';
 import { workRoutes } from './routes/works.js';
 
 const mutationMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+const loopbackHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+// A DNS-rebound page reaches the loopback listener under its own host name; reads have no Origin to check.
+function isAllowedHost(host: string | undefined, allowedHosts: ReadonlySet<string>): boolean {
+  const url = host ? URL.parse('http://' + host) : null;
+  if (!url || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    return false;
+  }
+  return loopbackHostnames.has(url.hostname) || allowedHosts.has(url.host);
+}
 
 export interface ApiOptions {
   repository: ManuscriptRepository;
@@ -19,10 +29,14 @@ export interface ApiOptions {
 
 export function createApiServer(options: ApiOptions) {
   const logError = options.logError ?? console.error;
+  const allowedHosts = new Set(options.allowedOrigins.map(origin => new URL(origin).host));
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     try {
+      if (!isAllowedHost(request.headers.host, allowedHosts)) {
+        throw new ApiError(403, 'forbidden_host', 'Host must be a loopback address or an allowed origin.');
+      }
       const { path, query } = splitTarget(request);
       const method = request.method ?? '';
       if (path === '/api/health') {

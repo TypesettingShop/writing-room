@@ -159,6 +159,8 @@ test('asks before a dirty custom editor closes alone, and Reopen With swaps edit
 
   await command(page, 'View: Reopen Editor With...');
   await expect(page.getByRole('option', { name: /^Text Editor/ })).toContainText('Active');
+  await expect(page.getByRole('option', { name: /^Manuscript Editor/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /^Markdown Editor/ })).toHaveCount(0);
   await chooseOption(page, 'Fixture Preview');
   await expect(content(page).locator('#text')).toHaveText('# a');
   await expect(group.getByRole('tab')).toHaveText(['Welcome', 'other.txt', 'a.md']);

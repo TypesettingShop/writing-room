@@ -145,6 +145,7 @@ test('falls back to the default container for an unknown or relocated selection'
 
 test('round-trips group IDs, tab and activation order, and one model shared by two groups', async () => {
   const { groups, storage, untitled } = start();
+  expect(groups.hasStoredState).toBe(false);
   const left = groups.activeGroup;
   const first = new UntitledTextEditorInput(untitled.create({ initialValue: 'first' }));
   const text = '한글 😀 \u0000 \ud800';
@@ -161,6 +162,7 @@ test('round-trips group IDs, tab and activation order, and one model shared by t
   expect(storage.get(editorKey, scope)).toBe(saved);
 
   const restored = start();
+  expect(restored.groups.hasStoredState).toBe(true);
   const [restoredLeft, restoredRight] = restored.groups.getGroups(GroupsOrder.GRID_APPEARANCE);
   expect([restoredLeft.id, restoredRight.id]).toEqual([left.id, right.id]);
   expect(restored.groups.getGroups(GroupsOrder.MOST_RECENTLY_ACTIVE)).toEqual([restoredRight, restoredLeft]);
@@ -228,6 +230,7 @@ test('handles an invalid stored grid and remembers closing every editor', async 
   await seed({ [editorKey]: { 'editorpart.state': { serializedGrid: { root: [] } } } });
 
   const fallback = start();
+  expect(fallback.groups.hasStoredState).toBe(true);
   expect(fallback.groups.count).toBe(1);
   expect(fallback.groups.activeGroup.isEmpty).toBe(true);
   expect(warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ key: 'editorpart.state' }));

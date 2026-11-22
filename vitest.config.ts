@@ -1,7 +1,7 @@
 import { defineConfig, mergeConfig } from 'vitest/config';
-import viteConfig from './vite.config.js';
+import { browserConfig } from './vite.config.js';
 
-export default mergeConfig(viteConfig, defineConfig({
+export default mergeConfig(browserConfig, defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/test/**/*.test.ts', 'server/**/test/**/*.test.ts'],
