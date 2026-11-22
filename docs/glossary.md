@@ -93,7 +93,7 @@
 | 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
 | --- | --- | --- | --- |
 | Work (작품) | 원고 트리를 담는 단위. Welcome의 Works에서 작품 제목을 고른다. | `platform/manuscript/common/manuscript.ts`, `ManuscriptWork` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
-| Work 메뉴 | 제목 표시줄의 최상위 메뉴. **New Work...**, **Open Work...**, **Close Work**가 있다. | `workbench/browser/parts/titlebar/menubar.contribution.ts`, `MenubarWorkMenu` 및 `workbench/contrib/work/browser/work.contribution.ts` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
+| Work 메뉴 | Menu Bar 맨 앞의 최상위 메뉴. **New Work...**, **Open Work...**, **Close Work**가 있다. | `workbench/browser/parts/titlebar/menubar.contribution.ts`, `MenubarWorkMenu` 및 `workbench/contrib/work/browser/work.contribution.ts` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
 | Works (작품 목록) | Welcome 에디터에서 최근 작품을 보여 주는 절. | `workbench/browser/parts/editor/welcomeEditor.ts`, `WelcomeEditorPane` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
 | 작품 창 | 주소에 `?work=<uuid>`로 열린 작품을 지정한 창. | `workbench/services/work/common/work.ts`, `WindowWork`, `readWindowWork` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
 | `workOpen` (작품 열림) | 작품 창에서 Manuscript 컨테이너와 **Close Work** 등을 표시하거나 활성화할 때 쓰는 컨텍스트 키. | `workbench/services/work/common/work.ts`, `WorkOpenContext` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
@@ -114,7 +114,7 @@
 
 ## 편집기
 
-이 절은 이 제품에서 새로 붙인 이름이다. VS Code에는 대응하는 이름이 없다.
+이 절에는 Manuscript Editor의 화면과 동작을 설명할 때 쓰는 용어를 모았다.
 
 | 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
 | --- | --- | --- | --- |
@@ -126,7 +126,7 @@
 | Gutter (본문 옆 여백) | 본문 좌우의 빈 영역. 눌러서 줄의 시작과 끝, 블록 앞뒤로 커서를 옮긴다. | `workbench/contrib/markdownEditor/browser/markdownEditorGutter.ts` | [마크다운 편집하기](getting-started.md#마크다운-편집하기) |
 | Section (절) | 문서 본문에서 절 구분선으로 나뉘는 구간. | `workbench/contrib/markdownEditor/browser/markdownEditorSections.ts` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
 | Section Break (절 구분선) | Manuscript Editor에서 절 경계를 표시하는 최상위 가로 구분선. 삽입 명령의 표시 이름은 **Horizontal Rule**이다. | `workbench/contrib/markdownEditor/browser/markdownEditorSections.ts` 및 `workbench/contrib/markdownEditor/browser/markdownEditorToolbar.contribution.ts` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
-| Section Numbers (절 번호) | **View → Appearance → Section Numbers**로 켜는 절의 윗첨자 번호. | `workbench/contrib/markdownEditor/browser/markdownEditorPresentation.contribution.ts`, `markdownEditor.sectionNumbers` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
+| Section Numbers (절 번호) | **View → Appearance → Section Numbers**로 켜는 절의 윗첨자 번호. 설정은 `markdownEditor.sectionNumbers`다. | `workbench/contrib/markdownEditor/common/markdownEditor.ts`, `MARKDOWN_EDITOR_SECTION_NUMBERS` 및 `workbench/contrib/markdownEditor/browser/markdownEditorPresentation.contribution.ts` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
 | Footnotes Panel (각주 패널) | Manuscript Editor 하단의 **Footnotes** 영역. 팔레트의 명령 이름은 **Markdown: Toggle Footnotes Panel**이다. | `workbench/contrib/markdownEditor/browser/markdownEditorFootnotes.ts` 및 `workbench/contrib/markdownEditor/browser/markdownEditorPresentation.contribution.ts` | [각주 패널](markdown-editor.md#각주-패널) |
 | IME (입력기), IME 리셋 | 한글 입력기의 조합과 조합 중 발생하는 입력기 리셋을 가리킨다. | `workbench/contrib/markdownEditor/browser/markdownCompositionRecovery.ts`, `MarkdownCompositionRecovery` | [마크다운 편집하기](getting-started.md#마크다운-편집하기) |
 
@@ -140,11 +140,11 @@
 | --- | --- | --- | --- |
 | Manuscript Store (원고 저장 계약) | 작품, 원고 트리, 문서 본문의 읽기와 쓰기를 정의하는 `ManuscriptStore` 인터페이스. | `platform/manuscript/common/manuscriptStore.ts`, `ManuscriptStore` | [원고 저장소](architecture.md#원고-저장소) |
 | `manuscript:` 스킴 | 원고 문서를 편집기에서 여는 URI의 스킴. 형식은 `manuscript://<workId>/<nodeId>.md`다. | `workbench/services/manuscript/browser/manuscriptFileSystemProvider.ts`, `manuscriptScheme`, `manuscriptDocumentUri` | [원고 저장소](architecture.md#원고-저장소) |
-| revision 충돌 | 같은 작품의 원고 트리를 바꿀 때 보낸 revision이 서버의 현재 값과 다르면 생기는 충돌. | `platform/manuscript/common/manuscript.ts`, `checkRevision` 및 `workbench/contrib/manuscript/browser/manuscriptViewState.ts`, `ManuscriptViewState` | [다른 창의 변경 가져오기](manuscript.md#다른-창의-변경-가져오기) |
+| revision 충돌 | 같은 작품의 원고 트리를 바꿀 때 보낸 revision이 저장소의 현재 값과 다르면 생기는 충돌. 다른 이름은 저장 충돌이다. | `platform/manuscript/common/manuscript.ts`, `checkRevision` 및 `workbench/contrib/manuscript/browser/manuscriptViewState.ts`, `ManuscriptViewState` | [다른 창의 변경 가져오기](manuscript.md#다른-창의-변경-가져오기) |
 | API 서버 | 브라우저에서 보낸 원고 저장과 로그인 `/api` 요청을 처리하는 Node 서버. | `server/apiServer.ts`, `createApiServer` | [API 서버 실행](getting-started.md#api-서버-실행) |
 | 로그인 API | `/api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`에서 가입, 로그인, 로그아웃, 현재 세션 확인을 처리한다. | `server/auth/authRoutes.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기) |
 | Google 로그인 API | `/api/auth/oauth/google/start`와 `/api/auth/oauth/google/callback`에서 Google 로그인을 시작하고 완료한다. | `server/auth/googleRoutes.ts`, `createGoogleRoutes` 및 `server/auth/googleConfig.ts` | [Google 로그인 설정](getting-started.md#개발-환경에서-google-로그인-설정하기) |
 | 세션 | 로그인 뒤 계정을 확인하는 단위. 브라우저는 `wr_session` 쿠키로 세션을 전달한다. | `server/auth/session.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기) |
-| Sign In / Sign Out (로그인과 로그아웃) | 화면 리뷰 중. Welcome의 **Sign In**, **Create Account**, **Continue with Google**과 Work 메뉴의 **Sign In...**, **Sign Out**. | `workbench/browser/parts/editor/welcomeAccount.ts` 및 `workbench/contrib/work/browser/work.contribution.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기), [Google 로그인 설정](getting-started.md#개발-환경에서-google-로그인-설정하기) |
+| Sign In / Sign Out (로그인과 로그아웃) | Welcome의 **Sign In**, **Create Account**, **Continue with Google**과 Work 메뉴의 **Sign In...**, **Sign Out**. | `workbench/browser/parts/editor/welcomeAccount.ts` 및 `workbench/contrib/work/browser/work.contribution.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기), [Google 로그인 설정](getting-started.md#개발-환경에서-google-로그인-설정하기) |
 
 Decided in: wr-cbej
