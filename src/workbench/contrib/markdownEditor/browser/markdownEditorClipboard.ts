@@ -1,6 +1,6 @@
 import { Fragment, Slice } from 'prosemirror-model';
 import type { Mark, Node as ProseMirrorNode } from 'prosemirror-model';
-import type { EditorProps } from 'prosemirror-view';
+import type { EditorProps, EditorView } from 'prosemirror-view';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
@@ -18,6 +18,44 @@ const alignments = new Set(['left', 'center', 'right', 'justify']);
 // The schema reads bold and italics from these declarations (Google Docs wraps its HTML in `<b style="font-weight:normal">`).
 const emphasisStyles = ['font-weight', 'font-style'] as const;
 
+function applyPastedUnderline(document: Document, content: DocumentFragment, underlined: ReadonlySet<Element>): void {
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    const container = text.parentElement;
+    if (!container || container.closest('a, u')) continue;
+    for (let parent: Element | null = container; parent; parent = parent.parentElement) {
+      if (!underlined.has(parent)) continue;
+      const underline = document.createElement('u');
+      container.insertBefore(underline, text);
+      underline.append(text);
+      break;
+    }
+  }
+}
+
+/** Supply the browser's clipboard formats to the same paste handler as a keyboard paste. */
+export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean): Promise<void> {
+  const clipboard = view.dom.ownerDocument.defaultView?.navigator.clipboard;
+  if (!clipboard) throw new Error('Clipboard access is unavailable');
+  const data = new DataTransfer();
+  if (clipboard.read) {
+    const formats = ['text/html', 'text/plain', 'text/uri-list'];
+    const items = await clipboard.read();
+    const item = items.find(item => formats.some(type => item.types.includes(type)));
+    if (!item) return;
+    await Promise.all(formats.filter(type => item.types.includes(type)).map(async type => {
+      data.setData(type, await (await item.getType(type)).text());
+    }));
+  } else {
+    data.setData('text/plain', await clipboard.readText());
+  }
+  if (isCurrent() && data.types.length) {
+    // Shift may have been released in the menu after Shift+F10. This paste uses the regular rich mode.
+    view.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', keyCode: 16 }));
+    view.dom.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }
+}
+
 function withContextMarks(fragment: Fragment, marks: readonly Mark[]): Fragment {
   if (!marks.length) return fragment;
   const children: ProseMirrorNode[] = [];
@@ -32,8 +70,10 @@ function withContextMarks(fragment: Fragment, marks: readonly Mark[]): Fragment 
 export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipboardTextParser' | 'clipboardTextSerializer'> = {
   transformPastedHTML(html, view) {
     // Template content is inert while URLs, attributes and non-document elements are removed.
-    const template = view.dom.ownerDocument.createElement('template');
+    const document = view.dom.ownerDocument;
+    const template = document.createElement('template');
     template.innerHTML = html;
+    const underlined = new Set<Element>();
     for (const element of template.content.querySelectorAll('*')) {
       if (element.namespaceURI !== htmlNamespace || element.matches(discarded)) {
         element.remove();
@@ -42,6 +82,9 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
       const { style } = element as HTMLElement;
       const alignment = style.textAlign;
       const emphasis = emphasisStyles.map(name => [name, style.getPropertyValue(name)] as const).filter(([, value]) => value);
+      // Google Docs also puts this style on link labels. Keep their ordinary link formatting.
+      const decoration = style.textDecorationLine || style.textDecoration;
+      if (decoration?.split(/\s+/).includes('underline')) underlined.add(element);
       for (const attribute of Array.from(element.attributes)) {
         if (!safeAttributes.has(attribute.name)) element.removeAttribute(attribute.name);
       }
@@ -59,6 +102,7 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
         }
       }
     }
+    if (underlined.size) applyPastedUnderline(document, template.content, underlined);
     return template.innerHTML;
   },
 

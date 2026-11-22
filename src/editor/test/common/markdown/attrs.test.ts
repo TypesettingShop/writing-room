@@ -47,6 +47,8 @@ describe('Markdown classes', () => {
     expect(linked.text).toBe('내부');
     expect(linked.marks.map(mark => mark.type.name)).toEqual(['link', 'span']);
     expect(createMarkdownIt().render('[글자]{.size-lg}')).toContain('<span class="size-lg">글자</span>');
+    expect(createMarkdownIt().render('[[**글자**]{.size-lg .underline}](/x)'))
+      .toContain('<a href="/x"><u class="size-lg underline"><strong>글자</strong></u></a>');
   });
 
   it('keeps escapes, invalid attributes, code, URLs and image/link titles literal', () => {

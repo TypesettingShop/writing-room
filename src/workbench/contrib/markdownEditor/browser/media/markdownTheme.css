@@ -38,7 +38,7 @@
   font-size: var(--markdown-base-font-size);
 }
 
-.markdown-editor-surface .ProseMirror :where(span) { --markdown-base-font-size: 1em; }
+.markdown-editor-surface .ProseMirror :where(span, u.underline) { --markdown-base-font-size: 1em; }
 .markdown-editor-surface .ProseMirror .size-sm { font-size: calc(var(--markdown-base-font-size, 1em) * 0.875); }
 .markdown-editor-surface .ProseMirror .size-lg { font-size: calc(var(--markdown-base-font-size, 1em) * 1.25); }
 .markdown-editor-surface .ProseMirror .size-xl { font-size: calc(var(--markdown-base-font-size, 1em) * 1.5); }

@@ -55,11 +55,18 @@ npm run dev
   | 12 pt | 24 pt | 18 pt | 14 pt | 12 pt | 10 pt | 9 pt | 16 pt |
 
 - 본문은 기본적으로 가운데에 배치되며 본문 바깥의 좌우 공간에는 빗금이 표시된다. 왼쪽 빈 공간을 클릭하면 해당 줄의 시작으로, 오른쪽을 클릭하면 해당 줄의 끝으로 커서가 이동한다. 본문 아래의 빈 공간을 클릭하면 커서가 문서 끝으로 이동한다. 툴바의 **Content Width (characters)** 칸에 20–400 사이의 글자 수를 입력하고 **Enter**를 누르거나 입력칸을 벗어나면 `markdownEditor.contentWidth`(기본값 `80`)에 저장되어 열려 있는 모든 Markdown 편집기에 적용된다. **Center Content**와 **Fill Editor Width**는 `markdownEditor.contentLayout`(`center` 또는 `fill`)을 변경하며, 전체 채우기에서는 폭 입력칸이 비활성화된다. 집중 모드는 이 두 설정 대신 `markdownEditor.focusMode.width`를 사용한다.
-- 굵게는 **Ctrl+B**, 기울임은 **Ctrl+I**, 취소선은 **Ctrl+Shift+X**, 인라인 코드는 **Ctrl+E**, 링크 편집은 **Ctrl+K**다. macOS에서는 **Cmd**를 쓴다. 링크의 기존 URL은 입력창에 채워지며, 빈 값으로 수락하면 링크를 제거한다. 선택 없이 새 링크를 만들면 URL이 링크 텍스트가 된다. 툴바 작업은 **Markdown** 카테고리의 커맨드 팔레트에서도 실행할 수 있다.
+- 굵게는 **Ctrl+B**, 기울임은 **Ctrl+I**, 밑줄은 **Ctrl+U**, 취소선은 **Ctrl+Shift+X**, 인라인 코드는 **Ctrl+E**, 링크 편집은 **Ctrl+K**다. macOS에서는 **Cmd**를 쓴다. 링크의 기존 URL은 입력창에 채워지며, 빈 값으로 수락하면 링크를 제거한다. 선택 없이 새 링크를 만들면 URL이 링크 텍스트가 된다. 툴바 작업은 **Markdown** 카테고리의 커맨드 팔레트에서도 실행할 수 있다.
 
 #### Deviations from VS Code
 
 - 편집 가능한 WYSIWYG 편집면에서 **Ctrl+B**, **Ctrl+K**, **Ctrl+Shift+E**, **Ctrl+Shift+X**는 Markdown 서식 단축키다. 원문 모드와 편집면 밖에서는 워크벤치의 사이드바, 코드 편집 명령, Explorer, Extensions 단축키를 사용한다.
+
+### 선택 영역 도구박스
+
+- 편집 가능한 WYSIWYG에서 글을 선택하고 선택 영역 위를 오른쪽 클릭한다. 위쪽 줄에서 굵게·기울임·밑줄·취소선과 **Style**, **Size**, **Font**를 고를 수 있다. 아래쪽 줄에는 **Cut**, **Copy**, **Paste**가 있다.
+- 선택한 상태에서 **문맥 메뉴 키** 또는 **Shift+F10**으로도 연다. 위쪽 줄에서는 좌우 화살표로 이동하고, 위아래 화살표로 클립보드 항목에 접근한다. **Enter**로 실행하거나 목록을 열고 **Esc**로 닫으면 편집기로 돌아간다.
+- 선택 영역 밖을 오른쪽 클릭하면 선택이 풀리고 클릭한 곳에 커서가 놓인다. 그 자리의 브라우저 기본 메뉴가 열리며, **Shift+오른쪽 클릭**으로는 선택 위에서도 브라우저의 맞춤법 제안 등을 열 수 있다.
+- 브라우저가 도구박스의 붙여넣기 요청을 거부하면 알림이 나타난다. 본문에서 **Ctrl+V**(macOS는 **Cmd+V**)로 붙일 수 있다.
 
 ### 블록 편집과 붙여넣기
 
@@ -142,4 +149,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu

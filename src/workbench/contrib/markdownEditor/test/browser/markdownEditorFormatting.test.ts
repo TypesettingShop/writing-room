@@ -8,7 +8,7 @@ import { serializeMarkdown } from '../../../../../editor/common/markdown/seriali
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { blockStyles, currentBlockStyle, selectedTextBlocks, setBlockStyle } from '../../browser/markdownEditorBlockStyles.js';
 import { bindMarkdownFormattingContext } from '../../browser/markdownEditorFormattingContext.js';
-import { linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from '../../browser/markdownEditorInline.js';
+import { isInlineFormatActive, linkAtSelection, normalizeMarkdownLink, setMarkdownLink, toggleInlineFormat } from '../../browser/markdownEditorInline.js';
 import { resolveMarkdownFontDefaults } from '../../common/markdownEditor.js';
 import { currentFormattingPresets, formattingPresets, setFormattingPreset } from '../../browser/markdownEditorPresets.js';
 
@@ -26,6 +26,21 @@ function apply(state: EditorState, command: Command): EditorState {
 
 const style = (label: string) => setBlockStyle(blockStyles.find(option => option.label === label)!.value);
 const write = (state: EditorState) => serializeMarkdown(state.doc);
+
+it('toggles the underline class across paragraphs and preserves the other span classes', () => {
+  const source = '[[**링크**]{.size-lg}](/x)\n\n[**글**]{.font-serif .keep}';
+  const doc = parseMarkdown(source);
+  const selected = read(source, 1, doc.content.size - 1);
+  const toggle = toggleInlineFormat('underline');
+  const underlined = apply(selected, toggle);
+  expect(isInlineFormatActive(underlined, 'underline')).toBe(true);
+  const written = write(underlined);
+  expect(written).toBe('[[**링크**]{.size-lg .underline}](/x)\n\n[**글**]{.font-serif .keep .underline}');
+  expect(parseMarkdown(written).eq(underlined.doc)).toBe(true);
+  const removed = apply(underlined, toggle);
+  expect(isInlineFormatActive(removed, 'underline')).toBe(false);
+  expect(removed.doc.eq(doc)).toBe(true);
+});
 
 describe('Markdown block styles', () => {
   it.each(Array.from({ length: 6 }, (_, index) => index + 1))('converts body text to Heading %s and back', level => {

@@ -1,6 +1,7 @@
 import { Menu } from '../../../base/browser/ui/menu/menu.js';
 import type { MenuAction, MenuAnchor, MenuGroup } from '../../../base/browser/ui/menu/menu.js';
-import { Disposable, MutableDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import type { IDisposable } from '../../../base/common/lifecycle.js';
 import { registerSingleton } from '../../instantiation/common/extensions.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import type { BrandedService } from '../../instantiation/common/instantiation.js';
@@ -9,13 +10,15 @@ import { ILayoutService } from '../../layout/browser/layoutService.js';
 export interface IContextMenuDelegate {
   getAnchor(): MenuAnchor;
   getActions(): readonly MenuGroup[] | readonly MenuAction[];
+  readonly label?: string;
+  readonly horizontalGroup?: string;
   onHide?(): void;
 }
 
 export const IContextMenuService = createDecorator<IContextMenuService>('contextMenuService');
 
 export interface IContextMenuService extends BrandedService {
-  showContextMenu(delegate: IContextMenuDelegate): void;
+  showContextMenu(delegate: IContextMenuDelegate): IDisposable | undefined;
   hideContextMenu(): void;
 }
 
@@ -26,7 +29,7 @@ export class ContextMenuService extends Disposable implements IContextMenuServic
 
   constructor(@ILayoutService private readonly layoutService: ILayoutService) { super(); }
 
-  showContextMenu(delegate: IContextMenuDelegate): void {
+  showContextMenu(delegate: IContextMenuDelegate): IDisposable | undefined {
     this.hideContextMenu();
     const actions = delegate.getActions();
     if (actions.length === 0) {
@@ -41,12 +44,17 @@ export class ContextMenuService extends Disposable implements IContextMenuServic
       }
       delegate.onHide?.();
     };
-    this.popup.value = new Menu({
+    const popup = this.popup.value = new Menu({
       container,
       anchor: delegate.getAnchor(),
+      label: delegate.label,
+      horizontalGroup: delegate.horizontalGroup,
       onClose: () => this.hideContextMenu(),
     }, groups);
-    this.popup.value.focus();
+    popup.focus();
+    return toDisposable(() => {
+      if (this.popup.value === popup) this.hideContextMenu();
+    });
   }
 
   hideContextMenu(): void {

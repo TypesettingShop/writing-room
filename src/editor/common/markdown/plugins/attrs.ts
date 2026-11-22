@@ -9,6 +9,8 @@ const classList = /\{(\.[a-z][a-z0-9-]*(?:[ \t]+\.[a-z][a-z0-9-]*)*)\}/;
 const classAtStart = new RegExp(`^${classList.source}`);
 const emptyParagraph = new RegExp(`^\\[\\](?:${classList.source}|\\{\\})(?:[ \\t]+${classList.source})?$`);
 
+export const markdownUnderlineClass = 'underline';
+
 export function isMarkdownClass(name: string): boolean {
   return /^[a-z][a-z0-9-]*$/.test(name);
 }
@@ -39,7 +41,9 @@ const inlineSpan: RuleInline = (state, silent) => {
   if (!match) return false;
 
   const limit = state.posMax;
-  addClasses(state.push('class_span_open', 'span', 1), match[1]);
+  const open = state.push('class_span_open', 'span', 1);
+  addClasses(open, match[1]);
+  if (getMarkdownClasses(open).includes(markdownUnderlineClass)) open.tag = 'u';
   state.pos++;
   state.posMax = end;
   insideSpan.add(state);
@@ -48,7 +52,7 @@ const inlineSpan: RuleInline = (state, silent) => {
   } finally {
     insideSpan.delete(state);
   }
-  state.push('class_span_close', 'span', -1);
+  state.push('class_span_close', open.tag, -1);
   state.posMax = limit;
   state.pos = end + 1 + match[0].length;
   return true;

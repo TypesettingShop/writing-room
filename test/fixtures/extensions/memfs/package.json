@@ -4,5 +4,8 @@
   "version": "1.0.0",
   "engines": { "vscode": "*" },
   "browser": "./extension.js",
-  "activationEvents": ["onFileSystem:memfs", "onFileSystem:memfs-readonly"]
+  "activationEvents": ["onFileSystem:memfs", "onFileSystem:memfs-readonly", "onCommand:fixture.memfs.openReadOnlyMarkdown"],
+  "contributes": {
+    "commands": [{ "command": "fixture.memfs.openReadOnlyMarkdown", "title": "Open Read-only Markdown Fixture" }]
+  }
 }
