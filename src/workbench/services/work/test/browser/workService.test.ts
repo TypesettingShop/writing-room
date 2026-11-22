@@ -40,7 +40,7 @@ class DirtyEditor extends EditorInput {
 
 function confirm(editorName: string, answer = ConfirmResult.DONT_SAVE) {
   const ask = vi.fn(async () => answer);
-  const editor = new DirtyEditor(editorName, { confirm: ask, showConfirm: () => editor.isDirty() });
+  const editor: DirtyEditor = new DirtyEditor(editorName, { confirm: ask, showConfirm: () => editor.isDirty() });
   return { editor, ask };
 }
 
