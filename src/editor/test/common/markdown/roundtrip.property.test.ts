@@ -255,6 +255,40 @@ it('keeps generated separators with their original neighbors across edits to dup
   }
 });
 
+it('keeps generated indented code blocks outside containers after a move', () => {
+  const containers = ['- item', '1. item', '[^note]: definition'];
+  const codeSources = [
+    ['    code\n    ```\n      tail', '````\ncode\n```\n  tail\n````'],
+    ['\tcode\n\ttail', '```\ncode\ntail\n```'],
+    ['  ~~~text\n  code\n  ~~~', '~~~text\ncode\n~~~'],
+    ['~~~ text\ncode\n~~~', '~~~ text\ncode\n~~~'],
+  ];
+  for (const eol of ['\n', '\r\n', '\r']) {
+    const gap = eol + ' \t' + eol + eol;
+    const fresh = eol + eol;
+    for (const container of containers) {
+      for (const [raw, fenced] of codeSources) {
+        const code = raw.replaceAll('\n', eol);
+        const source = [container, 'anchor', code, 'end'].join(gap) + eol;
+        const doc = parseMarkdown(source);
+        expect(doc.child(2).type.name, source).toBe('code_block');
+        const state = EditorState.create({ doc });
+        const edited = state.apply(state.tr.insertText('!', doc.content.size - 1)).doc;
+        expect(serializeMarkdown(edited), source).toBe(source.replace('end', 'end!'));
+
+        const codeBlock = edited.child(2);
+        const tail = [edited.child(1), edited.child(3)];
+        const empty = doc.type.schema.nodes.paragraph.create();
+        const moved = edited.copy(Fragment.fromArray([edited.child(0), empty, codeBlock, ...tail]));
+        const saved = serializeMarkdown(moved);
+        expect.soft(saved, source).toBe([container, fenced.replaceAll('\n', eol), 'anchor', 'end!'].join(fresh) + eol);
+        const target = edited.copy(Fragment.fromArray([edited.child(0), codeBlock, ...tail]));
+        expect.soft(equivalent(target, parseMarkdown(saved), new Set()), saved).toBe(true);
+      }
+    }
+  }
+});
+
 it('round trips underline applied to generated selections across paragraphs, emphasis and links', () => {
   const fragments = ['글', '**굵게**', '[**링크**](/x)', '`코드`'];
   for (const first of fragments) {

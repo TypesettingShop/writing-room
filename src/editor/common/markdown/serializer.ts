@@ -606,6 +606,7 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
   const output: string[] = [];
   let previous: SourcePiece | undefined;
   let previousWasOriginal = false;
+  let previousWasListOrFootnote = false;
   let previousList: ListMarker | undefined;
   doc.forEach((node, _offset, index) => {
     const match = pieces.get(node);
@@ -616,11 +617,18 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     const list = listMarker(node);
     const writtenList = list && separateListMarker(list, previousList);
     const differentMarker = writtenList && list?.marker !== writtenList.marker;
-    const keep = Boolean(match && (match.reusable || index === doc.childCount - 1) &&
-      !linkMayResolveDifferently && !trailerMayAttach && !differentMarker);
     const candidate = candidates[index];
     const unique = candidate && owners[candidate.index] === index ? candidate : undefined;
     const piece = match ?? unique ?? (aligned ? starts[index] : undefined);
+    const gap = previous && piece?.index === previous.index + 1
+      ? source.slice(previous.end, piece.start)
+      : '';
+    // A blank line alone cannot stop indented Markdown from continuing a list or footnote.
+    // Reuse indented code only when both sides of that source boundary survive verbatim.
+    const codeMayContinueContainer = previousWasListOrFootnote && node.type.name === 'code_block' &&
+      /^[ \t]/.test(raw) && !(previousWasOriginal && gap);
+    const keep = Boolean(match && (match.reusable || index === doc.childCount - 1) &&
+      !linkMayResolveDifferently && !trailerMayAttach && !differentMarker && !codeMayContinueContainer);
     const attrs = differentMarker
       ? { ...node.attrs, [node.type.name === 'bullet_list' ? 'bullet' : 'markup']: writtenList.marker }
       : null;
@@ -631,15 +639,13 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     if (!output.length) {
       if (piece?.index === 0) output.push(source.slice(0, piece.start));
     } else {
-      const gap = previous && piece?.index === previous.index + 1
-        ? source.slice(previous.end, piece.start)
-        : '';
       const hasBlankLine = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(gap.replaceAll('\r\n', '\n'));
       output.push((keep && previousWasOriginal && gap) || (hasBlankLine && gap) || eol + eol);
     }
     output.push(text);
     previous = piece;
     previousWasOriginal = keep;
+    previousWasListOrFootnote = Boolean(writtenList) || node.type.name === 'footnote_definition';
     previousList = writtenList;
   });
 
