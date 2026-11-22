@@ -7,7 +7,7 @@ import { InstantiationService } from '../../../../../platform/instantiation/comm
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
 import { InMemoryStorageService, IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { Registry } from '../../../../../platform/registry/common/platform.js';
-import { CompositeDragAndDropObserver, DraggedCompositeIdentifier, DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDropObserver } from '../../../../browser/dnd.js';
+import { CompositeDragAndDropObserver, DraggedCompositeIdentifier, DraggedEditorGroupIdentifier, DraggedEditorIdentifier, EditorDragAndDropObserver, ManuscriptDragAndDropObserver } from '../../../../browser/dnd.js';
 import { EditorExtensions, EditorPaneDescriptor } from '../../../../browser/editor.js';
 import type { IEditorPaneRegistry } from '../../../../browser/editor.js';
 import { setEditorPartOptionsProvider } from '../../../../browser/parts/editor/editor.js';
@@ -16,6 +16,7 @@ import { getSplitDirection } from '../../../../browser/parts/editor/editorDropTa
 import { EditorPane } from '../../../../browser/parts/editor/editorPane.js';
 import { EditorPart } from '../../../../browser/parts/editor/editorPart.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
+import { IManuscriptOpener, type ManuscriptOpener } from '../../../../contrib/manuscript/browser/manuscriptOpener.js';
 import { GroupDirection, GroupsOrder, IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import '../../../../workbench.web.main.js';
 
@@ -153,6 +154,9 @@ const tabOf = (group: IEditorGroupView, name: string) => [...group.element.query
   .find(tab => tab.textContent === name)!.parentElement!;
 const bodyOf = (group: IEditorGroupView) => (group.activeEditorPane as TestPane).element;
 const overlay = () => document.querySelector('[data-editor-drop-position]');
+const hasDocuments = vi.fn((_ids: readonly string[]) => false);
+const openDocuments = vi.fn(async () => {});
+
 
 /** Gives a group's element a box: a body of 1000 x 500 below the 35 px strip, at the origin. */
 function placeGroup(group: IEditorGroupView): void {
@@ -164,6 +168,7 @@ function placeGroup(group: IEditorGroupView): void {
 beforeEach(async () => {
   disposables.add(registry.registerEditorPane(EditorPaneDescriptor.create(TestPane, PANE_ID, 'Test'), [INPUT_ID]));
   const services = new ServiceCollection([IStorageService, disposables.add(new InMemoryStorageService())]);
+  services.set(IManuscriptOpener, { isForWork: () => true, hasDocuments, openDocuments } as unknown as ManuscriptOpener);
   const instantiation = new InstantiationService(services);
   part = instantiation.createInstance(EditorPart);
   services.set(IEditorGroupsService, part);
@@ -183,6 +188,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   EditorDragAndDropObserver.INSTANCE.endDrag();
+  ManuscriptDragAndDropObserver.INSTANCE.endDrag();
+  hasDocuments.mockReset();
+  openDocuments.mockClear();
   disposables.clear();
   vi.restoreAllMocks();
 });
@@ -253,6 +261,29 @@ describe('the editor area and the composite bars tell their drags apart', () => 
 });
 
 describe('dropping on a group body', () => {
+  test('offers a manuscript drop only when the dragged selection has documents', () => {
+    placeGroup(right);
+    const body = bodyOf(right);
+    const observer = ManuscriptDragAndDropObserver.INSTANCE;
+    const point = { clientX: 500, clientY: 285 };
+
+    const empty = transfer();
+    observer.startDrag(dispatch(bodyOf(left), 'dragstart', empty), bodyOf(left), { workId: 'work', nodeIds: ['empty'] });
+    dispatch(body, 'dragenter', empty, point);
+    expect(overlay()).toBeNull();
+    expect(empty.dropEffect).toBe('none');
+    dispatch(body, 'drop', empty, point);
+    expect(openDocuments).not.toHaveBeenCalled();
+
+    hasDocuments.mockImplementation(ids => ids.includes('document'));
+    const nonempty = transfer();
+    observer.startDrag(dispatch(bodyOf(left), 'dragstart', nonempty), bodyOf(left), { workId: 'work', nodeIds: ['document'] });
+    dispatch(body, 'dragenter', nonempty, point);
+    expect(overlay()?.getAttribute('data-editor-drop-position')).toBe('center');
+    dispatch(body, 'drop', nonempty, point);
+    expect(openDocuments).toHaveBeenCalledExactlyOnceWith(['document'], { group: right });
+  });
+
   test('a tab dropped in the centre of another group moves there, active, in the active group', () => {
     placeGroup(right);
     const data = transfer();

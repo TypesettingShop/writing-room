@@ -1,4 +1,5 @@
-import { Emitter, type Event } from '../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { basename } from '../../../../base/common/resources.js';
 import { toDisposable, type IDisposable } from '../../../../base/common/lifecycle.js';
 import type { URI } from '../../../../base/common/uri.js';
 
@@ -11,10 +12,22 @@ interface ResourceLabelProvider {
 const providers = new Map<string, ResourceLabelProvider>();
 const changed = new Emitter<string>();
 
-export const onDidChangeResourceLabels = changed.event;
+export function onDidChangeResourceLabel(resource: URI): Event<string> {
+  return Event.filter(changed.event, scheme => scheme === resource.scheme);
+}
 
-export function resourceLabelProvider(scheme: string): ResourceLabelProvider | undefined {
-  return providers.get(scheme);
+export function resourceDisplayName(resource: URI): string {
+  return providers.get(resource.scheme)?.getName(resource) ?? (basename(resource) || resource.toString());
+}
+
+export function resourceLabelDescription(resource: URI): string | undefined {
+  return providers.get(resource.scheme)?.getDescription(resource);
+}
+
+export function resourceLabelTitle(resource: URI): string | undefined {
+  const provider = providers.get(resource.scheme);
+  const name = provider?.getName(resource);
+  return name ? [provider?.getDescription(resource), name].filter(Boolean).join(' / ') : undefined;
 }
 
 export function registerResourceLabelProvider(scheme: string, provider: ResourceLabelProvider): IDisposable {

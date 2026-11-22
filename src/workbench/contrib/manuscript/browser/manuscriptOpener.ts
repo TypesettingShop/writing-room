@@ -4,7 +4,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IEditorGroupsService, type IEditorGroup, type IEditorOpenOptions } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { manuscriptDocumentUri } from '../../../services/manuscript/browser/manuscriptFileSystemProvider.js';
-import { documentsUnder } from '../common/manuscriptTree.js';
+import { documentsUnder, hasDocumentsUnder } from '../common/manuscriptTree.js';
 import { IManuscriptViewState, type ManuscriptViewState } from './manuscriptViewState.js';
 
 export const IManuscriptOpener = createDecorator<ManuscriptOpener>('manuscriptOpener');
@@ -31,7 +31,7 @@ export class ManuscriptOpener {
 
   hasDocuments(nodeIds: readonly string[]): boolean {
     const index = this.state.index;
-    return index !== undefined && nodeIds.some(id => documentsUnder(id, index).length > 0);
+    return index !== undefined && nodeIds.some(id => hasDocumentsUnder(id, index));
   }
 
   async openDocuments(nodeIds: readonly string[], options: OpenDocumentsOptions = {}): Promise<void> {

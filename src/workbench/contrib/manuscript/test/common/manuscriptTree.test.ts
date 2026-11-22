@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ManuscriptNode } from '../../../../../platform/manuscript/common/manuscript.js';
 import {
-  breadcrumb, buildIndex, documentsUnder, dropPositionAt, firstKey, labelOf, moveKey, navigatorLines,
+  breadcrumb, buildIndex, documentsUnder, dropPositionAt, firstKey, hasDocumentsUnder, labelOf, moveKey, navigatorLines,
   parentLine, resolveDrop, revealOffset, twigParts, TWIG_TEXT, UP_KEY, windowRange, type ManuscriptIndex,
 } from '../../common/manuscriptTree.js';
 
@@ -131,6 +131,20 @@ describe('manuscript drop and opening rules', () => {
     });
   });
 
+  it('inserts after an expanded folder row before its first nonmoving child', () => {
+    const openChapter = { ...row(6), open: true };
+    expect(resolveDrop([id(2)], openChapter, 'after', null, index)).toMatchObject({
+      ok: true, destination: { parentId: id(6), beforeId: id(10) },
+    });
+    expect(resolveDrop([id(10), id(2)], openChapter, 'after', null, index)).toMatchObject({
+      ok: true, destination: { parentId: id(6), beforeId: id(11) },
+    });
+    expect(resolveDrop([id(2)], row(6), 'after', null, index)).toMatchObject({
+      ok: true, destination: { parentId: id(1), beforeId: id(7) },
+    });
+    expect(resolveDrop([id(8)], openChapter, 'after', null, index)).toMatchObject({ ok: false });
+  });
+
   it('appends on empty space or the parent row and rejects invalid or recursive destinations', () => {
     expect(resolveDrop([id(2)], undefined, 'into', id(6), index)).toMatchObject({ ok: true, destination: { parentId: id(6) } });
     expect(resolveDrop([id(11)], { kind: 'up' }, 'before', id(6), index)).toMatchObject({ ok: true, destination: { parentId: id(1) } });
@@ -146,5 +160,8 @@ describe('manuscript drop and opening rules', () => {
     expect(documentsUnder(id(1), index)).toEqual([10, 11, 7, 12].map(id));
     expect(documentsUnder(id(10), index)).toEqual([id(10)]);
     expect(documentsUnder(id(4), index)).toEqual([]);
+    expect(hasDocumentsUnder(id(1), index)).toBe(true);
+    expect(hasDocumentsUnder(id(10), index)).toBe(true);
+    expect(hasDocumentsUnder(id(4), index)).toBe(false);
   });
 });

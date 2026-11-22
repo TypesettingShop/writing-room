@@ -224,7 +224,7 @@ function hasSelectedAncestor(node: ManuscriptNode, selected: ReadonlySet<string>
 }
 
 type DropResult = { ok: true; destination: NodeDestination; sourceIds: readonly string[] } | { ok: false; reason: string };
-type DropTarget = { kind: 'node'; key: string } | { kind: 'up' };
+type DropTarget = { kind: 'node'; key: string; open?: boolean } | { kind: 'up' };
 
 export function resolveDrop(
   sourceIds: readonly string[], target: DropTarget | undefined, position: DropPosition, folderId: ParentId, index: ManuscriptIndex,
@@ -245,9 +245,11 @@ export function resolveDrop(
     return { ok: false, reason: 'An item cannot be dropped on itself or one of its descendants.' };
   }
 
+  const afterOpenFolder = position === 'after' && target?.kind === 'node' && target.open &&
+    targetNode !== undefined && manuscriptNodeTypes[targetNode.kind].container;
   let parentId = folderId;
   if (targetNode) {
-    parentId = position === 'into' ? targetNode.id : targetNode.parentId;
+    parentId = position === 'into' || afterOpenFolder ? targetNode.id : targetNode.parentId;
   } else if (target?.kind === 'up') {
     if (folderId === null) {
       return { ok: false, reason: 'There is no parent folder.' };
@@ -282,14 +284,26 @@ export function resolveDrop(
     beforeId = targetNode?.id;
   } else if (position === 'after' && targetNode) {
     const moving = new Set(moved.map(node => node.id));
-    const siblings = index.children.get(parentId)!;
-    let position = targetNode.position + 1;
+    const siblings = index.children.get(parentId) ?? [];
+    let position = afterOpenFolder ? 0 : targetNode.position + 1;
     while (position < siblings.length && moving.has(siblings[position].id)) {
       position++;
     }
     beforeId = siblings[position]?.id;
   }
   return { ok: true, destination: { parentId, beforeId }, sourceIds: moved.map(node => node.id) };
+}
+
+export function hasDocumentsUnder(nodeId: string, index: ManuscriptIndex): boolean {
+  if (index.nodes.get(nodeId)?.kind === 'document') {
+    return true;
+  }
+  for (const node of preorder(nodeId, index)) {
+    if (node.kind === 'document') {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function documentsUnder(nodeId: ParentId, index: ManuscriptIndex): string[] {

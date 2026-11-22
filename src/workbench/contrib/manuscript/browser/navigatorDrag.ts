@@ -50,7 +50,6 @@ export class NavigatorDrag extends Disposable {
       const nodeIds = state.selected.has(id) ? [...state.selected] : [id];
       observer.startDrag(event, row, { workId: state.workId, nodeIds });
     }));
-    this._register(addDisposableListener(tree, 'dragend', event => this.reportRejectedRelease(event), true));
     // The browser can release before the next dragover, so entering each row is answered too,
     // not only entering the tree: the pointer may have moved from a refused row to an allowed one.
     this._register(addDisposableListener(tree, 'dragenter', event => this.hover(event)));
@@ -202,22 +201,6 @@ export class NavigatorDrag extends Disposable {
       } else {
         this.notifications.info(result.reason);
       }
-    }
-  }
-
-  private reportRejectedRelease(event: DragEvent): void {
-    const pointer = this.pointer;
-    if (!pointer || event.dataTransfer?.dropEffect !== 'none') {
-      return;
-    }
-    // Some browsers suppress drop when the destination advertises 'none'.
-    const { left, right, top, bottom } = this.tree.getBoundingClientRect();
-    if (event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom) {
-      return;
-    }
-    const result = this.suggestion(event.clientY, pointer.drag)?.result;
-    if (result && !result.ok) {
-      this.notifications.info(result.reason);
     }
   }
 
