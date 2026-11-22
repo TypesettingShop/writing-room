@@ -99,6 +99,59 @@ for (const [side, block, selector, button, final] of [
   });
 }
 
+for (const [block, selector] of [['---', 'hr'], ['[ref]: /example', 'pre']] as const) {
+  for (const side of ['left', 'right'] as const) {
+    test(`Enter at the ${side} gutter of ${selector} authors one paragraph`, async ({ appPage: page }) => {
+      const file = 'gutter-enter.md';
+      const source = `First\n\n\n${block}\n \t\n\nLast\n`;
+      const group = await openSelectionDocument(page, file, source);
+      const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+      const paragraphs = editor.locator(':scope > p');
+      const atom = editor.locator(selector);
+      const undo = group.getByRole('button', { name: 'Undo', exact: true });
+      const focusIndex = () => paragraphs.evaluateAll(nodes => {
+        const focus = nodes[0]?.ownerDocument.getSelection()?.focusNode;
+        return nodes.findIndex(node => node.contains(focus ?? null));
+      });
+
+      await expect(atom).toBeVisible({ timeout: 20_000 });
+      const paper = await box(editor);
+      const bounds = await box(atom);
+      await page.mouse.click(side === 'left' ? paper.x - 12 : paper.x + paper.width + 12, bounds.y + bounds.height / 2);
+      await expect(paragraphs).toHaveText(['First', '', 'Last']);
+      await expect.poll(focusIndex).toBe(1);
+      await expect(undo).toBeDisabled();
+
+      await editor.press('Enter');
+      await expect(paragraphs).toHaveText(['First', '', '', 'Last']);
+      await expect.poll(focusIndex).toBe(2);
+      await expect(selectedTab(group)).toHaveAccessibleDescription('');
+      await expect(undo).toBeEnabled();
+      await page.keyboard.press('ControlOrMeta+s');
+      expect(await readWorkspaceText(page, file)).toBe(source);
+
+      await paragraphs.first().click();
+      await expect(paragraphs).toHaveText(['First', '', 'Last']);
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(paragraphs).toHaveText(['First', 'Last']);
+      await expect(undo).toBeDisabled();
+      await expect(selectedTab(group)).toHaveAccessibleDescription('');
+      await page.keyboard.press('ControlOrMeta+Shift+z');
+      await expect(paragraphs).toHaveText(['First', '', '', 'Last']);
+      await expect.poll(focusIndex).toBe(2);
+      await expect(selectedTab(group)).toHaveAccessibleDescription('');
+
+      await page.keyboard.type('Added');
+      await expect(paragraphs).toHaveText(['First', '', 'Added', 'Last']);
+      await expect(selectedTab(group)).toHaveAccessibleDescription('Modified');
+      await page.keyboard.press('ControlOrMeta+s');
+      await expect.poll(() => readWorkspaceText(page, file)).toBe(side === 'left'
+        ? `First\n\nAdded\n\n${block}\n \t\n\nLast\n`
+        : `First\n\n\n${block}\n\nAdded\n\nLast\n`);
+    });
+  }
+}
+
 test('reuses only the current gutter paragraph and leaves the saved source untouched', async ({ appPage: page }) => {
   const file = 'gutter-lifetime.md';
   const source = 'First\n\n---\n\n[ref]: /example\n\nLast\n';

@@ -3,7 +3,7 @@ import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
 import { EditorState, Selection, TextSelection } from 'prosemirror-state';
 import type { Command, Plugin, Transaction } from 'prosemirror-state';
-import { Mapping, StepMap } from 'prosemirror-transform';
+import { Mapping, ReplaceStep, StepMap } from 'prosemirror-transform';
 import type { Step } from 'prosemirror-transform';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { getOriginalMarkdown, parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
@@ -12,7 +12,8 @@ import { serializeMarkdown } from '../../../../editor/common/markdown/serializer
 import { getTextModelEdit } from '../../../../editor/common/model.js';
 import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
 import {
-  authorMarkdownCaretParagraph, isEmptyMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide,
+  authorMarkdownCaretParagraph, createMarkdownCaretParagraph, isEmptyMarkdownCaretParagraph, markdownCaretParagraphKey,
+  markdownCaretParagraphSide,
 } from './markdownEditorSelection.js';
 
 interface SourceDocument {
@@ -49,6 +50,9 @@ interface DeferredEdits {
 const deferredByModel = new WeakMap<ITextModel, DeferredEdits>();
 
 const markdownHistory = history({ newGroupDelay: 500 });
+// An empty Enter paragraph has no Markdown spelling. Remember its gutter side for Redo.
+const caretEnterParagraphs = new WeakMap<Node['attrs'], -1 | 1>();
+
 // Exclude most Markdown delimiters and indentation before parsing a line outside its document context.
 // Markdown syntax is ASCII, so prose punctuation and symbols beyond ASCII stay plain text. A line that
 // still parses as another block (`1. item`, `1) item`) fails the markup check in updatePlainParagraph.
@@ -73,18 +77,19 @@ function parseSource(text: string): SourceDocument {
 
 /**
  * A new empty top-level paragraph writes no Markdown, but it would still shift the serializer's block
- * alignment and so the source gaps it keeps. Omit newly added trailing paragraphs and empty
- * pointer caret paragraphs so that creating a caret does not rewrite or dirty the file.
+ * alignment and so the source gaps it keeps. Authored Enter paragraphs must count when comparing
+ * edits for history, but they also write nothing while empty.
  */
-function withoutUnwrittenParagraphs(doc: Node, source: Node): Node {
-  const blocks = doc.content.content.filter(node => !isEmptyMarkdownCaretParagraph(node));
+function withoutUnwrittenParagraphs(doc: Node, source: Node, forSerialization = false): Node {
+  const blocks = doc.content.content.filter(node => !isEmptyMarkdownCaretParagraph(node)
+    && (!forSerialization || node.content.size > 0 || !caretEnterParagraphs.has(node.attrs)));
   let content = blocks.length && blocks.length !== doc.childCount ? Fragment.fromArray(blocks) : doc.content;
   let parsed: Set<Node> | undefined;
   while (content.childCount > 1) {
     const last = content.lastChild!;
     if (last.type.name !== 'paragraph' || last.childCount !== 0) break;
     parsed ??= new Set(source.content.content);
-    if (parsed.has(last)) break;
+    if (parsed.has(last) || (!forSerialization && caretEnterParagraphs.has(last.attrs))) break;
     content = content.cut(0, content.size - last.nodeSize);
   }
   return content === doc.content ? doc : doc.copy(content);
@@ -644,6 +649,43 @@ export class MarkdownEditorModel extends Disposable {
       || mapping.map(inside, -1) !== mapping.map(inside, 1);
   }
 
+  private splitCaretParagraph(transaction: Transaction, caret: CaretParagraph): Transaction | undefined {
+    const [step] = transaction.steps;
+    if (!this.state.selection.empty || transaction.steps.length !== 1 || !(step instanceof ReplaceStep)
+      || step.from !== caret.pos + 1 || step.to !== step.from || step.slice.openStart !== 1 || step.slice.openEnd !== 1) {
+      return;
+    }
+    const { firstChild, lastChild, childCount } = step.slice.content;
+    if (childCount !== 2 || firstChild !== caret.node || lastChild?.type !== caret.node.type
+      || lastChild.content.size || isEmptyMarkdownCaretParagraph(lastChild)) {
+      return;
+    }
+    // baseKeymap splits off a default paragraph. Record only the first blank and let
+    // the original temporary paragraph follow it, with the caret still inside it.
+    const paragraph = caret.node.type.create({});
+    caretEnterParagraphs.set(paragraph.attrs, caret.side);
+    const enter = this.state.tr.insert(caret.pos, paragraph).setTime(transaction.time);
+    const identity = new Mapping();
+    this.copyTransactionState(transaction, enter, identity, identity);
+    return enter;
+  }
+
+  private restoreCaretAfterEnter(transaction: Transaction, mapping: Mapping): void {
+    if (!isHistoryTransaction(transaction) || !transaction.getMeta(markdownHistory).redo) return;
+    const [step] = transaction.steps;
+    if (transaction.steps.length !== 1 || !(step instanceof ReplaceStep) || step.from !== step.to
+      || step.slice.openStart || step.slice.openEnd || step.slice.content.childCount !== 1) {
+      return;
+    }
+    const paragraph = step.slice.content.firstChild!;
+    const side = caretEnterParagraphs.get(paragraph.attrs);
+    if (side === undefined || paragraph.content.size || this.state.doc.nodeAt(step.from) !== paragraph) return;
+    const gap = step.from + paragraph.nodeSize;
+    const tr = this.state.tr.insert(gap, createMarkdownCaretParagraph(paragraph.type, side));
+    this.applyState(tr.setSelection(TextSelection.create(tr.doc, gap + 1))
+      .setMeta('addToHistory', false).scrollIntoView(), mapping);
+  }
+
   private applyDispatch(transaction: Transaction, isolate: boolean): void {
     isolate ||= transaction.getMeta('uiEvent') === 'paste' || transaction.getMeta('uiEvent') === 'drop';
     const previousDoc = this.state.doc;
@@ -651,7 +693,11 @@ export class MarkdownEditorModel extends Disposable {
     const mapping = new Mapping();
     let displayOnly = transaction.getMeta(markdownCaretParagraphKey) === true;
     let firstMap: { map: StepMap; mirror?: number } | undefined;
-    if (caret && transaction.docChanged && !displayOnly && this.editsCaretParagraph(transaction, caret)) {
+    const enter = caret && !displayOnly ? this.splitCaretParagraph(transaction, caret) : undefined;
+    if (enter) {
+      transaction = enter;
+      isolate = true;
+    } else if (caret && transaction.docChanged && !displayOnly && this.editsCaretParagraph(transaction, caret)) {
       displayOnly = withoutUnwrittenParagraphs(previousDoc, this.sourceDoc.doc)
         .eq(withoutUnwrittenParagraphs(transaction.doc, this.sourceDoc.doc));
       if (displayOnly) {
@@ -672,6 +718,7 @@ export class MarkdownEditorModel extends Disposable {
       }
     }
     this.applyTransaction(transaction, isolate && !displayOnly, mapping, firstMap);
+    this.restoreCaretAfterEnter(transaction, mapping);
     const changedDocument = this.state.doc !== previousDoc;
     if (caret || displayOnly) this.removeUnusedCaretParagraphs(mapping);
     this.mapDeferredEdits(mapping);
@@ -697,7 +744,7 @@ export class MarkdownEditorModel extends Disposable {
 
   private serializeDocument(edited: Node): string {
     const source = this.sourceDoc;
-    const doc = withoutUnwrittenParagraphs(edited, source.doc);
+    const doc = withoutUnwrittenParagraphs(edited, source.doc, true);
     if (source.incrementalText === undefined) {
       return serializeMarkdown(source.doc.copy(doc.content));
     }

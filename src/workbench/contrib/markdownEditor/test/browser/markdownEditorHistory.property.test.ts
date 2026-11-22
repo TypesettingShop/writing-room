@@ -1,3 +1,4 @@
+import { baseKeymap } from 'prosemirror-commands';
 import { redoDepth, undoDepth } from 'prosemirror-history';
 import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
@@ -259,10 +260,15 @@ function exerciseCaretHistory(seed: number): void {
     redo: redoDepth(pane.state),
   });
 
-  function check(carets = 0): Node {
+  function check(carets = 0, authoredAt?: number): Node {
     const { doc } = pane.state;
     const blocks = doc.content.content.filter(node => !isEmptyMarkdownCaretParagraph(node));
     expect(doc.childCount - blocks.length, 'visible temporary paragraphs').toBe(carets);
+    if (authoredAt !== undefined) {
+      const [authored] = blocks.splice(doc.resolve(authoredAt).index(), 1);
+      expect(authored?.type.name).toBe('paragraph');
+      expect(authored?.content.size, 'authored blank has no Markdown').toBe(0);
+    }
     const written = doc.copy(Fragment.fromArray(blocks));
     const text = model.getValue();
     const parsed = parseMarkdownWithSource(text).doc;
@@ -271,13 +277,13 @@ function exerciseCaretHistory(seed: number): void {
     return written;
   }
 
-  function display(transaction: Transaction, carets: number): void {
+  function display(transaction: Transaction, carets: number, authoredAt?: number): void {
     const before = history();
     const otherBefore = other.state;
     pane.dispatch(transaction);
     expect(history(), 'display-only operation changed the source or history').toEqual(before);
     expect(other.state, 'display-only operation reached the other pane').toBe(otherBefore);
-    check(carets);
+    check(carets, authoredAt);
   }
 
   try {
@@ -334,7 +340,7 @@ function exerciseCaretHistory(seed: number): void {
       const edge = gap + side;
       const neighbor = docBeforeInput.resolve(edge).parent;
       const inside = edge + side * (1 + Math.floor(nextRandom() * neighbor.content.size));
-      const operation = pick(['move', 'extend', 'replace', 'type'] as const);
+      const operation = pick(['move', 'extend', 'replace', 'type', 'enter'] as const);
       trace.push(`${operation}@${inside}`);
 
       if (operation === 'move') {
@@ -347,6 +353,31 @@ function exerciseCaretHistory(seed: number): void {
         display(pane.state.tr.setSelection(TextSelection.create(pane.state.doc, gap + 1, placeInView(inside))), 0);
         expect(pane.state.selection.anchor, 'range starts on the clicked side of the atom').toBe(edge);
         expect(pane.state.selection.head).toBe(inside);
+        continue;
+      }
+      if (operation === 'enter') {
+        const before = history();
+        const otherBefore = other.state;
+        const after = { ...before, undo: before.undo + 1, redo: 0 };
+        const checkEnter = () => {
+          check(1, gap);
+          expect(history(), 'only the undo history changed').toEqual(after);
+          expect(other.state, 'the other pane sees only written Markdown').toBe(otherBefore);
+          expect(pane.state.selection.head).toBe(gap + paragraph.nodeSize + 1);
+          expect(markdownCaretParagraphSide(pane.state.selection.$head.parent)).toBe(side);
+        };
+        expect(baseKeymap.Enter(pane.state, tr => pane.dispatch(tr))).toBe(true);
+        checkEnter();
+        if (nextRandom() < 0.5) {
+          display(pane.state.tr.setSelection(TextSelection.create(pane.state.doc, 1)), 0, gap);
+        }
+        expect(pane.undo()).toBe(true);
+        expect(check().eq(docBeforeInput)).toBe(true);
+        expect(history()).toEqual({ ...before, redo: 1 });
+        expect(pane.redo()).toBe(true);
+        checkEnter();
+        expect(pane.undo()).toBe(true);
+        expect(check().eq(docBeforeInput)).toBe(true);
         continue;
       }
 

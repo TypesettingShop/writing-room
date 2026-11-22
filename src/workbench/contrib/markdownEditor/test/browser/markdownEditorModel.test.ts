@@ -1,4 +1,4 @@
-import { splitBlock, toggleMark } from 'prosemirror-commands';
+import { baseKeymap, splitBlock, toggleMark } from 'prosemirror-commands';
 import { undo } from 'prosemirror-history';
 import { InputRule, inputRules, undoInputRule } from 'prosemirror-inputrules';
 import type { EditorState } from 'prosemirror-state';
@@ -9,7 +9,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
-import { createMarkdownCaretParagraph, markdownCaretParagraphKey } from '../../browser/markdownEditorSelection.js';
+import { createMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide } from '../../browser/markdownEditorSelection.js';
 
 function editLine(model: TestTextModel, line: number, startColumn: number, endColumn: number, text: string): void {
   model.applyEdits([{ range: { startLineNumber: line, startColumn, endLineNumber: line, endColumn }, text }]);
@@ -992,6 +992,80 @@ describe('MarkdownEditorModel', () => {
       expect(model.getVersionId()).toBe(1);
       sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 1)));
       expect(sync.state.doc.eq(parseMarkdownWithSource(original).doc)).toBe(true);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it.each([-1, 1] as const)('records one empty paragraph when baseKeymap handles Enter in gutter %s', side => {
+    const original = 'First\n\n\n---\n \t\n\nLast\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const source = sync.state.doc;
+      placeRuleCaret(sync, 1, side);
+      const start = sync.state.selection.head;
+      const checkEnter = () => {
+        const { doc, selection } = sync.state;
+        expect(doc.childCount).toBe(source.childCount + 2);
+        const authored = doc.nodeAt(start - 1)!;
+        expect(authored.type.name).toBe('paragraph');
+        expect(authored.childCount).toBe(0);
+        expect(markdownCaretParagraphSide(authored)).toBeUndefined();
+        expect(selection.head).toBe(start + authored.nodeSize);
+        expect(markdownCaretParagraphSide(selection.$head.parent)).toBe(side);
+        expect(model.getValue()).toBe(original);
+        expect(model.getVersionId()).toBe(1);
+      };
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      checkEnter();
+      if (side === -1) {
+        sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 1)));
+        expect(sync.state.doc.childCount).toBe(source.childCount + 1);
+        expect(sync.state.doc.nodeAt(start - 1)?.textContent).toBe('');
+      }
+
+      expect(sync.undo()).toBe(true);
+      expect(sync.canUndo).toBe(false);
+      expect(sync.state.doc.eq(source)).toBe(true);
+      expect(model.getVersionId()).toBe(1);
+      expect(sync.redo()).toBe(true);
+      checkEnter();
+
+      sync.dispatch(sync.state.tr.insertText('Added'));
+      expect(model.getValue()).toBe(side === -1 ? 'First\n\nAdded\n\n---\n \t\n\nLast\n'
+        : 'First\n\n\n---\n\nAdded\n\nLast\n');
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(source.childCount + 1);
+      expect(model.getValue()).toBe(original);
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.eq(source)).toBe(true);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('undoes a deletion spanning the authored blank and its temporary continuation', () => {
+    const original = 'First\n\n---\n\nLast\n';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, -1);
+      expect(baseKeymap.Enter(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      const { doc, selection } = sync.state;
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(doc, doc.child(0).nodeSize - 1, selection.head)));
+      expect(baseKeymap.Backspace(sync.state, tr => sync.dispatch(tr))).toBe(true);
+      expect(sync.state.doc.childCount).toBe(3);
+      expect(model.getValue()).toBe(original);
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(4);
+      expect(sync.state.doc.child(1).textContent).toBe('');
+      expect(sync.undo()).toBe(true);
+      expect(sync.state.doc.childCount).toBe(3);
+      expect(model.getValue()).toBe(original);
     } finally {
       sync.dispose();
       model.dispose();
