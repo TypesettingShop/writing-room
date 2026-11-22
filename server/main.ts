@@ -41,6 +41,11 @@ async function main(): Promise<void> {
       server.once('error', reject);
       server.listen(config.port, config.host, resolve);
     });
+    // Logins prune only their own user's expired sessions; sweep the rest while the server runs.
+    const sessionSweep = setInterval(() => {
+      authStore.deleteExpiredSessions(new Date()).catch(() => console.error('Could not delete expired sessions.'));
+    }, 60 * 60 * 1000);
+    sessionSweep.unref();
     const address = server.address();
     if (address && typeof address !== 'string') {
       console.log('Writing Room API listening on ' + address.port);
@@ -55,6 +60,7 @@ async function main(): Promise<void> {
             return;
           }
           stopping = true;
+          clearInterval(sessionSweep);
           server.close(() => {
             connectionPool.end().catch(() => console.error('Could not close the PostgreSQL pool.'));
           });

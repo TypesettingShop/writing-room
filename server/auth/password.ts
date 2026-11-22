@@ -7,12 +7,14 @@ const format = 'scrypt$15$8$3';
 const dummySalt = randomBytes(saltLength);
 const dummyKey = randomBytes(keyLength);
 
+// scrypt runs on the libuv threadpool, which dns.lookup and fs share. Leave one thread for them.
+const maxActiveHashes = Math.max(1, (Number(process.env.UV_THREADPOOL_SIZE) || 4) - 1);
 // A permit goes straight to the next waiter so new requests cannot jump the queue.
 let activeHashes = 0;
 const waiters: (() => void)[] = [];
 
 async function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
-  if (activeHashes === 4) {
+  if (activeHashes >= maxActiveHashes) {
     await new Promise<void>(resolve => waiters.push(resolve));
   } else {
     activeHashes++;

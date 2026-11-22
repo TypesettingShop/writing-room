@@ -176,6 +176,8 @@ describe('email authentication with memory storage', () => {
     }
     expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.2, 192.0.2.1' })).status).toBe(429);
     expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.2' })).status).toBe(400);
+    expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '192.0.2.2, 192.0.2.1:5678' })).status).toBe(429);
+    expect((await post('/api/auth/signup', body, '', { 'x-forwarded-for': '[2001:db8::1]:5678' })).status).toBe(400);
   });
 });
 
@@ -256,6 +258,28 @@ it('bounds the fixed-window map and restores access at the expiry boundary', () 
     expect(limits.take('ip', email, start + 900_000)).toBeUndefined();
   }
   expect(limits.take('ip', email, start + 900_000)).toBe(900);
+});
+
+it('keeps an exhausted window through a flood of new keys and ignores windows left expired by a clock step', () => {
+  const limits = new AttemptLimit();
+  for (let attempt = 0; attempt < 10; attempt++) {
+    limits.take('ip', email, start);
+  }
+  for (let index = 0; index < 20_000; index++) {
+    expect(limits.take('ip', `junk${index}@example.test`, start)).toBeUndefined();
+  }
+  expect(limits.take('ip', email, start)).toBe(900);
+
+  const stepped = new AttemptLimit();
+  for (let attempt = 0; attempt < 10; attempt++) {
+    stepped.take('ip', 'later@example.test', start + 600_000);
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    stepped.take('ip', email, start);
+  }
+  // The window exhausted first expires last, so pruning in order stops before the expired one.
+  expect(stepped.take('ip', email, start + 900_000)).toBeUndefined();
+  expect(stepped.take('ip', 'later@example.test', start + 900_000)).toBe(600);
 });
 
 it('preserves explicit loopback dev auth and defaults to Secure outside loopback development', () => {

@@ -12,18 +12,19 @@ export interface GoogleConfig {
 }
 
 export function readGoogleConfig(env: NodeJS.ProcessEnv, allowLoopbackHttpCookies: boolean): GoogleConfig | undefined {
-  const clientId = env.WRITING_ROOM_GOOGLE_CLIENT_ID;
-  const clientSecret = env.WRITING_ROOM_GOOGLE_CLIENT_SECRET;
-  if (!clientId && !clientSecret) {
+  if (!env.WRITING_ROOM_GOOGLE_CLIENT_ID && !env.WRITING_ROOM_GOOGLE_CLIENT_SECRET) {
     return undefined;
   }
-  if (!clientId?.trim() || !clientSecret?.trim()) {
+  // Values pasted from the console often carry a trailing newline; Google would reject them as sent.
+  const clientId = env.WRITING_ROOM_GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = env.WRITING_ROOM_GOOGLE_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
     throw new Error('Google sign-in requires both WRITING_ROOM_GOOGLE_CLIENT_ID and WRITING_ROOM_GOOGLE_CLIENT_SECRET.');
   }
   const publicOrigin = env.WRITING_ROOM_PUBLIC_ORIGIN?.trim() ?? '';
   const origin = URL.parse(publicOrigin);
   if (!origin || origin.origin !== publicOrigin || (origin.protocol !== 'https:' && secureCookie(publicOrigin, allowLoopbackHttpCookies))) {
-    throw new Error('Google sign-in requires one HTTPS WRITING_ROOM_PUBLIC_ORIGIN or a loopback HTTP development origin.');
+    throw new Error('Google sign-in requires one HTTPS WRITING_ROOM_PUBLIC_ORIGIN, or a loopback HTTP origin while the API listens on a loopback host outside production.');
   }
   return {
     clientId,

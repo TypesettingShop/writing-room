@@ -375,4 +375,7 @@ it('enables Google only with credentials and one public origin and pins the real
     authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenEndpoint: 'https://oauth2.googleapis.com/token',
   } satisfies GoogleConfig);
+  expect(readApiConfig({
+    ...memory, ...googleEnv, WRITING_ROOM_GOOGLE_CLIENT_ID: clientId + '\n', WRITING_ROOM_GOOGLE_CLIENT_SECRET: ' ' + clientSecret,
+  }).google).toMatchObject({ clientId, clientSecret });
 });

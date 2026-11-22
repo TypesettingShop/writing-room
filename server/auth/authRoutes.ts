@@ -29,8 +29,10 @@ function clientIp(request: IncomingMessage, trustProxy: boolean): string {
   if (trustProxy && typeof forwarded === 'string') {
     // The trusted immediate proxy appends the address it actually saw.
     const nearest = forwarded.slice(forwarded.lastIndexOf(',') + 1).trim();
-    if (isIP(nearest)) {
-      return nearest;
+    // Some proxies append the port too ("192.0.2.1:5678", "[2001:db8::1]:5678").
+    const address = /^\[([^\]]+)\]:\d+$/.exec(nearest)?.[1] ?? /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(nearest)?.[1] ?? nearest;
+    if (isIP(address)) {
+      return address;
     }
   }
   return request.socket.remoteAddress ?? '';
