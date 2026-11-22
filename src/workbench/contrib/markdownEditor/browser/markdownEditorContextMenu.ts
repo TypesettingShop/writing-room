@@ -56,10 +56,16 @@ export function isOverMarkdownSelection(view: EditorView, { target, clientX, cli
     clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom);
 }
 
-export function moveMarkdownContextCaret(
+export function setMarkdownContextSelection(
   surface: HTMLElement, view: EditorView, event: MouseEvent, hit: ReturnType<EditorView['posAtCoords']>,
 ): void {
-  const { doc, selection } = view.state;
+  const { doc, schema, selection } = view.state;
+  const inside = hit?.inside ?? -1;
+  const node = view.editable && inside >= 0 ? doc.nodeAt(inside) : null;
+  if (node && node.type === schema.nodes.image && NodeSelection.isSelectable(node)) {
+    view.dispatch(view.state.tr.setSelection(NodeSelection.create(doc, inside)).setMeta('pointer', true));
+    return;
+  }
   const at = doc.resolve(hit?.pos ?? selection.head);
   const next = markdownGutterSelection(surface, view, event)
     ?? (event.clientY < view.dom.getBoundingClientRect().top ? Selection.atStart(doc) : TextSelection.between(at, at));

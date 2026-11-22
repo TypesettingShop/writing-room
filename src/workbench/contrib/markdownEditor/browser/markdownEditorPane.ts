@@ -45,7 +45,7 @@ import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelectio
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
 import {
-  getReadOnlyMarkdownSelection, isOverMarkdownSelection, moveMarkdownContextCaret, showMarkdownContextMenu,
+  getReadOnlyMarkdownSelection, isOverMarkdownSelection, setMarkdownContextSelection, showMarkdownContextMenu,
 } from './markdownEditorContextMenu.js';
 import type { MarkdownClipboardOperation } from './markdownEditorContextMenu.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
@@ -408,7 +408,7 @@ export class MarkdownEditorPane extends EditorPane {
     if (event) {
       const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
       const inside = isOverMarkdownSelection(view, event);
-      if (!inside) moveMarkdownContextCaret(this.surface, view, event, hit);
+      if (!inside) setMarkdownContextSelection(this.surface, view, event, hit);
       // Leave the clicked line visible when preserving a selection.
       const y = inside && hit ? Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) : event.clientY;
       point = { x: event.clientX, y };

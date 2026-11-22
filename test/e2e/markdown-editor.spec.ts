@@ -1007,6 +1007,28 @@ test('moves the Markdown caret and opens basic editing commands outside a select
   await expect(editor.locator('p')).toHaveText(['Select me', 'YOutXside text']);
 });
 
+test('lets the browser handle Shift+right-click outside a Markdown selection', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'native-context-menu.md', 'Select me\n\nOutside text');
+  const editor = richEditor(group);
+  await editor.getByText('Select me', { exact: true }).click({ timeout: 20_000 });
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Select me');
+  const outside = editor.getByText('Outside text', { exact: true });
+  await outside.evaluate(() => {
+    document.addEventListener('contextmenu', event => {
+      const paragraph = (event.target as Element).closest('p');
+      queueMicrotask(() => {
+        document.documentElement.dataset.nativeMenuAllowed =
+          String(paragraph?.textContent === 'Outside text' && event.shiftKey && !event.defaultPrevented);
+      });
+    }, { capture: true, once: true });
+  });
+  await outside.click({ button: 'right', modifiers: ['Shift'], position: { x: 16, y: 8 } });
+  await expect(page.locator('html')).toHaveAttribute('data-native-menu-allowed', 'true');
+  await expect(page.getByRole('menu', { name: 'Markdown editor' })).toHaveCount(0);
+});
+
 test('allows Copy and Select All in the read-only Markdown context menu', async ({ appPage: page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const editor = await openReadOnlyMarkdown(page);
@@ -1471,6 +1493,38 @@ test('renders and edits an image relative to the Markdown document folder', asyn
   await expect(editor.getByRole('img', { name: 'Edited description' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+s');
   await expect.poll(() => readWorkspaceText(page, name)).toContain('![Edited description](assets/pixel.svg)');
+});
+
+test('right-click selects a Markdown image for Copy and Cut', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'pixel.svg',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>');
+  const imageMarkdown = '![Pixel](pixel.svg)';
+  const group = await openMarkdown(page, 'image-context-menu.md', `Before ${imageMarkdown} after`);
+  const editor = richEditor(group);
+  const image = editor.getByRole('img', { name: 'Pixel' });
+  const selectedImage = editor.locator('.markdown-image.ProseMirror-selectednode');
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const copy = menu.getByRole('menuitem', { name: 'Copy', exact: true });
+  const cut = menu.getByRole('menuitem', { name: 'Cut', exact: true });
+  await expect(image).toHaveAttribute('src', /^blob:/, { timeout: 20_000 });
+  await expect(selectedImage).toHaveCount(0);
+  await image.click({ button: 'right' });
+  await expect(selectedImage.getByRole('img', { name: 'Pixel' })).toBeVisible();
+  await expect(copy).toBeEnabled();
+  await expect(cut).toBeEnabled();
+  await copy.click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(imageMarkdown);
+  await expect(image).toBeVisible();
+  await expect(editor).toBeFocused();
+
+  await image.click({ button: 'right' });
+  await cut.click();
+  await expect(image).toHaveCount(0);
+  await expect(editor.locator('p')).toHaveText('Before after');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(image).toBeVisible();
 });
 
 test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {
