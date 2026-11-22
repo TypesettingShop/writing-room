@@ -120,11 +120,12 @@ function remapCaretGap(
     if (match && updated && (target.isLeaf ? updated.type === target.type : target.eq(updated))) {
       return caret.side === 1 ? match.to : match.from;
     }
-    return;
+    // An edit that rewrote the block's own text, such as a minimal reload diff spanning it,
+    // leaves no surviving range even when an equal block remains. Look for it below.
   }
 
-  // A flush or a skipped version has no trustworthy ranges. A unique equal block can still
-  // be found anywhere. Repeated blocks must also lie in an unchanged prefix or suffix.
+  // When the ranges cannot establish a match, a unique equal block can still be found
+  // anywhere. Repeated blocks must also lie in an unchanged prefix or suffix.
   let oldCount = 0;
   let newCount = 0;
   let candidate = 0;
@@ -662,8 +663,9 @@ export class MarkdownEditorModel extends Disposable {
         const authored = this.state.tr.insert(caret.pos, caret.node).setTime(transaction.time);
         for (const step of transaction.steps) authored.step(step);
         const identity = new Mapping();
-        this.copyTransactionState(transaction, authored, identity, identity, transaction);
+        // Setting a selection clears stored marks, so place it before copying the transaction's marks.
         if (!transaction.selectionSet) authored.setSelection(transaction.selection.map(authored.doc, identity));
+        this.copyTransactionState(transaction, authored, identity, identity, transaction);
         transaction = closeHistory(authored);
         firstMap = { map: authored.mapping.maps[0], mirror: 0 };
       }
@@ -832,6 +834,9 @@ export class MarkdownEditorModel extends Disposable {
       if (caret && selection.empty) {
         const gap = transaction.doc.resolve(diff.map(caret.pos, caret.side === 1 ? -1 : 1));
         transaction.setSelection(TextSelection.between(gap, gap, caret.side));
+      } else if (state.selection.empty && !(state.selection instanceof TextSelection)) {
+        // A read-only caret between atoms maps itself. TextSelection.between would select an atom.
+        transaction.setSelection(state.selection.map(transaction.doc, diff));
       } else {
         const map = (pos: number) => {
           if (start === null || end === null || pos <= start) return pos;

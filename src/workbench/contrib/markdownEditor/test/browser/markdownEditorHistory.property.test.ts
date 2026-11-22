@@ -241,11 +241,14 @@ function exerciseCaretHistory(seed: number): void {
   const nextRandom = random(seed);
   const pick = <T>(values: readonly T[]): T => values[Math.floor(nextRandom() * values.length)];
   const word = pick(['words', 'paragraph', 'text']);
+  // The link definition supplies the raw_block. The HTML fixture parses as paragraph text.
   const source = [
     `First ${word}`, '---', `Middle ${word}`, '[ref]: /example', `Last ${word}`, '<div>Raw HTML</div>',
   ].join('\n\n');
   const model = new TestTextModel(URI.parse('file:///gutter-history.md'), source);
   const pane = new MarkdownEditorModel(model, [], () => {});
+  // A second pane never sees the temporary paragraph and only follows written text.
+  const other = new MarkdownEditorModel(model, [], () => {});
   const trace: string[] = [];
   let time = Date.now();
 
@@ -262,14 +265,18 @@ function exerciseCaretHistory(seed: number): void {
     expect(doc.childCount - blocks.length, 'visible temporary paragraphs').toBe(carets);
     const written = doc.copy(Fragment.fromArray(blocks));
     const text = model.getValue();
-    expect(written.eq(parseMarkdownWithSource(text).doc), `rich document differs from ${JSON.stringify(text)}`).toBe(true);
+    const parsed = parseMarkdownWithSource(text).doc;
+    expect(written.eq(parsed), `rich document differs from ${JSON.stringify(text)}`).toBe(true);
+    expect(other.state.doc.eq(parsed), 'other pane differs from the written Markdown').toBe(true);
     return written;
   }
 
   function display(transaction: Transaction, carets: number): void {
     const before = history();
+    const otherBefore = other.state;
     pane.dispatch(transaction);
     expect(history(), 'display-only operation changed the source or history').toEqual(before);
+    expect(other.state, 'display-only operation reached the other pane').toBe(otherBefore);
     check(carets);
   }
 
@@ -295,18 +302,28 @@ function exerciseCaretHistory(seed: number): void {
 
       let gap = gapBeforeChange;
       if (nextRandom() < 0.35) {
-        const first = model.getLineContent(1);
-        const column = 1 + Math.floor(nextRandom() * (first.length + 1));
+        // Insert into the first line, before the gap, or into the last line, after it. A rewrite
+        // replaces the whole text in one edit, as a reload diff does, with the first-line insert.
+        const kind = pick(['before', 'after', 'rewrite'] as const);
+        const line = kind === 'after' ? model.getLineCount() : 1;
+        const content = model.getLineContent(line);
+        const column = 1 + Math.floor(nextRandom() * (content.length + 1));
         const text = pick(['a', 'X', 'z']);
-        trace.push(`source@1:${column}+${text}`);
+        trace.push(`source:${kind}@${line}:${column}+${text}`);
         const before = history();
-        model.applyEdits([{
-          range: { startLineNumber: 1, startColumn: column, endLineNumber: 1, endColumn: column }, text,
-        }]);
-        expect(model.getValue()).toBe(before.text.slice(0, column - 1) + text + before.text.slice(column - 1));
+        const offset = model.getOffsetAt({ lineNumber: line, column });
+        const next = before.text.slice(0, offset) + text + before.text.slice(offset);
+        const lastLine = model.getLineCount();
+        model.applyEdits([kind === 'rewrite'
+          ? {
+            range: { startLineNumber: 1, startColumn: 1, endLineNumber: lastLine, endColumn: model.getLineContent(lastLine).length + 1 },
+            text: next,
+          }
+          : { range: { startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column }, text }]);
+        expect(model.getValue()).toBe(next);
         expect(model.getVersionId()).toBe(before.version + 1);
         expect(undoDepth(pane.state)).toBe(before.undo + 1);
-        gap += text.length;
+        if (kind !== 'after') gap += text.length;
         check(1);
         expect(pane.state.selection.head, 'external edit preserved the gap').toBe(gap + 1);
       }
@@ -376,6 +393,7 @@ function exerciseCaretHistory(seed: number): void {
     throw new Error(`Gutter seed ${seed}\n${trace.join(' ')}\n${error}`, { cause: error });
   } finally {
     pane.dispose();
+    other.dispose();
     model.dispose();
   }
 }

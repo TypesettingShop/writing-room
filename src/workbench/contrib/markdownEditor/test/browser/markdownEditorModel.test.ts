@@ -2,7 +2,7 @@ import { toggleMark } from 'prosemirror-commands';
 import { undo } from 'prosemirror-history';
 import { InputRule, inputRules, undoInputRule } from 'prosemirror-inputrules';
 import type { EditorState } from 'prosemirror-state';
-import { TextSelection } from 'prosemirror-state';
+import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { describe, expect, it, vi } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
@@ -794,6 +794,7 @@ describe('MarkdownEditorModel', () => {
         { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, text: 'Altered' },
         { range: { startLineNumber: keepRule ? 5 : 3, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
       ]);
+      // Current behavior (backlog wr-d821) discards flushed input when the rule is removed.
       expect(model.getValue()).toBe(keepRule ? 'Altered\n\n---\n\nAdded\n\nReplaced' : 'Altered\n\nReplaced');
     } finally {
       sync.dispose();
@@ -890,6 +891,53 @@ describe('MarkdownEditorModel', () => {
         { range: { startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
       ]);
       expect(model.getValue()).toBe('Altered\n\n---\n\nPasted\n\nReplaced');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps the temporary paragraph when one source edit rewrites the text around and over the rule', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      // A minimal reload diff starts in the first block and ends in the last one.
+      model.applyEdits([{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Primo\n\n---\n\nUltimo' }]);
+      expect(sync.state.selection.$head.parent.textContent).toBe('');
+      sync.dispatch(sync.state.tr.insertText('Added'));
+      expect(model.getValue()).toBe('Primo\n\n---\n\nAdded\n\nUltimo');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps stored marks set by the first input in the temporary paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, 1);
+      const { head } = sync.state.selection;
+      const strong = sync.state.schema.marks.strong.create();
+      sync.dispatch(sync.state.tr.insertText('A', head, head).setStoredMarks([strong]));
+      expect(sync.state.storedMarks).toEqual([strong]);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps a read-only caret between atoms through a source change', async () => {
+    await import('../../browser/markdownEditorGutter.js');
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '---');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const gap = Selection.fromJSON(sync.state.doc, { type: 'markdownReadOnlyGap', pos: 0 });
+      sync.dispatch(sync.state.tr.setSelection(gap));
+      model.applyEdits([{ range: { startLineNumber: 1, startColumn: 4, endLineNumber: 1, endColumn: 4 }, text: '\n\n***' }]);
+      expect(sync.state.selection).not.toBeInstanceOf(NodeSelection);
+      expect(sync.state.selection.empty).toBe(true);
     } finally {
       sync.dispose();
       model.dispose();
