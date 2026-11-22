@@ -40,8 +40,8 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
-import { bindMarkdownGutter, markdownEndCaretTransaction, onMarkdownScrollbar } from './markdownEditorGutter.js';
-import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
+import { bindMarkdownGutter, onMarkdownScrollbar } from './markdownEditorGutter.js';
+import { markdownCaretParagraphKey, toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
 import {
@@ -268,7 +268,8 @@ export class MarkdownEditorPane extends EditorPane {
           }, () => !input.isReadonly()),
         },
         dispatchTransaction: transaction => {
-          if (!transaction.docChanged || !input.isReadonly()) {
+          // Read-only gutters may need a display-only paragraph to hold a collapsed selection.
+          if (!transaction.docChanged || !input.isReadonly() || transaction.getMeta(markdownCaretParagraphKey) === true) {
             // Native read-only selection and table cell drags can arrive without the pointer flag.
             // Keep the viewport in place unless the transaction requested scrolling.
             this.pointerSelection = transaction.getMeta('pointer') === true
@@ -411,11 +412,7 @@ export class MarkdownEditorPane extends EditorPane {
     if (event) {
       const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
       const inside = isOverMarkdownSelection(view, event);
-      if (!inside) {
-        const append = markdownEndCaretTransaction(this.surface, view, event);
-        if (append) view.dispatch(append);
-        else setMarkdownContextSelection(this.surface, view, event, hit);
-      }
+      if (!inside) setMarkdownContextSelection(this.surface, view, event, hit);
       // Leave the clicked line visible when preserving a selection.
       const y = inside && hit ? Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) : event.clientY;
       point = { x: event.clientX, y };

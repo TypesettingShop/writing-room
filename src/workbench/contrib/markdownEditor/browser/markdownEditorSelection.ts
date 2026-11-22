@@ -1,10 +1,26 @@
-import type { Node } from 'prosemirror-model';
-import { TextSelection } from 'prosemirror-state';
+import type { Node, NodeType } from 'prosemirror-model';
+import { PluginKey, TextSelection } from 'prosemirror-state';
 import type { Selection } from 'prosemirror-state';
 import type { IParsedMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { parseMarkdownWithSource } from '../../../../editor/common/markdown/parser.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
 import type { ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
+
+export const markdownCaretParagraphKey = new PluginKey('markdownCaretParagraph');
+
+// A paragraph keeps its attrs through edits and undo. Give each caret paragraph its own attrs
+// so an empty caret can be skipped without skipping authored paragraphs.
+const caretParagraphs = new WeakSet<Node['attrs']>();
+
+export function createMarkdownCaretParagraph(type: NodeType): Node {
+  const paragraph = type.create({});
+  caretParagraphs.add(paragraph.attrs);
+  return paragraph;
+}
+
+export function isEmptyMarkdownCaretParagraph(node: Node): boolean {
+  return node.childCount === 0 && caretParagraphs.has(node.attrs);
+}
 
 interface Range {
   readonly from: number;
@@ -28,8 +44,10 @@ function mapBlocks(model: ITextModel, doc: Node, parsed?: IParsedMarkdown): Bloc
   });
 
   const blocks: Block[] = [];
-  doc.forEach((node, offset, index) => {
-    const range = sourceBlocks[index];
+  let index = 0;
+  doc.forEach((node, offset) => {
+    if (isEmptyMarkdownCaretParagraph(node)) return;
+    const range = sourceBlocks[index++];
     if (!range) {
       return;
     }

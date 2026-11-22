@@ -52,6 +52,53 @@ for (const { name, last, selector, expected, contextMenu } of cases) {
   });
 }
 
+for (const [side, block, selector, button, final] of [
+  ['left', '---', 'hr', 'left', false],
+  ['right', '---', 'hr', 'right', false],
+  ['left', '[ref]: /example', 'pre', 'right', false],
+  ['right', '[ref]: /example', 'pre', 'left', false],
+  ['right', '---', 'hr', 'left', true],
+] as const) {
+  test(`keeps the ${final ? 'final' : 'middle'} atomic ${selector} when typing from its ${side} gutter`, async ({ appPage: page }) => {
+    const file = `atomic-${selector}-${side}.md`;
+    const tail = final ? '' : '\n\nLast';
+    // A previous edit leaves the model with source provenance that includes multiple blank lines.
+    await waitForStorage(page);
+    await writeWorkspaceFile(page, file, `First\n\n\n\n${block}${tail}\n`);
+    await treeItem(page, file).dblclick();
+    const group = groups(page).first();
+    const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+    await editor.getByText('First', { exact: true }).click({ timeout: 20_000 });
+    await page.keyboard.press('End');
+    await page.keyboard.type('!');
+    await page.keyboard.press('ControlOrMeta+s');
+    const edited = `First!\n\n\n\n${block}${tail}\n`;
+    await expect.poll(() => readWorkspaceText(page, file)).toBe(edited);
+
+    const paper = await box(editor);
+    const atom = editor.locator(selector);
+    const bounds = await box(atom);
+    await page.mouse.click(side === 'left' ? paper.x - 12 : paper.x + paper.width + 12, bounds.y + bounds.height / 2, { button });
+    if (button === 'right') {
+      const menu = page.getByRole('menu', { name: 'Markdown editor' });
+      await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
+      await page.keyboard.press('Escape');
+    }
+    await expect(editor).toBeFocused();
+    await expect(selectedTab(group)).toHaveAccessibleDescription('');
+    await expect(atom).not.toHaveClass(/ProseMirror-selectednode/);
+    await page.keyboard.type('Added');
+    const inserted = side === 'left' ? `Added\n\n${block}` : `${block}\n\nAdded`;
+    await expect(atom).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect.poll(async () => (await readWorkspaceText(page, file))?.replace(/\n{3,}/g, '\n\n'))
+      .toBe(`First!\n\n${inserted}${tail}\n`);
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect.poll(() => readWorkspaceText(page, file)).toBe(edited);
+  });
+}
+
 test('typing still replaces an explicitly selected Markdown rule', async ({ appPage: page }) => {
   await waitForStorage(page);
   await writeWorkspaceFile(page, 'selected-rule.md', 'First paragraph\n\n---\n');
@@ -98,6 +145,32 @@ async function textPoint(line: Locator, offset: number): Promise<{ x: number; y:
     return { x: rect.left, y: rect.top + rect.height / 2 };
   }, offset);
 }
+
+test('right-clicking below a read-only rule leaves a collapsed selection', async ({ appPage: page }) => {
+  await seedInstalledExtensions(page, [{
+    manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
+    location: extensionFixtureLocation('memfs'),
+  }]);
+  await page.reload();
+  await runCommand(page, 'Open Read-only Rule Fixture', /^Open Read-only Rule Fixture$/);
+  const group = groups(page).first();
+  const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+  const atom = editor.locator('hr');
+  await expect(atom).toBeVisible({ timeout: 20_000 });
+  const bounds = await box(atom);
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height + 24, { button: 'right' });
+
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
+  await expect(atom).not.toHaveClass(/ProseMirror-selectednode/);
+  await expect.poll(() => editor.evaluate(element => element.ownerDocument.getSelection()?.isCollapsed)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeFocused();
+  await page.keyboard.type('Blocked');
+  await expect(atom).toBeVisible();
+  await expect(editor).not.toContainText('Blocked');
+  await expect(selectedTab(group)).toHaveAccessibleDescription('Read-only');
+});
 
 test('selects and copies read-only Markdown with the mouse without moving the typewriter viewport', async ({ appPage: page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
