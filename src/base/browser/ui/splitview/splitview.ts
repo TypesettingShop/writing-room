@@ -70,6 +70,11 @@ export interface ISplitViewDescriptor<TLayoutContext = undefined, TView extends 
   }[];
 }
 
+export interface ISplitViewStyles {
+  /** A CSS color for the line between visible views. A CSS variable keeps it in sync with the theme. */
+  readonly separatorBorder?: string;
+}
+
 export interface ISplitViewOptions<TLayoutContext = undefined, TView extends IView<TLayoutContext> = IView<TLayoutContext>> {
   /** Defaults to `VERTICAL`. */
   readonly orientation?: Orientation;
@@ -82,6 +87,7 @@ export interface ISplitViewOptions<TLayoutContext = undefined, TView extends IVi
   readonly descriptor?: ISplitViewDescriptor<TLayoutContext, TView>;
   /** The sashes' length across the axis. Without it they span the split view by CSS. */
   readonly getSashOrthogonalSize?: () => number;
+  readonly styles?: ISplitViewStyles;
 }
 
 class ViewItem<TLayoutContext, TView extends IView<TLayoutContext>> {
@@ -222,6 +228,11 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
 
     this.el = $('.monaco-split-view2');
     this.el.classList.add(this.orientation === Orientation.VERTICAL ? 'vertical' : 'horizontal');
+    const separatorBorder = options.styles?.separatorBorder;
+    if (separatorBorder) {
+      this.el.classList.add('separator-border');
+      this.el.style.setProperty('--split-view-separator-border', separatorBorder);
+    }
     this.viewContainer = $('.split-view-container');
     this.sashContainer = $('.sash-container');
     this.el.append(this.viewContainer, this.sashContainer);

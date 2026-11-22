@@ -171,10 +171,14 @@ function color(id: string, dark: ColorValue, light: ColorValue, hcDark: ColorVal
   registerColor(id, { dark, light, hcDark, hcLight }, description);
 }
 
-// The built-in colors. The dark defaults are the v0.1.0 palette: the variables `workbench.css` set, and
-// where a stylesheet had a fallback for a variable nothing set, that fallback, so the default dark theme
-// computes what v0.1.0 drew. The light defaults are the built-in light theme's. The high contrast ones
-// serve an extension's high contrast theme that leaves a color out.
+// The dark defaults start from the v0.1.0 palette, including stylesheet fallbacks. Both standard
+// themes share a structural border tone within their palette. High contrast defaults serve extension
+// themes that leave a color out.
+const workbenchBorder = { dark: '#4a596e', light: '#a2aec0' };
+
+function workbenchBorderColor(id: string, description: string, highContrast: ColorValue = 'contrastBorder'): void {
+  registerColor(id, { ...workbenchBorder, hcDark: highContrast, hcLight: highContrast }, description);
+}
 
 // Base colors
 color('foreground', '#d1daea', '#2b3443', '#ffffff', '#292929', 'Overall foreground color.');
@@ -244,18 +248,18 @@ color('scrollbarSlider.activeBackground', '#7a87a077', '#64708577', 'focusBorder
 color('progressBar.background', '#78aaff', '#2f6fd6', 'contrastBorder', 'contrastBorder', 'Progress bar background.');
 
 // Lists and trees
-color('list.activeSelectionBackground', '#04395e', '#cfe0fa', null, null, 'Background of the selected item when the list is focused.');
-color('list.activeSelectionForeground', '#ffffff', '#1f2633', null, null, 'Foreground of the selected item when the list is focused.');
-color('list.activeSelectionIconForeground', null, null, null, null, 'Icon foreground of the selected item when the list is focused.');
-color('list.inactiveSelectionBackground', '#37373d', '#e4e9f1', null, null, 'Background of the selected item when the list is not focused.');
+color('list.activeSelectionBackground', '#04395e', '#cfe0fa', null, '#0f4a85', 'Background of the selected item when the list is focused.');
+color('list.activeSelectionForeground', '#ffffff', '#1f2633', null, '#ffffff', 'Foreground of the selected item when the list is focused.');
+color('list.activeSelectionIconForeground', 'icon.foreground', 'icon.foreground', 'icon.foreground', 'list.activeSelectionForeground', 'Icon foreground of the selected item when the list is focused.');
+color('list.inactiveSelectionBackground', '#37373d', '#e4e9f1', null, '#e4e9f1', 'Background of the selected item when the list is not focused.');
 color('list.inactiveSelectionForeground', 'foreground', 'foreground', 'foreground', 'foreground', 'Foreground of the selected item when the list is not focused.');
-color('list.hoverBackground', '#ffffff12', '#e8eef7', null, null, 'Background of list items under the mouse.');
+color('list.hoverBackground', '#ffffff12', '#e8eef7', null, '#0f4a851a', 'Background of list items under the mouse.');
 color('list.hoverForeground', 'foreground', 'foreground', 'foreground', 'foreground', 'Foreground of list items under the mouse.');
 color('list.focusBackground', '#2a3446', '#e1e8f3', null, null, 'Background of the focused item when the list is focused.');
 color('list.focusForeground', null, null, null, null, 'Foreground of the focused item when the list is focused.');
 color('list.focusOutline', 'focusBorder', 'focusBorder', 'contrastActiveBorder', 'contrastActiveBorder', 'Outline of the focused item when the list is focused.');
 color('list.inactiveFocusOutline', null, null, null, null, 'Outline of the focused item when the list is not focused.');
-color('list.dropBackground', '#383b3d', '#d6e4f7', null, null, 'Background of a list item while something is dragged over it.');
+color('list.dropBackground', '#383b3d', '#d6e4f7', null, '#0f4a8533', 'Background of a list item while something is dragged over it.');
 color('list.highlightForeground', '#7fb2ff', '#1f63c9', 'focusBorder', 'focusBorder', 'Foreground of the matched characters when filtering a list.');
 color('list.focusHighlightForeground', 'list.highlightForeground', 'list.highlightForeground', 'list.highlightForeground', 'list.highlightForeground', 'Foreground of the matched characters in the focused item.');
 color('list.errorForeground', '#f48a7a', '#c4342d', null, '#b5200d', 'Foreground of list items with errors.');
@@ -269,7 +273,7 @@ color('tree.inactiveIndentGuidesStroke', '#3f4a5e66', '#c3cbd866', '#a9a9a966', 
 color('activityBar.background', '#1a202c', '#eef2f8', '#000000', '#ffffff', 'Activity bar background.');
 color('activityBar.foreground', '#a5b3c8', '#4b5a70', '#ffffff', '#292929', 'Activity bar foreground.');
 color('activityBar.inactiveForeground', '#a5b3c8', '#4b5a70', '#ffffff', '#292929', 'Foreground of inactive activity bar items.');
-color('activityBar.border', null, null, 'contrastBorder', 'contrastBorder', 'Border between the activity bar and the side bar.');
+workbenchBorderColor('activityBar.border', 'Border between the activity bar and the side bar.');
 color('activityBar.activeBorder', '#90baff', '#2f6fd6', null, 'contrastBorder', 'Border of the active activity bar item.');
 color('activityBar.activeBackground', null, null, null, null, 'Background of the active activity bar item.');
 color('activityBarBadge.background', '#2f6fd6', '#2f6fd6', '#000000', '#0f4a85', 'Background of activity bar badges.');
@@ -278,25 +282,25 @@ color('activityBarBadge.foreground', '#ffffff', '#ffffff', '#ffffff', '#ffffff',
 // Side bar
 color('sideBar.background', '#202735', '#f4f6fa', '#000000', '#ffffff', 'Side bar background.');
 color('sideBar.foreground', '#d1daea', '#2b3443', '#ffffff', '#292929', 'Side bar foreground.');
-color('sideBar.border', null, null, 'contrastBorder', 'contrastBorder', 'Border between the side bar and the editor.');
+color('sideBar.border', 'panel.border', 'panel.border', 'contrastBorder', 'contrastBorder', 'Border between the side bar and the editor.');
 color('sideBarTitle.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'Side bar title foreground.');
 color('sideBarSectionHeader.background', '#262f40', '#e7ecf4', null, null, 'Side bar section header background.');
 color('sideBarSectionHeader.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'sideBar.foreground', 'Side bar section header foreground.');
 color('sideBarSectionHeader.border', null, null, 'contrastBorder', 'contrastBorder', 'Side bar section header border.');
 
 // Editor groups and tabs
-color('editorGroup.border', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Border between editor groups.');
+workbenchBorderColor('editorGroup.border', 'Border between editor groups.');
 color('editorGroup.dropBackground', '#53595d80', '#9db5d866', null, '#0f4a8533', 'Background of an editor group while an editor is dragged over it.');
-color('editorGroupHeader.tabsBackground', '#1c212c', '#e9edf4', null, null, 'Background of the tabs bar.');
-color('editorGroupHeader.tabsBorder', null, null, null, null, 'Border below the tabs bar.');
+color('editorGroupHeader.tabsBackground', '#1c212c', '#e9edf4', null, '#e9edf4', 'Background of the tabs bar.');
+workbenchBorderColor('editorGroupHeader.tabsBorder', 'Border below the tabs bar.', null);
 color('editorGroupHeader.noTabsBackground', 'editor.background', 'editor.background', 'editor.background', 'editor.background', 'Background of the title of a group without tabs.');
 color('tab.activeBackground', 'editor.background', 'editor.background', 'editor.background', 'editor.background', 'Background of the active tab.');
 color('tab.activeForeground', '#eaf0f9', '#1f2633', '#ffffff', '#292929', 'Foreground of the active tab.');
 color('tab.activeBorder', null, null, null, null, 'Border below the active tab.');
-color('tab.activeBorderTop', '#90baff', '#2f6fd6', null, null, 'Border above the active tab.');
-color('tab.inactiveBackground', '#1c212c', '#e9edf4', null, null, 'Background of inactive tabs.');
+color('tab.activeBorderTop', '#90baff', '#2f6fd6', null, 'contrastBorder', 'Border above the active tab.');
+color('tab.inactiveBackground', '#1c212c', '#e9edf4', null, '#e9edf4', 'Background of inactive tabs.');
 color('tab.inactiveForeground', '#8b97ab', '#5a6577', '#ffffff', '#292929', 'Foreground of inactive tabs.');
-color('tab.border', '#252c3a', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Border between tabs.');
+workbenchBorderColor('tab.border', 'Border between tabs.');
 color('tab.hoverBackground', null, null, null, null, 'Background of tabs under the mouse.');
 color('tab.hoverForeground', null, null, null, null, 'Foreground of tabs under the mouse.');
 color('tab.unfocusedActiveForeground', 'tab.activeForeground', 'tab.activeForeground', 'tab.activeForeground', 'tab.activeForeground', 'Foreground of the active tab of an unfocused group.');
@@ -305,7 +309,7 @@ color('tab.dragAndDropBorder', '#eaf0f9', '#1f2633', 'contrastActiveBorder', 'co
 
 // Panel
 color('panel.background', '#181d27', '#f8f9fc', '#000000', '#ffffff', 'Panel background.');
-color('panel.border', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Border between the panel and the editor.');
+workbenchBorderColor('panel.border', 'Border between the panel and the editor.');
 color('panel.dropBorder', 'panelTitle.activeForeground', 'panelTitle.activeForeground', 'panelTitle.activeForeground', 'panelTitle.activeForeground', 'Border that shows where a dragged panel title goes.');
 color('panelTitle.activeBorder', '#90baff', '#2f6fd6', 'contrastBorder', 'contrastBorder', 'Border of the active panel title.');
 color('panelTitle.activeForeground', '#eaf0f9', '#1f2633', '#ffffff', '#292929', 'Foreground of the active panel title.');
@@ -316,7 +320,7 @@ color('panelSectionHeader.foreground', 'foreground', 'foreground', 'foreground',
 // Status bar
 color('statusBar.background', '#20334e', '#dde8f8', '#000000', '#ffffff', 'Status bar background.');
 color('statusBar.foreground', '#d8e8ff', '#1d3354', '#ffffff', '#292929', 'Status bar foreground.');
-color('statusBar.border', null, null, 'contrastBorder', 'contrastBorder', 'Border between the status bar and the editor.');
+workbenchBorderColor('statusBar.border', 'Border between the status bar and the editor.');
 color('statusBar.noFolderBackground', 'statusBar.background', 'statusBar.background', 'statusBar.background', 'statusBar.background', 'Status bar background without a folder.');
 color('statusBarItem.hoverBackground', '#ffffff1f', '#0000001a', null, null, 'Status bar item background on hover.');
 color('statusBarItem.activeBackground', '#ffffff2e', '#0000002e', null, null, 'Status bar item background when clicked.');
@@ -334,7 +338,7 @@ color('titleBar.activeBackground', '#232b39', '#e8edf5', '#000000', '#ffffff', '
 color('titleBar.activeForeground', '#eaf0f9', '#1f2633', '#ffffff', '#292929', 'Title bar foreground.');
 color('titleBar.inactiveBackground', 'titleBar.activeBackground', 'titleBar.activeBackground', 'titleBar.activeBackground', 'titleBar.activeBackground', 'Title bar background when the window is inactive.');
 color('titleBar.inactiveForeground', '#a5b3c8', '#5a6577', '#ffffff', '#292929', 'Title bar foreground when the window is inactive.');
-color('titleBar.border', null, null, 'contrastBorder', 'contrastBorder', 'Title bar border.');
+workbenchBorderColor('titleBar.border', 'Title bar border.');
 color('menubar.selectionBackground', 'menu.selectionBackground', 'menu.selectionBackground', null, null, 'Background of the selected menu bar item.');
 color('menubar.selectionForeground', 'titleBar.activeForeground', 'titleBar.activeForeground', 'titleBar.activeForeground', 'titleBar.activeForeground', 'Foreground of the selected menu bar item.');
 color('menu.background', '#232c3d', '#ffffff', '#000000', '#ffffff', 'Menu background.');
@@ -377,6 +381,7 @@ color('charts.purple', '#b38ae0', '#7442a8', '#b180d7', '#652d90', 'Purple in ch
 
 // Editor
 color('editor.background', '#171b24', '#fbfcfe', '#000000', '#ffffff', 'Editor background.');
+color('markdownEditor.contentBorder', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Side borders of the centered Markdown editor content.');
 color('editor.foreground', '#d7dfec', '#1f2633', '#ffffff', '#292929', 'Editor foreground.');
 color('editor.selectionBackground', '#2f4a72', '#c4d8f6', '#ffffff', '#0f4a85', 'Background of the editor selection.');
 color('editor.inactiveSelectionBackground', '#2f4a7280', '#c4d8f680', '#ffffff80', '#0f4a8580', 'Background of the selection in an unfocused editor.');

@@ -1,0 +1,89 @@
+import { EditorState, TextSelection } from 'prosemirror-state';
+import type { Command } from 'prosemirror-state';
+import { expect, test } from 'vitest';
+import { formatKeybinding } from '../../../../../base/common/keybindingLabels.js';
+import { parseKeybinding } from '../../../../../base/common/keybindingParser.js';
+import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
+import { serializeMarkdown } from '../../../../../editor/common/markdown/serializer.js';
+import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
+import { KeybindingResolver, ResultKind } from '../../../../../platform/keybinding/common/keybindingResolver.js';
+import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
+import '../../../../browser/actions/layoutActions.js';
+import '../../../../browser/parts/editor/editorCommands.js';
+import { MarkdownEditorPane } from '../../browser/markdownEditorPane.js';
+import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
+import '../../browser/markdownEditorToolbar.contribution.js';
+import {
+  MarkdownEditorFocusContext, MarkdownEditorInlineFormattingContext, MarkdownEditorModeContext,
+  MarkdownEditorWritableContext,
+} from '../../common/markdownEditor.js';
+
+test.each([
+  { platform: 'linux', modifier: 'ctrl', bold: 'Ctrl+B', aria: 'Control+B' },
+  { platform: 'mac', modifier: 'cmd', bold: '⌘B', aria: 'Command+B' },
+] as const)('resolves Markdown shortcuts and labels on $platform without taking them outside the editor', spec => {
+  const root = new ContextKeyService();
+  const editor = root.createScoped();
+  const { platform, modifier } = spec;
+  try {
+    MarkdownEditorModeContext.bindTo(root).set('wysiwyg');
+    MarkdownEditorFocusContext.bindTo(editor).set(true);
+    MarkdownEditorWritableContext.bindTo(editor).set(true);
+    const inline = MarkdownEditorInlineFormattingContext.bindTo(editor);
+    inline.set(true);
+    const resolver = new KeybindingResolver(KeybindingsRegistry.getDefaultKeybindings(), platform);
+    const resolve = (key: string, scope = editor) => resolver.resolve(scope.getContext(null), parseKeybinding(key)!.chords[0]);
+    const bold = resolver.lookupKeybinding('markdownEditor.toggleBold')!;
+    expect(formatKeybinding(bold, platform)).toBe(spec.bold);
+    expect(formatKeybinding(bold, platform, true)).toBe(spec.aria);
+    expect(resolve(`${modifier}+b`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.toggleBold' } });
+    expect(resolve(`${modifier}+b`, root)).toMatchObject({
+      kind: ResultKind.KbFound, rule: { id: 'workbench.action.toggleSidebarVisibility' },
+    });
+    expect(resolve(`${modifier}+u`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.toggleUnderline' } });
+    expect(resolve(`${modifier}+u`, root)).not.toMatchObject({ rule: { id: 'markdownEditor.toggleUnderline' } });
+    expect(resolve(`${modifier}+k`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.editLink' } });
+    expect(resolve(`${modifier}+k`, root).kind).toBe(ResultKind.MoreChordsNeeded);
+    expect(resolve(`${modifier}+alt+6`)).toMatchObject({
+      kind: ResultKind.KbFound, rule: { id: 'markdownEditor.setBlockType', args: { type: 'heading', level: 6 } },
+    });
+    // The palette runs the bare command, so a key bound only with arguments must not label it.
+    expect(resolver.lookupKeybinding('markdownEditor.setBlockType')).toBeUndefined();
+    expect(resolver.lookupKeybinding('markdownEditor.setTextAlign')).toBeUndefined();
+    for (const [key, id] of [['l', 'alignLeft'], ['e', 'alignCenter'], ['r', 'alignRight']]) {
+      expect(resolve(`${modifier}+shift+${key}`)).toMatchObject({
+        kind: ResultKind.KbFound, rule: { id: `markdownEditor.${id}` },
+      });
+    }
+    inline.set(false);
+    expect(resolve(`${modifier}+b`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.toggleBold' } });
+    expect(resolve(`${modifier}+k`)).toMatchObject({ kind: ResultKind.KbFound, rule: { id: 'markdownEditor.editLink' } });
+    if (platform === 'mac') {
+      expect(resolve('ctrl+b').kind).toBe(ResultKind.NoMatchingKb);
+    }
+  } finally {
+    editor.dispose();
+    root.dispose();
+  }
+});
+
+test.each([
+  ['markdownEditor.setFontSize', '### Line {.size-36pt .keep}', '### Line {.keep}', 1, 5],
+  ['markdownEditor.setFontFamily', 'A [line]{.font-mono} Z {.font-serif}', 'A line Z {.font-serif}', 3, 7],
+])('runs %s with the legacy default argument', async (id, source, expected, from, to) => {
+  const doc = parseMarkdown(source);
+  let state = EditorState.create({ doc, selection: TextSelection.create(doc, from, to) });
+  const pane: MarkdownEditorPane = Object.assign(Object.create(MarkdownEditorPane.prototype), {
+    getFormattingStateForQuickInput: () => state,
+    runFormattingCommand: (command: Command) => command(state, tr => { state = state.apply(tr); }),
+  });
+  const handler = CommandsRegistry.getCommand(id)!.handler;
+  await handler({
+    get(service) {
+      expect(service).toBe(IEditorGroupsService);
+      return { activeGroup: { activeEditorPane: pane } } as never;
+    },
+  }, 'default');
+  expect(serializeMarkdown(state.doc)).toBe(expected);
+});

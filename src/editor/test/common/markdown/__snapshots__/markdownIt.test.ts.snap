@@ -1,0 +1,307 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`createMarkdownIt > tokenizes the configured CommonMark and GFM features 1`] = `
+[
+  {
+    "markup": "#",
+    "type": "heading_open",
+  },
+  {
+    "children": [
+      {
+        "content": "제목",
+        "type": "text",
+      },
+    ],
+    "content": "제목",
+    "type": "inline",
+  },
+  {
+    "markup": "#",
+    "type": "heading_close",
+  },
+  {
+    "type": "paragraph_open",
+  },
+  {
+    "children": [
+      {
+        "markup": "~~",
+        "type": "s_open",
+      },
+      {
+        "content": "삭제",
+        "type": "text",
+      },
+      {
+        "markup": "~~",
+        "type": "s_close",
+      },
+      {
+        "type": "footnote_ref",
+      },
+    ],
+    "content": "~~삭제~~[^a]",
+    "type": "inline",
+  },
+  {
+    "type": "paragraph_close",
+  },
+  {
+    "markup": ".",
+    "type": "ordered_list_open",
+  },
+  {
+    "info": "1",
+    "markup": ".",
+    "type": "list_item_open",
+  },
+  {
+    "type": "paragraph_open",
+  },
+  {
+    "children": [
+      {
+        "content": "상위",
+        "type": "text",
+      },
+    ],
+    "content": "상위",
+    "type": "inline",
+  },
+  {
+    "type": "paragraph_close",
+  },
+  {
+    "markup": ".",
+    "type": "ordered_list_open",
+  },
+  {
+    "info": "1",
+    "markup": ".",
+    "type": "list_item_open",
+  },
+  {
+    "type": "paragraph_open",
+  },
+  {
+    "children": [
+      {
+        "content": "하위",
+        "type": "text",
+      },
+    ],
+    "content": "하위",
+    "type": "inline",
+  },
+  {
+    "type": "paragraph_close",
+  },
+  {
+    "markup": ".",
+    "type": "list_item_close",
+  },
+  {
+    "markup": ".",
+    "type": "ordered_list_close",
+  },
+  {
+    "markup": ".",
+    "type": "list_item_close",
+  },
+  {
+    "markup": ".",
+    "type": "ordered_list_close",
+  },
+  {
+    "attrs": {
+      "class": "task-list-container",
+    },
+    "markup": "-",
+    "type": "bullet_list_open",
+  },
+  {
+    "attrs": {
+      "class": "task-list-item",
+    },
+    "markup": "-",
+    "type": "list_item_open",
+  },
+  {
+    "type": "paragraph_open",
+  },
+  {
+    "children": [
+      {
+        "attrs": {
+          "checked": "checked",
+          "class": "task-list-item-checkbox",
+          "disabled": "disabled",
+          "id": "task-item-0",
+          "type": "checkbox",
+        },
+        "type": "checkbox_input",
+      },
+      {
+        "content": " 완료",
+        "type": "text",
+      },
+    ],
+    "content": "[x] 완료",
+    "type": "inline",
+  },
+  {
+    "type": "paragraph_close",
+  },
+  {
+    "markup": "-",
+    "type": "list_item_close",
+  },
+  {
+    "attrs": {
+      "class": "task-list-item",
+    },
+    "markup": "-",
+    "type": "list_item_open",
+  },
+  {
+    "type": "paragraph_open",
+  },
+  {
+    "children": [
+      {
+        "attrs": {
+          "class": "task-list-item-checkbox",
+          "disabled": "disabled",
+          "id": "task-item-1",
+          "type": "checkbox",
+        },
+        "type": "checkbox_input",
+      },
+      {
+        "content": " 예정",
+        "type": "text",
+      },
+    ],
+    "content": "[ ] 예정",
+    "type": "inline",
+  },
+  {
+    "type": "paragraph_close",
+  },
+  {
+    "markup": "-",
+    "type": "list_item_close",
+  },
+  {
+    "markup": "-",
+    "type": "bullet_list_close",
+  },
+  {
+    "type": "table_open",
+  },
+  {
+    "type": "thead_open",
+  },
+  {
+    "type": "tr_open",
+  },
+  {
+    "attrs": {
+      "style": "text-align:center",
+    },
+    "type": "th_open",
+  },
+  {
+    "children": [
+      {
+        "content": "열",
+        "type": "text",
+      },
+    ],
+    "content": "열",
+    "type": "inline",
+  },
+  {
+    "type": "th_close",
+  },
+  {
+    "type": "tr_close",
+  },
+  {
+    "type": "thead_close",
+  },
+  {
+    "type": "tbody_open",
+  },
+  {
+    "type": "tr_open",
+  },
+  {
+    "attrs": {
+      "style": "text-align:center",
+    },
+    "type": "td_open",
+  },
+  {
+    "children": [
+      {
+        "content": "값",
+        "type": "text",
+      },
+    ],
+    "content": "값",
+    "type": "inline",
+  },
+  {
+    "type": "td_close",
+  },
+  {
+    "type": "tr_close",
+  },
+  {
+    "type": "tbody_close",
+  },
+  {
+    "type": "table_close",
+  },
+  {
+    "content": "const x = 1;
+",
+    "info": "typescript",
+    "markup": "~~~",
+    "type": "fence",
+  },
+  {
+    "type": "footnote_block_open",
+  },
+  {
+    "type": "footnote_open",
+  },
+  {
+    "type": "paragraph_open",
+  },
+  {
+    "children": [
+      {
+        "content": "각주",
+        "type": "text",
+      },
+    ],
+    "content": "각주",
+    "type": "inline",
+  },
+  {
+    "type": "footnote_anchor",
+  },
+  {
+    "type": "paragraph_close",
+  },
+  {
+    "type": "footnote_close",
+  },
+  {
+    "type": "footnote_block_close",
+  },
+]
+`;

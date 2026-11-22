@@ -25,6 +25,7 @@ export interface ICommandAction {
   readonly title: CommandTitle;
   readonly category?: CommandTitle;
   readonly icon?: CommandIcon;
+  readonly labelClass?: string;
   readonly precondition?: ContextKeyExpression;
   readonly toggled?: ContextKeyExpression;
   readonly forwardMenuContext?: MenuId;
@@ -38,6 +39,20 @@ interface IMenuEntry {
 
 export interface IMenuItem extends IMenuEntry {
   readonly command: ICommandAction;
+  readonly args?: readonly unknown[];
+  readonly numberInput?: IMenuNumberInput;
+}
+
+export interface IMenuNumberInput {
+  readonly valueKey: string;
+  readonly min: number;
+  readonly max: number;
+}
+
+/** A label a select submenu shows when no listed choice is checked but `when` holds. */
+export interface IMenuSelectFallback {
+  readonly label: string;
+  readonly when: ContextKeyExpression | undefined;
 }
 
 export interface ISubmenuItem extends IMenuEntry {
@@ -45,6 +60,10 @@ export interface ISubmenuItem extends IMenuEntry {
   readonly forwardMenuContext?: MenuId;
   readonly title: CommandTitle;
   readonly icon?: CommandIcon;
+  readonly select?: boolean;
+  readonly selectFallback?: readonly IMenuSelectFallback[];
+  /** Context key containing the display label when no listed choice is checked. */
+  readonly selectLabelKey?: string;
 }
 
 export function isIMenuItem(item: IMenuItem | ISubmenuItem): item is IMenuItem {
@@ -66,6 +85,8 @@ export class MenuId {
   static readonly EditorTitle = new MenuId('EditorTitle');
   static readonly EditorTitleContext = new MenuId('EditorTitleContext');
   static readonly EditorContext = new MenuId('EditorContext');
+  static readonly MarkdownEditorToolbar = new MenuId('MarkdownEditorToolbar');
+  static readonly MarkdownEditorSelection = new MenuId('MarkdownEditorSelection');
   static readonly ExplorerContext = new MenuId('ExplorerContext');
   static readonly WebviewContext = new MenuId('WebviewContext');
   static readonly ViewTitle = new MenuId('ViewTitle');
@@ -159,7 +180,8 @@ class MenuRegistryImpl {
 
 export const MenuRegistry = new MenuRegistryImpl();
 
-export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>;
+export type IMenuContext = Pick<IContextKeyService, 'contextMatchesRules' | 'onDidChangeContext'>
+  & Partial<Pick<IContextKeyService, 'getContextKeyValue'>>;
 
 export class MenuCommandContext {
   constructor(readonly menu: MenuId, readonly scope: IMenuContext) {}
@@ -174,6 +196,7 @@ export class MenuItemAction {
   readonly enabled: boolean;
   readonly checked: boolean | undefined;
   readonly icon: CommandIcon | undefined;
+  readonly labelClass: string | undefined;
   readonly keybinding: ResolvedKeybinding | undefined;
   private menuContext: MenuId | undefined;
 
@@ -182,13 +205,16 @@ export class MenuItemAction {
     private readonly context: IMenuContext,
     keybindings: IKeybindingService,
     private readonly commandService: ICommandService,
+    private readonly menuArgs: readonly unknown[] = [],
+    readonly numberInput?: IMenuNumberInput,
   ) {
     this.id = item.id;
     this.label = commandTitle(item.title);
     this.enabled = context.contextMatchesRules(item.precondition);
     this.checked = item.toggled && context.contextMatchesRules(item.toggled);
     this.icon = item.icon;
-    this.keybinding = keybindings.lookupKeybinding(item.id);
+    this.labelClass = item.labelClass;
+    this.keybinding = menuArgs.length ? undefined : keybindings.lookupKeybinding(item.id);
     this.menuContext = item.forwardMenuContext;
   }
 
@@ -200,10 +226,12 @@ export class MenuItemAction {
     if (this.menuContext) {
       const command = CommandsRegistry.getCommand(this.id);
       if (!command || menuContextHandlers.has(command.handler)) {
-        return this.commandService.executeCommand(this.id, new MenuCommandContext(this.menuContext, this.context), ...args);
+        return this.commandService.executeCommand(
+          this.id, new MenuCommandContext(this.menuContext, this.context), ...this.menuArgs, ...args,
+        );
       }
     }
-    return this.commandService.executeCommand(this.id, ...args);
+    return this.commandService.executeCommand(this.id, ...this.menuArgs, ...args);
   }
 }
 
@@ -212,6 +240,10 @@ export class SubmenuItemAction {
   readonly label: string;
   readonly enabled = true;
   readonly icon: CommandIcon | undefined;
+
+  get radioItems(): boolean | undefined {
+    return this.item.select;
+  }
 
   constructor(readonly item: ISubmenuItem, readonly groups: MenuActionGroup[]) {
     this.id = item.submenu.id;

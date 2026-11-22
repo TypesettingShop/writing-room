@@ -68,7 +68,7 @@ const DEFAULT_DARK_COLORS: Readonly<Record<ColorIdentifier, string>> = {
   'sideBar.foreground': '#d1daea',
   'sideBarSectionHeader.background': '#262f40',
   'panel.background': '#181d27',
-  'panel.border': '#313c50',
+  'panel.border': '#4a596e',
   'panelTitle.activeBorder': '#90baff',
   'statusBar.background': '#20334e',
   'statusBar.foreground': '#d8e8ff',

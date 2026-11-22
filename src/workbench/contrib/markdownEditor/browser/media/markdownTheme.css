@@ -1,0 +1,94 @@
+.markdown-editor-frame, .wr-menu {
+  --markdown-font-noto-sans-kr: 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  --markdown-font-noto-serif-kr: 'Noto Serif KR', 'Noto Serif CJK KR', 'Batang', 'AppleMyungjo', serif;
+  --markdown-font-nanum-myeongjo: 'Nanum Myeongjo', '나눔명조', 'Noto Serif KR', 'Noto Serif CJK KR', 'Batang', 'AppleMyungjo', serif;
+  --markdown-font-nanum-gothic: 'Nanum Gothic', '나눔고딕', 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  --markdown-font-monospace: monospace;
+}
+
+.markdown-editor-surface .ProseMirror {
+  font-size: var(--markdown-body-font-size, 12pt);
+  font-family: var(--markdown-editor-font-family, var(--markdown-font-noto-sans-kr));
+}
+
+.markdown-editor-surface .ProseMirror :where(p.subtitle) {
+  color: var(--vscode-descriptionForeground, var(--vscode-editor-foreground));
+  --markdown-base-font-size: var(--markdown-subtitle-font-size);
+  font-size: var(--markdown-base-font-size);
+  font-weight: 400;
+}
+
+.markdown-editor-surface .ProseMirror a {
+  color: var(--vscode-textLink-foreground, var(--vscode-editor-foreground));
+}
+
+.markdown-editor-surface .ProseMirror .left { text-align: left; }
+.markdown-editor-surface .ProseMirror .center { text-align: center; }
+.markdown-editor-surface .ProseMirror .right { text-align: right; }
+.markdown-editor-surface .ProseMirror .justify { text-align: justify; }
+
+/* Set each heading's base explicitly so block and inline presets scale the intended text. */
+.markdown-editor-surface .ProseMirror :where(h1) { --markdown-base-font-size: var(--markdown-h1-font-size); }
+.markdown-editor-surface .ProseMirror :where(h2) { --markdown-base-font-size: var(--markdown-h2-font-size); }
+.markdown-editor-surface .ProseMirror :where(h3) { --markdown-base-font-size: var(--markdown-h3-font-size); }
+.markdown-editor-surface .ProseMirror :where(h4) { --markdown-base-font-size: var(--markdown-h4-font-size); }
+.markdown-editor-surface .ProseMirror :where(h5) { --markdown-base-font-size: var(--markdown-h5-font-size); }
+.markdown-editor-surface .ProseMirror :where(h6) { --markdown-base-font-size: var(--markdown-h6-font-size); }
+.markdown-editor-surface .ProseMirror :where(h1, h2, h3, h4, h5, h6) {
+  font-size: var(--markdown-base-font-size);
+}
+
+.markdown-editor-surface .ProseMirror :where(span, u.underline) { --markdown-base-font-size: 1em; }
+.markdown-editor-surface .ProseMirror .size-sm { font-size: calc(var(--markdown-base-font-size, 1em) * 0.875); }
+.markdown-editor-surface .ProseMirror .size-lg { font-size: calc(var(--markdown-base-font-size, 1em) * 1.25); }
+.markdown-editor-surface .ProseMirror .size-xl { font-size: calc(var(--markdown-base-font-size, 1em) * 1.5); }
+
+.markdown-editor-surface .ProseMirror .size-8pt { font-size: 8pt; }
+.markdown-editor-surface .ProseMirror .size-9pt { font-size: 9pt; }
+.markdown-editor-surface .ProseMirror .size-10pt { font-size: 10pt; }
+.markdown-editor-surface .ProseMirror .size-11pt { font-size: 11pt; }
+.markdown-editor-surface .ProseMirror .size-12pt { font-size: 12pt; }
+.markdown-editor-surface .ProseMirror .size-14pt { font-size: 14pt; }
+.markdown-editor-surface .ProseMirror .size-16pt { font-size: 16pt; }
+.markdown-editor-surface .ProseMirror .size-18pt { font-size: 18pt; }
+.markdown-editor-surface .ProseMirror .size-20pt { font-size: 20pt; }
+.markdown-editor-surface .ProseMirror .size-24pt { font-size: 24pt; }
+.markdown-editor-surface .ProseMirror .size-28pt { font-size: 28pt; }
+.markdown-editor-surface .ProseMirror .size-36pt { font-size: 36pt; }
+.markdown-editor-surface .ProseMirror .size-48pt { font-size: 48pt; }
+.markdown-editor-surface .ProseMirror .size-72pt { font-size: 72pt; }
+
+.markdown-editor-surface .ProseMirror .font-serif {
+  font-family: var(--markdown-editor-font-serif);
+}
+.markdown-editor-surface .ProseMirror .font-sans {
+  font-family: var(--markdown-editor-font-sans);
+}
+
+/* Share the font stacks with the dropdown’s previews. Rules follow formattingPresets’ order. */
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-noto-sans-kr {
+  font-family: var(--markdown-font-noto-sans-kr);
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-noto-serif-kr {
+  font-family: var(--markdown-font-noto-serif-kr);
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-nanum-myeongjo {
+  font-family: var(--markdown-font-nanum-myeongjo);
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-nanum-gothic {
+  font-family: var(--markdown-font-nanum-gothic);
+}
+:is(.markdown-editor-surface .ProseMirror, .wr-menu, .markdown-editor-toolbar) .font-monospace {
+  font-family: var(--markdown-font-monospace);
+}
+/* The legacy monospace class sits with its replacement and still follows the other legacy fonts. */
+.markdown-editor-surface .ProseMirror .font-mono { font-family: monospace; }
+
+.markdown-editor-surface .ProseMirror :where(:not(pre) > code) {
+  font-family: monospace;
+}
+
+/* The fenced code block still accepts a font preset on its pre element. */
+.markdown-editor-surface .ProseMirror :where(pre > code) {
+  font-family: inherit;
+}

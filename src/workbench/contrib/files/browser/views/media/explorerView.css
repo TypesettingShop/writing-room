@@ -27,16 +27,28 @@
 }
 
 .explorer-row[aria-selected="true"] {
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
   background: var(--vscode-list-inactiveSelectionBackground, #37373d);
 }
 
 .explorer-tree:focus-within .explorer-row[aria-selected="true"] {
+  color: var(--vscode-list-activeSelectionForeground, inherit);
   background: var(--vscode-list-activeSelectionBackground, #04395e);
+}
+
+:is(.hc-light, .hc-black) .explorer-tree:not(:focus-within) .explorer-row[aria-selected="true"] {
+  outline: 1px solid var(--vscode-contrastBorder);
+  outline-offset: -1px;
 }
 
 .explorer-row:focus-visible {
   outline: 1px solid var(--vscode-focusBorder, #80a8ff);
   outline-offset: -1px;
+}
+
+/* High contrast light fills the focused selection almost as dark as its focus border: outline it in its text color. */
+.hc-light .explorer-tree:focus-within .explorer-row[aria-selected="true"]:focus-visible {
+  outline-color: currentColor;
 }
 
 .explorer-twistie {

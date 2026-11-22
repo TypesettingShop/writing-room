@@ -158,4 +158,19 @@ v0.2.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 - 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 확장 호스트 재시작의 비동기 비활성화와 종료 단계 정리(wr-gl87), Worker 오류 귀속에서 변조 가능한 스택과 재사용한 진입 URL을 구별하는 일(wr-fy2l).
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
-Decided in: wr-510x, wr-efqx, wr-jbmd
+## 11. 브랜치와 PR 규칙
+
+GitHub 브랜치 보호에는 PR의 출발 브랜치를 제한하는 설정이 없다. 이 저장소는 `.github/workflows/main-pr-source.yml`의 셸 스크립트로 `main` 대상 PR의 출발 저장소와 브랜치를 검사한다. 허용할 브랜치를 바꿀 때는 이 파일의 `case` 패턴과 이 절을 함께 고친다.
+
+- `main`과 `develop`에는 PR로만 변경을 반영한다.
+- PR은 머지 커밋으로만 병합한다(squash·rebase 금지). 커밋 제목의 이슈 ID와 마일스톤 병합 해시를 보존하기 위해서다.
+- `main` 대상 PR은 같은 저장소의 `develop` 또는 `hotfix/*`에서 연다. `Check main PR source`가 이 조건을 검사한다. 워크플로가 `main`에 병합되면 저장소 관리자는 Actions 이벤트 정책에서 `pull_request_target` 실행이 허용되는지 확인한다. 허용된 브랜치에서 연 PR의 검사가 성공하면 이 체크를 `main`의 필수 검사로 지정한다.
+- `hotfix/*` PR이 `main`에 들어가면 `main`에서 `develop`으로 PR을 열어 변경을 돌려보낸다. `develop`은 PR의 출발 브랜치에 제한을 두지 않는다.
+- 마일스톤 작업을 통합한 `milestone/*` 브랜치는 `develop`으로 PR을 연다.
+- 루트 워크트리의 `develop`에 쌓인 로컬 `.moai/` 트래커 커밋은 `chore/tracker-*` 브랜치에 담아 `develop`으로 PR을 연다.
+
+`pull_request_target`은 대상 저장소의 기본 브랜치인 `main`에 있는 워크플로 정의를 실행한다. 검사에는 PR 메타데이터만 환경 변수로 넘긴다. 이 워크플로에 checkout을 추가하거나 PR 코드를 실행하지 않는다.
+
+필수 상태 체크는 잡 이름으로 연결된다. 다른 워크플로가 같은 이름으로 결과를 보고해도 필수 체크 조건이 충족될 수 있다. 그래서 `main` 대상 PR에서 `.github/workflows/`를 바꿀 때는 이 변경을 따로 확인한다. 같은 커밋을 가리키는 PR에 실패한 체크가 표시되면, 허용된 출발 브랜치에서 연 PR의 검사를 다시 실행해 결과를 확인한다.
+
+Decided in: wr-510x, wr-efqx, wr-jbmd, wr-zqjd

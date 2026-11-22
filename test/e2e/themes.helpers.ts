@@ -6,7 +6,7 @@ import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFi
 import { expect } from './fixtures.js';
 
 /** A fixture folder under `test/fixtures/extensions/theming/`. */
-export type ThemingFixture = 'color-theme/' | 'theme-api/';
+export type ThemingFixture = 'color-theme/' | 'theme-api/' | 'tree-view/';
 
 export { persistedSettings, settingsKey } from './configuration.helpers.js';
 

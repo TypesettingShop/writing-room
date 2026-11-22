@@ -4,6 +4,11 @@ import type { Page } from '@playwright/test';
 import { build } from 'vite';
 import type {} from '../harness/files.js';
 import { collectPageErrors, expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 const harness = '/test/harness/files.html';
 let previewHarness: { html: string; code: string } | undefined;

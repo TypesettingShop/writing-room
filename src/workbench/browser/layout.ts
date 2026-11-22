@@ -90,6 +90,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
   private readonly parts = new Map<Parts, Part>();
   // Availability is computed from the current containers; saved flags represent user choices.
   private readonly automaticHidden: Partial<Record<(typeof hiddenKey)[OptionalPart], boolean>> = {};
+  private readonly transientHidden: typeof this.automaticHidden = {};
   private grid!: SerializableGrid<Part>;
 
   private readonly didChangePartVisibility = this._register(new Emitter<IPartVisibilityChangeEvent>());
@@ -118,26 +119,33 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
   }
 
   isVisible(part: Parts): boolean {
-    return !isOptionalPart(part) || (!this.layoutState[hiddenKey[part]] && !this.automaticHidden[hiddenKey[part]]);
+    if (!isOptionalPart(part)) return true;
+    const key = hiddenKey[part];
+    return !this.layoutState[key] && !this.automaticHidden[key] && !this.transientHidden[key];
   }
 
-  setPartHidden(hidden: boolean, part: Parts, options?: { readonly automatic: boolean }): void {
+  setPartHidden(hidden: boolean, part: Parts, options?: { readonly automatic?: boolean; readonly transient?: boolean }): void {
     if (!isOptionalPart(part)) {
       return;
     }
-    const state = options?.automatic ? this.automaticHidden : this.layoutState;
+    const state = options?.transient ? this.transientHidden : options?.automatic ? this.automaticHidden : this.layoutState;
     const key = hiddenKey[part];
     const wasHidden = state[key] ?? false;
-    if (wasHidden === hidden) {
+    // A person showing a part ends its temporary override instead of only changing the saved choice.
+    const clearsTransient = !hidden && !options?.transient && !options?.automatic && !!this.transientHidden[key];
+    if (wasHidden === hidden && !clearsTransient) {
       return;
     }
     const view = this.getPart(part);
-    if (!hidden && !view.canShow()) {
+    if (!hidden && !options?.transient && !view.canShow()) {
       return;
     }
     const wasVisible = this.isVisible(part);
     // Set visibility before running the grid layout so a newly hidden part keeps its previous size.
     state[key] = hidden;
+    if (clearsTransient) {
+      this.transientHidden[key] = false;
+    }
     const visible = this.isVisible(part);
     if (visible === wasVisible) {
       return;
@@ -149,6 +157,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
         this.grid.setViewVisible(view, visible);
       } catch (error) {
         state[key] = wasHidden;
+        if (clearsTransient) {
+          this.transientHidden[key] = true;
+        }
         throw error;
       }
       if (moveFocus) {

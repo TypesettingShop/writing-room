@@ -41,8 +41,9 @@ export class KeybindingResolver {
       }
     }
     this.rules.reverse();
+    // A label stands for running the command bare, as the palette and menus do; a rule with args runs something else.
     for (const { rule, binding } of this.rules) {
-      if (!this.lookup.has(rule.id)) {
+      if (rule.args === undefined && !this.lookup.has(rule.id)) {
         this.lookup.set(rule.id, binding);
       }
     }

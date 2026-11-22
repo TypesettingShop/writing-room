@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import {
   contextMenuByKeyboard, dragFiles, DROP_TARGET_ATTRIBUTE, explorerInput, explorerTree, fileTabs, focusRow, part, rowNames,
@@ -10,6 +11,10 @@ import {
   answerCloseQuestion, chooseOption, expectEditorText, focusEditorEnd, groups, quickPick, readWorkspaceBytes, readWorkspaceText,
   selectedTab, waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 /** Opens a second tab of the same storage, its Explorer drawn. */
 async function otherTab(page: Page): Promise<Page> {
@@ -380,7 +385,7 @@ test.describe('with the files fixture extension', () => {
   test('a view the extension adds to the Explorer container shows below the file tree', async ({ appPage: page }) => {
     const sidebar = part(page, 'sidebar');
     await expect(sidebar.getByRole('region', { name: 'Files Fixture View' })).toBeVisible();
-    await expect(sidebar.getByRole('heading')).toHaveText(['Explorer', 'workspace', 'Files Fixture View']);
+    await expect(sidebar.getByRole('heading')).toHaveText(['Explorer', 'workspace', 'Files Fixture View', 'Outline']);
     await expect(sidebar.getByRole('region', { name: 'workspace' }).getByRole('tree', { name: 'Files Explorer' })).toBeVisible();
   });
 });
@@ -467,6 +472,9 @@ test.describe('upload and download', () => {
     expect(over.taken).toEqual([true, true]);
     await expect(treeItem(page, 'inbox')).toHaveAttribute(DROP_TARGET_ATTRIBUTE);
     await expect(explorerTree(page)).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
+    // Blur clears the marker. The drop still resolves the folder under the pointer.
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+    await expect(treeItem(page, 'inbox')).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);
     const drop = await dragFiles(treeItem(page, 'inbox'), ['drop'], [{ name: 'in.md', text: 'into inbox' }, { name: 'raw.bin', bytes: binary }]);
     expect(drop.taken).toEqual([true]);
     await expect(treeItem(page, 'inbox')).not.toHaveAttribute(DROP_TARGET_ATTRIBUTE);

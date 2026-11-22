@@ -16,8 +16,9 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 | --- | --- |
 | [getting-started.md](getting-started.md) | 설치, 조작, 파일, 설정, 확장 설치와 서명의 뜻, 포워딩 주소에서 실행하기, 테스트 실행 |
 | [extension-api.md](extension-api.md) | v0.2.0 호환 표(네임스페이스별 지원 범위, 받기만 하는 API, 지원하지 않는 네임스페이스와 기여 지점, 인수한 확장), 매니페스트와 진입점, 영역 페이지 색인 |
-| [maintainability.md](maintainability.md) | 유지보수와 확장 가이드: 레이어 규칙, DI, 레지스트리와 기여, 에디터·확장 확장법, 저장, 테스트, 기술 부채 |
+| [maintainability.md](maintainability.md) | 레이어 규칙, 의존성 주입, 레지스트리와 기여, 레이아웃·에디터·확장 시스템에 기능 추가하기, 저장, 테스트, VS Code와의 차이 기록, 기술 부채, 브랜치와 PR 규칙 |
 | [editor-services.md](editor-services.md) | 모델, 에디터 해석기, 파일 저장과 닫기, 테마 및 컨텍스트 키 이음매 |
+| [markdown-editor.md](markdown-editor.md) | 마크다운 저장 형식, 편집 모드와 실행 취소, 복사와 서식 없이 붙여넣기, 본문 폭·배치, 기본 글자 크기와 서체, 클래스 속성, 정규화 규칙과 파이프라인 |
 | [architecture.md](architecture.md) | VS Code 경로와 이 저장소 경로의 대응표, VS Code와 달라진 점 목록 |
 | [vscode-workbench-layout.md](vscode-workbench-layout.md) | 파트, 워크벤치 조립, 그리드·스플릿뷰·새시, 뷰 컨테이너 위치, 크기 제약 |
 | [vscode-editor-groups.md](vscode-editor-groups.md) | 에디터 그룹과 탭, 에디터 입력과 페인, Monaco, 드래그 앤 드롭 |
@@ -67,6 +68,7 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 - [lessons/release-monaco-menu-after-click-guard.md](lessons/release-monaco-menu-after-click-guard.md) — Monaco 메뉴의 포인터 보호 구간 뒤에 마우스를 놓는다
 - [lessons/reuse-open-input-that-owns-its-model.md](lessons/reuse-open-input-that-owns-its-model.md) — 모델을 가진 입력은 리소스마다 하나만 만든다
 - [lessons/round-trip-extension-api-values.md](lessons/round-trip-extension-api-values.md) — 확장 API 값의 RPC 왕복을 검증한다
+- [lessons/round-trip-through-reuse-and-rewrite.md](lessons/round-trip-through-reuse-and-rewrite.md) — 저장 왕복 테스트에서 원문 재사용과 다시 쓰기를 각각 실행한다
 - [lessons/separate-saved-preference-from-availability.md](lessons/separate-saved-preference-from-availability.md) — 사용자 선택과 현재 가용성을 별도 상태로 유지한다
 - [lessons/share-validation-between-live-and-restored-values.md](lessons/share-validation-between-live-and-restored-values.md) — API 입력과 저장된 값을 같은 검증기로 되살린다
 - [lessons/test-both-sides-of-extension-release.md](lessons/test-both-sides-of-extension-release.md) — 확장 정리는 메인의 remove와 호스트의 release를 따로 테스트한다

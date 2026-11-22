@@ -24,6 +24,7 @@ writing-room(v0.2.0)은 VS Code 워크벤치를 참고해 처음부터 직접 �
 | 뷰 컨테이너 위치 | `src/vs/workbench/services/views/browser/viewDescriptorService.ts` | `src/workbench/services/views/browser/viewDescriptorService.ts` | [레이아웃](vscode-workbench-layout.md) |
 | 에디터 파트 | `src/vs/workbench/browser/parts/editor/editorPart.ts` | `src/workbench/browser/parts/editor/editorPart.ts` | [에디터 그룹](vscode-editor-groups.md) |
 | 에디터 그룹과 모델 | `src/vs/workbench/browser/parts/editor/editorGroupView.ts`, `src/vs/workbench/common/editor/editorGroupModel.ts` | `src/workbench/browser/parts/editor/editorGroupView.ts`, `src/workbench/common/editor/editorGroupModel.ts` | [에디터 그룹](vscode-editor-groups.md) |
+| Markdown 에디터 | `extensions/markdown-language-features/package.json`의 `vscode.markdown.editor` | `src/workbench/contrib/markdownEditor/browser/markdownEditorPane.ts` | [기본 에디터와 미리보기](#markdown-editor) |
 | 탭 | `src/vs/workbench/browser/parts/editor/multiEditorTabsControl.ts` | `src/workbench/browser/parts/editor/multiEditorTabsControl.ts` | [에디터 그룹](vscode-editor-groups.md) |
 | 에디터 드롭 대상 | `src/vs/workbench/browser/parts/editor/editorDropTarget.ts` | `src/workbench/browser/parts/editor/editorDropTarget.ts` | [에디터 그룹](vscode-editor-groups.md) |
 | 커맨드 레지스트리 | `src/vs/platform/commands/common/commands.ts` | `src/platform/commands/common/commands.ts` | [메뉴와 커맨드](vscode-menus-commands.md) |
@@ -93,6 +94,10 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 ### Editor groups, editor and docking
 
+#### Markdown editor
+
+- `.md`와 `.markdown`의 기본 에디터는 ProseMirror 기반 코어 페인(WYSIWYG)이다. VS Code의 기본 Markdown 편집기는 텍스트 에디터이며, 기준 커밋의 내장 확장은 **Markdown Editor**(`vscode.markdown.editor`)와 **Markdown Preview**(`vscode.markdown.preview.editor`)를 텍스트 에디터 자리의 선택형(`option`) 커스텀 에디터로 등록한다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 두 모드가 저장·dirty·초안을 공유하고, 확장이 제공하는 **Markdown Preview**도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy, wr-h2sa). [마크다운 편집 모드와 저장 형식](markdown-editor.md#편집-모드와-실행-취소)
+
 #### Monaco editor
 
 - 에디터는 VS Code처럼 `src/vs/editor`를 내장하지 않고 같은 코드를 독립 실행형으로 묶은 `monaco-editor` 패키지를 쓴다. 패키지를 임포트하는 파일은 `src/editor/browser/monaco.ts` 하나이며 `loadMonaco()`가 처음 열리는 텍스트 에디터에서 지연 로드한다 — 워크벤치의 첫 페인트가 수 MB의 패키지와 워커를 기다리지 않게 한다 (wr-cla6.36n)
@@ -135,7 +140,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 #### Editor docking
 
-- 드래그 페이로드와 세션은 `browser/dnd.ts`의 `EditorDragAndDropObserver`가 맡는다. 시작할 때 `LocalSelectionTransfer`에 `DraggedEditorIdentifier`나 `DraggedEditorGroupIdentifier`를 넣고, 드롭·소스의 `dragend`·Escape·창 `blur`·`pagehide` 중 먼저 오는 것에서 페이로드와 오버레이, 삽입 표시를 함께 지운다. VS Code는 탭 컨트롤이 `LocalSelectionTransfer`를 직접 쓰고 `dragend`에서 지운다 — 옮겨진 탭은 드롭 중에 문서에서 빠져 자기 `dragend`를 받지 못하므로, 뷰 컨테이너 드래그(wr-cla6.3d4)와 같은 규율로 어떤 출구에서도 낡은 페이로드가 남지 않게 한다 (wr-cla6.bxt)
+- 드래그 페이로드와 세션은 `browser/dnd.ts`의 `EditorDragAndDropObserver`가 맡는다. 시작할 때 `LocalSelectionTransfer`에 `DraggedEditorIdentifier`나 `DraggedEditorGroupIdentifier`를 넣고, 드롭·소스의 `dragend`·Escape·`pagehide` 중 먼저 오는 것에서 페이로드와 오버레이, 삽입 표시를 함께 지운다. 플랫폼과 관계없이 창 `blur`를 받아도 세션을 유지한다. Wayland에서는 드래그 중에도 창 포커스가 바뀔 수 있기 때문이다. 마우스 이동으로도 세션을 끝내지 않는다. Firefox에서는 네이티브 `dragstart` 직후에도 페이지에 `mousemove`가 올 수 있기 때문이다 (wr-0itb). VS Code는 탭 컨트롤이 `LocalSelectionTransfer`를 직접 쓰고 `dragend`에서 지운다 — 옮겨진 탭은 드롭 중에 문서에서 빠져 자기 `dragend`를 받지 못하므로, 뷰 컨테이너 드래그(wr-cla6.3d4)와 같은 규율로 어떤 출구에서도 낡은 페이로드가 남지 않게 한다 (wr-cla6.bxt)
 - 드래그에는 텍스트 값(에디터 이름)과 전용 MIME 표시(`application/x-writing-room-editor`)만 싣고, 대상은 이 표시와 진행 중인 세션이 둘 다 있을 때만 페이로드를 읽는다. VS Code는 리소스 전송 데이터와 드래그 이미지도 싣고 표시 형식 없이 전송 싱글턴의 프로토타입만 본다 — 에디터 영역은 파일 드래그를 받지 않고(파일은 Explorer가 받는다), 표시가 있어야 뷰 컨테이너 드래그와 에디터 드래그가 서로의 대상에서 착각되지 않는다 (wr-cla6.bxt)
 - 모든 드래그는 이동이며 `effectAllowed`는 `move`다. VS Code는 `copyMove`이고 Ctrl(macOS는 Alt)로 복사한다. 다중 선택 탭 드래그, 탭 위에 1500 ms 머물면 열기, 드래그 중 탭 줄 자동 스크롤, Alt/Shift로 분할·병합 뒤집기, 새 창으로 끌어내기도 없다 — 릴리스 범위 밖이다 (wr-cla6.bxt)
 - 에디터 영역은 에디터와 그룹 드래그에만 드롭을 내준다. 파일, 텍스트, 뷰 컨테이너 드래그는 파트 어디서나 `dropEffect = 'none'`으로 거절해 브라우저가 파일로 이동하지도 않는다. VS Code는 외부 파일을 `ResourcesDropHandler`로 열고 Monaco가 텍스트 드롭을 받는다 — 에디터 영역에 놓은 파일은 열지 않는다(올리기는 Explorer의 몫이다). 페이지 밖에서 온 것을 놓아도 아무 일도 일어나지 않아야 한다 (wr-cla6.bxt)
@@ -208,4 +213,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa

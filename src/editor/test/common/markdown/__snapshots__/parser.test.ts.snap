@@ -1,0 +1,321 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`parseMarkdown > maps containers, code, aligned cells and footnotes 1`] = `
+{
+  "content": [
+    {
+      "attrs": {
+        "classes": [],
+      },
+      "content": [
+        {
+          "attrs": {
+            "classes": [],
+          },
+          "content": [
+            {
+              "text": "인용",
+              "type": "text",
+            },
+          ],
+          "type": "paragraph",
+        },
+        {
+          "attrs": {
+            "classes": [],
+            "markup": "-----",
+          },
+          "type": "horizontal_rule",
+        },
+      ],
+      "type": "blockquote",
+    },
+    {
+      "attrs": {
+        "classes": [],
+        "markup": ")",
+        "order": 7,
+        "tight": true,
+      },
+      "content": [
+        {
+          "attrs": {
+            "classes": [],
+          },
+          "content": [
+            {
+              "attrs": {
+                "classes": [],
+              },
+              "content": [
+                {
+                  "text": "상위",
+                  "type": "text",
+                },
+              ],
+              "type": "paragraph",
+            },
+            {
+              "attrs": {
+                "bullet": "+",
+                "classes": [],
+                "tight": true,
+              },
+              "content": [
+                {
+                  "attrs": {
+                    "checked": true,
+                    "classes": [],
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "classes": [],
+                      },
+                      "content": [
+                        {
+                          "text": "완료",
+                          "type": "text",
+                        },
+                      ],
+                      "type": "paragraph",
+                    },
+                  ],
+                  "type": "task_item",
+                },
+                {
+                  "attrs": {
+                    "checked": false,
+                    "classes": [],
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "classes": [],
+                      },
+                      "content": [
+                        {
+                          "text": "예정",
+                          "type": "text",
+                        },
+                      ],
+                      "type": "paragraph",
+                    },
+                  ],
+                  "type": "task_item",
+                },
+                {
+                  "attrs": {
+                    "classes": [],
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "classes": [],
+                      },
+                      "content": [
+                        {
+                          "text": "일반",
+                          "type": "text",
+                        },
+                      ],
+                      "type": "paragraph",
+                    },
+                  ],
+                  "type": "list_item",
+                },
+              ],
+              "type": "bullet_list",
+            },
+          ],
+          "type": "list_item",
+        },
+      ],
+      "type": "ordered_list",
+    },
+    {
+      "attrs": {
+        "classes": [],
+        "info": "schema additional info",
+        "markup": "~~~~",
+      },
+      "content": [
+        {
+          "text": "literal",
+          "type": "text",
+        },
+      ],
+      "type": "code_block",
+    },
+    {
+      "attrs": {
+        "classes": [],
+      },
+      "content": [
+        {
+          "attrs": {
+            "classes": [],
+          },
+          "content": [
+            {
+              "attrs": {
+                "align": "left",
+                "classes": [],
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
+              },
+              "content": [
+                {
+                  "text": "왼쪽",
+                  "type": "text",
+                },
+              ],
+              "type": "table_header",
+            },
+            {
+              "attrs": {
+                "align": "right",
+                "classes": [],
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
+              },
+              "content": [
+                {
+                  "text": "오른쪽",
+                  "type": "text",
+                },
+              ],
+              "type": "table_header",
+            },
+          ],
+          "type": "table_row",
+        },
+        {
+          "attrs": {
+            "classes": [],
+          },
+          "content": [
+            {
+              "attrs": {
+                "align": "left",
+                "classes": [],
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
+              },
+              "content": [
+                {
+                  "text": "a",
+                  "type": "text",
+                },
+              ],
+              "type": "table_cell",
+            },
+            {
+              "attrs": {
+                "align": "right",
+                "classes": [],
+                "colspan": 1,
+                "colwidth": null,
+                "rowspan": 1,
+              },
+              "content": [
+                {
+                  "text": "b",
+                  "type": "text",
+                },
+              ],
+              "type": "table_cell",
+            },
+          ],
+          "type": "table_row",
+        },
+      ],
+      "type": "table",
+    },
+    {
+      "attrs": {
+        "classes": [],
+        "label": "unused",
+      },
+      "content": [
+        {
+          "attrs": {
+            "classes": [],
+          },
+          "content": [
+            {
+              "text": "남겨 둘 각주",
+              "type": "text",
+            },
+          ],
+          "type": "paragraph",
+        },
+      ],
+      "type": "footnote_definition",
+    },
+    {
+      "attrs": {
+        "classes": [],
+      },
+      "content": [
+        {
+          "text": "본문",
+          "type": "text",
+        },
+        {
+          "attrs": {
+            "label": "ref",
+            "source": null,
+          },
+          "type": "footnote_reference",
+        },
+        {
+          "attrs": {
+            "label": null,
+            "source": "짧은 각주",
+          },
+          "type": "footnote_reference",
+        },
+      ],
+      "type": "paragraph",
+    },
+    {
+      "attrs": {
+        "classes": [],
+        "label": "ref",
+      },
+      "content": [
+        {
+          "attrs": {
+            "classes": [],
+          },
+          "content": [
+            {
+              "text": "각주 ",
+              "type": "text",
+            },
+            {
+              "marks": [
+                {
+                  "attrs": {
+                    "markup": "**",
+                  },
+                  "type": "strong",
+                },
+              ],
+              "text": "내용",
+              "type": "text",
+            },
+          ],
+          "type": "paragraph",
+        },
+      ],
+      "type": "footnote_definition",
+    },
+  ],
+  "type": "doc",
+}
+`;

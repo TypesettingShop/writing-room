@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect as baseExpect, test } from './fixtures.js';
+import { startWithMarkdownSource } from './configuration.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { treeItem } from './explorer.helpers.js';
 import {
@@ -7,6 +8,10 @@ import {
   waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
 import manifest from '../fixtures/extensions/custom-editor/package.json' with { type: 'json' };
+
+test.beforeEach(async ({ page }) => {
+  await startWithMarkdownSource(page);
+});
 
 const editorStateKey = 'writing-room:storage:1:memento/workbench.parts.editor';
 
@@ -120,6 +125,27 @@ test('edits from the Webview reach the text editor beside it, with one dirty sta
   await page.getByRole('button', { name: 'Close a.md' }).click();
   await expect.poll(async () => (await probe(page)).closed).toContain('a.md');
   expect((await probe(page)).disposed).toEqual(['a.md']);
+});
+
+test('a WorkspaceEdit from the preview is one undoable change in the WYSIWYG pane', async ({ appPage: page }) => {
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'a.md', '# Draft');
+  await treeItem(page, 'a.md').click();
+  const left = groups(page).first();
+  await left.getByRole('button', { name: 'Switch to WYSIWYG' }).click();
+  const editor = left.getByRole('textbox', { name: 'Markdown editor' });
+  await expect(editor.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible();
+  await command(page, 'Fixture: Open Preview Beside');
+  await expect(content(page).locator('#text')).toHaveText('# Draft');
+
+  await content(page).getByRole('button', { name: 'Append' }).click();
+  await expect(editor.getByRole('heading', { name: 'Draft!', exact: true })).toBeVisible();
+  await expect(selectedTab(left)).toHaveAccessibleDescription('Modified');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible();
+  await expect(content(page).locator('#text')).toHaveText('# Draft');
+  await expect(selectedTab(left)).toHaveAccessibleDescription('');
 });
 
 test('asks before a dirty custom editor closes alone, and Reopen With swaps editors in place keeping the text', async ({ appPage: page }) => {

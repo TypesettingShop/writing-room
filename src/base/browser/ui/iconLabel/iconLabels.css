@@ -8,3 +8,10 @@
     animation: none;
   }
 }
+
+.codicon.codicon-underline::before {
+  content: 'U';
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  text-decoration: underline;
+}

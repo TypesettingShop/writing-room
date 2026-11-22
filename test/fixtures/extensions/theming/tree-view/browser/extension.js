@@ -53,6 +53,8 @@ module.exports.activate = context => {
       item.id = element.name;
       if (element === inbox) {
         item.iconPath = new vscode.ThemeIcon('inbox', new vscode.ThemeColor('charts.blue'));
+      } else if (element === ideas) {
+        item.iconPath = new vscode.ThemeIcon('lightbulb');
       } else if (element === draft) {
         item.iconPath = { light: media('light.svg'), dark: media('dark.svg') };
         item.checkboxState = element.checked ? vscode.TreeItemCheckboxState.Checked : vscode.TreeItemCheckboxState.Unchecked;

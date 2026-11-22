@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, normalizePath } from 'vite';
 import type { Connect, Plugin, ViteDevServer } from 'vite';
 
 const webviewAssets = new Map([
@@ -159,6 +159,8 @@ function webviewShell(): Plugin {
   };
 }
 
+const markdownFontPath = /\/@fontsource\/(?:noto-(?:sans|serif)-kr|nanum-(?:gothic|myeongjo))\//;
+
 const require = createRequire(import.meta.url);
 const codiconModule = 'virtual:codicon-names';
 const resolvedCodiconModule = '\0' + codiconModule;
@@ -167,8 +169,25 @@ export default defineConfig({
   appType: 'mpa',
   server: { host: '127.0.0.1' },
   preview: { host: '127.0.0.1' },
+  build: {
+    assetsInlineLimit(filePath) {
+      // The browser should fetch even small glyph subsets only when their Unicode range is needed.
+      if (filePath.endsWith('.woff2') && markdownFontPath.test(normalizePath(filePath))) return false;
+    },
+  },
   plugins: [
     webviewShell(),
+    {
+      name: 'markdown-fonts-woff2',
+      enforce: 'pre',
+      transform(css, id) {
+        const path = normalizePath(id.split('?', 1)[0]);
+        if (markdownFontPath.test(path) && /\/(?:400|700)\.css$/.test(path)) {
+          // Keep Fontsource's Unicode ranges and swap strategy and ship its WOFF2 sources only.
+          return css.replace(/, url\([^)]*\.woff\) format\('woff'\)/g, '');
+        }
+      },
+    },
     {
       name: 'codicon-names',
       resolveId(id) {

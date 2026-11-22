@@ -212,6 +212,23 @@ test('composition cancels a pending chord without forwarding it', () => {
   expect(execute).not.toHaveBeenCalled();
 });
 
+test('runs a composition-safe shortcut only in its scoped context and discards any pending chord', () => {
+  bind('safe', 'ctrl+s');
+  bind('chord', 'ctrl+k ctrl+s');
+  bind('other', 'ctrl+x');
+  target.addEventListener('keydown', event => service.dispatchDuringComposition(event, ['safe']));
+  const ctrl = { ctrlKey: true };
+  const composing = { ...ctrl, isComposing: true };
+  expect(press(input, 'KeyS', composing).defaultPrevented).toBe(false);
+  expect(press(target, 'KeyX', composing).defaultPrevented).toBe(false);
+  expect(execute).not.toHaveBeenCalled();
+  expect(press(target, 'KeyK', ctrl).defaultPrevented).toBe(true);
+  expect(press(target, 'KeyS', composing).defaultPrevented).toBe(true);
+  expect(execute).toHaveBeenCalledExactlyOnceWith('safe');
+  expect(press(target, 'KeyS', ctrl).defaultPrevented).toBe(true);
+  expect(execute.mock.calls).toEqual([['safe'], ['safe']]);
+});
+
 test('swallows an unmatched editor continuation before Monaco has loaded', () => {
   bind('chord', 'ctrl+k ctrl+s');
   registerEditorContainer();

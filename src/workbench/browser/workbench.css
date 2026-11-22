@@ -18,7 +18,7 @@ body {
   --vscode-sideBar-foreground: #d1daea;
   --vscode-sideBarSectionHeader-background: #262f40;
   --vscode-panel-background: #181d27;
-  --vscode-panel-border: #313c50;
+  --vscode-panel-border: #4a596e;
   --vscode-panelTitle-activeBorder: #90baff;
   --vscode-statusBar-background: #20334e;
   --vscode-statusBar-foreground: #d8e8ff;
@@ -67,6 +67,7 @@ body {
   padding-inline: 12px;
   background: var(--vscode-titleBar-activeBackground);
   color: var(--vscode-titleBar-activeForeground);
+  box-shadow: inset 0 -1px var(--vscode-titleBar-border);
 }
 
 .workbench-title {
@@ -83,19 +84,62 @@ body {
 }
 
 .workbench .activitybar {
+  position: relative;
   background: var(--vscode-activityBar-background);
   color: var(--vscode-activityBar-foreground);
 }
 
+/*
+ * Part borders sit above the part's contents: the activity bar's full-width buttons, the panel's
+ * tabs and the status bar's items are positioned and fill their hover or item backgrounds edge to
+ * edge, which would cover an inset shadow.
+ */
+.workbench .activitybar::after,
+.workbench .panel::after,
+.workbench .statusbar::after {
+  position: absolute;
+  z-index: 3;
+  content: '';
+  pointer-events: none;
+}
+
+.workbench .activitybar::after {
+  inset: 0 0 0 auto;
+  width: 1px;
+  background: var(--vscode-activityBar-border);
+}
+
+.workbench .panel::after {
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--vscode-panel-border);
+}
+
+.workbench .statusbar::after {
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--vscode-statusBar-border);
+}
+
 .workbench .sidebar {
+  position: relative;
   background: var(--vscode-sideBar-background);
   color: var(--vscode-sideBar-foreground);
-  box-shadow: inset -1px 0 var(--vscode-panel-border);
+}
+
+/* Above the side bar's contents and above webview views, whose fixed overlays sit at z-index 2. */
+.workbench .sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
+  pointer-events: none;
 }
 
 .workbench .panel {
+  position: relative;
   background: var(--vscode-panel-background);
-  box-shadow: inset 0 1px var(--vscode-panel-border);
 }
 
 .pane-composite-header {
@@ -190,6 +234,7 @@ body {
 }
 
 .workbench .statusbar {
+  position: relative;
   display: flex;
   justify-content: space-between;
   background: var(--vscode-statusBar-background);

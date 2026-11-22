@@ -69,6 +69,31 @@
   color: #536373;
 }
 
+.wr-menu-horizontal-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.wr-menu-horizontal-group button {
+  width: auto;
+  min-height: 30px;
+  justify-content: center;
+  gap: 4px;
+  padding-inline: 6px;
+}
+
+.wr-menu-horizontal-group button:is([aria-checked='true'], [aria-expanded='true']) {
+  background: var(--vscode-menu-selectionBackground, #e0eaf4);
+  color: var(--vscode-menu-selectionForeground, inherit);
+  border-color: var(--vscode-focusBorder, #477ba3);
+}
+
+.wr-menu-dropdown-chevron {
+  line-height: 1;
+}
+
 .wr-menubar,
 .wr-menu-toolbar {
   display: flex;

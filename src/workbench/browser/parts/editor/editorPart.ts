@@ -9,6 +9,7 @@ import { IContextKeyService } from '../../../../platform/contextkey/common/conte
 import type { IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { asCssVariableName } from '../../../../platform/theme/common/themeService.js';
 import { ActiveEditorContext, ActiveEditorGroupEmptyContext, EditorsVisibleContext, MultipleEditorGroupsContext } from '../../../common/contextkeys.js';
 import { EditorsOrder, GroupModelChangeKind } from '../../../common/editor.js';
 import type { GroupIdentifier } from '../../../common/editor.js';
@@ -29,6 +30,7 @@ import { createEditorDropTarget } from './editorDropTarget.js';
 import { EditorGroupView } from './editorGroupView.js';
 
 const EDITOR_PART_STATE_KEY = 'editorpart.state';
+const editorGridOptions = { styles: { separatorBorder: `var(${asCssVariableName('editorGroup.border')})` } };
 
 /** What `EditorPart.createState()` gives: everything the part needs to come back as it was. */
 export interface IEditorPartUIState {
@@ -343,7 +345,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
       this.doSetGroupActive(restored.activeGroup);
     } else {
       const initialGroup = this.doCreateGroupView();
-      this.gridWidget = this._register(new SerializableGrid(initialGroup));
+      this.gridWidget = this._register(new SerializableGrid(initialGroup, editorGridOptions));
       this.doSetGroupActive(initialGroup);
     }
     this.container.append(this.gridWidget.element);
@@ -396,7 +398,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
             throw error;
           }
         },
-      });
+      }, editorGridOptions);
       const groups = [...this.groupViews.values()];
       const recentGroups = new Set<EditorGroupView>();
       if (Array.isArray(state.mostRecentActiveGroups)) {

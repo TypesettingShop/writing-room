@@ -1,0 +1,150 @@
+import type { Node } from 'prosemirror-model';
+import { Plugin, TextSelection } from 'prosemirror-state';
+import type { Command, Transaction } from 'prosemirror-state';
+import {
+  addColumnAfter, addRowAfter, cellAround, deleteColumn, deleteRow, deleteTable, goToNextCell, handlePaste, isInTable,
+  selectedRect, TableMap, tableEditing,
+} from 'prosemirror-tables';
+import type { EditorView } from 'prosemirror-view';
+import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
+
+const { table, table_row, table_cell, table_header } = markdownSchema.nodes;
+
+// A selected table stays a node selection, so Backspace deletes it and a copy writes a GFM table.
+export const markdownTableEditing = tableEditing({ allowTableNodeSelection: true });
+
+// prosemirror-tables dispatches its own paste transaction. Mark it as a paste so the model keeps it
+// as one undo step, as it does for ProseMirror's own paste. Install it before markdownTableEditing.
+export const markdownTablePaste = new Plugin({
+  props: {
+    handlePaste(view, event, slice) {
+      const dispatch = (tr: Transaction) => view.dispatch(tr.setMeta('paste', true).setMeta('uiEvent', 'paste'));
+      return handlePaste(Object.create(view, { dispatch: { value: dispatch } }) as EditorView, event, slice);
+    },
+  },
+});
+
+// Install before markdownTableEditing: that plugin fills a short first row from its start, which
+// moves the header away from its columns.
+export const markdownTableFormat = new Plugin({
+  appendTransaction(transactions, oldState, state) {
+    if (oldState.doc === state.doc) return;
+    // Typing normally supplies one replacement step. Other edits may also change node attributes.
+    const change = transactions.length === 1 && transactions[0].steps.length === 1
+      ? transactions[0].changedRange()
+      : null;
+    const before = oldState.doc.content;
+    const after = state.doc.content;
+    const start = change?.from ?? before.findDiffStart(after);
+    if (start === null) return;
+    const end = change?.to ?? before.findDiffEnd(after)!.b;
+    const tr = state.tr;
+    const missing: { readonly pos: number; readonly cells: Node[] }[] = [];
+    state.doc.nodesBetween(start, Math.max(start, end), (node, pos) => {
+      if (node.type !== table) return !node.isTextblock;
+      // GFM requires a header row, one alignment per column and a cell for every column. Short rows
+      // gain empty cells at their end, as the serializer writes them.
+      const header = node.firstChild!;
+      let width = 0;
+      node.forEach(row => { width = Math.max(width, row.childCount); });
+      node.forEach((row, rowOffset, rowIndex) => {
+        const type = rowIndex === 0 ? table_header : table_cell;
+        row.forEach((cell, cellOffset, column) => {
+          const align = header.maybeChild(column)?.attrs.align ?? null;
+          if (cell.type !== type || cell.attrs.align !== align) {
+            tr.setNodeMarkup(pos + rowOffset + cellOffset + 2, type, { ...cell.attrs, align });
+          }
+        });
+        if (row.childCount < width) {
+          const cells = Array.from({ length: width - row.childCount }, (_, index) =>
+            type.create({ align: header.maybeChild(row.childCount + index)?.attrs.align ?? null }));
+          missing.push({ pos: pos + rowOffset + row.nodeSize, cells });
+        }
+      });
+      return false;
+    });
+    // Markup changes keep every size, so insert from the end to keep the earlier positions.
+    for (const { pos, cells } of missing.reverse()) tr.insert(pos, cells);
+    return tr.docChanged ? tr : undefined;
+  },
+});
+
+// The table plugins in the order they must run. Both the editor pane and the tests install this list.
+export const markdownTablePlugins = [markdownTableFormat, markdownTablePaste, markdownTableEditing];
+
+function selectCell(tr: Transaction, tableStart: number, row: number, column: number): Transaction {
+  const map = TableMap.get(tr.doc.nodeAt(tableStart - 1)!);
+  const offset = map.map[Math.min(row, map.height - 1) * map.width + Math.min(column, map.width - 1)];
+  return tr.setSelection(TextSelection.create(tr.doc, tableStart + offset + 1)).scrollIntoView();
+}
+
+export const insertMarkdownTable: Command = (state, dispatch) => {
+  const { $from, $to } = state.selection;
+  if (cellAround($from) || cellAround($to)) return false;
+  const node = table.create(null, [table_header, table_cell].map(type => table_row.create(null,
+    [type.create(), type.create()])));
+  // The table may land before or after the caret's paragraph, outside the old selection, so look
+  // for it in the range the insertion step wrote.
+  const tr = state.tr.replaceSelectionWith(node, false);
+  let inserted: number | undefined;
+  tr.mapping.maps.at(-1)?.forEach((_from, _to, newFrom, newTo) => {
+    tr.doc.nodesBetween(newFrom, newTo, (candidate, pos) => {
+      if (inserted === undefined && candidate.type === table) inserted = pos;
+      return inserted === undefined && !candidate.isTextblock;
+    });
+  });
+  if (inserted === undefined) return false;
+  dispatch?.(selectCell(tr, inserted + 1, 0, 0));
+  return true;
+};
+
+const alignments = { alignLeft: 'left', alignCenter: 'center', alignRight: 'right', clearAlignment: null } as const;
+type AlignmentEdit = keyof typeof alignments;
+
+export type TableEdit = 'addRow' | 'deleteRow' | 'addColumn' | 'deleteColumn' | 'deleteTable' | AlignmentEdit;
+
+export function editMarkdownTable(edit: TableEdit): Command {
+  return (state, dispatch) => {
+    if (!isInTable(state)) return false;
+    const rect = selectedRect(state);
+    const { map, tableStart, top, bottom, left, right } = rect;
+    if (edit === 'deleteTable' || (edit === 'deleteRow' && bottom - top === map.height) ||
+      (edit === 'deleteColumn' && right - left === map.width)) {
+      return deleteTable(state, dispatch);
+    }
+
+    const finish = (row: number, column: number) => dispatch && ((tr: Transaction) => {
+      dispatch(selectCell(tr, tableStart, row, column));
+    });
+    switch (edit) {
+      case 'addRow': return addRowAfter(state, finish(bottom, left));
+      case 'deleteRow': return deleteRow(state, finish(top, left));
+      case 'addColumn': return addColumnAfter(state, finish(top, right));
+      case 'deleteColumn': return deleteColumn(state, finish(top, left));
+    }
+
+    if (dispatch) {
+      const tr = state.tr;
+      const align = alignments[edit];
+      for (let row = 0; row < map.height; row++) {
+        for (let col = left; col < right; col++) {
+          const pos = tableStart + map.map[row * map.width + col];
+          const cell = state.doc.nodeAt(pos)!;
+          if (cell.attrs.align !== align) tr.setNodeMarkup(pos, undefined, { ...cell.attrs, align });
+        }
+      }
+      dispatch(selectCell(tr, tableStart, top, left));
+    }
+    return true;
+  };
+}
+
+export function moveMarkdownTableCell(direction: -1 | 1): Command {
+  const move = goToNextCell(direction);
+  return (state, dispatch, view) => {
+    if (!isInTable(state)) return false;
+    move(state, dispatch && (tr => dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.selection.from)))), view);
+    // Keep Tab inside the editor at both ends of a table.
+    return true;
+  };
+}

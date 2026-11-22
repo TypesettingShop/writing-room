@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
+import { box, screenshotColor } from './fixtures.js';
 import manifest from '../fixtures/extensions/webview/view/package.json' with { type: 'json' };
 
 async function toggleSidebar(page: Page): Promise<void> {
@@ -20,6 +21,12 @@ test('resolves an owned view, moves a live view to the panel and restores its JS
   const increment = content.getByRole('button', { name: 'Increment view' });
   await expect(content.getByText('Ownership checked')).toBeVisible();
   await expect(content.getByText('Resolved')).toBeVisible();
+  const side = await box(page.locator('[id="workbench.parts.sidebar"]'));
+  const frame = await box(shell);
+  const edge = side.x + side.width - 1;
+  expect(edge).toBeLessThan(frame.x + frame.width);
+  expect(edge).toBeGreaterThanOrEqual(frame.x);
+  expect(await screenshotColor(page, edge, frame.y + frame.height / 2)).toBe('#4a596e');
   await expect(page.getByRole('heading', { name: 'Webview Counter' })).toHaveAttribute('title', /supplied by the fixture/);
   await expect(page.getByText('No Webview content.')).toBeVisible();
   await increment.click();

@@ -55,6 +55,22 @@ describe('CompositeDragAndDropObserver', () => {
     expect(onDrop).not.toHaveBeenCalled();
   });
 
+  it('preserves a view container drag through window blur and accepts the drop', () => {
+    const onDrop = vi.fn();
+    disposables.add(observer.registerTarget(target, { onDragOver: () => true, onDrop, onDragLeave() {} }));
+    const data = transfer();
+    dispatch(source, 'dragstart', data);
+    expect(dispatch(child, 'dragover', data).defaultPrevented).toBe(true);
+
+    window.dispatchEvent(new Event('blur'));
+    data.dropEffect = 'none';
+    expect(dispatch(child, 'dragover', data).defaultPrevented).toBe(true);
+    expect(data.dropEffect).toBe('move');
+    expect(dispatch(child, 'drop', data).defaultPrevented).toBe(true);
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith(expect.any(Event), new DraggedCompositeIdentifier('explorer'));
+    expect(selection.hasData(DraggedCompositeIdentifier.prototype)).toBe(false);
+  });
+
   it('cleans the target and typed payload on drop and on dragend', () => {
     const onDragLeave = vi.fn();
     const onDrop = vi.fn();
