@@ -7,17 +7,32 @@ export const contractOwner = '00000000-0000-4000-8000-000000000001';
 export const contractOther = '00000000-0000-4000-8000-000000000002';
 export const contractTime = 1_790_000_000_000;
 
+interface ContractStores {
+  owner: ManuscriptStore;
+  other: ManuscriptStore;
+  seedFullWork?(workId: string): Promise<number>;
+}
+
+export async function fillWork(store: ManuscriptStore, workId: string): Promise<number> {
+  let revision = 0;
+  for (let position = 0; position < manuscriptLimits.nodes; position++) {
+    ({ revision } = await store.createNode(workId, { kind: 'part', parentId: null, title: '' }, revision));
+  }
+  return revision;
+}
+
 export function manuscriptStoreContract(
   name: string,
-  makeStores: () => Promise<{ owner: ManuscriptStore; other: ManuscriptStore }>,
+  makeStores: () => Promise<ContractStores>,
 ): void {
   describe(name, () => {
     let owner: ManuscriptStore;
     let other: ManuscriptStore;
     let workId: string;
+    let seedFullWork: ContractStores['seedFullWork'];
 
     beforeEach(async () => {
-      ({ owner, other } = await makeStores());
+      ({ owner, other, seedFullWork } = await makeStores());
       workId = (await owner.createWork({ title: ' 한글 ' })).id;
     });
 
@@ -127,6 +142,15 @@ export function manuscriptStoreContract(
       expect(next.mtime).toBe(stat.mtime + 1);
       expect((await owner.getTree(workId)).revision).toBe(1);
     });
+
+    it('rejects the 10,001st node and leaves the full work untouched', async () => {
+      expect(manuscriptLimits.nodes).toBe(10_000);
+      const revision = await (seedFullWork ? seedFullWork(workId) : fillWork(owner, workId));
+      await expect(add(revision, 'One too many')).rejects.toMatchObject({ code: 'limit' });
+      const tree = await owner.getTree(workId);
+      expect(tree.revision).toBe(revision);
+      expect(tree.nodes).toHaveLength(manuscriptLimits.nodes);
+    }, 60_000);
 
     it('enforces titles, metadata and document limits before writing', async () => {
       await expect(owner.createWork({ title: ' ' })).rejects.toMatchObject({ code: 'invalid' });

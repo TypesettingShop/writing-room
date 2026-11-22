@@ -169,6 +169,12 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `IStorageService`는 메모리 모드 여부(`usesMemory`: 백엔드를 열지 못했거나, 쓰기가 실패했거나, 다른 탭의 스키마 변경을 본 뒤에 참이 되고, 한 번 참이면 이 탭의 저장소가 닫힐 때까지 참으로 남는다)와 키 하나의 영속 값 읽기(`getPersisted`: 이미 열린 백엔드에서 스키마 표식과 그 키만 읽고 아무것도 쓰지 않으며, 메모리 모드에서는 이 탭의 값을 답한다)를 드러낸다. `storeImmediately`는 그대로 메모리 모드에서도 백엔드를 다시 열어 쓴다 (wr-uz4j)
 - `keys(scope)`는 범위 접두 없는 이 탭 캐시 키의 사본을 돌려준다. 탭 사이에서 일치해야 하는 판단에는 이 사본이 아니라 `storeImmediately`가 변환 함수에 주는 영속 스냅숏을 쓴다 (wr-s9ew.wx6)
 
+#### 원고 저장소
+
+- `ManuscriptStore`는 작품, 원고 트리, 문서 내용을 다룬다. Node API는 인증된 사용자 범위에서 작품을 조회하고 Postgres에 영속한다. 작품별 revision으로 트리 변경을 비교하고, 문서별 etag로 본문 쓰기를 비교한다. 노드의 메타데이터 JSON은 64 KiB까지 허용하며, 한 작품의 비어 있지 않은 메타데이터 합계는 UTF-8 기준 16 MiB까지 허용한다. 로컬 서버와 DB 실행법은 [API 서버 실행](getting-started.md#api-서버-실행)에 있다.
+- 브라우저는 같은 오리진의 `/api`로 요청한다. 서버 오류는 작품과 편집기 저장 경로에 전달한다. `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 명시적으로 선택하면 창 안에 임시로 저장하고 상태 표시줄에 새로고침 시 사라진다는 경고를 표시한다.
+- 원고 편집기는 `manuscript://<workId>/<nodeId>.md`를 텍스트 파일로 연다. 파일 제공자는 탭을 복원하기 전에 등록되고 창이 연 작품의 URI만 받는다. 작업 영역 ID는 작품별 탭과 초안 복원 범위를 정한다. 편집기 저장과 dirty 상태는 기존 텍스트 파일 경로를 사용한다. 다른 창의 저장은 다음 쓰기에서 etag 충돌로 확인한다. 작품 구조 변경은 작품 트리 API가 담당한다.
+
 #### Settings
 
 - **File → Preferences → Open User Settings (JSON)** 또는 F1의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. Monaco에서 키 자동 완성과 스키마 진단을 제공한다. Ctrl+S(macOS에서는 Cmd+S)로 저장하면 열린 Monaco 편집기에 적용한다 (wr-cla6.dnq). [VS Code 설정 열기 커맨드](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts)
@@ -213,4 +219,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej, wr-th5n
