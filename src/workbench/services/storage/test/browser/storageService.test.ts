@@ -200,6 +200,114 @@ describe('schema', () => {
   });
 });
 
+describe('Work scope', () => {
+  const workA = '12345678-abcd-4000-8000-123456789abc';
+  const workB = '23456789-abcd-4000-8000-123456789abc';
+  const workspace = StorageScope.WORKSPACE;
+  const editor = 'editor:state';
+  const workspaceKey = storageKey(workspace, editor);
+  const legacyKey = STORAGE_PREFIX + workspaceKey;
+  const workKey = (id: string) => `${STORAGE_PREFIX}work:${id}:${workspaceKey}`;
+
+  function openWorkStorage(id: string): BrowserStorageService {
+    const { href } = window.location;
+    const { state } = window.history;
+    try {
+      window.history.replaceState(state, '', `?work=${id}`);
+      return disposables.add(new BrowserStorageService());
+    } finally {
+      window.history.replaceState(state, '', href);
+    }
+  }
+
+  test('restores only the active Work scope and preserves the legacy and shared key names', () => {
+    const legacy = disposables.add(new BrowserStorageService());
+    const first = openWorkStorage(workA);
+    const second = openWorkStorage(workB);
+    legacy.store(editor, 'legacy state', workspace, target);
+    first.store(editor, 'state A', workspace, target);
+    second.store(editor, 'state B', workspace, target);
+    first.store('preferences', 'shared profile', scope, target);
+    second.store('install', 'shared application', StorageScope.APPLICATION, target);
+    void legacy.flush();
+    void first.flush();
+    void second.flush();
+
+    expect(Object.keys(area).sort()).toEqual([
+      'writing-room:storage:-1:install',
+      'writing-room:storage:0:preferences',
+      'writing-room:storage:1:editor:state',
+      'writing-room:storage:version',
+      `writing-room:storage:work:${workA}:1:editor:state`,
+      `writing-room:storage:work:${workB}:1:editor:state`,
+    ]);
+    const reopened = openWorkStorage(workA);
+    expect(reopened.get(editor, workspace)).toBe('state A');
+    expect(openWorkStorage(workB).get(editor, workspace)).toBe('state B');
+    expect(disposables.add(new BrowserStorageService()).get(editor, workspace)).toBe('legacy state');
+    expect(reopened.get('preferences', scope)).toBe('shared profile');
+    expect(reopened.get('install', StorageScope.APPLICATION)).toBe('shared application');
+
+    area.setItem(workKey(workA), 'new state A');
+    expect(reopened.getPersisted(editor, workspace)).toBe('new state A');
+    reopened.storeImmediately(editor, (stored, snapshot) => {
+      expect(stored).toBe('new state A');
+      expect(snapshot.get(workspaceKey)).toBe(stored);
+      return undefined;
+    }, workspace, target);
+    expect(area.getItem(workKey(workA))).toBeNull();
+    expect(area.getItem(workKey(workB))).toBe('state B');
+    expect(area.getItem(legacyKey)).toBe('legacy state');
+  });
+
+  test('ignores other workspace events while a same-work event reads the latest persisted value', () => {
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    area.setItem(workKey(workA), 'cached A');
+    area.setItem(workKey(workB), 'cached B');
+    area.setItem(legacyKey, 'cached legacy');
+    const first = openWorkStorage(workA);
+    const second = openWorkStorage(workB);
+    const legacy = disposables.add(new BrowserStorageService());
+    const change = vi.fn();
+    first.onDidChangeValue(workspace, undefined, disposables)(change);
+
+    area.setItem(workKey(workA), 'persisted A');
+    area.setItem(workKey(workB), 'persisted B');
+    storageEvent(workKey(workB), 'event B');
+    area.setItem(legacyKey, 'persisted legacy');
+    storageEvent(legacyKey, 'event legacy');
+    expect(first.get(editor, workspace)).toBe('cached A');
+    expect(change).not.toHaveBeenCalled();
+
+    storageEvent(workKey(workA), 'stale event A');
+    expect(first.get(editor, workspace)).toBe('persisted A');
+    expect(second.get(editor, workspace)).toBe('persisted B');
+    expect(legacy.get(editor, workspace)).toBe('persisted legacy');
+    expect(change.mock.calls).toEqual([[{ scope: workspace, key: editor, target: undefined, external: true }]]);
+
+    // The null-key event also rescans through the Work boundary.
+    area.removeItem(workKey(workA));
+    storageEvent(null, null);
+    expect(first.get(editor, workspace)).toBeUndefined();
+    expect(second.get(editor, workspace)).toBe('persisted B');
+    expect(legacy.get(editor, workspace)).toBe('persisted legacy');
+  });
+
+  test('a Work window can migrate older legacy state without adopting its workspace keys', () => {
+    area.setItem(STORAGE_VERSION_KEY, '1');
+    area.setItem(legacyKey, 'old legacy state');
+    disposables.add(registerStorageMigration(1, draft => {
+      expect(draft.get(workspaceKey)).toBe('old legacy state');
+      draft.set(workspaceKey, 'migrated legacy state');
+    }));
+    const work = openWorkStorage(workA);
+    expect(work.usesMemory).toBe(false);
+    expect(work.get(editor, workspace)).toBeUndefined();
+    expect(area.getItem(legacyKey)).toBe('migrated legacy state');
+    expect(area.getItem(workKey(workA))).toBeNull();
+  });
+});
+
 describe('fallback and browser events', () => {
   test.each(['QuotaExceededError', 'SecurityError'])('retains memory after a %s write failure and logs it once', errorName => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
