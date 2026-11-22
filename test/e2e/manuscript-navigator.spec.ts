@@ -1,4 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { runCommand } from './configuration.helpers.js';
+import { problemsStatus } from './diagnostics.helpers.js';
+import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { groups } from './files.helpers.js';
 
 async function createWork(request: APIRequestContext, baseURL: string) {
@@ -289,4 +292,62 @@ test('opens editor-area drops in the target group, splits at the edge and caps e
   expect(names).toEqual(Array.from({ length: 50 }, (_, position) => 'Scene ' + (position + 1)));
   await expect(second.getByRole('tab', { name: 'Scene 1', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Opened 50 of 51 documents.')).toBeVisible();
+});
+
+test('exposes ordinary Markdown documents to extensions and keeps labels when switching to source mode', async ({ page, request, baseURL }) => {
+  test.setTimeout(60_000);
+  const work = await createWork(request, baseURL!);
+  const added = await request.post(work.nodes, {
+    headers: work.headers, data: { kind: 'document', title: 'Shared document', parentId: null, expectedRevision: 0 },
+  });
+  expect(added.status()).toBe(201);
+  const { node } = await added.json();
+  const docURL = work.nodes.replace('/nodes', '/documents/') + node.id;
+  expect((await request.put(docURL, {
+    headers: { ...work.headers, 'Content-Type': 'text/markdown' }, data: 'Draft probe',
+  })).ok()).toBe(true);
+
+  const location = extensionFixtureLocation('manuscript-document-api');
+  const command = 'Probe Manuscript Document API';
+  await page.route(location + 'extension.js', route => route.fulfill({
+    contentType: 'application/javascript',
+    headers: { 'Access-Control-Allow-Origin': '*' },
+    body: `
+      const vscode = require('vscode');
+      exports.activate = context => {
+        const collection = vscode.languages.createDiagnosticCollection('manuscript-probe');
+        context.subscriptions.push(collection,
+          vscode.languages.registerHoverProvider({ scheme: 'manuscript', language: 'markdown' }, {
+            provideHover: document => new vscode.Hover(document.getText().trim()),
+          }),
+          vscode.commands.registerCommand('fixture.manuscriptProbe', async () => {
+            const document = vscode.workspace.textDocuments.find(doc => doc.uri.scheme === 'manuscript');
+            if (!document) throw new Error('The extension cannot see the open manuscript.');
+            const range = new vscode.Range(0, 0, 0, 5);
+            collection.set(document.uri, [new vscode.Diagnostic(range, 'Manuscript lint probe', vscode.DiagnosticSeverity.Warning)]);
+            const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', document.uri, range.start);
+            await vscode.window.showInformationMessage(document.languageId + ' hover: ' + hovers[0]?.contents[0]?.value);
+          }));
+      };
+    `,
+  }));
+  await seedInstalledExtensions(page, [{
+    manifest: {
+      name: 'manuscript-document-api', publisher: 'fixture', version: '1.0.0', engines: { vscode: '*' }, browser: './extension.js',
+      activationEvents: ['onCommand:fixture.manuscriptProbe'],
+      contributes: { commands: [{ command: 'fixture.manuscriptProbe', title: command }] },
+    },
+    location,
+  }]);
+
+  await page.goto(work.url);
+  await row(page, 'Shared document').dblclick();
+  await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toContainText('Draft probe', { timeout: 20_000 });
+  await runCommand(page, command, new RegExp('^' + command + '$'));
+  await expect(page.getByText('markdown hover: Draft probe', { exact: true })).toBeVisible();
+  await expect(problemsStatus(page, '0 errors, 1 warning')).toBeVisible();
+  await runCommand(page, 'Toggle Source Mode', /Markdown: Toggle Source Mode/);
+  await expect(page.getByRole('button', { name: 'Switch to WYSIWYG' })).toBeVisible();
+  await expect(groups(page).first().locator('.view-lines')).toContainText('Draft probe', { timeout: 20_000 });
+  await expect(page.getByRole('tab', { name: 'Shared document', exact: true })).toHaveCount(1);
 });
