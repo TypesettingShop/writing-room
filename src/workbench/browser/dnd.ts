@@ -79,16 +79,20 @@ export class CompositeDragAndDropObserver {
 
   registerTarget(element: HTMLElement, target: CompositeDropTarget): IDisposable {
     const registrations = new DisposableStore();
+    const accept = (event: DragEvent) => {
+      const item = this.getItem(element, event);
+      if (item && target.onDragOver(event, item)) {
+        event.preventDefault();
+        event.dataTransfer!.dropEffect = 'move';
+      } else {
+        target.onDragLeave();
+      }
+    };
+    // The browser can release before the next dragover. Recheck descendant entries too,
+    // since the pointer may have moved from a refused insertion point to an allowed one.
+    registrations.add(addDisposableListener(element, 'dragenter', accept));
     const observer = registrations.add(new DragAndDropObserver(element, {
-      onDragOver: event => {
-        const item = this.getItem(element, event);
-        if (item && target.onDragOver(event, item)) {
-          event.preventDefault();
-          event.dataTransfer!.dropEffect = 'move';
-        } else {
-          target.onDragLeave();
-        }
-      },
+      onDragOver: accept,
       onDragLeave: () => target.onDragLeave(),
       onDrop: event => {
         const item = this.getItem(element, event);
