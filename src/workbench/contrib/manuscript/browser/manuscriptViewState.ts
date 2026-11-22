@@ -255,7 +255,7 @@ export class ManuscriptViewState extends Disposable {
     this.startRename(result.node.id);
   }
 
-  reveal(id: string): void {
+  reveal(id: string, selection: readonly string[] = [id]): void {
     const node = this.index?.nodes.get(id);
     if (!node) {
       return;
@@ -272,7 +272,7 @@ export class ManuscriptViewState extends Disposable {
       parent = this.index?.nodes.get(parent)?.parentId ?? null;
     }
     this.currentCursor = id;
-    this.selectedIds = new Set([id]);
+    this.selectedIds = new Set(selection);
     this.updateLines();
   }
 

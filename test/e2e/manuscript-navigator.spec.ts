@@ -192,3 +192,39 @@ test('edits only the selected node title in Properties and preserves other metad
   await expect(properties.getByText('2 items selected.')).toBeVisible();
   await expect(field).toBeHidden();
 });
+
+test('reorders before and into a row and handles a stale drag revision', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const add = async (kind: string, name: string, expectedRevision: number) => {
+    const response = await request.post(work.nodes, {
+      headers: work.headers, data: { kind, title: name, parentId: null, expectedRevision },
+    });
+    expect(response.status()).toBe(201);
+    return (await response.json()).node.id as string;
+  };
+  await add('chapter', 'Folder', 0);
+  const a = await add('document', 'A', 1);
+  await add('document', 'B', 2);
+  await page.goto(work.url);
+  const rootTitles = () => tree(page).getByRole('treeitem').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
+  await row(page, 'B').dragTo(row(page, 'A'), { targetPosition: { x: 80, y: 4 } });
+  await expect.poll(rootTitles).toEqual(['1장 - Folder', 'B', 'A']);
+  await expect(tree(page).locator('[data-manuscript-drop]')).toHaveCount(0);
+  await row(page, 'B').click();
+  await tree(page).press('Alt+ArrowDown');
+  await expect.poll(rootTitles).toEqual(['1장 - Folder', 'A', 'B']);
+  await row(page, 'B').dragTo(row(page, '1장 - Folder'), { targetPosition: { x: 80, y: 12 } });
+  await expect.poll(rootTitles).toEqual(['1장 - Folder', 'B', 'A']);
+  await expect(row(page, 'B')).toHaveAttribute('aria-level', '2');
+
+  const treeUrl = work.nodes.replace('/nodes', '/tree');
+  const { revision } = await (await request.get(treeUrl)).json();
+  expect((await request.patch(work.nodes + '/' + a, {
+    headers: work.headers, data: { title: 'Elsewhere', expectedRevision: revision },
+  })).ok()).toBe(true);
+  await row(page, 'A').dragTo(row(page, '1장 - Folder'), { targetPosition: { x: 80, y: 12 } });
+  await expect(page.getByText('The manuscript changed elsewhere. It has been reloaded.')).toBeVisible();
+  await expect.poll(rootTitles).toEqual(['1장 - Folder', 'B', 'Elsewhere']);
+  await expect(row(page, 'Elsewhere')).toHaveAttribute('aria-level', '1');
+  await expect(tree(page).locator('[data-manuscript-drop]')).toHaveCount(0);
+});

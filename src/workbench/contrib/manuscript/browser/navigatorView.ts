@@ -4,15 +4,15 @@ import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle
 import { IMenuService, MenuId } from '../../../../platform/actions/common/actions.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { normalizeManuscriptTitle, type ManuscriptNodeKind } from '../../../../platform/manuscript/common/manuscript.js';
 import {
   breadcrumb, moveKey, parentLine, revealOffset, twigParts, TWIG_TEXT, UP_KEY, windowRange, type NavigatorLine,
 } from '../common/manuscriptTree.js';
 import { IManuscriptOpener, type ManuscriptOpener } from './manuscriptOpener.js';
 import { IManuscriptViewState, type ManuscriptViewState, type TitleEdit } from './manuscriptViewState.js';
+import { moveAdjacent, NAVIGATOR_ROW_HEIGHT as ROW_HEIGHT, NavigatorDrag } from './navigatorDrag.js';
 import './media/navigator.css';
-
-const ROW_HEIGHT = 24;
 let nextTreeId = 0;
 
 function icon(document: Document, name: string): HTMLSpanElement {
@@ -29,6 +29,7 @@ export class NavigatorView extends Disposable {
   private readonly empty: HTMLDivElement;
   private readonly tree: HTMLDivElement;
   private readonly rows: HTMLDivElement;
+  private readonly drag: NavigatorDrag;
   private readonly menu = this._register(new MutableDisposable());
   private editor: { edit: TitleEdit; input: HTMLInputElement; message: HTMLDivElement; element: HTMLDivElement } | undefined;
   private previousFolder: string | null | undefined;
@@ -46,6 +47,7 @@ export class NavigatorView extends Disposable {
     @IMenuService private readonly menus: IMenuService,
     @IManuscriptOpener private readonly opener: ManuscriptOpener,
     @IContextMenuService private readonly contextMenus: IContextMenuService,
+    @IInstantiationService instantiation: IInstantiationService,
   ) {
     super();
     this.document = parent.ownerDocument;
@@ -82,6 +84,10 @@ export class NavigatorView extends Disposable {
     this.tree.append(this.rows);
     parent.classList.add('manuscript-navigator');
     parent.append(this.location, this.status, this.empty, this.tree);
+
+    this.drag = this._register(instantiation.createInstance(
+      NavigatorDrag, this.tree, this.state, key => this.mountedRows.get(key)?.element, () => this.drawRows(true),
+    ));
 
     this._register(addDisposableListener(this.tree, 'scroll', () => this.drawRows()));
     this._register(addDisposableListener(this.tree, 'keydown', event => this.onKeyDown(event)));
@@ -184,7 +190,7 @@ export class NavigatorView extends Disposable {
       const line = this.state.lines[at];
       visible.add(line.key);
       let mounted = this.mountedRows.get(line.key);
-      if (!mounted || !this.sameRow(mounted.line, line)) {
+      if (!mounted || !this.drag.isSource(mounted.element) && !this.sameRow(mounted.line, line)) {
         const element = this.drawRow(line);
         if (mounted?.element === nextElement) {
           nextElement = nextElement.nextElementSibling;
@@ -201,7 +207,7 @@ export class NavigatorView extends Disposable {
       }
     }
     for (const [key, mounted] of this.mountedRows) {
-      if (!visible.has(key)) {
+      if (!visible.has(key) && !this.drag.isSource(mounted.element)) {
         mounted.element.remove();
         this.mountedRows.delete(key);
       }
@@ -228,6 +234,7 @@ export class NavigatorView extends Disposable {
     row.style.top = `${at * ROW_HEIGHT}px`;
     row.setAttribute('aria-selected', String(this.state.selected.has(line.key)));
     row.classList.toggle('manuscript-cursor', this.state.cursor === line.key);
+    this.drag.markRow(row, line.key);
     if (line.kind === 'node' && line.dir) {
       row.setAttribute('aria-expanded', String(line.open));
       const toggle = row.querySelector('button')!;
@@ -250,6 +257,7 @@ export class NavigatorView extends Disposable {
       return row;
     }
 
+    row.draggable = true;
     const branch = this.document.createElement('span');
     branch.className = 'manuscript-twig';
     branch.setAttribute('aria-hidden', 'true');
@@ -375,6 +383,12 @@ export class NavigatorView extends Disposable {
   }
 
   private onKeyDown(event: KeyboardEvent): void {
+    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      event.stopPropagation();
+      void moveAdjacent(this.state, event.key === 'ArrowUp' ? -1 : 1);
+      return;
+    }
     const lines = this.state.lines;
     const at = this.positions.get(this.state.cursor ?? '') ?? -1;
     const line = lines[at];

@@ -7,6 +7,7 @@ import { WorkOpenContext } from '../../../services/work/common/work.js';
 import './manuscriptLabels.js';
 import { IManuscriptOpener } from './manuscriptOpener.js';
 import { IManuscriptViewState, type ManuscriptViewState } from './manuscriptViewState.js';
+import { moveAdjacent } from './navigatorDrag.js';
 import { NavigatorView } from './navigatorView.js';
 import { PropertiesView } from './propertiesView.js';
 
@@ -103,3 +104,6 @@ registerManuscriptAction('openAllDocuments', 'Open All Documents', { menu: conte
   }
   return undefined;
 });
+
+registerManuscriptAction('moveUp', 'Move Up', { menu: context(60) }, state => moveAdjacent(state, -1));
+registerManuscriptAction('moveDown', 'Move Down', { menu: context(70) }, state => moveAdjacent(state, 1));

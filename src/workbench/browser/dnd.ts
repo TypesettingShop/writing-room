@@ -9,6 +9,7 @@ const compositeMime = 'application/x-writing-room-view-container';
 const editorMime = 'application/x-writing-room-editor';
 /** The marker type of a drag of extension tree items. */
 export const treeMime = 'application/x-writing-room-tree';
+const manuscriptMime = 'application/x-writing-room-manuscript';
 
 /**
  * Calls `end` on the source's `dragend`, Escape, or `pagehide`.
@@ -272,12 +273,71 @@ export class TreeDragAndDropObserver {
   }
 }
 
+export interface DraggedManuscriptItems {
+  readonly workId: string;
+  readonly nodeIds: readonly string[];
+}
+
+/** The marker is the only native payload. Work and node ids stay in the source document. */
+export class ManuscriptDragAndDropObserver {
+  static readonly INSTANCE = new ManuscriptDragAndDropObserver();
+
+  private readonly session = new DisposableStore();
+  private readonly dragEnded = new Emitter<void>();
+  readonly onDidEndDrag = this.dragEnded.event;
+  private active: { readonly source: HTMLElement; readonly item: DraggedManuscriptItems } | undefined;
+
+  private constructor() {}
+
+  startDrag(event: DragEvent, source: HTMLElement, item: DraggedManuscriptItems): void {
+    const transfer = event.dataTransfer;
+    if (!transfer || event.defaultPrevented || !item.nodeIds.length) {
+      return;
+    }
+    this.endDrag();
+    this.active = { source, item: { workId: item.workId, nodeIds: [...item.nodeIds] } };
+    transfer.effectAllowed = 'copyMove';
+    transfer.setData(manuscriptMime, '1');
+    trackDragSession(this.session, source, () => this.endDrag());
+    const window = source.ownerDocument.defaultView!;
+    this.session.add(addDisposableListener(window, 'drop', () => {
+      // Accepted targets end the session themselves. Defer the fallback through event dispatch.
+      const active = this.active;
+      const timer = window.setTimeout(() => {
+        if (this.active === active) {
+          this.endDrag();
+        }
+      }, 0);
+      this.session.add(toDisposable(() => window.clearTimeout(timer)));
+    }, true));
+  }
+
+  getDraggedItems(event: DragEvent, element: HTMLElement): DraggedManuscriptItems | undefined {
+    if (this.active?.source.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(manuscriptMime)) {
+      return this.active.item;
+    }
+    return undefined;
+  }
+
+  isSource(element: HTMLElement): boolean {
+    return this.active?.source === element;
+  }
+
+  endDrag(): void {
+    if (this.active) {
+      this.active = undefined;
+      this.session.clear();
+      this.dragEnded.fire();
+    }
+  }
+}
+
 /**
  * Whether the drag is one of the workbench's own that a tree view must not take: an editor, an editor
- * group or a view container, by its marker type or by the session going on.
+ * group, a view container or a manuscript row.
  */
 export function isWorkbenchDrag(event: DragEvent): boolean {
   const types = event.dataTransfer?.types ?? [];
-  return types.includes(editorMime) || types.includes(compositeMime)
+  return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime)
     || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging;
 }
