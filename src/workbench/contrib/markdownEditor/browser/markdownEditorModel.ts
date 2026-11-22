@@ -318,6 +318,16 @@ function survivingText(source: string, from: number, to: number): boolean {
   return false;
 }
 
+function survivingBlockText(
+  oldBlock: IMarkdownSourceBlock, newBlock: IMarkdownSourceBlock, source: string, from: number, to: number, shift: number,
+): boolean {
+  if (oldBlock.tableCell) return oldBlock.tableCell === 'text' && newBlock.tableCell === 'text';
+  if (survivingText(source, from, to)) return true;
+  // An empty table cell can be the only surviving field in its row.
+  return oldBlock.children?.some(cell => cell.tableCell === 'empty' && cell.startOffset >= from && cell.endOffset <= to
+    && newBlock.children?.some(next => next.tableCell === 'empty' && next.startOffset === cell.startOffset + shift)) ?? false;
+}
+
 function sourceBlockMatches(
   before: readonly IMarkdownSourceBlock[], after: readonly IMarkdownSourceBlock[],
   previous: string, unchanged: readonly UnchangedSourceSpan[],
@@ -351,7 +361,7 @@ function sourceBlockMatches(
       const to = Math.min(end, oldEnd, newEnd);
       const intact = from === oldBlock.startOffset && from === newBlock.startOffset - shift && to === oldEnd && to === newEnd;
       // A partial overlap needs surviving body text. An intact range also identifies an empty item.
-      if (from < to && (intact || survivingText(previous, from, to))) {
+      if (from < to && (intact || survivingBlockText(oldBlock, newBlock, previous, from, to, shift))) {
         const existing = forward.get(oldBlock);
         if (existing === undefined) {
           forward.set(oldBlock, { block: newBlock, intact });
@@ -427,7 +437,7 @@ function sourceChangeMap(
       const block = oldNodes.get(source.from)!;
       const updated = newNodes.get(match.block.from)!;
       const intact = match.intact && block.eq(updated);
-      if (intact || block.isTextblock && block.sameMarkup(updated)) {
+      if (intact || block.isTextblock && (block.sameMarkup(updated) || source.tableCell && block.type === updated.type)) {
         appendGap(source.from, match.block.from);
         if (!intact) {
           const from = block.content.findDiffStart(updated.content, source.from + 1);

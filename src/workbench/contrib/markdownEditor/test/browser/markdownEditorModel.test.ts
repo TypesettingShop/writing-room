@@ -584,13 +584,13 @@ describe('MarkdownEditorModel', () => {
       { label: 'keeps an unchanged unique container through a reload without ranges', target: 0, survivor: 0,
         initialSource: 'Before\n\n' + uniqueContainer, external: 'After\n\n' + uniqueContainer,
         typed: 'After\n\n' + prefix + [alpha, composed].join(separator) },
-      ...(container === 'table' ? [] : [{
+      {
         label: 'keeps the target text block during a partial edit in the same entry', target: 0, survivor: 0,
         targetText: 'Alpha', survivingText: 'ALpha',
         external: prefix + [bravo, row('ALpha'), bravo].join(separator),
         typed: prefix + [bravo, row('ALpha요'), bravo].join(separator),
-        edits: [[middleText + 1, middleText + 2, 'L'] satisfies [number, number, string]],
-      }]),
+        edits: [[middleText + 1, middleText + 2, 'L']],
+      },
       ...(container === 'table' ? [{
         label: 'keeps an intact cell containing only punctuation', target: 0, survivor: 0, targetText: '>',
         initialSource: prefix + [bravo, row('>')].join(separator), external: prefix + row('>'), typed: prefix + row('>요'),
@@ -663,6 +663,66 @@ describe('MarkdownEditorModel', () => {
       }
     });
   });
+
+  it.each([
+    { original: '| Alpha | Bravo |', from: 'Bravo', to: 'Zulu', target: 0, typed: '| Alpha요 | Zulu |' },
+    { original: '| Bravo | Bravo |', from: 'Bravo', to: 'Zulu', target: 1, typed: '| Zulu | Bravo요 |' },
+    { original: 'A\\|B | Bravo', from: 'Bravo', to: 'Zulu', target: 0, typed: '| A\\|B요 | Zulu |' },
+    { original: '| | Alpha |', from: ' Alpha |', to: ' Zulu |', target: 0, typed: '| 요 | Zulu |' },
+    { original: '| Alpha | Bravo |', from: 'Alpha', to: 'Zulu', target: 0 },
+    { original: '| Alpha | Bravo |', from: 'Alpha | Bravo', to: 'Bravo | Alpha', target: 0 },
+    { original: '| Alpha | Bravo |', from: 'ph', to: '|', target: 0 },
+  ])('keeps a queued composition only in a proven table cell ($original, $from → $to, cell $target)',
+    ({ original, from, to, target, typed }) => {
+      const header = '| A | B |\n| --- | --- |\n';
+      const source = header + original;
+      const external = header + original.replace(from, to);
+      const model = new TestTextModel(URI.parse('file:///table.md'), source);
+      const listener = model.onDidChangeContent(event => {
+        if (event.versionId === 2) sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      });
+      const sync = new MarkdownEditorModel(model, [], () => {});
+      const tablePosition = () => {
+        const table = sync.state.doc.firstChild!;
+        const row = table.child(1);
+        let end = 3 + table.firstChild!.nodeSize;
+        for (let column = 0; column < target; column++) end += row.child(column).nodeSize;
+        return end + row.child(target).content.size;
+      };
+      const expectSource = (text: string) => {
+        expect(model.getValue()).toBe(text);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(text).doc)).toBe(true);
+      };
+      try {
+        const initial = tablePosition();
+        sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
+        const start = header.length + original.indexOf(from);
+        applyOffsets(model, start, start + from.length, to);
+        expectSource(typed ? header + typed : external);
+        if (typed) {
+          expect(sync.state.selection.head).toBe(tablePosition());
+          expect(sync.undo()).toBe(true);
+          expectSource(external);
+          expect(sync.state.selection.head).toBe(tablePosition());
+        }
+        expect(sync.undo()).toBe(true);
+        expectSource(source);
+        expect(sync.state.selection.head).toBe(initial);
+        expect(sync.canUndo).toBe(false);
+        expect(sync.redo()).toBe(true);
+        expectSource(external);
+        if (typed) {
+          expect(sync.redo()).toBe(true);
+          expectSource(header + typed);
+          expect(sync.state.selection.head).toBe(tablePosition());
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        listener.dispose();
+        sync.dispose();
+        model.dispose();
+      }
+    });
 
   it('moves the selected image with its surviving list item when the source stays identical', () => {
     const item = '- ![map](map.png)';

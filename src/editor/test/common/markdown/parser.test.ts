@@ -75,6 +75,20 @@ describe('parseMarkdown', () => {
     ]);
   });
 
+  it('locates explicit table fields in nested source with CRLF line endings', () => {
+    const source = '> | 😀 | B | C |\r\n> | --- | --- | --- |\r\n> \x60a\\|b\x60 || last\r\n> alone';
+    const { doc, blocks } = parseMarkdownWithSource(source, true);
+    const rows = blocks[0].children![0].children!;
+    expect(rows.map(row => row.children!.map(cell => [
+      source.slice(cell.startOffset, cell.endOffset), cell.tableCell, doc.nodeAt(cell.from)?.textContent,
+    ]))).toEqual([
+      [['😀', 'text', '😀'], ['B', 'text', 'B'], ['C', 'text', 'C']],
+      [['\x60a\\|b\x60', 'text', 'a|b'], ['|', 'empty', ''], ['last', 'text', 'last']],
+      [['alone', 'text', 'alone']],
+    ]);
+    expect(doc.child(0).child(0).child(2).childCount).toBe(3);
+  });
+
   it('preserves an unknown plugin block and an unknown inline construct as raw source', () => {
     const parse = createMarkdownParser({
       plugins: [{
