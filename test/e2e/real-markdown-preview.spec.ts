@@ -307,10 +307,22 @@ test('가: the preview opens to the side and in place, follows the text, comes b
     await expect(tab(page, 'other.md')).toHaveCount(0);
   });
 
-  await test.step('Ctrl+Shift+V opens the preview in the editor\'s own group', async () => {
+  await test.step('Ctrl+Shift+V pastes literally in WYSIWYG and opens the preview in source mode', async () => {
     await show(page, 'notes.md');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await activeGroup(page).getByRole('button', { name: 'Switch to WYSIWYG' }).click();
+    const wysiwyg = activeGroup(page).getByRole('textbox', { name: 'Markdown editor' });
+    await expect(wysiwyg).toBeFocused();
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.evaluate(() => navigator.clipboard.writeText(' **literal shortcut**'));
+    await page.keyboard.press('ControlOrMeta+Shift+V');
+    await expect(wysiwyg).toContainText('**literal shortcut**');
+    await expect(tab(page, 'Preview notes.md')).toHaveCount(0);
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(wysiwyg).not.toContainText('literal shortcut');
+    await activeGroup(page).getByRole('button', { name: 'Switch to Markdown Source' }).click();
     await activeEditor(page).focus();
-    await page.keyboard.press('Control+Shift+V');
+    await page.keyboard.press('ControlOrMeta+Shift+V');
     const group = groups(page).filter({ has: tab(page, 'notes.md') });
     await expect(group.getByRole('tab', { name: 'Preview notes.md' })).toHaveAttribute('aria-selected', 'true');
     await expect(preview(page).locator('h1')).toHaveText('Notes title');

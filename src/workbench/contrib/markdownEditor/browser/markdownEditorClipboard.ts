@@ -33,10 +33,18 @@ function applyPastedUnderline(document: Document, content: DocumentFragment, und
   }
 }
 
-/** Supply the browser's clipboard formats to the same paste handler as a keyboard paste. */
-export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean): Promise<void> {
+/**
+ * Supply the browser's clipboard formats to the same paste handler as a keyboard paste. With `plain`, read
+ * only text/plain and insert it literally through ProseMirror's plain-text paste, as Ctrl/Cmd+Shift+V does.
+ */
+export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean, plain = false): Promise<void> {
   const clipboard = view.dom.ownerDocument.defaultView?.navigator.clipboard;
   if (!clipboard) throw new Error('Clipboard access is unavailable');
+  if (plain) {
+    const text = await clipboard.readText();
+    if (text && isCurrent()) view.pasteText(text);
+    return;
+  }
   const data = new DataTransfer();
   if (clipboard.read) {
     const formats = ['text/html', 'text/plain', 'text/uri-list'];
@@ -49,7 +57,7 @@ export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: ()
   } else {
     data.setData('text/plain', await clipboard.readText());
   }
-  if (isCurrent() && data.types.length) {
+  if (isCurrent() && data.types.some(type => data.getData(type))) {
     // Shift may have been released in the menu after Shift+F10. This paste uses the regular rich mode.
     view.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', keyCode: 16 }));
     view.dom.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
@@ -109,9 +117,8 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
   clipboardTextParser(text, $context, plain) {
     if (plain) {
       const { paragraph } = markdownSchema.nodes;
-      const marks = $context.marks();
       const blocks = text.split(/\r\n?|\n/).map(line => paragraph.create(
-        null, line ? markdownSchema.text(line, marks) : undefined,
+        null, line ? markdownSchema.text(line) : undefined,
       ));
       return Slice.maxOpen(Fragment.fromArray(blocks));
     }

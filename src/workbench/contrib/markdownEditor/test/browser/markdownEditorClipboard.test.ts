@@ -63,12 +63,13 @@ describe('Markdown clipboard', () => {
     }
   });
 
-  it('gives pasted inline text the marks at the caret', () => {
+  it('inherits the caret marks for regular text and omits them for plain text', () => {
     const context = parseMarkdown('a **bold** b').resolve(5);
-    for (const plain of [false, true]) {
-      const slice = markdownClipboard.clipboardTextParser!('plain', context, plain, view) as Slice;
-      expect(slice.content.firstChild!.firstChild!.marks.map(mark => mark.type.name)).toEqual(['strong']);
-    }
+    const regular = markdownClipboard.clipboardTextParser!('regular', context, false, view) as Slice;
+    expect(regular.content.firstChild!.firstChild!.marks.map(mark => mark.type.name)).toEqual(['strong']);
+    const plain = markdownClipboard.clipboardTextParser!('**literal**', context, true, view) as Slice;
+    expect(plain.content.firstChild!.firstChild!.marks).toEqual([]);
+    expect(plain.content.firstChild!.textContent).toBe('**literal**');
   });
 
   it('keeps emphasis declarations and the editor slice context but no other attributes', () => {

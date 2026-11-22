@@ -28,6 +28,16 @@ async function openTypewriterMarkdown(page: Page, name: string, text: string): P
   return openMarkdown(page, name, text);
 }
 
+async function openReadOnlyMarkdown(page: Page, fixture = 'Open Read-only Markdown Fixture'): Promise<Locator> {
+  await seedInstalledExtensions(page, [{
+    manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
+    location: extensionFixtureLocation('memfs'),
+  }]);
+  await page.reload();
+  await runCommand(page, fixture, new RegExp(`^${fixture}$`));
+  return richEditor(groups(page).first());
+}
+
 test('opens Markdown from Explorer and carries its draft and saved text through reloads', async ({ appPage: page }) => {
   const name = 'draft.markdown';
   const group = await openMarkdown(page, name, 'First\n=====\n\nHello\n');
@@ -825,7 +835,7 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
   const group = await openMarkdown(page, name, 'Alpha **beta** {.right}');
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
-  const toolbox = page.getByRole('menu', { name: 'Markdown selection' });
+  const toolbox = page.getByRole('menu', { name: 'Markdown editor' });
   const beta = editor.locator('strong', { hasText: 'beta' });
   await beta.click({ timeout: 20_000 });
   await page.keyboard.press('End');
@@ -855,7 +865,8 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
   expect(await row.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))))
     .toEqual(['Bold', 'Italic', 'Underline', 'Strikethrough']);
   await expect(row.getByRole('menuitem')).toHaveText(['Style⌄', 'Size⌄', 'Font⌄']);
-  await expect(toolbox.getByRole('menuitem', { name: /^(Cut|Copy|Paste)$/ })).toHaveText(['Cut', 'Copy', 'Paste']);
+  await expect(toolbox.getByRole('menuitem', { name: 'Cut' })).toBeEnabled();
+  await expect(toolbox.getByRole('menuitem', { name: 'Copy' })).toBeEnabled();
   const bold = row.getByRole('menuitemcheckbox', { name: 'Bold' });
   await expect(bold).toHaveAttribute('aria-checked', 'true');
   await expect(bold).toBeFocused();
@@ -873,7 +884,7 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
   await page.keyboard.press('ArrowLeft');
   await expect(row.getByRole('menuitem', { name: 'Font' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(toolbox.getByRole('menuitem', { name: 'Cut' })).toBeFocused();
+  await expect(toolbox.getByRole('menuitem', { name: 'Undo' })).toBeFocused();
   await page.keyboard.press('ArrowUp');
   await expect(row.getByRole('menuitem', { name: 'Font' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -897,7 +908,9 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
 
   await beta.click();
   await beta.click({ button: 'right' });
-  await expect(toolbox).toHaveCount(0);
+  await expect(toolbox).toBeVisible();
+  await expect(toolbox.getByRole('group')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
   const source = group.getByRole('textbox', { name: 'Editor content' });
   await expect(source).toBeFocused();
@@ -906,7 +919,46 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
   await expect(toolbox).toHaveCount(0);
 });
 
-test('moves the caret and keeps the browser menu when right-clicking outside the Markdown selection', async ({ appPage: page }) => {
+test('shows basic editing commands at the Markdown caret and shares editor history', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'edit-menu.md', 'First paragraph\n\nSecond paragraph');
+  const editor = richEditor(group);
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const item = (name: string) => menu.getByRole('menuitem', { name, exact: true });
+  const first = editor.getByText('First paragraph', { exact: true });
+  await first.click({ button: 'right', timeout: 20_000 });
+  await expect(menu.getByRole('group')).toHaveCount(0);
+  expect(await menu.getByRole('menuitem').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))))
+    .toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Paste as Plain Text', 'Select All']);
+  await expect(menu.locator('.wr-menu-shortcut')).toHaveText([
+    /^(Ctrl\+|⌘)Z$/, /^(Ctrl\+Y|⇧⌘Z)$/, /^(Ctrl\+|⌘)X$/, /^(Ctrl\+|⌘)C$/,
+    /^(Ctrl\+|⌘)V$/, /^(Ctrl\+Shift\+|⇧⌘)V$/, /^(Ctrl\+|⌘)A$/,
+  ]);
+  for (const name of ['Undo', 'Redo', 'Cut', 'Copy']) await expect(item(name)).toBeDisabled();
+  await expect(item('Paste')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(item('Paste as Plain Text')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(item('Select All')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(editor).toBeFocused();
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toMatch(/First paragraph\s+Second paragraph/);
+
+  await first.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+  await page.keyboard.press('ContextMenu');
+  await expect(item('Undo')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(first).toBeVisible();
+  await page.keyboard.press('Shift+F10');
+  await expect(item('Undo')).toBeDisabled();
+  await expect(item('Redo')).toBeEnabled();
+  await item('Redo').click();
+  await expect(editor.getByText('First paragraph!', { exact: true })).toBeVisible();
+  await expect(editor).toBeFocused();
+});
+
+test('moves the Markdown caret and opens basic editing commands outside a selection', async ({ appPage: page }) => {
   const group = await openMarkdown(page, 'outside-selection.md', 'Select me\n\nOutside text');
   const editor = richEditor(group);
   await editor.getByText('Select me').click({ timeout: 20_000 });
@@ -928,8 +980,12 @@ test('moves the caret and keeps the browser menu when right-clicking outside the
     return { x: rect.left - paragraph.left, y: rect.top - paragraph.top + rect.height / 2 };
   });
   await outside.click({ position: point, button: 'right' });
-  await expect(editor).toHaveAttribute('data-context-prevented', 'false');
-  await expect(page.getByRole('menu', { name: 'Markdown selection' })).toHaveCount(0);
+  await expect(editor).toHaveAttribute('data-context-prevented', 'true');
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  await expect(menu.getByRole('menuitem', { name: 'Copy' })).toBeDisabled();
+  await expect(menu.getByRole('group')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeFocused();
   await expect.poll(() => outside.evaluate(element => {
     const selection = document.getSelection()!;
     return { collapsed: selection.isCollapsed, onClickedText: element.contains(selection.anchorNode), offset: selection.anchorOffset };
@@ -944,40 +1000,107 @@ test('moves the caret and keeps the browser menu when right-clicking outside the
   const body = await box(editor);
   const second = await box(editor.getByText('OutXside text'));
   await page.mouse.click(body.x - 8, second.y + second.height / 2, { button: 'right' });
-  await expect(page.getByRole('menu', { name: 'Markdown selection' })).toHaveCount(0);
+  await expect(menu.getByRole('menuitem', { name: 'Copy' })).toBeDisabled();
+  await expect(menu.getByRole('group')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.keyboard.type('Y');
   await expect(editor.locator('p')).toHaveText(['Select me', 'YOutXside text']);
 });
 
-test('keeps the browser context menu for a read-only Markdown selection', async ({ appPage: page }) => {
-  await seedInstalledExtensions(page, [{
-    manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
-    location: extensionFixtureLocation('memfs'),
-  }]);
-  await page.reload();
-  await runCommand(page, 'Open Read-only Markdown Fixture', /^Open Read-only Markdown Fixture$/);
-  const group = groups(page).first();
+test('lets the browser handle Shift+right-click outside a Markdown selection', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'native-context-menu.md', 'Select me\n\nOutside text');
   const editor = richEditor(group);
+  await editor.getByText('Select me', { exact: true }).click({ timeout: 20_000 });
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Select me');
+  const outside = editor.getByText('Outside text', { exact: true });
+  await outside.evaluate(() => {
+    document.addEventListener('contextmenu', event => {
+      const paragraph = (event.target as Element).closest('p');
+      queueMicrotask(() => {
+        document.documentElement.dataset.nativeMenuAllowed =
+          String(paragraph?.textContent === 'Outside text' && event.shiftKey && !event.defaultPrevented);
+      });
+    }, { capture: true, once: true });
+  });
+  await outside.click({ button: 'right', modifiers: ['Shift'], position: { x: 16, y: 8 } });
+  await expect(page.locator('html')).toHaveAttribute('data-native-menu-allowed', 'true');
+  await expect(page.getByRole('menu', { name: 'Markdown editor' })).toHaveCount(0);
+});
+
+test('allows Copy and Select All in the read-only Markdown context menu', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const editor = await openReadOnlyMarkdown(page);
   const text = editor.getByText('Read-only Markdown');
   await expect(text).toBeVisible({ timeout: 20_000 });
   await expect(editor).toHaveAttribute('contenteditable', 'false');
-  await text.evaluate(element => {
+  await expect(editor).toHaveAttribute('aria-readonly', 'true');
+  const point = await text.evaluate(element => {
     const selection = document.getSelection()!;
     selection.selectAllChildren(element);
     element.addEventListener('contextmenu', event => queueMicrotask(() => {
       element.setAttribute('data-context-prevented', String(event.defaultPrevented));
     }), { once: true });
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   });
-  await text.click({ button: 'right' });
-  await expect(text).toHaveAttribute('data-context-prevented', 'false');
-  await expect(page.getByRole('menu', { name: 'Markdown selection' })).toHaveCount(0);
+  await page.mouse.click(point.x, point.y, { button: 'right' });
+  await expect(text).toHaveAttribute('data-context-prevented', 'true');
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  for (const name of ['Undo', 'Redo', 'Cut', 'Paste', 'Paste as Plain Text']) {
+    await expect(menu.getByRole('menuitem', { name, exact: true })).toBeDisabled();
+  }
+  const formatting = menu.getByRole('group');
+  await expect(formatting.getByRole('menuitemcheckbox', { name: 'Bold' })).toBeDisabled();
+  await expect(formatting.getByRole('menuitem', { name: 'Style' })).toBeDisabled();
+  const copy = menu.getByRole('menuitem', { name: 'Copy' });
+  await expect(copy).toBeFocused();
+  await copy.click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Read-only Markdown');
+  await expect(editor).toBeFocused();
+  await text.evaluate(() => document.getSelection()!.removeAllRanges());
+  await page.keyboard.press('Shift+F10');
+  await expect(copy).toBeDisabled();
+  await menu.getByRole('menuitem', { name: 'Select All' }).click();
+  await expect(editor).toBeFocused();
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Read-only Markdown');
+});
+
+test('keeps the read-only Markdown context menu open with typewriter scrolling enabled', async ({ appPage: page }) => {
+  await page.addInitScript(key => {
+    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
+  }, settingsKey);
+  const editor = await openReadOnlyMarkdown(page, 'Open Read-only Typewriter Fixture');
+  const line = editor.getByText('Line 3', { exact: true });
+  await expect(line).toBeVisible({ timeout: 20_000 });
+  await expect(editor).toHaveAttribute('aria-readonly', 'true');
+  const surface = groups(page).first().locator('.markdown-editor-surface');
+  await expect(surface).toHaveClass(/markdown-typewriter/);
+  const scrollTop = await surface.evaluate(async element => {
+    element.scrollTop = 12;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return element.scrollTop;
+  });
+  expect(scrollTop).toBe(12);
+  await line.click({ button: 'right', position: { x: 18, y: 8 } });
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
+  const caret = await line.evaluate(async element => {
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const selection = document.getSelection()!;
+    return { collapsed: selection.isCollapsed, onClickedLine: element.contains(selection.anchorNode) };
+  });
+  expect(caret).toEqual({ collapsed: true, onClickedLine: true });
+  await expect(menu).toBeVisible();
+  expect(await surface.evaluate(element => element.scrollTop)).toBe(scrollTop);
 });
 
 test('cuts, copies and pastes through the Markdown selection toolbox and sanitizes rich paste', async ({ appPage: page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const group = await openMarkdown(page, 'toolbox-clipboard.md', 'First [**word**]{.underline}\n\nReplace this');
   const editor = richEditor(group);
-  const toolbox = page.getByRole('menu', { name: 'Markdown selection' });
+  const toolbox = page.getByRole('menu', { name: 'Markdown editor' });
   const word = editor.locator('u strong');
   const selectWord = async () => {
     await word.click({ timeout: 20_000 });
@@ -1019,7 +1142,7 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
     return (await item.getType('text/html')).text();
   })).toContain('id="foreign"');
   await page.keyboard.press('Shift+F10');
-  await toolbox.getByRole('menuitem', { name: 'Paste' }).click();
+  await toolbox.getByRole('menuitem', { name: 'Paste', exact: true }).click();
   await expect(editor.locator('p').last()).toHaveText('Unsafe URL safe Docs underline Docs link');
   await expect(editor.getByRole('link', { name: 'Unsafe URL' })).toHaveCount(0);
   await expect(editor.locator('u.keep.underline')).toHaveText('safe');
@@ -1034,25 +1157,99 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
   await page.keyboard.press('Shift+End');
   await page.evaluate(() => navigator.clipboard.writeText('**Markdown**'));
   await page.keyboard.press('Shift+F10');
-  await toolbox.getByRole('menuitem', { name: 'Paste' }).click();
+  await toolbox.getByRole('menuitem', { name: 'Paste', exact: true }).click();
   await expect(editor.locator('p').last().locator('strong')).toHaveText('Markdown');
 });
 
-test('warns and retains the selection when the browser denies toolbox paste permission', async ({ appPage: page }) => {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Browser.setPermission', {
-    permission: { name: 'clipboard-read' }, setting: 'denied', origin: new URL(page.url()).origin,
+for (const item of ['Paste', 'Paste as Plain Text']) {
+  test(`warns and retains the selection when the browser denies ${item} clipboard permission`, async ({ appPage: page }) => {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Browser.setPermission', {
+      permission: { name: 'clipboard-read' }, setting: 'denied', origin: new URL(page.url()).origin,
+    });
+    const group = await openMarkdown(page, 'cannot-paste.md', 'Keep this selection');
+    const editor = richEditor(group);
+    await editor.getByText('Keep this selection').click({ timeout: 20_000 });
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: item, exact: true }).click();
+    await expect(page.getByText('Could not paste using the clipboard. Try the keyboard shortcut.', { exact: true })).toBeVisible();
+    await expect(editor).toHaveText('Keep this selection');
+    await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Keep this selection');
   });
-  const group = await openMarkdown(page, 'cannot-paste.md', 'Keep this selection');
+}
+
+test('pastes only literal unformatted clipboard text from the Markdown context menu and shortcut', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const name = 'plain-text-paste.md';
+  const group = await openMarkdown(page, name, '**Before Replace After**\n\nSecond');
   const editor = richEditor(group);
-  await editor.getByText('Keep this selection').click({ timeout: 20_000 });
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const plain = menu.getByRole('menuitem', { name: 'Paste as Plain Text' });
+  const writeClipboard = (text: string, includePlain = true) => page.evaluate(async ({ text, includePlain }) => {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob(['<h1>HTML-only title</h1>'], { type: 'text/html' }),
+      ...(includePlain ? { 'text/plain': new Blob([text], { type: 'text/plain' }) } : {}),
+    })]);
+  }, { text, includePlain });
+  await editor.locator('strong').click({ timeout: 20_000 });
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 'Before '.length; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 'Replace'.length; i++) await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Replace');
+
+  await writeClipboard('', false);
+  await page.keyboard.press('Shift+F10');
+  await plain.click();
+  await expect(editor.locator('strong').first()).toHaveText('Before Replace After');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Replace');
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(editor.locator('strong').first()).toHaveText('Before Replace After');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Replace');
+
+  await writeClipboard('**Literal**');
+  await page.keyboard.press('Shift+F10');
+  await plain.click();
+  await expect(editor.locator('p').first()).toHaveText('Before **Literal** After');
+  await expect(editor.locator('p').first().locator('strong')).toHaveText(['Before ', ' After']);
+  await expect(editor.getByRole('heading')).toHaveCount(0);
+
+  await editor.getByText('Second').click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
+  await writeClipboard('# Literal title\n- Literal list');
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(editor.locator('p').nth(1)).toHaveText('# Literal title');
+  await expect(editor.locator('p').nth(2)).toHaveText('- Literal list');
+  await expect(editor.getByRole('heading')).toHaveCount(0);
+  await expect(editor.locator('ul')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, name)).toContain('\\# Literal title\n\n\\- Literal list');
+});
+
+test('discards a clipboard read if the original Markdown caret moves while it is pending', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'pending-context-paste.md', 'Keep this text');
+  const editor = richEditor(group);
+  const paragraph = editor.locator('p');
+  await paragraph.click({ timeout: 20_000 });
+  await page.keyboard.press('End');
+  await page.evaluate(() => {
+    navigator.clipboard.readText = () => new Promise(resolve => {
+      document.documentElement.dataset.testClipboardPending = 'true';
+      window.addEventListener('test-complete-clipboard-read', () => resolve('Late text'), { once: true });
+    });
+  });
   await page.keyboard.press('Shift+F10');
-  await page.getByRole('menu', { name: 'Markdown selection' }).getByRole('menuitem', { name: 'Paste' }).click();
-  await expect(page.getByText('Could not paste using the clipboard. Try the keyboard shortcut.', { exact: true })).toBeVisible();
-  await expect(editor).toHaveText('Keep this selection');
-  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Keep this selection');
+  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-test-clipboard-pending', 'true');
+  await expect(editor).toBeFocused();
+  await paragraph.click({ position: { x: 1, y: 5 } });
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.anchorOffset)).toBe(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('test-complete-clipboard-read')));
+  await expect(editor).toHaveText('Keep this text');
+  await page.keyboard.type('!');
+  await expect(editor).toHaveText('!Keep this text');
 });
 
 test('prefills, validates, edits and removes a link through the shortcut, toolbar and palette', async ({ appPage: page }) => {
@@ -1296,6 +1493,38 @@ test('renders and edits an image relative to the Markdown document folder', asyn
   await expect(editor.getByRole('img', { name: 'Edited description' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+s');
   await expect.poll(() => readWorkspaceText(page, name)).toContain('![Edited description](assets/pixel.svg)');
+});
+
+test('right-click selects a Markdown image for Copy and Cut', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, 'pixel.svg',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>');
+  const imageMarkdown = '![Pixel](pixel.svg)';
+  const group = await openMarkdown(page, 'image-context-menu.md', `Before ${imageMarkdown} after`);
+  const editor = richEditor(group);
+  const image = editor.getByRole('img', { name: 'Pixel' });
+  const selectedImage = editor.locator('.markdown-image.ProseMirror-selectednode');
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const copy = menu.getByRole('menuitem', { name: 'Copy', exact: true });
+  const cut = menu.getByRole('menuitem', { name: 'Cut', exact: true });
+  await expect(image).toHaveAttribute('src', /^blob:/, { timeout: 20_000 });
+  await expect(selectedImage).toHaveCount(0);
+  await image.click({ button: 'right' });
+  await expect(selectedImage.getByRole('img', { name: 'Pixel' })).toBeVisible();
+  await expect(copy).toBeEnabled();
+  await expect(cut).toBeEnabled();
+  await copy.click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(imageMarkdown);
+  await expect(image).toBeVisible();
+  await expect(editor).toBeFocused();
+
+  await image.click({ button: 'right' });
+  await cut.click();
+  await expect(image).toHaveCount(0);
+  await expect(editor.locator('p')).toHaveText('Before after');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(image).toBeVisible();
 });
 
 test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {
