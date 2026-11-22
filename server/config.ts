@@ -6,6 +6,7 @@ export interface ApiConfig {
   store: 'memory' | 'postgres';
   auth?: 'dev';
   databaseUrl?: string;
+  databasePoolSize: number;
   allowedOrigins: readonly string[];
 }
 
@@ -29,6 +30,10 @@ export function readApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (store === 'postgres' && !databaseUrl) {
     throw new Error('The postgres store requires WRITING_ROOM_DATABASE_URL.');
   }
+  const databasePoolSize = Number(env.WRITING_ROOM_DATABASE_POOL_SIZE ?? 10);
+  if (!Number.isSafeInteger(databasePoolSize) || databasePoolSize < 1) {
+    throw new Error('WRITING_ROOM_DATABASE_POOL_SIZE must be a positive integer.');
+  }
   const auth = env.WRITING_ROOM_AUTH;
   if (auth !== undefined && auth !== 'dev') {
     throw new Error('WRITING_ROOM_AUTH must be dev or unset.');
@@ -45,5 +50,5 @@ export function readApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   })) {
     throw new Error('WRITING_ROOM_PUBLIC_ORIGIN must contain HTTP origins without paths.');
   }
-  return { host, port, store, auth, databaseUrl, allowedOrigins };
+  return { host, port, store, auth, databaseUrl, databasePoolSize, allowedOrigins };
 }

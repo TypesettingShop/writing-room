@@ -1,0 +1,22 @@
+name: writing-room
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      # Fixed credentials for local development only.
+      POSTGRES_USER: writing_room
+      POSTGRES_PASSWORD: writing_room
+      POSTGRES_DB: writing_room
+    ports:
+      - "127.0.0.1:${WRITING_ROOM_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - writing-room-pg:/var/lib/postgresql/data
+      - ./scripts/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "writing_room", "-d", "writing_room"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  writing-room-pg:
