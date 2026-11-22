@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { readdirSync, readFileSync } from 'node:fs';
-import { EditorState } from 'prosemirror-state';
+import { splitBlock } from 'prosemirror-commands';
+import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
+import { EditorState, TextSelection } from 'prosemirror-state';
 import { describe, expect, it } from 'vitest';
 import { createMarkdownParser, parseMarkdown } from '../../../common/markdown/parser.js';
 import { markdownSchema } from '../../../common/markdown/schema.js';
@@ -178,6 +180,71 @@ describe('Markdown save normalization', () => {
     const state = EditorState.create({ doc });
     const { doc: edited } = state.apply(state.tr.insertText('new middle', position, position + 'middle'.length));
     expect(serializeMarkdown(edited)).toBe(source.replace('middle', 'new middle'));
+  });
+
+  it('keeps the separator before an edited last paragraph after Enter and typing', () => {
+    const source = '\n\n#  heading\n \t\n\nlast\n';
+    const doc = editText(parseMarkdown(source), 'last', 'revised');
+    let state = EditorState.create({ doc, selection: TextSelection.create(doc, doc.content.size - 1) });
+    expect(splitBlock(state, transaction => { state = state.apply(transaction); })).toBe(true);
+    const edited = state.apply(state.tr.insertText('added')).doc;
+
+    const saved = serializeMarkdown(edited);
+    expect(saved).toBe('\n\n#  heading\n \t\n\nrevised\n\nadded\n');
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it('keeps spaced boundaries around a fully replaced paragraph when typing below a rule', () => {
+    const source = 'above\r\n\r\n \t\r\nsame\r\n\r\n\r\n***\r\n';
+    const doc = editText(parseMarkdown(source), 'same', 'replaced');
+    const state = EditorState.create({ doc });
+    const offset = doc.content.size;
+    const edited = state.apply(state.tr.insert(offset, doc.type.schema.nodes.paragraph.create({}))
+      .insertText('below', offset + 1)).doc;
+
+    const saved = serializeMarkdown(edited);
+    expect(saved).toBe('above\r\n\r\n \t\r\nreplaced\r\n\r\n\r\n***\r\n\r\nbelow\r\n');
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it('uses fresh separators when two halves of a split share the original paragraph attrs', () => {
+    const doc = parseMarkdown('before\n \n\nleft right\n\n\t\nafter');
+    const state = EditorState.create({ doc });
+    const from = doc.firstChild!.nodeSize + 1 + 'left'.length;
+    const edited = state.apply(state.tr.delete(from, from + 1).split(from)).doc;
+    expect(edited.child(1).attrs).toBe(edited.child(2).attrs);
+
+    const saved = serializeMarkdown(edited);
+    expect(saved).toBe('before\n\nleft\n\nright\n\nafter');
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
+  });
+
+  it('keeps the separators of an unchanged block when a copy shares its identity or attrs', () => {
+    const doc = parseMarkdown('a\n\n\nb\n\n\nc\n\n\nd\n');
+    const b = doc.child(1);
+    for (const copy of [b, b.copy(Fragment.from(b.content.firstChild))]) {
+      const edited = doc.copy(Fragment.fromArray([doc.child(0), b, doc.child(2), doc.child(3), copy]));
+      expect(serializeMarkdown(edited)).toBe('a\n\n\nb\n\n\nc\n\n\nd\n\nb\n');
+    }
+  });
+
+  it('keeps every separator when Enter at the start of a paragraph leaves an empty half', () => {
+    const doc = parseMarkdown('a\n\n\nb\n\n\nc\n');
+    let state = EditorState.create({ doc, selection: TextSelection.create(doc, doc.child(0).nodeSize + 1) });
+    expect(splitBlock(state, transaction => { state = state.apply(transaction); })).toBe(true);
+    expect(state.doc.child(1).attrs).toBe(state.doc.child(2).attrs);
+
+    expect(serializeMarkdown(state.doc)).toBe('a\n\n\nb\n\n\nc\n');
+  });
+
+  it('does not reuse positional separators when two edited blocks trade places', () => {
+    const firstEdit = editText(parseMarkdown('a\n \n\nb\n\n\nc\n\t\n\nd'), 'b', 'new b');
+    const doc = editText(firstEdit, 'c', 'new c');
+    const edited = doc.copy(Fragment.fromArray([doc.child(0), doc.child(2), doc.child(1), doc.child(3)]));
+
+    const saved = serializeMarkdown(edited);
+    expect(saved).toBe('a\n\nnew c\n\nnew b\n\nd');
+    expect(parseMarkdown(saved).eq(edited)).toBe(true);
   });
 
   it('keeps a single-newline separator between untouched blocks and writes an edited block with the file line ending', () => {

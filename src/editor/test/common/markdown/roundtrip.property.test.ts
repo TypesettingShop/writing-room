@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { EditorState } from 'prosemirror-state';
+import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
 import { expect, it } from 'vitest';
 import { createMarkdownIt } from '../../../common/markdown/markdownIt.js';
@@ -208,6 +209,10 @@ it('preserves document content through generated Markdown saves', () => {
     check('canonical', doc, normalized);
     const textEdit = editFirstText(doc);
     if (textEdit) check('text edit', textEdit, serializeMarkdown(textEdit));
+    // A new block changes the block count, so the edited block keeps its range by attrs alone.
+    const added = textEdit && textEdit.copy(textEdit.content.addToEnd(
+      textEdit.type.schema.nodes.paragraph.create(null, textEdit.type.schema.text('added'))));
+    if (added) check('text edit and new block', added, serializeMarkdown(added));
     const classEdit = editItemClass(doc);
     if (classEdit) check('class edit', classEdit, serializeMarkdown(classEdit));
   }
@@ -215,6 +220,40 @@ it('preserves document content through generated Markdown saves', () => {
   expect(checked).toBeGreaterThan(0);
   expect(failures.slice(0, 4), `${failures.length} failures across ${checked} Markdown sources`).toEqual([]);
 }, 240_000);
+
+it('keeps generated separators with their original neighbors across edits to duplicate paragraphs', () => {
+  for (const eol of ['\n', '\r\n', '\r']) {
+    for (const padding of ['', ' ', '\t']) {
+      const fresh = eol + eol;
+      const gaps = [eol.repeat(3), eol + padding + fresh, eol.repeat(4), eol + ' \t' + fresh];
+      const original = ['start', 'dup', 'anchor', 'd&#117;p', 'end'];
+      const source = original.map((text, index) => text + (gaps[index] ?? eol)).join('');
+      const doc = parseMarkdown(source);
+      expect(doc.child(1).eq(doc.child(3))).toBe(true);
+      const state = EditorState.create({ doc });
+      const position = 1 + doc.child(0).nodeSize + doc.child(1).nodeSize + doc.child(2).nodeSize;
+      const edited = state.apply(state.tr.insertText('changed', position, position + 3)).doc;
+      const added = doc.type.schema.nodes.paragraph.create(null, doc.type.schema.text('added'));
+      const cases = [
+        [[5, 0, 1, 2, 3, 4], [fresh, ...gaps]],
+        [[0, 1, 2, 5, 3, 4], [gaps[0], gaps[1], fresh, fresh, gaps[3]]],
+        [[0, 2, 3, 4, 5], [fresh, gaps[2], gaps[3], fresh]],
+        [[0, 1, 3, 4], [gaps[0], fresh, gaps[3]]],
+        [[0, 3, 1, 2, 4], [fresh, fresh, gaps[1], fresh]],
+        [[0, 1, 2, 3, 4, 3], [gaps[0], gaps[1], fresh, fresh, fresh]],
+      ] as const;
+      const blocks = [...edited.content.content, added];
+      const texts = [...original.slice(0, 3), 'changed', 'end', 'added'];
+      for (const [order, separators] of cases) {
+        const target = edited.copy(Fragment.fromArray(order.map(index => blocks[index])));
+        const expected = order.map((index, offset) => texts[index] + (separators[offset] ?? eol)).join('');
+        const saved = serializeMarkdown(target);
+        expect(saved, JSON.stringify({ eol, padding, order })).toBe(expected);
+        expect(parseMarkdown(saved).eq(target), saved).toBe(true);
+      }
+    }
+  }
+});
 
 it('round trips underline applied to generated selections across paragraphs, emphasis and links', () => {
   const fragments = ['글', '**굵게**', '[**링크**](/x)', '`코드`'];
