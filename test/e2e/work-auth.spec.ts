@@ -99,6 +99,7 @@ const test = base.extend<{ googleEnabled: boolean; authApi: string }>({
       });
       await use(origin);
     } finally {
+      await page.context().unrouteAll({ behavior: 'wait' });
       await close(api);
       if (google) {
         await close(google.server);
