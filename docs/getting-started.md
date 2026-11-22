@@ -174,7 +174,8 @@ WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5
 
 ### 분량과 집중 모드
 
-- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 언어에 관계없이 줄바꿈을 포함한 공백으로 나뉜 부분을 각각 한 단어로 세며, 글자 수는 Unicode 코드 포인트 단위로 센다.
+- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 언어에 관계없이 줄바꿈을 포함한 공백으로 나뉜 부분을 각각 한 단어로 세며, 글자 수는 Unicode 확장 자소 단위로 센다. [글자 수 규칙](markdown-editor.md#글자-수)
+- WYSIWYG에서 `---`로 절을 나누고 **View → Appearance → Section Numbers**로 절 번호를 켤 수 있다. 각주가 있는 문서는 편집기 아래에 **Footnotes** 패널이 열린다. [절과 절 번호](markdown-editor.md#절-구분선과-절-번호) · [각주 패널](markdown-editor.md#각주-패널)
 - Explorer의 **Outline**은 제목 1–6을 계층으로 표시하고 현재 절을 강조한다. 제목을 선택하면 두 모드 모두 해당 위치로 이동한다.
 - WYSIWYG에서 **View → Appearance → Markdown Focus Mode** 또는 **Markdown: Toggle Focus Mode**를 실행하면 본문을 가운데 놓고 사이드바·패널·액티비티 바·상태 표시줄을 숨긴다. 커맨드를 다시 실행하거나 본문에서 **Esc**를 누르면 원래 레이아웃으로 돌아온다.
 - `markdownEditor.focusMode.width`의 기본값은 `72ch`다. `markdownEditor.focusMode.dimOthers`를 끄면 집중 모드에서도 모든 문단이 선명하다. `markdownEditor.typewriterScroll`을 켜면 WYSIWYG에서 타이핑하거나 키보드로 이동할 때 커서 줄을 세로 가운데에 둔다. 타자기 스크롤은 기본으로 꺼져 있다.
@@ -245,4 +246,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c

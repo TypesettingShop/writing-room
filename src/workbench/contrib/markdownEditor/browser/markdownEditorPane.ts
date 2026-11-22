@@ -1,7 +1,8 @@
 import { baseKeymap, selectAll } from 'prosemirror-commands';
 import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import { TextSelection } from 'prosemirror-state';
+import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
+import type { Node } from 'prosemirror-model';
 import type { Command, EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
 import type { EditorView } from 'prosemirror-view';
@@ -33,9 +34,11 @@ import {
   defaultMarkdownContentLayout, defaultMarkdownFocusWidth, defaultMarkdownFontFamilies, defaultMarkdownFonts,
   defaultMarkdownHeadingSizes, defaultMarkdownSubtitleSize, isMarkdownContentWidth, MARKDOWN_EDITOR_CONTENT_LAYOUT,
   MARKDOWN_EDITOR_CONTENT_WIDTH, MARKDOWN_EDITOR_FOCUS_DIM, MARKDOWN_EDITOR_FOCUS_WIDTH, MARKDOWN_EDITOR_FONT_FAMILY,
-  MARKDOWN_EDITOR_FONT_SIZE, MARKDOWN_EDITOR_TYPEWRITER, markdownContentWidth, MarkdownEditorCanRedoContext,
+  MARKDOWN_EDITOR_FONT_SIZE, MARKDOWN_EDITOR_FOOTNOTES_PANEL, MARKDOWN_EDITOR_SECTION_NUMBERS, MARKDOWN_EDITOR_TYPEWRITER,
+  markdownContentWidth, MarkdownEditorCanRedoContext,
   MarkdownEditorCanUndoContext, MarkdownEditorContentLayoutContext, MarkdownEditorContentWidthContext,
-  MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext, resolveMarkdownFontDefaults,
+  MarkdownEditorFocusContext, MarkdownEditorModeContext, MarkdownEditorWritableContext,
+  resolveMarkdownFontDefaults,
   scaleMarkdownTitleSize,
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
@@ -49,7 +52,10 @@ import {
   getReadOnlyMarkdownSelection, isOverMarkdownSelection, setMarkdownContextSelection, showMarkdownContextMenu,
 } from './markdownEditorContextMenu.js';
 import type { MarkdownClipboardOperation } from './markdownEditorContextMenu.js';
+import { collectFootnotes, MarkdownFootnotesPanel } from './markdownEditorFootnotes.js';
+import type { MarkdownFootnote } from './markdownEditorFootnotes.js';
 import { markdownInputRules } from './markdownEditorInputRules.js';
+import { markdownSections, markdownSectionsKey } from './markdownEditorSections.js';
 import { setFormattingPreset } from './markdownEditorPresets.js';
 import type { PresetAxisId } from './markdownEditorPresets.js';
 import { markdownImageView } from './markdownEditorImages.js';
@@ -69,6 +75,7 @@ export class MarkdownEditorPane extends EditorPane {
 
   private surface!: HTMLElement;
   private frame!: HTMLElement;
+  private footnotes!: MarkdownFootnotesPanel;
   private error!: HTMLElement;
   private view: EditorView | undefined;
   private sync: MarkdownEditorModel | undefined;
@@ -80,6 +87,7 @@ export class MarkdownEditorPane extends EditorPane {
   private request = 0;
   private pendingFocus = false;
   private typewriter = false;
+  private sectionNumbers = false;
   private pointerSelection = false;
   private committingComposition = false;
   private scrollFrame: number | undefined;
@@ -103,6 +111,16 @@ export class MarkdownEditorPane extends EditorPane {
     this.frame = append(parent, $('.markdown-editor-frame', { hidden: '' }));
     const toolbar = append(this.frame, $('.markdown-editor-toolbar'));
     this.surface = append(this.frame, $('.markdown-editor-surface'));
+    this.footnotes = this._register(new MarkdownFootnotesPanel(this.frame, () => {
+      this.focus();
+      void this.configuration.updateValue(MARKDOWN_EDITOR_FOOTNOTES_PANEL, false)
+        .catch(error => console.warn('Could not hide the Footnotes panel.', error));
+    }, (doc, note) => this.revealFootnote(doc, note)));
+    const updateFootnotes = () => this.footnotes.setEnabled(this.configuration.getValue(MARKDOWN_EDITOR_FOOTNOTES_PANEL) !== false);
+    updateFootnotes();
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_FOOTNOTES_PANEL)) updateFootnotes();
+    }));
     const scoped = this.scoped = this._register(this.contextKeys.getScopedContextKeyService(parent).createScoped(parent));
     const surfaceScope = this._register(scoped.createScoped(this.surface));
     MarkdownEditorFocusContext.bindTo(surfaceScope).set(true);
@@ -186,6 +204,18 @@ export class MarkdownEditorPane extends EditorPane {
         updateWritingPreferences();
       }
     }));
+    const updateSectionNumbers = () => {
+      const enabled = this.configuration.getValue(MARKDOWN_EDITOR_SECTION_NUMBERS) === true;
+      if (enabled === this.sectionNumbers) return;
+      this.commitComposition();
+      this.sectionNumbers = enabled;
+      this.frame.classList.toggle('markdown-section-numbers', enabled);
+      if (this.sync) this.updateSectionDecorations(this.sync);
+    };
+    updateSectionNumbers();
+    this._register(this.configuration.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration(MARKDOWN_EDITOR_SECTION_NUMBERS)) updateSectionNumbers();
+    }));
     const ResizeObserver = parent.ownerDocument.defaultView?.ResizeObserver;
     if (ResizeObserver) {
       const observer = new ResizeObserver(() => this.scheduleTypewriter());
@@ -240,6 +270,7 @@ export class MarkdownEditorPane extends EditorPane {
         return;
       }
       const sync = this.sync = this.getTabModel(input, resolved);
+      this.updateSectionDecorations(sync);
       const composition = new MarkdownCompositionRecovery();
       const view = this.view = new MarkdownEditorView(this.surface, {
         state: sync.state,
@@ -346,6 +377,7 @@ export class MarkdownEditorPane extends EditorPane {
         }
         this.updateHistoryContext();
       }));
+      this.footnotes.setDocument(view.state.doc, true);
       this.frame.hidden = false;
       this.scheduleTypewriter();
       this.updateHistoryContext();
@@ -376,6 +408,7 @@ export class MarkdownEditorPane extends EditorPane {
     this.session.clear();
     this.view = undefined;
     this.sync = undefined;
+    this.footnotes.setDocument(undefined, true);
     this.frame.hidden = true;
     this.error.hidden = true;
     this.error.textContent = '';
@@ -483,6 +516,12 @@ export class MarkdownEditorPane extends EditorPane {
     this.historyChanged.fire();
   }
 
+  private updateSectionDecorations(model: MarkdownEditorModel): void {
+    if (Boolean(markdownSectionsKey.getState(model.state)) !== this.sectionNumbers) {
+      model.dispatch(model.state.tr);
+    }
+  }
+
   private getTabModel(input: MarkdownEditorInput, resolved: ITextEditorModel): MarkdownEditorModel {
     const tab = this.tabModels.get(input);
     if (tab) {
@@ -498,7 +537,8 @@ export class MarkdownEditorPane extends EditorPane {
     const codeKeys = keymap({ Tab: indentMarkdownCode(false), 'Shift-Tab': indentMarkdownCode(true) });
     const tableKeys = keymap({ Tab: moveMarkdownTableCell(1), 'Shift-Tab': moveMarkdownTableCell(-1) });
     const model = new MarkdownEditorModel(textModel, [
-      markdownInputRules, markdownActiveBlock, keys, codeKeys, tableKeys, keymap(markdownListKeys),
+      markdownInputRules, markdownActiveBlock, markdownSections(() => this.sectionNumbers),
+      keys, codeKeys, tableKeys, keymap(markdownListKeys),
       ...markdownTablePlugins, keymap(baseKeymap),
     ], state => {
       if (this.input === input) {
@@ -509,6 +549,7 @@ export class MarkdownEditorPane extends EditorPane {
           this.contextMenu.clear();
         }
         this.view?.updateState(state);
+        if (this.view) this.footnotes.setDocument(state.doc);
         if (!this.pointerSelection && (previous?.doc !== state.doc || previous?.selection.head !== state.selection.head)) {
           this.scheduleTypewriter();
         }
@@ -551,6 +592,37 @@ export class MarkdownEditorPane extends EditorPane {
   }
 
   readonly onDidChangeWritingState = this.historyChanged.event;
+
+  private revealFootnote(renderedDoc: Node, entry: MarkdownFootnote): void {
+    this.commitComposition();
+    const { sync, view } = this;
+    if (!sync || !view) return;
+    const { doc } = sync.state;
+    let target: MarkdownFootnote | undefined = entry;
+    if (renderedDoc !== doc) {
+      // A click can arrive during the debounce or commit a pending composition.
+      const reference = entry.referencePos === undefined ? null : renderedDoc.nodeAt(entry.referencePos);
+      target = collectFootnotes(doc).find(note => entry.label !== null
+        ? note.label === entry.label
+        : note.label === null && note.referencePos !== undefined && doc.nodeAt(note.referencePos) === reference);
+    }
+    if (!target) return;
+
+    const { definitionPos, referencePos } = target;
+    let selection: Selection;
+    if (definitionPos !== undefined) {
+      const start = definitionPos + 1;
+      const end = definitionPos + doc.nodeAt(definitionPos)!.nodeSize - 1;
+      const inside = Selection.findFrom(doc.resolve(start), 1, true);
+      selection = inside && inside.from < end ? inside : NodeSelection.create(doc, definitionPos);
+    } else if (referencePos !== undefined) {
+      selection = TextSelection.create(doc, referencePos);
+    } else {
+      return;
+    }
+    this.focus();
+    sync.dispatch(sync.state.tr.setSelection(selection).scrollIntoView());
+  }
 
   revealWritingPosition(position: number): void {
     const before = this.sync?.state.doc;

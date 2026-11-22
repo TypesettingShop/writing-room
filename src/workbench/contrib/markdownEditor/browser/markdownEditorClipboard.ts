@@ -337,6 +337,16 @@ function serializeClipboardMarkdown(slice: Slice, preserveBlocks = false): strin
       content = content.firstChild!.content;
     }
   }
+  // An open edge that holds no text is only where the selection crossed a block boundary. Leave
+  // it out so its classes do not turn into an empty []{.class} paragraph.
+  if (!preserveBlocks && content.childCount > 1) {
+    const blocks: ProseMirrorNode[] = [];
+    content.forEach((child, _offset, index) => {
+      const edge = (index === 0 && openStart > 0) || (index === content.childCount - 1 && openEnd > 0);
+      if (!edge || child.type !== markdownSchema.nodes.paragraph || child.content.size) blocks.push(child);
+    });
+    if (blocks.length && blocks.length !== content.childCount) content = Fragment.fromArray(blocks);
+  }
   content = content.firstChild?.isInline
     ? Fragment.from(markdownSchema.nodes.paragraph.create(null, content)) : content;
   return markdownSchema.topNodeType.validContent(content)

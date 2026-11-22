@@ -31,6 +31,14 @@ describe('Markdown clipboard', () => {
     expect(markdownClipboard.clipboardTextSerializer!(doc.slice(find('end'), find('start') + 5), view)).toBe('end\n\np2 start');
   });
 
+  it('leaves out the empty edge of a styled paragraph that a selection only touches', () => {
+    const styled = parseMarkdown('Alpha\n\nBeta {.center}\n\nGamma');
+    const beta = styled.firstChild!.nodeSize;
+    const betaEnd = beta + styled.child(1).nodeSize - 1;
+    expect(markdownClipboard.clipboardTextSerializer!(styled.slice(1, beta + 1), view)).toBe('Alpha');
+    expect(markdownClipboard.clipboardTextSerializer!(styled.slice(betaEnd, styled.content.size - 1), view)).not.toContain('[]');
+  });
+
   it('copies a cell selection over the whole table as a GFM table', () => {
     const cells: number[] = [];
     doc.descendants((node, pos) => { if (node.type.spec.tableRole?.endsWith('cell')) cells.push(pos); });
