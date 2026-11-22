@@ -1,8 +1,10 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import type { ManuscriptNodeKind } from '../../src/platform/manuscript/common/manuscript.js';
 import { runCommand } from './configuration.helpers.js';
 import { openProblemsCommand, problemNames, problemsStatus } from './diagnostics.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { groups } from './files.helpers.js';
+import { screenshotColors } from './fixtures.js';
 import { savedRecords } from './packages.helpers.js';
 import { installFromGallery, realPin, requireRealExtensions, routeFixtureGallery } from './real-extensions.helpers.js';
 import { chooseTheme, colorVariable, kindClass, openWithThemingFixtures, rgb } from './themes.helpers.js';
@@ -12,7 +14,13 @@ async function createWork(request: APIRequestContext, baseURL: string) {
   const response = await request.post('/api/works', { headers, data: { title: 'Navigator acceptance' } });
   expect(response.status()).toBe(201);
   const { work } = await response.json();
-  return { url: '/?work=' + work.id, nodes: '/api/works/' + work.id + '/nodes', headers };
+  const nodes = '/api/works/' + work.id + '/nodes';
+  async function addNode(kind: ManuscriptNodeKind, title: string, expectedRevision: number, parentId: string | null = null): Promise<string> {
+    const response = await request.post(nodes, { headers, data: { kind, title, parentId, expectedRevision } });
+    expect(response.status()).toBe(201);
+    return (await response.json()).node.id;
+  }
+  return { url: '/?work=' + work.id, nodes, headers, addNode };
 }
 
 const navigator = (page: Page) => page.getByRole('region', { name: 'Navigator', exact: true });
@@ -71,21 +79,12 @@ test('shows Navigator only in a work and remembers folder, expansion and selecti
 
 test('aligns Navigator branches with their parent toggles and reaches document icons', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
-  let revision = 0;
-  async function add(kind: string, title: string, parentId: string | null): Promise<string> {
-    const response = await request.post(work.nodes, {
-      headers: work.headers, data: { kind, title, parentId, expectedRevision: revision },
-    });
-    expect(response.status()).toBe(201);
-    revision++;
-    return (await response.json()).node.id;
-  }
-  const partId = await add('part', '떠나는 길', null);
-  await add('document', '부 여는 글', partId);
-  const chapterId = await add('chapter', '첫 만남', partId);
-  await add('document', '역 앞에서', chapterId);
-  await add('chapter', '두 번째 약속', partId);
-  await add('document', '집필 노트', null);
+  const partId = await work.addNode('part', '떠나는 길', 0);
+  await work.addNode('document', '부 여는 글', 1, partId);
+  const chapterId = await work.addNode('chapter', '첫 만남', 2, partId);
+  await work.addNode('document', '역 앞에서', 3, chapterId);
+  await work.addNode('chapter', '두 번째 약속', 4, partId);
+  await work.addNode('document', '집필 노트', 5);
 
   await openWithThemingFixtures(page, ['color-theme/']);
   await page.goto(work.url);
@@ -221,17 +220,10 @@ test('renders only the visible window of a 10,000-row manuscript tree', async ({
 
 test('opens a document once and keeps the title and path current in its editor tab', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
-  const add = async (kind: string, name: string, expectedRevision: number, parentId: string | null) => {
-    const response = await request.post(work.nodes, {
-      headers: work.headers, data: { kind, title: name, parentId, expectedRevision },
-    });
-    expect(response.status()).toBe(201);
-    return (await response.json()).node.id as string;
-  };
-  const part = await add('part', 'Opening', 0, null);
-  const chapter = await add('chapter', 'First', 1, part);
-  await add('document', 'Scene', 2, chapter);
-  await add('document', 'Next scene', 3, chapter);
+  const part = await work.addNode('part', 'Opening', 0);
+  const chapter = await work.addNode('chapter', 'First', 1, part);
+  await work.addNode('document', 'Scene', 2, chapter);
+  await work.addNode('document', 'Next scene', 3, chapter);
   await page.goto(work.url);
   await row(page, '1부 - Opening').getByRole('button', { name: 'Expand' }).click();
   await row(page, '1장 - First').getByRole('button', { name: 'Expand' }).click();
@@ -294,16 +286,9 @@ test('edits only the selected node title in Properties and preserves other metad
 
 test('reorders before and into a row and handles a stale drag revision', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
-  const add = async (kind: string, name: string, expectedRevision: number) => {
-    const response = await request.post(work.nodes, {
-      headers: work.headers, data: { kind, title: name, parentId: null, expectedRevision },
-    });
-    expect(response.status()).toBe(201);
-    return (await response.json()).node.id as string;
-  };
-  await add('chapter', 'Folder', 0);
-  const a = await add('document', 'A', 1);
-  await add('document', 'B', 2);
+  await work.addNode('chapter', 'Folder', 0);
+  const a = await work.addNode('document', 'A', 1);
+  await work.addNode('document', 'B', 2);
   await page.goto(work.url);
   const rootTitles = () => tree(page).getByRole('treeitem').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
   await row(page, 'B').dragTo(row(page, 'A'), { targetPosition: { x: 80, y: 4 } });
@@ -327,6 +312,60 @@ test('reorders before and into a row and handles a stale drag revision', async (
   await expect(row(page, 'Elsewhere')).toHaveAttribute('aria-level', '1');
   await expect(tree(page).locator('[data-manuscript-drop]')).toHaveCount(0);
 });
+
+for (const forcedColors of ['none', 'active'] as const) {
+  test(`paints Navigator drop lines across both guides with forced colors ${forcedColors}`, async ({ page, request, baseURL }) => {
+    const work = await createWork(request, baseURL!);
+    const part = await work.addNode('part', 'Part', 0);
+    const chapter = await work.addNode('chapter', 'Chapter', 1, part);
+    await work.addNode('chapter', 'Next chapter', 2, part);
+    await work.addNode('document', 'Target', 3, chapter);
+    await work.addNode('document', 'Next document', 4, chapter);
+    await work.addNode('document', 'Source', 5);
+    await page.emulateMedia({ forcedColors });
+    await page.goto(work.url);
+    await row(page, '1부 - Part').getByRole('button', { name: 'Expand' }).click();
+    await row(page, '1장 - Chapter').getByRole('button', { name: 'Expand' }).click();
+
+    const source = row(page, 'Source');
+    const target = row(page, 'Target');
+    const from = (await source.boundingBox())!;
+    const to = (await target.boundingBox())!;
+    // The target has a continuing ancestor pipe and its own tee, both intersecting the row edges.
+    const guideXs = await target.locator('.manuscript-twig > span').evaluateAll(segments => segments.map(segment => {
+      const stroke = getComputedStyle(segment, '::before');
+      return Math.floor(segment.getBoundingClientRect().left + parseFloat(stroke.left) + parseFloat(stroke.width) / 2);
+    }));
+    expect(guideXs).toHaveLength(2);
+
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2 + 3, { steps: 3 });
+      for (const position of ['before', 'after'] as const) {
+        const x = Math.floor(to.x + to.width / 2);
+        const y = Math.floor(to.y + (position === 'before' ? 1 : to.height - 1));
+        const bodyY = y + (position === 'before' ? 4 : -4);
+        await page.mouse.move(x - 1, y);
+        await page.mouse.move(x, y);
+        await expect(target).toHaveAttribute('data-manuscript-drop', position);
+
+        const screenshot = await page.screenshot({ scale: 'css' });
+        const [line, background, guide, ...crossings] = await screenshotColors(page, screenshot, [
+          { x, y }, { x, y: bodyY }, { x: guideXs[0], y: bodyY },
+          ...guideXs.map(guideX => ({ x: guideX, y })),
+        ]);
+        expect.soft(guide, `${position} guide remains visible`).not.toBe(background);
+        expect.soft(line, `${position} drop line stands out from the row`).not.toBe(background);
+        expect.soft(crossings, `${position} drop line covers both guides`).toEqual([line, line]);
+      }
+    } finally {
+      await page.mouse.up();
+    }
+    await expect(source).toHaveAttribute('aria-level', '3');
+    await expect(tree(page).locator('[data-manuscript-drop]')).toHaveCount(0);
+  });
+}
 
 async function dropOnGroup(page: Page, item: Locator, group: Locator, x: number, strip = false): Promise<void> {
   const source = (await item.boundingBox())!;
@@ -355,18 +394,10 @@ async function dropOnGroup(page: Page, item: Locator, group: Locator, x: number,
 test('opens editor-area drops in the target group, splits at the edge and caps each operation at 50', async ({ page, request, baseURL }) => {
   test.setTimeout(60_000);
   const work = await createWork(request, baseURL!);
-  async function add(kind: string, name: string, expectedRevision: number, parentId: string | null) {
-    const response = await request.post(work.nodes, {
-      headers: work.headers, data: { kind, title: name, parentId, expectedRevision },
-    });
-    expect(response.status()).toBe(201);
-    return (await response.json()).node.id as string;
-  }
-
-  const folder = await add('chapter', 'Bundle', 0, null);
-  await add('document', 'Single', 1, null);
+  const folder = await work.addNode('chapter', 'Bundle', 0);
+  await work.addNode('document', 'Single', 1);
   for (let position = 0; position < 51; position++) {
-    await add('document', 'Scene ' + (position + 1), position + 2, folder);
+    await work.addNode('document', 'Scene ' + (position + 1), position + 2, folder);
   }
   await page.goto(work.url);
   const first = groups(page).first();

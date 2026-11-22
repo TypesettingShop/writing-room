@@ -145,14 +145,6 @@
   inset-inline-end: calc(0px - var(--manuscript-indent) - var(--manuscript-row-gap));
 }
 
-@media (forced-colors: active) {
-  /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
-  .manuscript-twig {
-    forced-color-adjust: none;
-    color: CanvasText;
-  }
-}
-
 .manuscript-inline-editor {
   position: absolute;
   z-index: 1;
@@ -175,15 +167,37 @@
   color: var(--vscode-input-foreground);
 }
 
-.manuscript-row[data-manuscript-drop='before'] {
-  box-shadow: inset 0 2px var(--vscode-focusBorder);
+.manuscript-row:is([data-manuscript-drop='before'], [data-manuscript-drop='after'])::after {
+  content: '';
+  position: absolute;
+  /* The insertion line crosses the guides above their vertical strokes. */
+  z-index: 1;
+  inset-inline: 0;
+  border-block-start: 2px solid var(--vscode-focusBorder);
+  pointer-events: none;
 }
 
-.manuscript-row[data-manuscript-drop='after'] {
-  box-shadow: inset 0 -2px var(--vscode-focusBorder);
+.manuscript-row[data-manuscript-drop='before']::after {
+  inset-block-start: 0;
+}
+
+.manuscript-row[data-manuscript-drop='after']::after {
+  inset-block-end: 0;
 }
 
 .manuscript-row[data-manuscript-drop='into'],
 .manuscript-drop-end {
   background: var(--vscode-list-dropBackground);
+}
+
+@media (forced-colors: active) {
+  /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
+  .manuscript-twig {
+    forced-color-adjust: none;
+    color: CanvasText;
+  }
+
+  .manuscript-row:is([data-manuscript-drop='before'], [data-manuscript-drop='after'])::after {
+    border-color: CanvasText;
+  }
 }
