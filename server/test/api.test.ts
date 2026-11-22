@@ -59,6 +59,21 @@ describe('in-memory API', () => {
     expect(wrongMethod.headers.get('Allow')).toBe('GET, POST');
   });
 
+  it('rejects a request whose Host is neither loopback nor an allowed origin', async () => {
+    const statusFor = (host: string) => new Promise<number | undefined>((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port: api.port, path: '/api/works', headers: { ...headers, Host: host } },
+        incoming => {
+          incoming.resume();
+          incoming.on('end', () => resolve(incoming.statusCode));
+        });
+      req.on('error', reject).end();
+    });
+    expect(await statusFor('rebound.example:' + api.port)).toBe(403);
+    expect(await statusFor('rebound.example@127.0.0.1:' + api.port)).toBe(403);
+    expect(await statusFor('localhost:' + api.port)).toBe(200);
+    expect(await statusFor(new URL(testOrigin).host)).toBe(200);
+  });
+
   it('rejects malformed JSON, media types and invalid document UTF-8', async () => {
     const invalidJson = await api.fetch('/api/works', { method: 'POST', headers: jsonHeaders, body: '{' });
     const invalidType = await api.fetch('/api/works', { method: 'POST', headers, body: '{}' });

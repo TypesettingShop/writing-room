@@ -38,9 +38,17 @@ async function main(): Promise<void> {
     }
     if (pool) {
       const connectionPool = pool;
+      // SIGINT and SIGTERM can both arrive (a terminal and a watcher); the pool ends once.
+      let stopping = false;
       for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         process.once(signal, () => {
-          server.close(() => { void connectionPool.end(); });
+          if (stopping) {
+            return;
+          }
+          stopping = true;
+          server.close(() => {
+            connectionPool.end().catch(() => console.error('Could not close the PostgreSQL pool.'));
+          });
         });
       }
     }
@@ -50,7 +58,15 @@ async function main(): Promise<void> {
   }
 }
 
+// A connection refused on every address of a host name is an AggregateError without a message.
+function startupFailure(error: unknown): string {
+  if (error instanceof AggregateError && !error.message) {
+    return error.errors.map(startupFailure).filter(Boolean).join('; ');
+  }
+  return error instanceof Error ? error.message : '';
+}
+
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : 'Could not start the API server.');
+  console.error(startupFailure(error) || 'Could not start the API server.');
   process.exitCode = 1;
 });
