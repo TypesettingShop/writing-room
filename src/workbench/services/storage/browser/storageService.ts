@@ -3,17 +3,22 @@ import { MutableDisposable, toDisposable } from '../../../../base/common/lifecyc
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IStorageDatabase, IStorageUpdate } from '../../../../base/parts/storage/common/storage.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { AbstractStorageService, IStorageService, parseStorageKey, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
+import {
+  AbstractStorageService, IStorageService, parseStorageKey, StorageScope, storageKey, WillSaveStateReason,
+} from '../../../../platform/storage/common/storage.js';
+import { readWindowWork } from '../../work/common/work.js';
 
 export const STORAGE_PREFIX = 'writing-room:storage:';
 export const STORAGE_VERSION_KEY = STORAGE_PREFIX + 'version';
 // 2: installed extension records carry their source and version (webExtensionsScannerService.ts migrates 1).
 export const STORAGE_SCHEMA_VERSION = 2;
+const WORKSPACE_KEY_PREFIX = storageKey(StorageScope.WORKSPACE, '');
 
 // Draft keys have the scope prefix produced by storageKey, with no browser prefix.
 type StorageMigration = (draft: Map<string, string>) => undefined;
 const migrations = new Map<number, StorageMigration>();
 
+/** Migrations receive legacy keys. A future version that changes WORKSPACE state must also migrate every Work namespace. */
 export function registerStorageMigration(fromVersion: number, migrate: StorageMigration): IDisposable {
   if (!Number.isSafeInteger(fromVersion) || fromVersion < 0 || migrations.has(fromVersion)) {
     throw new Error(`Invalid or duplicate storage migration from version ${fromVersion}.`);
@@ -30,7 +35,11 @@ class LocalStorageDatabase implements IStorageDatabase {
   private area: globalThis.Storage | undefined;
   private readonly versionText: string;
 
-  constructor(private readonly open: () => globalThis.Storage, private readonly schemaVersion: number) {
+  constructor(
+    private readonly open: () => globalThis.Storage,
+    private readonly schemaVersion: number,
+    private readonly workPrefix: string | undefined,
+  ) {
     this.versionText = String(schemaVersion);
   }
 
@@ -46,11 +55,13 @@ class LocalStorageDatabase implements IStorageDatabase {
     }
 
     const keys = this.prefixedKeys(area);
-    const items = this.readItems(area, keys);
     if (version < this.schemaVersion && (marker !== null || keys.length !== 0)) {
-      return this.migrate(area, marker, version, items);
+      // The migrations through version 2 predate Work keys. Migrate the legacy data even when a Work opens first.
+      const legacyItems = this.readItems(area, keys, key => key.slice(STORAGE_PREFIX.length));
+      this.migrate(area, marker, version, legacyItems);
+      return this.readItems(area, this.prefixedKeys(area));
     }
-    return items;
+    return this.readItems(area, keys);
   }
 
   private prefixedKeys(area: globalThis.Storage): string[] {
@@ -64,11 +75,29 @@ class LocalStorageDatabase implements IStorageDatabase {
     return keys;
   }
 
-  private readItems(area: globalThis.Storage, keys: readonly string[]): Map<string, string> {
+  private browserKey(key: string): string {
+    const prefix = key.startsWith(WORKSPACE_KEY_PREFIX) ? this.workPrefix ?? STORAGE_PREFIX : STORAGE_PREFIX;
+    return prefix + key;
+  }
+
+  private logicalKey(browserKey: string): string | undefined {
+    if (!browserKey.startsWith(STORAGE_PREFIX)) {
+      return undefined;
+    }
+    const prefix = this.workPrefix && browserKey.startsWith(this.workPrefix) ? this.workPrefix : STORAGE_PREFIX;
+    const key = browserKey.slice(prefix.length);
+    return this.browserKey(key) === browserKey ? key : undefined;
+  }
+
+  private readItems(
+    area: globalThis.Storage,
+    keys: readonly string[],
+    decode = (key: string) => this.logicalKey(key),
+  ): Map<string, string> {
     const items = new Map<string, string>();
     for (const key of keys) {
-      const namespacedKey = key.slice(STORAGE_PREFIX.length);
-      if (parseStorageKey(namespacedKey)) {
+      const namespacedKey = decode(key);
+      if (namespacedKey !== undefined && parseStorageKey(namespacedKey)) {
         const value = area.getItem(key);
         if (value !== null) {
           items.set(namespacedKey, value);
@@ -80,7 +109,7 @@ class LocalStorageDatabase implements IStorageDatabase {
 
   private migrate(
     area: globalThis.Storage, marker: string | null, version: number, items: Map<string, string>,
-  ): Map<string, string> {
+  ): void {
     const draft = new Map(items);
     for (let fromVersion = version; fromVersion < this.schemaVersion; fromVersion++) {
       const migrate = migrations.get(fromVersion);
@@ -139,8 +168,6 @@ class LocalStorageDatabase implements IStorageDatabase {
       }
       throw error;
     }
-    // Migration callbacks may retain the draft. Keep it separate from the live cache.
-    return new Map(draft);
   }
 
   private checkVersion(area: globalThis.Storage): string | null {
@@ -177,10 +204,10 @@ class LocalStorageDatabase implements IStorageDatabase {
       area.setItem(STORAGE_VERSION_KEY, this.versionText);
     }
     for (const key of deleted) {
-      this.write(area, STORAGE_PREFIX + key, null);
+      this.write(area, this.browserKey(key), null);
     }
     for (const [key, value] of insert) {
-      this.write(area, STORAGE_PREFIX + key, value);
+      this.write(area, this.browserKey(key), value);
     }
   }
 
@@ -191,7 +218,7 @@ class LocalStorageDatabase implements IStorageDatabase {
     }
     // Only the schema marker and this key are read; the marker check counts keys only for an unmarked origin.
     this.checkVersion(area);
-    return area.getItem(STORAGE_PREFIX + key) ?? undefined;
+    return area.getItem(this.browserKey(key)) ?? undefined;
   }
 
   readExternal(event: StorageEvent): ReadonlyMap<string, string | undefined> | undefined {
@@ -207,11 +234,8 @@ class LocalStorageDatabase implements IStorageDatabase {
       this.checkVersion(area);
       return;
     }
-    if (!event.key.startsWith(STORAGE_PREFIX)) {
-      return;
-    }
-    const key = event.key.slice(STORAGE_PREFIX.length);
-    if (parseStorageKey(key)) {
+    const key = this.logicalKey(event.key);
+    if (key !== undefined && parseStorageKey(key)) {
       this.checkVersion(area);
       // A queued event can arrive after another write to the same key in either tab.
       return new Map([[key, area.getItem(event.key) ?? undefined]]);
@@ -245,7 +269,9 @@ export function writeTabStorage(browserWindow: Window | null, key: string, value
 
 export class BrowserStorageService extends AbstractStorageService {
   constructor(browserWindow: Window = window, schemaVersion = STORAGE_SCHEMA_VERSION) {
-    const database = new LocalStorageDatabase(() => browserWindow.localStorage, schemaVersion);
+    const work = readWindowWork(browserWindow.location);
+    const workPrefix = work ? `${STORAGE_PREFIX}work:${work.id}:` : undefined;
+    const database = new LocalStorageDatabase(() => browserWindow.localStorage, schemaVersion, workPrefix);
     super(database);
     const document = browserWindow.document;
     this.disposables.add(addDisposableListener(document, 'visibilitychange', () => {

@@ -7,6 +7,7 @@ import { normalizeFileResource, workspaceAuthority } from '../../../../platform/
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import type { IWorkspace, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkService, WorkOpenContext } from '../../work/common/work.js';
 
 const workbenchState = new RawContextKey('workbenchState', 'folder');
 const folderCount = new RawContextKey('workspaceFolderCount', 1);
@@ -19,15 +20,19 @@ const folder: IWorkspaceFolder = Object.freeze({
   toResource: (relativePath: string) => URI.joinPath(workspaceUri, relativePath),
 });
 
-const workspace: IWorkspace = Object.freeze({ id: 'writing-room', folders: Object.freeze([folder]) });
+const folders = Object.freeze([folder]);
 
 export class WorkspaceContextService implements IWorkspaceContextService {
   declare readonly _serviceBrand: undefined;
   readonly onDidChangeWorkspaceFolders = Event.None;
+  private readonly workspace: IWorkspace;
 
-  constructor(@IContextKeyService context: IContextKeyService) {
+  constructor(@IContextKeyService context: IContextKeyService, @IWorkService work: IWorkService) {
+    const current = work.current;
+    this.workspace = Object.freeze({ id: current ? `work-${current.id}` : 'writing-room', folders });
     workbenchState.bindTo(context);
     folderCount.bindTo(context);
+    WorkOpenContext.bindTo(context).set(current !== undefined);
   }
 
   getWorkbenchState(): WorkbenchState {
@@ -35,7 +40,7 @@ export class WorkspaceContextService implements IWorkspaceContextService {
   }
 
   getWorkspace(): IWorkspace {
-    return workspace;
+    return this.workspace;
   }
 
   getWorkspaceFolder(resource: URI): IWorkspaceFolder | null {

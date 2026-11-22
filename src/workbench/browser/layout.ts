@@ -48,10 +48,10 @@ export class LayoutStateModel {
     Object.assign(this, Object.fromEntries(Object.entries(initial).filter(([, value]) => value !== undefined)));
   }
 
-  load(storage: IStorageService, overrides?: Partial<LayoutStateModel>): void {
+  load(storage: IStorageService, sizeScope: StorageScope, overrides?: Partial<LayoutStateModel>): void {
     for (const field of Object.keys(sizeKeys) as (keyof typeof sizeKeys)[]) {
       const key = sizeKeys[field];
-      const raw = storage.get(key, StorageScope.PROFILE);
+      const raw = storage.get(key, sizeScope);
       if (raw !== undefined) {
         const size = Number(raw);
         if (raw.trim() !== '' && Number.isFinite(size)) {
@@ -73,9 +73,9 @@ export class LayoutStateModel {
     }
   }
 
-  save(storage: IStorageService): void {
+  save(storage: IStorageService, sizeScope: StorageScope): void {
     for (const field of Object.keys(sizeKeys) as (keyof typeof sizeKeys)[]) {
-      storage.store(sizeKeys[field], this[field], StorageScope.PROFILE, StorageTarget.MACHINE);
+      storage.store(sizeKeys[field], this[field], sizeScope, StorageTarget.MACHINE);
     }
     for (const field of Object.keys(visibilityKeys) as (keyof typeof visibilityKeys)[]) {
       storage.store(visibilityKeys[field], this[field], StorageScope.WORKSPACE, StorageTarget.MACHINE);
