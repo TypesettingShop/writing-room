@@ -151,7 +151,6 @@ export class NavigatorView extends Disposable {
     this.status.textContent = this.state.error || (index ? '' : 'Loading manuscript…');
     this.status.hidden = !this.status.textContent;
     this.empty.hidden = !index || index.nodes.size !== 0;
-    this.tree.classList.toggle('manuscript-tree-empty', !lines.length);
     this.tree.setAttribute('aria-busy', String(this.state.busy || !index && !this.state.error));
     if (this.previousLines !== lines) {
       this.positions = new Map(lines.map((line, index) => [line.key, index]));

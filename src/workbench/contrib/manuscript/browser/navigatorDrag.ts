@@ -45,6 +45,7 @@ export class NavigatorDrag extends Disposable {
       const nodeIds = state.selected.has(id) ? [...state.selected] : [id];
       observer.startDrag(event, row, { workId: state.workId, nodeIds });
     }));
+    this._register(addDisposableListener(tree, 'dragend', event => this.reportRejectedRelease(event), true));
     const target = this._register(new DragAndDropObserver(tree, {
       onDragEnter: event => this.hover(event),
       onDragOver: event => this.hover(event),
@@ -194,6 +195,22 @@ export class NavigatorDrag extends Disposable {
       } else {
         this.notifications.info(result.reason);
       }
+    }
+  }
+
+  private reportRejectedRelease(event: DragEvent): void {
+    const pointer = this.pointer;
+    if (!pointer || event.dataTransfer?.dropEffect !== 'none') {
+      return;
+    }
+    // Some browsers suppress drop when the destination advertises 'none'.
+    const { left, right, top, bottom } = this.tree.getBoundingClientRect();
+    if (event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom) {
+      return;
+    }
+    const result = this.suggestion(event.clientY, pointer.drag)?.result;
+    if (result && !result.ok) {
+      this.notifications.info(result.reason);
     }
   }
 
