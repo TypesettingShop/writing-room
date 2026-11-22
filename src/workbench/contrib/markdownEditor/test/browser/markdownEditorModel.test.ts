@@ -525,7 +525,7 @@ describe('MarkdownEditorModel', () => {
     { container: 'nested list', prefix: '- Parent\n', row: (text: string) => '    - ' + text, separator: '\n' },
     { container: 'quote', prefix: '', row: (text: string) => '> ' + text, separator: '\n>\n' },
     { container: 'table', prefix: '| Title |\n| --- |\n', row: (text: string) => '| ' + text + ' |', separator: '\n' },
-  ])('pending composition inside a $container', ({ prefix, row, separator }) => {
+  ])('pending composition inside a $container', ({ container, prefix, row, separator }) => {
     const bravo = row('Bravo');
     const alpha = row('Alpha');
     const composed = row('Bravo요');
@@ -533,6 +533,10 @@ describe('MarkdownEditorModel', () => {
     const secondRow = prefix.length + bravo.length + separator.length;
     const lastRow = secondRow + alpha.length + separator.length;
     const repeated = prefix + [bravo, bravo, bravo].join(separator);
+    const firstText = prefix.length + bravo.indexOf('Bravo');
+    const middleText = secondRow + alpha.indexOf('Alpha');
+    const lastText = lastRow + bravo.indexOf('Bravo');
+    const uniqueContainer = prefix + [alpha, bravo].join(separator);
 
     function textEnd(doc: Node, text: string, occurrence = 0): number {
       const positions: number[] = [];
@@ -546,6 +550,8 @@ describe('MarkdownEditorModel', () => {
       label: string;
       target: number;
       survivor?: number;
+      targetText?: string;
+      survivingText?: string;
       external: string;
       typed?: string;
       initialSource?: string;
@@ -570,14 +576,41 @@ describe('MarkdownEditorModel', () => {
         external: repeated, typed: prefix + [composed, bravo, bravo].join(separator),
         edits: [[prefix.length, secondRow, ''], [repeated.length, repeated.length, separator + bravo]] },
       { label: 'reloads reordered text without ranges', target: 0, external: prefix + [alpha, bravo, bravo].join(separator) },
-    ])('$label', ({ target, survivor, external, typed, initialSource = original, edits }) => {
+      { label: 'keeps the next target when a deletion joins two entry boundaries', target: 0, targetText: 'Alpha', survivor: 0,
+        external: prefix + [alpha, bravo].join(separator), typed: prefix + [row('Alpha요'), bravo].join(separator),
+        edits: [[firstText, middleText, '']] },
+      { label: 'does not confuse the remaining marker with the replaced target', target: 1,
+        external: prefix + [bravo, alpha, row('Zulu')].join(separator), edits: [[lastText, lastText + 'Bravo'.length, 'Zulu']] },
+      { label: 'keeps an unchanged unique container through a reload without ranges', target: 0, survivor: 0,
+        initialSource: 'Before\n\n' + uniqueContainer, external: 'After\n\n' + uniqueContainer,
+        typed: 'After\n\n' + prefix + [alpha, composed].join(separator) },
+      ...(container === 'table' ? [] : [{
+        label: 'keeps the target text block during a partial edit in the same entry', target: 0, survivor: 0,
+        targetText: 'Alpha', survivingText: 'ALpha',
+        external: prefix + [bravo, row('ALpha'), bravo].join(separator),
+        typed: prefix + [bravo, row('ALpha요'), bravo].join(separator),
+        edits: [[middleText + 1, middleText + 2, 'L'] satisfies [number, number, string]],
+      }]),
+      ...(container === 'table' ? [{
+        label: 'keeps an intact cell containing only punctuation', target: 0, survivor: 0, targetText: '>',
+        initialSource: prefix + [bravo, row('>')].join(separator), external: prefix + row('>'), typed: prefix + row('>요'),
+        edits: [[prefix.length, secondRow, ''] satisfies [number, number, string]],
+      }] : []),
+      ...(container === 'list' ? [{
+        label: 'keeps the composition when only the task marker changes', target: 0, survivor: 0, targetText: 'Alpha',
+        initialSource: '- [ ] Alpha', external: '- [x] Alpha', typed: '- [x] Alpha요', edits: [[3, 4, 'x'] satisfies [number, number, string]],
+      }, {
+        label: 'keeps the composition when only the ordered marker changes', target: 0, survivor: 0, targetText: 'Alpha',
+        initialSource: '2. Alpha', external: '5. Alpha', typed: '5. Alpha요', edits: [[0, 1, '5'] satisfies [number, number, string]],
+      }] : []),
+    ])('$label', ({ target, survivor, targetText = 'Bravo', survivingText = targetText, external, typed, initialSource = original, edits }) => {
       const model = new TestTextModel(URI.parse('file:///draft.md'), initialSource);
       const listener = model.onDidChangeContent(event => {
         if (event.versionId === 2) sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
       });
       const sync = new MarkdownEditorModel(model, [], () => {});
       try {
-        const initial = textEnd(sync.state.doc, 'Bravo', target);
+        const initial = textEnd(sync.state.doc, targetText, target);
         sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
 
         if (edits) {
@@ -601,10 +634,10 @@ describe('MarkdownEditorModel', () => {
         };
         expectState(typed ?? external);
         if (typed) {
-          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, 'Bravo요'));
+          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, survivingText + '요'));
           expect(sync.undo()).toBe(true);
           expectState(external);
-          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, 'Bravo', survivor));
+          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, survivingText, survivor));
         }
         if (external !== initialSource) {
           expect(sync.undo()).toBe(true);
@@ -620,7 +653,7 @@ describe('MarkdownEditorModel', () => {
         if (typed) {
           expect(sync.redo()).toBe(true);
           expectState(typed);
-          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, 'Bravo요'));
+          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, survivingText + '요'));
         }
         expect(sync.canRedo).toBe(false);
       } finally {
@@ -629,6 +662,37 @@ describe('MarkdownEditorModel', () => {
         model.dispose();
       }
     });
+  });
+
+  it('moves the selected image with its surviving list item when the source stays identical', () => {
+    const item = '- ![map](map.png)';
+    const original = [item, item, item].join('\n');
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const listener = model.onDidChangeContent(event => {
+      if (event.versionId === 2) sync.dispatch(sync.state.tr.setMeta('test', true));
+    });
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      const images: number[] = [];
+      sync.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'image') images.push(pos);
+      });
+      sync.dispatch(sync.state.tr.setSelection(NodeSelection.create(sync.state.doc, images[1])));
+      const end = model.getPositionAt(original.length);
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 1 }, text: '' },
+        { range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column },
+          text: '\n' + item },
+      ]);
+      expect(sync.state.selection).toBeInstanceOf(NodeSelection);
+      expect(sync.state.selection.from).toBe(images[0]);
+      expect(model.getValue()).toBe(original);
+      expect(sync.canUndo).toBe(false);
+    } finally {
+      listener.dispose();
+      sync.dispose();
+      model.dispose();
+    }
   });
 
   it.each([

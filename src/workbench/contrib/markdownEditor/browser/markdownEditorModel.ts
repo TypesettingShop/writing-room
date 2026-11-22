@@ -1,7 +1,7 @@
 import { closeHistory, history, isHistoryTransaction, redo, redoDepth, undo, undoDepth } from 'prosemirror-history';
 import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
-import { EditorState, Selection, TextSelection } from 'prosemirror-state';
+import { EditorState, NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import type { Command, Plugin, Transaction } from 'prosemirror-state';
 import { Mapping, ReplaceStep, StepMap } from 'prosemirror-transform';
 import type { Step } from 'prosemirror-transform';
@@ -60,8 +60,8 @@ const caretEnterParagraphs = new WeakMap<Node['attrs'], -1 | 1>();
 // still parses as another block (`1. item`, `1) item`) fails the markup check in updatePlainParagraph.
 const plainParagraph = /^[\p{L}\p{N}](?:[\p{L}\p{M}\p{N} .,!?;:'"()%\/@=+-]|(?![\x00-\x7f])[\p{P}\p{S}])*$/u;
 
-function parseSource(text: string): SourceDocument {
-  const { doc, blocks } = parseMarkdownWithSource(text);
+function parseSource(text: string, includeChildRanges = false): SourceDocument {
+  const { doc, blocks } = parseMarkdownWithSource(text, includeChildRanges);
   const paragraphIndices = new Map<number, number>();
   const paragraph = doc.type.schema.nodes.paragraph;
   let blockIndex = 0;
@@ -296,6 +296,28 @@ function unchangedSourceSpans(
   return spans;
 }
 
+/** List, task, quote and table-row markers that open a line, repeated for nested containers. */
+const lineMarkers = /(?:[ \t>|]|[-*+](?=[ \t\r\n]|$)|\d{1,9}[.)](?=[ \t\r\n]|$)|\[[ xX]\](?=[ \t\r\n]|$))*/y;
+
+/** A marker alone cannot identify the item. Inspect the full prefix even if the surviving span starts inside it. */
+function survivingText(source: string, from: number, to: number): boolean {
+  let lineStart = Math.max(source.lastIndexOf('\n', from - 1), source.lastIndexOf('\r', from - 1)) + 1;
+  if (from === 0) lineStart = 0;
+  const lineEnd = /[\r\n]/g;
+  lineEnd.lastIndex = from;
+  while (from < to) {
+    const nextLine = lineEnd.exec(source);
+    const end = nextLine ? Math.min(to, nextLine.index) : to;
+    lineMarkers.lastIndex = lineStart;
+    lineMarkers.exec(source);
+    const start = Math.max(from, lineMarkers.lastIndex);
+    if (start < end && /\S/.test(source.slice(start, end))) return true;
+    if (end === to) return false;
+    lineStart = from = end + 1;
+  }
+  return false;
+}
+
 function sourceBlockMatches(
   before: readonly IMarkdownSourceBlock[], after: readonly IMarkdownSourceBlock[],
   previous: string, unchanged: readonly UnchangedSourceSpan[],
@@ -327,11 +349,11 @@ function sourceBlockMatches(
       const newEnd = newBlock.endOffset - shift;
       const from = Math.max(start, oldBlock.startOffset, newBlock.startOffset - shift);
       const to = Math.min(end, oldEnd, newEnd);
-      // Line endings or indentation alone cannot establish that a block survived.
-      if (from < to && /\S/.test(previous.slice(from, to))) {
+      const intact = from === oldBlock.startOffset && from === newBlock.startOffset - shift && to === oldEnd && to === newEnd;
+      // A partial overlap needs surviving body text. An intact range also identifies an empty item.
+      if (from < to && (intact || survivingText(previous, from, to))) {
         const existing = forward.get(oldBlock);
         if (existing === undefined) {
-          const intact = from === oldBlock.startOffset && from === newBlock.startOffset - shift && to === oldEnd && to === newEnd;
           forward.set(oldBlock, { block: newBlock, intact });
         } else if (existing && existing.block !== newBlock) {
           forward.set(oldBlock, null);
@@ -399,14 +421,15 @@ function sourceChangeMap(
     unmatched.push({ from: oldEnd, to: oldTo });
   };
 
-  const appendMatches = (blocks: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>, nested: boolean) => {
+  const appendMatches = (blocks: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>) => {
     for (const [source, match] of blocks) {
       if (!match) continue;
       const block = oldNodes.get(source.from)!;
       const updated = newNodes.get(match.block.from)!;
-      if (match.intact && block.eq(updated) || !nested && block.isTextblock && block.sameMarkup(updated)) {
+      const intact = match.intact && block.eq(updated);
+      if (intact || block.isTextblock && block.sameMarkup(updated)) {
         appendGap(source.from, match.block.from);
-        if (!block.eq(updated)) {
+        if (!intact) {
           const from = block.content.findDiffStart(updated.content, source.from + 1);
           const to = block.content.findDiffEnd(updated.content, source.to - 1, source.from + updated.nodeSize - 1);
           if (from !== null && to !== null) appendChangedRange(ranges, from, to);
@@ -417,24 +440,44 @@ function sourceChangeMap(
         // Use exact, untouched ranges for surviving children. Equal prefixes and suffixes
         // can represent different list items, quote blocks or table rows after an edit.
         const children = sourceBlockMatches(source.children, match.block.children, previous, unchanged);
-        if (children) appendMatches(children, true);
+        if (children) appendMatches(children);
       }
     }
   };
-  if (matches) appendMatches(matches, false);
+  if (matches) appendMatches(matches);
   appendGap(doc.content.size, after.doc.content.size);
   return unmatched.length ? new SourceChangeMap(ranges, unmatched) : new StepMap(ranges);
 }
 
-/** Without verified ranges, snapshots cannot identify repeated blocks or children of a container. */
+function hasRepeatedBlocks(node: Node): boolean {
+  const seen = new Set<string>();
+  let repeated = false;
+  node.descendants(child => {
+    if (repeated || !child.isBlock) return false;
+    const key = blockKey(child);
+    repeated = seen.has(key);
+    seen.add(key);
+    return !child.isTextblock;
+  });
+  return repeated;
+}
+
+/** Without verified ranges, snapshots cannot identify repeated blocks or children of a changed container. */
 function snapshotChangeMap(doc: Node, next: Node, ranges: number[]): StepMap | undefined {
   const before = uniqueBlockPositions(doc);
   const after = uniqueBlockPositions(next);
+  // `ranges` holds the single prefix/suffix change, if any.
+  const changedFrom = ranges.length ? ranges[0] : -1;
+  const changedTo = ranges.length ? ranges[0] + ranges[1] : -1;
   const ambiguous: { from: number; to: number }[] = [];
   doc.forEach((node, from) => {
     const key = blockKey(node);
-    if (!node.isLeaf && !node.isTextblock || before.get(key) === null || after.get(key) === null) {
-      ambiguous.push({ from, to: from + node.nodeSize });
+    const to = from + node.nodeSize;
+    // A container outside the change keeps its children in place unless they repeat.
+    const container = !node.isLeaf && !node.isTextblock
+      && (from < changedTo && changedFrom < to || hasRepeatedBlocks(node));
+    if (container || before.get(key) === null || after.get(key) === null) {
+      ambiguous.push({ from, to });
     }
   });
   if (ambiguous.length) return new SourceChangeMap(ranges, ambiguous);
@@ -1046,8 +1089,9 @@ export class MarkdownEditorModel extends Disposable {
     if (next === previous && !sameTextCanMoveBlocks) {
       return;
     }
+    const includeChildRanges = trackRanges && hasDeferredMapping;
     const updatedSource = next === previous ? this.sourceDoc
-      : (event && expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next);
+      : (event && expectedWrite === undefined ? this.updatePlainParagraph(event, next) : undefined) ?? parseSource(next, includeChildRanges);
     const mapping = new Mapping();
     const { selection, storedMarks } = this.state;
     // The source change's history snapshots contain only source blocks. If its anchor survives,
@@ -1064,9 +1108,12 @@ export class MarkdownEditorModel extends Disposable {
     if (trackRanges) {
       const original = getOriginalMarkdown(this.sourceDoc.doc);
       // A rich write or incremental paragraph edit may have left older parser ranges.
-      const parsed = original?.source === previous ? original.parsed : parseMarkdownWithSource(previous);
+      const parsed = original?.source === previous && (!includeChildRanges || original.parsed.includesChildRanges)
+        ? original.parsed : parseMarkdownWithSource(previous, includeChildRanges);
       const updated = getOriginalMarkdown(doc);
-      const after = next === previous ? parsed : updated?.source === next ? updated.parsed : parseMarkdownWithSource(next);
+      const after = next === previous ? parsed
+        : updated?.source === next && (!includeChildRanges || updated.parsed.includesChildRanges)
+          ? updated.parsed : parseMarkdownWithSource(next, includeChildRanges);
       const unchanged = unchangedSourceSpans(previous, next, changes);
       if (oldDoc.eq(parsed.doc)) {
         before = parsed;
@@ -1088,10 +1135,10 @@ export class MarkdownEditorModel extends Disposable {
     if (hasDeferredMapping && !externalMap) {
       externalMap = snapshotChangeMap(state.doc, doc, ranges);
     }
-    const mapContainerSelection = (pos: number): number | undefined => {
+    const mapContainerSelection = (pos: number, assoc = -1): number | undefined => {
       if (externalMap && state.doc.resolve(pos).depth > 1 &&
           (!(externalMap instanceof SourceChangeMap) || !externalMap.conflicts(pos, pos))) {
-        return externalMap.map(pos, -1);
+        return externalMap.map(pos, assoc);
       }
     };
     let afterSource = mapping.maps.length;
@@ -1146,6 +1193,11 @@ export class MarkdownEditorModel extends Disposable {
           const tr = state.tr.setSelection(TextSelection.create(doc, newAnchor, newHead));
           if (tr.selection.empty) tr.setStoredMarks(state.storedMarks);
           this.applyState(tr, mapping);
+        }
+      } else if (state.selection instanceof NodeSelection) {
+        const from = mapContainerSelection(state.selection.from, 1);
+        if (from !== undefined && from !== state.selection.from && doc.nodeAt(from)?.eq(state.selection.node)) {
+          this.applyState(state.tr.setSelection(NodeSelection.create(doc, from)), mapping);
         }
       }
     }

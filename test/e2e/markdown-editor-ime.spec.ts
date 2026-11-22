@@ -11,10 +11,12 @@ async function deleteSourceLinesOnComposition(editor: Locator, name: string, fro
     const { loadMonaco } = await import(modulePath) as typeof import('../../src/editor/browser/monaco.js');
     const monaco = await loadMonaco();
     const model = monaco.editor.getModels().find(candidate => candidate.uri.path.endsWith('/' + name))!;
-    element.addEventListener('input', event => {
+    const onInput = (event: Event) => {
       if (!event.isTrusted || (event as InputEvent).inputType !== 'insertCompositionText') return;
+      element.removeEventListener('input', onInput, true);
       model.applyEdits([{ range: new monaco.Range(fromLine, 1, toLine, 1), text: '' }]);
-    }, { capture: true, once: true });
+    };
+    element.addEventListener('input', onInput, true);
   }, { name, fromLine, toLine });
 }
 

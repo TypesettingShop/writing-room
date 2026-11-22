@@ -16,13 +16,14 @@ export interface IMarkdownSourceBlock {
   readonly endLine: number;
   readonly startOffset: number;
   readonly endOffset: number;
-  /** Nested block ranges omit trailing whitespace and may leave some children unmapped. */
+  /** Nested ranges exclude trailing whitespace and the optional opening pipe of a table row. */
   readonly children?: readonly IMarkdownSourceBlock[];
 }
 
 export interface IParsedMarkdown {
   readonly doc: Node;
   readonly blocks: readonly IMarkdownSourceBlock[];
+  readonly includesChildRanges: boolean;
 }
 
 type LineRange = [start: number, end: number];
@@ -36,6 +37,7 @@ interface SourceToken {
 interface IParseEnvironment {
   readonly source: string;
   readonly lines: number[];
+  readonly includeChildRanges: boolean;
   readonly blocks: { range: LineRange | null; children?: readonly SourceToken[] }[];
   footnotes?: { list?: { content?: string }[] };
 }
@@ -232,10 +234,18 @@ function sourceBlock(
   node: Node, from: number, [startLine, endLine]: LineRange, tokens: readonly SourceToken[] | undefined,
   source: string, lines: readonly number[], nested = false,
 ): IMarkdownSourceBlock {
-  const startOffset = lines[startLine] ?? source.length;
+  const lineStart = lines[startLine] ?? source.length;
   const lineEnd = lines[endLine] ?? source.length;
-  // An untouched final child can gain or lose its line ending when a neighbor is added or removed.
-  const endOffset = nested ? startOffset + source.slice(startOffset, lineEnd).trimEnd().length : lineEnd;
+  let startOffset = lineStart;
+  let endOffset = lineEnd;
+  if (nested) {
+    const text = source.slice(lineStart, lineEnd).trimEnd();
+    endOffset = lineStart + text.length;
+    if (node.type.spec.tableRole === 'row') {
+      // Surviving cells may follow the preceding row's opening pipe after a line-spanning deletion.
+      startOffset += (/^[ \t>]*\|[ \t]*/.exec(text)?.[0].length ?? 0);
+    }
+  }
   const children: IMarkdownSourceBlock[] = [];
   if (tokens?.length === node.childCount) {
     node.forEach((child, offset, index) => {
@@ -264,7 +274,7 @@ export function getOriginalMarkdown(doc: Node): IOriginalMarkdown | undefined {
   return originalMarkdown.get(doc.attrs);
 }
 
-export function createMarkdownParser(options?: IMarkdownItOptions): (source: string) => IParsedMarkdown {
+export function createMarkdownParser(options?: IMarkdownItOptions): (source: string, includeChildRanges?: boolean) => IParsedMarkdown {
   const markdownIt = createMarkdownIt(options);
   adaptBlockRules(markdownIt);
   keepUnresolvedFootnotes(markdownIt);
@@ -277,7 +287,7 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
       const first = group[0];
       const range = first.map;
       if (group.every(token => isSupported(token, supported))) {
-        env.blocks.push({ range, children: sourceTokenChildren(group) });
+        env.blocks.push({ range, children: env.includeChildRanges ? sourceTokenChildren(group) : undefined });
         return group;
       }
       env.blocks.push({ range });
@@ -294,9 +304,9 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
   });
   const parser = new MarkdownParser(markdownSchema, markdownIt, tokenSpecs);
 
-  return source => {
+  return (source, includeChildRanges = false) => {
     const lines = sourceLineStarts(source);
-    const env: IParseEnvironment = { source, lines, blocks: [] };
+    const env: IParseEnvironment = { source, lines, includeChildRanges, blocks: [] };
     const parsed = parser.parse(source, env);
     // ProseMirror transactions copy the document with these same attrs. Keep source
     // provenance off the public schema and out of ProseMirror JSON.
@@ -311,7 +321,7 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
         blocks.push(sourceBlock(node, offset, block.range, block.children, source, lines));
       }
     });
-    const result = { doc, blocks };
+    const result = { doc, blocks, includesChildRanges: includeChildRanges };
     originalMarkdown.set(doc.attrs, { source, parsed: result });
     return result;
   };
