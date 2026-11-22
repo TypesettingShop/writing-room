@@ -22,6 +22,8 @@ interface Composition {
   deletion?: CompositionDeletion;
 }
 
+export type IMarkdownCompositionInput = Readonly<Pick<Composition, 'text' | 'lastInputWasEmpty'>>;
+
 export function flushMarkdownComposition(view: EditorView): void {
   const { domObserver } = view as EditorView & { domObserver: { forceFlush(always: boolean): void } };
   domObserver.forceFlush(true);
@@ -30,9 +32,16 @@ export function flushMarkdownComposition(view: EditorView): void {
 /** Some IMEs clear their preedit immediately before delivering a click or focus change. */
 export class MarkdownCompositionRecovery {
   private composition: Composition | undefined;
+  private committed: Composition | undefined;
+
+  /** Deferred edits keep this reference so a later native update can clear their preedit. */
+  get deferredInput(): IMarkdownCompositionInput | undefined {
+    return this.composition ?? this.committed;
+  }
 
   readonly handleDOMEvents = {
     compositionstart: view => {
+      this.committed = undefined;
       this.composition = view.editable ? { text: '', lastInputWasEmpty: false } : undefined;
     },
     compositionupdate: (_view, event) => {
@@ -40,6 +49,7 @@ export class MarkdownCompositionRecovery {
       if (composition && composition.endedAt === undefined && event.data) this.rememberText(composition, event.data);
     },
     beforeinput: (view, event) => {
+      this.committed = undefined;
       const composition = this.composition;
       if (!composition) return;
       if (composition.endedAt !== undefined) {
@@ -64,6 +74,10 @@ export class MarkdownCompositionRecovery {
         // Compare event times: rendering or other tasks between the two dispatches must not use up the window.
         composition.endedAt = event.timeStamp;
       } else {
+        if (composition && event.data) {
+          this.rememberText(composition, event.data);
+          this.committed = composition;
+        }
         this.composition = undefined;
       }
     },
