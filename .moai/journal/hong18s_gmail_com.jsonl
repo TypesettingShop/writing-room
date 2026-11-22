@@ -113,3 +113,15 @@
 {"ts":"2026-11-22T06:37:08Z","id":"wr-pq4t","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-i343 — 리치 모드 원문 대응: 소스 편집 뒤 간격과 커서 문단 Enter"}
 {"ts":"2026-11-22T06:37:08Z","id":"wr-i343","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-pq4t, 0 issues"}
 {"ts":"2026-11-22T06:37:09Z","id":"wr-pq4t","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Sent: codex %3 (writing-room wr:0)"}
+{"ts":"2026-11-22T06:38:33Z","id":"wr-5yt4","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"in_progress"}
+{"ts":"2026-11-22T06:38:36Z","id":"wr-558t","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"in_progress"}
+{"ts":"2026-11-22T06:39:03Z","id":"wr-mr6a","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"main PR 출발 브랜치 검사 워크플로와 브랜치 규칙 문서"}
+{"ts":"2026-11-22T06:39:04Z","id":"wr-zqjd","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"main PR 출발 브랜치 검사 워크플로"}
+{"ts":"2026-11-22T06:39:04Z","id":"wr-zqjd.265","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"main은 develop·hotfix/* PR만 받는 GitHub Action 검사와 브랜치 규칙 문서"}
+{"ts":"2026-11-22T06:39:04Z","id":"wr-zqjd","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-mr6a — main PR 출발 브랜치 검사 워크플로와 브랜치 규칙 문서"}
+{"ts":"2026-11-22T06:39:04Z","id":"wr-mr6a","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-zqjd, 1 issue"}
+{"ts":"2026-11-22T06:39:47Z","id":"wr-42mu","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"v0.3.0 문서 윤문 6차"}
+{"ts":"2026-11-22T06:39:47Z","id":"wr-5ezn","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"v0.3.0 문서 윤문 6차"}
+{"ts":"2026-11-22T06:39:47Z","id":"wr-5ezn.k5j","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"붙여넣기·선택·복사 수정 뒤 바뀐 문서 3개의 한국어 윤문과 대조"}
+{"ts":"2026-11-22T06:39:47Z","id":"wr-5ezn","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Unfolded from wr-42mu — v0.3.0 문서 윤문 6차"}
+{"ts":"2026-11-22T06:39:47Z","id":"wr-42mu","kind":"status","by":"RavenKyu","by_email":"hong18s@gmail.com","from":"todo","to":"done","note":"Unfolded into wr-5ezn, 1 issue"}
