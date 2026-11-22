@@ -1,6 +1,7 @@
 import { baseKeymap, splitBlock, toggleMark } from 'prosemirror-commands';
 import { undo } from 'prosemirror-history';
 import { InputRule, inputRules, undoInputRule } from 'prosemirror-inputrules';
+import type { Node } from 'prosemirror-model';
 import type { EditorState } from 'prosemirror-state';
 import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
@@ -517,6 +518,117 @@ describe('MarkdownEditorModel', () => {
       sync.dispose();
       model.dispose();
     }
+  });
+
+  describe.each([
+    { container: 'list', prefix: '', row: (text: string) => '- ' + text, separator: '\n' },
+    { container: 'nested list', prefix: '- Parent\n', row: (text: string) => '    - ' + text, separator: '\n' },
+    { container: 'quote', prefix: '', row: (text: string) => '> ' + text, separator: '\n>\n' },
+    { container: 'table', prefix: '| Title |\n| --- |\n', row: (text: string) => '| ' + text + ' |', separator: '\n' },
+  ])('pending composition inside a $container', ({ prefix, row, separator }) => {
+    const bravo = row('Bravo');
+    const alpha = row('Alpha');
+    const composed = row('Bravo요');
+    const original = prefix + [bravo, alpha, bravo].join(separator);
+    const secondRow = prefix.length + bravo.length + separator.length;
+    const lastRow = secondRow + alpha.length + separator.length;
+    const repeated = prefix + [bravo, bravo, bravo].join(separator);
+
+    function textEnd(doc: Node, text: string, occurrence = 0): number {
+      const positions: number[] = [];
+      doc.descendants((node, pos) => {
+        if (node.isText && node.text === text) positions.push(pos + node.nodeSize);
+      });
+      return positions[occurrence];
+    }
+
+    it.each<{
+      label: string;
+      target: number;
+      survivor?: number;
+      external: string;
+      typed?: string;
+      initialSource?: string;
+      edits?: [from: number, to: number, text: string][];
+    }>([
+      { label: 'deletes the target at the start', target: 0, external: prefix + bravo,
+        edits: [[prefix.length, lastRow, '']] },
+      { label: 'deletes the prefix before the target', target: 1, survivor: 0, external: prefix + bravo, typed: prefix + composed,
+        edits: [[prefix.length, lastRow, '']] },
+      { label: 'deletes the suffix after the target', target: 0, survivor: 0, external: prefix + bravo, typed: prefix + composed,
+        edits: [[secondRow - separator.length, original.length, '']] },
+      { label: 'moves the target in a batch', target: 0, external: prefix + [alpha, bravo, bravo].join(separator),
+        edits: [[prefix.length, secondRow, ''], [original.length, original.length, separator + bravo]] },
+      { label: 'moves another row in a batch', target: 1, survivor: 0, external: prefix + [alpha, bravo, bravo].join(separator),
+        typed: prefix + [alpha, composed, bravo].join(separator),
+        edits: [[prefix.length, secondRow, ''], [original.length, original.length, separator + bravo]] },
+      { label: 'rewrites the target with the same source', target: 0, external: original,
+        edits: [[prefix.length, prefix.length + bravo.length, bravo]] },
+      { label: 'rewrites another row with the same source', target: 1, survivor: 1, external: original,
+        typed: prefix + [bravo, alpha, composed].join(separator), edits: [[prefix.length, prefix.length + bravo.length, bravo]] },
+      { label: 'moves a surviving copy while the source stays identical', target: 1, survivor: 0, initialSource: repeated,
+        external: repeated, typed: prefix + [composed, bravo, bravo].join(separator),
+        edits: [[prefix.length, secondRow, ''], [repeated.length, repeated.length, separator + bravo]] },
+      { label: 'reloads reordered text without ranges', target: 0, external: prefix + [alpha, bravo, bravo].join(separator) },
+    ])('$label', ({ target, survivor, external, typed, initialSource = original, edits }) => {
+      const model = new TestTextModel(URI.parse('file:///draft.md'), initialSource);
+      const listener = model.onDidChangeContent(event => {
+        if (event.versionId === 2) sync.dispatch(sync.state.tr.insertText('요').setMeta('composition', 1));
+      });
+      const sync = new MarkdownEditorModel(model, [], () => {});
+      try {
+        const initial = textEnd(sync.state.doc, 'Bravo', target);
+        sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, initial)));
+
+        if (edits) {
+          model.applyEdits(edits.map(([from, to, text]) => {
+            const start = model.getPositionAt(from);
+            const end = model.getPositionAt(to);
+            return {
+              range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column },
+              text,
+            };
+          }));
+        } else {
+          model.setValue(external);
+        }
+
+        const expectState = (source: string) => {
+          expect(model.getValue()).toBe(source);
+          expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+          expect(sync.state.selection.empty).toBe(true);
+          expect(sync.state.selection.$head.parent.inlineContent).toBe(true);
+        };
+        expectState(typed ?? external);
+        if (typed) {
+          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, 'Bravo요'));
+          expect(sync.undo()).toBe(true);
+          expectState(external);
+          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, 'Bravo', survivor));
+        }
+        if (external !== initialSource) {
+          expect(sync.undo()).toBe(true);
+          expectState(initialSource);
+          expect(sync.state.selection.head).toBe(initial);
+        }
+        expect(sync.canUndo).toBe(false);
+        if (external !== initialSource) {
+          expect(sync.redo()).toBe(true);
+          expectState(external);
+          expect(sync.state.selection.head).toBe(Selection.atEnd(sync.state.doc).head);
+        }
+        if (typed) {
+          expect(sync.redo()).toBe(true);
+          expectState(typed);
+          expect(sync.state.selection.head).toBe(textEnd(sync.state.doc, 'Bravo요'));
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        listener.dispose();
+        sync.dispose();
+        model.dispose();
+      }
+    });
   });
 
   it.each([
