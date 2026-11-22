@@ -113,9 +113,14 @@ export function navigatorLines({ folderId, expanded, hiddenKinds }: NavigatorLoc
   function walk(parentId: ParentId, twig: readonly boolean[]): void {
     const siblings = index.children.get(parentId) ?? [];
     const visible = hiddenKinds.size ? siblings.filter(node => !hiddenKinds.has(node.kind)) : siblings;
+    if (!visible.length) {
+      return;
+    }
+    const continuing = [...twig, true];
+    const last = [...twig, false];
     for (let position = 0; position < visible.length; position++) {
       const node = visible[position];
-      const branch = [...twig, position < visible.length - 1];
+      const branch = position < visible.length - 1 ? continuing : last;
       const dir = manuscriptNodeTypes[node.kind].container;
       const open = dir && expanded.has(node.id);
       lines.push({ kind: 'node', key: node.id, node, depth: branch.length, twig: branch, dir, open, label: labelOf(node, index) });
