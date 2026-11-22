@@ -20,6 +20,16 @@ it('keeps a temporary gutter paragraph from taking the section number', () => {
   expect(starts).toEqual([{ from: temporary.nodeSize, to: changed.content.size, section: 1 }]);
 });
 
+it('skips an unsaved empty line but keeps a styled empty paragraph as a section start', () => {
+  const doc = parseMarkdown('First paragraph\n\n---\n\n[]{.center}\n\nSecond paragraph');
+  const state = EditorState.create({ doc });
+  const empty = doc.type.schema.nodes.paragraph.create();
+  const changed = state.apply(state.tr.insert(0, empty)).doc;
+  const starts = markdownSectionStarts(changed);
+  expect(starts.map(({ from, section }) => [changed.nodeAt(from)?.textContent, changed.nodeAt(from)?.attrs.classes, section]))
+    .toEqual([['First paragraph', [], 1], ['', ['center'], 2]]);
+});
+
 it('reuses decorations for selection changes and leaves them empty when disabled', () => {
   let enabled = false;
   const doc = parseMarkdown('a\n\n---\n\nb');

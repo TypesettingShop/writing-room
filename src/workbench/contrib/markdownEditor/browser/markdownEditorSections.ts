@@ -1,9 +1,14 @@
 import type { Node } from 'prosemirror-model';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
-import { isEmptyMarkdownCaretParagraph } from './markdownEditorSelection.js';
+import { isMarkdownClass } from '../../../../editor/common/markdown/plugins/attrs.js';
 
 export const markdownSectionsKey = new PluginKey<DecorationSet | null>('markdownSections');
+
+function canStartSection(node: Node): boolean {
+  return node.type.name === 'heading' || (node.type.name === 'paragraph'
+    && (node.childCount > 0 || node.attrs.classes.some(isMarkdownClass)));
+}
 
 export function markdownSectionStarts(doc: Node): readonly { from: number; to: number; section: number }[] {
   let section = 1;
@@ -13,7 +18,7 @@ export function markdownSectionStarts(doc: Node): readonly { from: number; to: n
     if (node.type.name === 'horizontal_rule') {
       section++;
       needsNumber = true;
-    } else if (needsNumber && (node.type.name === 'paragraph' || node.type.name === 'heading') && !isEmptyMarkdownCaretParagraph(node)) {
+    } else if (needsNumber && canStartSection(node)) {
       starts.push({ from: offset, to: offset + node.nodeSize, section });
       needsNumber = false;
     }

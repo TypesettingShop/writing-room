@@ -6,7 +6,7 @@ export interface MarkdownCounts {
   readonly words: number;
 }
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+let graphemeSegmenter: Intl.Segmenter | undefined;
 const simpleGraphemes = /^[\u0000-\u007f\uac00-\ud7a3]*$/u;
 const whitespace = /^\s+$/u;
 
@@ -17,6 +17,13 @@ interface BlockCounts extends MarkdownCounts {
 const fullBlockCounts = new WeakMap<Node, BlockCounts>();
 const sourceCacheEntries = 2048;
 const sourceCacheTextLength = 512;
+
+function getGraphemeSegmenter(): Intl.Segmenter | undefined {
+  if (typeof Intl.Segmenter === 'function') {
+    return graphemeSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  }
+  return undefined;
+}
 
 function visibleBreak(node: Node): string {
   return node.type.name === 'hard_break' || node.type.name === 'soft_break' ? '\n' : '';
@@ -42,7 +49,9 @@ function countBlock(node: Node, from: number, to: number, sourceCache?: Map<stri
     characters = text.length;
     nonWhitespace = text.replace(/\s/g, '').length;
   } else {
-    for (const { segment } of graphemeSegmenter.segment(text)) {
+    const segments = getGraphemeSegmenter()?.segment(text) ?? text;
+    for (const part of segments) {
+      const segment = typeof part === 'string' ? part : part.segment;
       characters++;
       if (!whitespace.test(segment)) nonWhitespace++;
     }
@@ -78,8 +87,9 @@ function countDocument(doc: Node, from: number, to: number, sourceCache?: Map<st
     const counts = countBlock(
       node, Math.max(0, from - start), Math.max(0, Math.min(to - start, node.content.size)), sourceCache,
     );
-    // Match textBetween's block separator, including a CRLF split across a block boundary.
-    characters += counts.characters + (first || endsWithCR ? 0 : 1);
+    // Match textBetween's block separator, joining CRLF only when counting graphemes.
+    if (!first && !(endsWithCR && getGraphemeSegmenter())) characters++;
+    characters += counts.characters;
     nonWhitespace += counts.nonWhitespace;
     words += counts.words;
     first = false;

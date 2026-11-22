@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
 import { createSourceMarkdownCounter, currentMarkdownHeading, markdownCounts, markdownHeadings } from '../../common/markdownWriting.js';
 
@@ -34,6 +34,26 @@ describe('Markdown writing information', () => {
     expect(count(reformatted)).toEqual(count(original));
     expect(count(edited)).toEqual({ characters: 5, nonWhitespace: 3, words: 3 });
     expect(count(edited, 1, edited.firstChild!.nodeSize - 1)).toEqual({ characters: 1, nonWhitespace: 1, words: 1 });
+  });
+
+  it('loads and counts code points when Intl.Segmenter is unavailable', async () => {
+    vi.stubGlobal('Intl', Object.create(Intl, { Segmenter: { value: undefined } }));
+    vi.resetModules();
+    try {
+      const { markdownCounts, createSourceMarkdownCounter } = await import('../../common/markdownWriting.js');
+      const doc = parseMarkdown('é 😀\n\n한');
+      const expected = { words: 3, characters: 8, nonWhitespace: 6 };
+      expect(markdownCounts(doc)).toEqual(expected);
+      expect(createSourceMarkdownCounter()(doc)).toEqual(expected);
+      const adjacent = doc.type.create(null, [
+        doc.firstChild!.type.create(null, doc.type.schema.text('A\r')),
+        doc.lastChild!.type.create(null, doc.type.schema.text('B')),
+      ]);
+      expect(markdownCounts(adjacent)).toEqual({ words: 2, characters: 4, nonWhitespace: 2 });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
   });
 
   it('finds headings at their text positions, including nested headings and skipped levels', () => {
