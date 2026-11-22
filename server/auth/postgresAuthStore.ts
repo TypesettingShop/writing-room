@@ -1,12 +1,17 @@
 import type { Pool, PoolClient } from 'pg';
 import { inTransaction } from '../store/transaction.js';
-import type { ActiveSession, AuthStore, AuthUser, PasswordUser, SessionRecord } from './authStore.js';
+import type { ActiveSession, AuthStore, AuthUser, GoogleIdentity, PasswordUser, SessionRecord } from './authStore.js';
 
 async function insertSession(client: PoolClient, userId: string, session: SessionRecord): Promise<void> {
   await client.query(`
     INSERT INTO sessions (user_id, token_hash, created_at, expires_at, last_seen_at)
     VALUES ($1, $2, $3, $4, $3)
   `, [userId, session.tokenHash, session.createdAt, session.expiresAt]);
+}
+
+async function replaceExpiredSessions(client: PoolClient, userId: string, session: SessionRecord): Promise<void> {
+  await client.query('DELETE FROM sessions WHERE user_id = $1 AND expires_at <= $2', [userId, session.createdAt]);
+  await insertSession(client, userId, session);
 }
 
 export class PostgresAuthStore implements AuthStore {
@@ -36,9 +41,33 @@ export class PostgresAuthStore implements AuthStore {
   }
 
   async createSession(userId: string, session: SessionRecord): Promise<void> {
-    await inTransaction(this.pool, async client => {
-      await client.query('DELETE FROM sessions WHERE user_id = $1 AND expires_at <= $2', [userId, session.createdAt]);
-      await insertSession(client, userId, session);
+    await inTransaction(this.pool, client => replaceExpiredSessions(client, userId, session));
+  }
+
+  async signInWithGoogle(identity: GoogleIdentity, session: SessionRecord): Promise<AuthUser> {
+    return inTransaction(this.pool, async client => {
+      // Serialize first sign-ins for this identity so concurrent requests cannot create orphan users.
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['oauth:google:' + identity.subject]);
+      const { rows: [existing] } = await client.query<AuthUser>(`
+        SELECT users.id, users.email FROM oauth_identities
+        JOIN users ON users.id = oauth_identities.user_id
+        WHERE provider = 'google' AND subject = $1
+      `, [identity.subject]);
+      if (existing) {
+        await replaceExpiredSessions(client, existing.id, session);
+        return existing;
+      }
+      // Only password registrations claim email_normalized. Google accounts are keyed by subject.
+      const { rows: [user] } = await client.query<AuthUser>(
+        'INSERT INTO users (email) VALUES ($1) RETURNING id, email',
+        [identity.email],
+      );
+      await client.query(`
+        INSERT INTO oauth_identities (provider, subject, user_id, email)
+        VALUES ('google', $1, $2, $3)
+      `, [identity.subject, user.id, identity.email]);
+      await insertSession(client, user.id, session);
+      return user;
     });
   }
 

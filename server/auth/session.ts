@@ -14,6 +14,10 @@ export function isSecret(value: string | undefined | null): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
 
+export function matchesSecret(actual: string | null | undefined, expected: string): boolean {
+  return isSecret(actual) && timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+}
+
 function hashToken(token: string): Buffer {
   return createHash('sha256').update(token).digest();
 }

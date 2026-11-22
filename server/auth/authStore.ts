@@ -9,6 +9,11 @@ export interface PasswordUser extends AuthUser {
   passwordHash: string;
 }
 
+export interface GoogleIdentity {
+  subject: string;
+  email: string | null;
+}
+
 export interface SessionRecord {
   tokenHash: Buffer;
   createdAt: Date;
@@ -24,6 +29,7 @@ export interface AuthStore {
   register(email: string, passwordHash: string, session: SessionRecord): Promise<AuthUser | undefined>;
   findPasswordUser(email: string): Promise<PasswordUser | undefined>;
   createSession(userId: string, session: SessionRecord): Promise<void>;
+  signInWithGoogle(identity: GoogleIdentity, session: SessionRecord): Promise<AuthUser>;
   findSession(tokenHash: Buffer, now: Date): Promise<ActiveSession | undefined>;
   deleteSession(tokenHash: Buffer): Promise<void>;
   deleteExpiredSessions(now: Date): Promise<void>;
@@ -31,6 +37,7 @@ export interface AuthStore {
 
 export class MemoryAuthStore implements AuthStore {
   private readonly users = new Map<string, AuthUser>();
+  private readonly googleUsers = new Map<string, AuthUser>();
   private readonly usersByEmail = new Map<string, PasswordUser>();
   private readonly sessions = new Map<string, SessionRecord & { userId: string; lastSeenAt: Date }>();
 
@@ -54,6 +61,14 @@ export class MemoryAuthStore implements AuthStore {
       throw new Error('Unknown user.');
     }
     this.insertSession(userId, session);
+  }
+
+  async signInWithGoogle(identity: GoogleIdentity, session: SessionRecord): Promise<AuthUser> {
+    const user = this.googleUsers.get(identity.subject) ?? { id: randomUUID(), email: identity.email };
+    this.insertSession(user.id, session);
+    this.users.set(user.id, user);
+    this.googleUsers.set(identity.subject, user);
+    return user;
   }
 
   private insertSession(userId: string, session: SessionRecord): void {

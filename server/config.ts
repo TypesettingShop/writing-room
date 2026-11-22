@@ -1,3 +1,5 @@
+import { readGoogleConfig, type GoogleConfig } from './auth/googleConfig.js';
+
 export const defaultApiPort = 8787;
 
 export interface ApiConfig {
@@ -10,6 +12,7 @@ export interface ApiConfig {
   allowedOrigins: readonly string[];
   trustProxy: boolean;
   allowLoopbackHttpCookies: boolean;
+  google?: GoogleConfig;
 }
 
 export function readApiPort(env: NodeJS.ProcessEnv): number {
@@ -71,6 +74,6 @@ export function readApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   }
   return {
     host, port, store, auth, databaseUrl, databasePoolSize, allowedOrigins,
-    trustProxy: trustProxy === 'true', allowLoopbackHttpCookies,
+    trustProxy: trustProxy === 'true', allowLoopbackHttpCookies, google: readGoogleConfig(env, allowLoopbackHttpCookies),
   };
 }

@@ -5,6 +5,8 @@ import { ApiError, sendJson } from '../http/errors.js';
 import type { Route } from '../http/router.js';
 import { AttemptLimit } from './attemptLimit.js';
 import type { AuthStore } from './authStore.js';
+import type { GoogleConfig } from './googleConfig.js';
+import { createGoogleRoutes } from './googleRoutes.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { endSession, newSession, secureCookie, sessionUser, writeSessionCookie } from './session.js';
 
@@ -19,6 +21,7 @@ export interface AuthOptions {
   trustProxy: boolean;
   allowLoopbackHttpCookies: boolean;
   now?: () => number;
+  google?: GoogleConfig;
 }
 
 function clientIp(request: IncomingMessage, trustProxy: boolean): string {
@@ -110,5 +113,6 @@ export function createAuthRoutes(options: AuthOptions): readonly Route<AuthRoute
     { path: '/api/auth/login', handlers: { POST: login } },
     { path: '/api/auth/logout', handlers: { POST: logout } },
     { path: '/api/auth/me', handlers: { GET: me } },
+    ...createGoogleRoutes(options),
   ];
 }
