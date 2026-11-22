@@ -7,6 +7,7 @@ import type {
   ExtHostDiagnosticsShape, MainThreadDiagnosticsShape, MarkerChangeDto, MarkerDataDto,
 } from './extHost.protocol.diagnostics.js';
 import { extHostApiRegistry } from './extHostApiRegistry.js';
+import type { ExtHostDocuments } from './extHostDocuments.js';
 import {
   Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DiagnosticTag, fromMarkerData, toMarkerData,
 } from './extHostDiagnosticTypes.js';
@@ -33,7 +34,7 @@ function present(diagnostics: readonly (vscode.Diagnostic | undefined | null)[])
 /**
  * One extension's collection. It keeps the diagnostics as the extension gave them; the workbench gets
  * at most `MAX_MARKERS_PER_RESOURCE` markers for a resource, the most severe, and a note on the rest.
- * Resources are keys by `toString()`, so two spellings of one URI are one entry.
+ * Canonical resource keys use `toString()`, so two spellings of one URI are one entry.
  */
 export class DiagnosticCollection implements vscode.DiagnosticCollection {
   readonly #data = new Map<string, Entry>();
@@ -47,7 +48,12 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
       changed(uris: readonly vscode.Uri[]): void;
       disposed(): void;
     },
+    private readonly canonicalResource: (uri: vscode.Uri) => vscode.Uri,
   ) {}
+
+  private resource(value: unknown): vscode.Uri {
+    return this.canonicalResource(checkUri(value));
+  }
 
   get name(): string {
     this.checkDisposed();
@@ -69,7 +75,7 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
     const next = new Map<string, Entry>();
     let keepEmpty = false;
     if (!Array.isArray(first)) {
-      const uri = checkUri(first);
+      const uri = this.resource(first);
       if (!diagnostics) {
         this.delete(uri);
         return;
@@ -85,7 +91,7 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
         if (!Array.isArray(entry)) {
           throw new Error('Illegal argument: entries');
         }
-        const uri = checkUri(entry[0]);
+        const uri = this.resource(entry[0]);
         const key = uri.toString();
         let value = next.get(key);
         if (!value) {
@@ -120,7 +126,7 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
 
   delete(uri: vscode.Uri): void {
     this.checkDisposed();
-    const key = checkUri(uri).toString();
+    const key = this.resource(uri).toString();
     const entry = this.#data.get(key);
     if (entry) {
       this.#data.delete(key);
@@ -154,13 +160,13 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
   /** A frozen copy; an empty list for a resource the collection does not have, as in VS Code. */
   get(uri: vscode.Uri): readonly vscode.Diagnostic[] {
     this.checkDisposed();
-    const entry = this.#data.get(checkUri(uri).toString());
+    const entry = this.#data.get(this.resource(uri).toString());
     return Object.freeze(entry ? entry[1].slice() : []);
   }
 
   has(uri: vscode.Uri): boolean {
     this.checkDisposed();
-    return this.#data.has(checkUri(uri).toString());
+    return this.#data.has(this.resource(uri).toString());
   }
 
   dispose(): void {
@@ -211,7 +217,10 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
 
   constructor(private readonly proxy: MainThreadDiagnosticsShape) {}
 
-  createDiagnosticCollection(key: string, name?: string, id = 'unknown extension'): vscode.DiagnosticCollection {
+  createDiagnosticCollection(
+    key: string, name?: string, id = 'unknown extension',
+    canonicalResource: (uri: vscode.Uri) => vscode.Uri = uri => uri,
+  ): vscode.DiagnosticCollection {
     const owned = this.collections.get(key) ?? new Map<string, DiagnosticCollection>();
     this.collections.set(key, owned);
     let owner: string;
@@ -238,7 +247,7 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
           owned.delete(owner);
         }
       },
-    });
+    }, canonicalResource);
     owned.set(owner, collection);
     return collection;
   }
@@ -341,7 +350,8 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
   }
 }
 
-extHostApiRegistry.register('diagnostics', ({ rpc }) => {
+extHostApiRegistry.register('diagnostics', ({ rpc, getService }) => {
+  const documents = getService<ExtHostDocuments>('documents');
   const proxy = rpc.getProxy(MainThreadDiagnosticsProxy);
   const diagnostics = new ExtHostDiagnostics(proxy);
   rpc.set(ExtHostDiagnosticsProxy, diagnostics);
@@ -354,8 +364,10 @@ extHostApiRegistry.register('diagnostics', ({ rpc }) => {
       types: { Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DiagnosticTag },
       namespaces: {
         languages: {
-          createDiagnosticCollection: (name?: string) => diagnostics.createDiagnosticCollection(key, name, id),
-          getDiagnostics: ((resource?: vscode.Uri) => diagnostics.getDiagnostics(resource)) as typeof vscode.languages.getDiagnostics,
+          createDiagnosticCollection: (name?: string) =>
+            diagnostics.createDiagnosticCollection(key, name, id, uri => documents.documentResource(key, uri)),
+          getDiagnostics: ((resource?: vscode.Uri) => diagnostics.getDiagnostics(resource === undefined
+            ? undefined : documents.documentResource(key, resource))) as typeof vscode.languages.getDiagnostics,
           // Looked up on each call: a released extension that is activated again gets events again.
           onDidChangeDiagnostics: (listener, thisArgs?, disposables?) =>
             diagnostics.onDidChangeDiagnostics(key)(listener, thisArgs, disposables),

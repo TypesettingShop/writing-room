@@ -170,7 +170,8 @@ export class ExtHostLanguageFeatures implements ExtHostLanguageFeaturesSeamShape
   /** The host's copy of a document, if it has one and the extension may read it. */
   document(extension: HostExtensionDescription, uri: URI): vscode.TextDocument | undefined {
     const document = URI.isUri(uri) ? this.documents.getByUri(uri as unknown as vscode.Uri) : undefined;
-    return document && !document.isClosed && this.documents.canRead(extension.key, document) ? document : undefined;
+    return document && !document.isClosed && this.documents.canRead(extension.key, document)
+      ? this.documents.documentFor(extension.key, document) : undefined;
   }
 
   /** Whether the extension of `key` may read the host's open copy of a document (the `vscode.execute*` commands). */

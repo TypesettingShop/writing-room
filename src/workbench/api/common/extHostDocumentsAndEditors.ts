@@ -22,8 +22,9 @@ extHostApiRegistry.register('documents', ({ rpc, isLive }) => {
   void documents.proxy.$startDocumentSync().catch(() => {});
   return {
     service: documents,
-    create: ({ key, id }) => {
-      documents.associateExtension(key, id);
+    create: extension => {
+      const { key, id } = extension;
+      documents.associateExtension(extension);
       return {
         types: { ...tabInputTypes, TextDocumentChangeReason, TextDocumentSaveReason, TextEditorCursorStyle, TextEditorLineNumbersStyle,
           TextEditorRevealType, TextEditorSelectionChangeKind, OverviewRulerLane, DecorationRangeBehavior },
