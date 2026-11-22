@@ -333,11 +333,54 @@ describe('Markdown save normalization', () => {
     }
   });
 
-  it('keeps escaped bracket text in a quote and leaves the top-level spelling literal', () => {
-    const doc = parseMarkdown('[]{.top}\n\n> \\[\\]\\{.quote}');
-    expect(doc.firstChild?.textContent).toBe('[]{.top}');
-    expect(doc.lastChild?.firstChild?.textContent).toBe('[]{.quote}');
+  it('keeps escaped marker text and the ownership of class-only lines', () => {
+    const doc = parseMarkdown(
+      'lead\n\n{.previous}\n\n[]{.top}\n\n\\[\\]\\{.literal}\n\n> \\[\\]\\{.quote}\n\n' +
+      '[^n]: \\[\\]\\{.footnote}\n\n    []{.note}\n\n{.definition}',
+    );
+    expect(doc.child(0).attrs.classes).toEqual(['previous']);
+    expect(doc.child(1).attrs.classes).toEqual(['top']);
+    expect(doc.child(1).textContent).toBe('');
+    expect(doc.child(2).textContent).toBe('[]{.literal}');
+    expect(doc.child(3).firstChild?.textContent).toBe('[]{.quote}');
+    expect(doc.child(4).attrs.classes).toEqual(['definition']);
+    expect(doc.child(4).firstChild?.textContent).toBe('[]{.footnote}');
+    expect(doc.child(4).lastChild?.attrs.classes).toEqual(['note']);
+    expect(doc.child(4).lastChild?.textContent).toBe('');
     expect(parseMarkdown(canonical(doc)).toJSON()).toEqual(doc.toJSON());
+  });
+
+  it('saves an inserted top-level empty paragraph with its class', () => {
+    const doc = parseMarkdown('lead {.before}\n\nnext');
+    const state = EditorState.create({ doc });
+    const paragraph = doc.type.schema.nodes.paragraph.create({ classes: ['empty'] });
+    const edited = state.apply(state.tr.insert(doc.firstChild!.nodeSize, paragraph)).doc;
+    const expected = 'lead {.before}\n\n[]{.empty}\n\nnext';
+    for (const written of [serializeMarkdown(edited), canonical(edited)]) {
+      expect(written).toBe(expected);
+      const reopened = parseMarkdown(written);
+      expect(reopened.toJSON()).toEqual(edited.toJSON());
+      expect(serializeMarkdown(reopened)).toBe(expected);
+      expect(canonical(reopened)).toBe(expected);
+    }
+  });
+
+  it.each([false, true])('saves a styled empty paragraph in a footnote (first: %s)', first => {
+    const doc = parseMarkdown('ref[^1]\n\n[^1]: keep');
+    const state = EditorState.create({ doc });
+    const definitionPos = doc.firstChild!.nodeSize;
+    const definition = doc.lastChild!;
+    const paragraph = doc.type.schema.nodes.paragraph.create({ classes: ['note'] });
+    const pos = first ? definitionPos + 1 : definitionPos + definition.nodeSize - 1;
+    const edited = state.apply(state.tr.insert(pos, paragraph)).doc;
+    const expected = first ? 'ref[^1]\n\n[^1]: []{.note}\n\n    keep' : 'ref[^1]\n\n[^1]: keep\n\n    []{.note}';
+    for (const written of [serializeMarkdown(edited), canonical(edited)]) {
+      expect(written).toBe(expected);
+      const reopened = parseMarkdown(written);
+      expect(reopened.toJSON()).toEqual(edited.toJSON());
+      expect(serializeMarkdown(reopened)).toBe(expected);
+      expect(canonical(reopened)).toBe(expected);
+    }
   });
 
   it.each([
