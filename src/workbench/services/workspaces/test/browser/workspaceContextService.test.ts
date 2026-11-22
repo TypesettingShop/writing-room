@@ -41,11 +41,12 @@ test('fixes the Work ID and workspace context at startup while sharing the pract
   const id = '12345678-abcd-4000-8000-123456789abc';
   const context = new ContextKeyService();
   const url = window.location.href;
+  const { state } = window.history;
   try {
-    window.history.replaceState(null, '', `?work=${id}`);
+    window.history.replaceState(state, '', `?work=${id}`);
     const work = new WorkService();
     const service = new WorkspaceContextService(context, work);
-    window.history.replaceState(null, '', '/');
+    window.history.replaceState(state, '', '/');
 
     expect(work.current).toEqual({ id });
     expect(service.getWorkspace().id).toBe(`work-${id}`);
@@ -54,7 +55,7 @@ test('fixes the Work ID and workspace context at startup while sharing the pract
     expect(context.getContextKeyValue('workbenchState')).toBe('folder');
     expect(context.getContextKeyValue('workOpen')).toBe(true);
   } finally {
-    window.history.replaceState(null, '', url);
+    window.history.replaceState(state, '', url);
     context.dispose();
   }
 });

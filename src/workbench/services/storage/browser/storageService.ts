@@ -18,6 +18,7 @@ const WORKSPACE_KEY_PREFIX = storageKey(StorageScope.WORKSPACE, '');
 type StorageMigration = (draft: Map<string, string>) => undefined;
 const migrations = new Map<number, StorageMigration>();
 
+/** Migrations receive legacy keys. A future version that changes WORKSPACE state must also migrate every Work namespace. */
 export function registerStorageMigration(fromVersion: number, migrate: StorageMigration): IDisposable {
   if (!Number.isSafeInteger(fromVersion) || fromVersion < 0 || migrations.has(fromVersion)) {
     throw new Error(`Invalid or duplicate storage migration from version ${fromVersion}.`);
@@ -55,7 +56,7 @@ class LocalStorageDatabase implements IStorageDatabase {
 
     const keys = this.prefixedKeys(area);
     if (version < this.schemaVersion && (marker !== null || keys.length !== 0)) {
-      // Older schemas only had legacy keys. Migrate the origin's legacy data even when a Work opens first.
+      // The migrations through version 2 predate Work keys. Migrate the legacy data even when a Work opens first.
       const legacyItems = this.readItems(area, keys, key => key.slice(STORAGE_PREFIX.length));
       this.migrate(area, marker, version, legacyItems);
       return this.readItems(area, this.prefixedKeys(area));

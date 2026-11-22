@@ -12,7 +12,9 @@ export class WorkLinkContribution {
     const url = new URL(window.location.href);
     if (!work.current && url.searchParams.has('work')) {
       notifications.warn('The Work link is not valid.');
-      url.searchParams.delete('work');
+      // Drop only the `work` pairs. Re-serializing searchParams would re-encode every other pair.
+      const pairs = url.search.slice(1).split('&').filter(pair => !new URLSearchParams('?' + pair).has('work'));
+      url.search = pairs.length ? '?' + pairs.join('&') : '';
       window.history.replaceState(window.history.state, '', url);
     }
   }

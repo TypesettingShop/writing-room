@@ -46,9 +46,10 @@ test('isolates the layout, open file and dirty draft by Work while sharing the p
 test('invalid Work links warn, keep the rest of the URL and use the legacy workspace', async ({ page }) => {
   const invalid = [workA.toUpperCase(), workA.slice(1), '../', '%2F', `${workA}%0A`, '', `${workA}&work=${workB}`];
   for (const value of invalid) {
-    await page.goto(`/?work=${value}&keep=1#section`);
+    await page.goto(`/?%77ork=${value}&?work=literal&keep=a%20b&flag&path=/x#section`);
     await expect(page.getByText('The Work link is not valid.', { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(/\/\?keep=1#section$/);
+    // The other pairs keep their original spelling.
+    await expect(page).toHaveURL(/\/\?\?work=literal&keep=a%20b&flag&path=\/x#section$/);
     await expect(groups(page).first().getByRole('tab')).toHaveText(['Welcome']);
   }
   await page.reload();
