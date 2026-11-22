@@ -8,18 +8,25 @@ import type { ITextEditorSelection } from '../../../../platform/editor/common/ed
 
 export const markdownCaretParagraphKey = new PluginKey('markdownCaretParagraph');
 
-// A paragraph keeps its attrs through edits and undo. Give each caret paragraph its own attrs
-// so an empty caret can be skipped without skipping authored paragraphs.
-const caretParagraphs = new WeakSet<Node['attrs']>();
+// A private attrs object identifies each temporary paragraph and the side of its gutter target.
+const caretParagraphs = new WeakMap<Node['attrs'], -1 | 1>();
 
-export function createMarkdownCaretParagraph(type: NodeType): Node {
+export function createMarkdownCaretParagraph(type: NodeType, side: -1 | 1): Node {
   const paragraph = type.create({});
-  caretParagraphs.add(paragraph.attrs);
+  caretParagraphs.set(paragraph.attrs, side);
   return paragraph;
 }
 
 export function isEmptyMarkdownCaretParagraph(node: Node): boolean {
-  return node.childCount === 0 && caretParagraphs.has(node.attrs);
+  return markdownCaretParagraphSide(node) !== undefined;
+}
+
+export function markdownCaretParagraphSide(node: Node): -1 | 1 | undefined {
+  return node.childCount === 0 ? caretParagraphs.get(node.attrs) : undefined;
+}
+
+export function authorMarkdownCaretParagraph(node: Node): void {
+  caretParagraphs.delete(node.attrs);
 }
 
 interface Range {

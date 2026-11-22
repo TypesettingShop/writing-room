@@ -1,9 +1,11 @@
+import type { Node, ResolvedPos } from 'prosemirror-model';
+import type { Mappable } from 'prosemirror-transform';
 import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
-import { createMarkdownCaretParagraph, markdownCaretParagraphKey } from './markdownEditorSelection.js';
+import { createMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide } from './markdownEditorSelection.js';
 
 export function onMarkdownScrollbar(surface: HTMLElement, event: MouseEvent): boolean {
   const bounds = surface.getBoundingClientRect();
@@ -36,6 +38,32 @@ export class MarkdownEditorView extends EditorView {
     const edge = super.posAtCoords({ left: coords.left < left ? left + 1 : right - 1, top: coords.top });
     return edge && this.state.doc.resolve(edge.pos).parent.inlineContent ? edge : hit;
   }
+}
+
+// An atom-only read-only document can hold a native collapsed caret at a block boundary.
+class MarkdownReadOnlyGapSelection extends Selection {
+  override map(doc: Node, mapping: Mappable): Selection {
+    return readOnlyCaret(doc.resolve(mapping.map(this.head)), 1);
+  }
+
+  override eq(other: Selection): boolean {
+    return other instanceof MarkdownReadOnlyGapSelection && other.head === this.head;
+  }
+
+  override toJSON(): { type: string; pos: number } {
+    return { type: 'markdownReadOnlyGap', pos: this.head };
+  }
+
+  static override fromJSON(doc: Node, json: { pos: number }): Selection {
+    return readOnlyCaret(doc.resolve(json.pos), 1);
+  }
+}
+
+Selection.jsonID('markdownReadOnlyGap', MarkdownReadOnlyGapSelection);
+
+function readOnlyCaret(gap: ResolvedPos, side: number): Selection {
+  return Selection.findFrom(gap, side, true) ?? Selection.findFrom(gap, -side, true)
+    ?? new MarkdownReadOnlyGapSelection(gap, gap);
 }
 
 export function markdownGutterCaretTransaction(
@@ -95,21 +123,41 @@ export function markdownGutterCaretTransaction(
     }
     if (selection instanceof NodeSelection) {
       const neighbor = direction < 0 ? $gap.nodeBefore : $gap.nodeAfter;
-      if (neighbor?.type === schema.nodes.paragraph && neighbor.childCount === 0) {
+      const neighborSide = neighbor && markdownCaretParagraphSide(neighbor);
+      if (!view.editable) {
+        selection = readOnlyCaret($gap, direction);
+      } else if (neighbor?.type === schema.nodes.paragraph && neighbor.childCount === 0
+          && (neighborSide === undefined || neighborSide === direction)) {
         selection = TextSelection.create(doc, $gap.pos + direction);
       } else {
-        tr.insert($gap.pos, createMarkdownCaretParagraph(schema.nodes.paragraph));
+        tr.insert($gap.pos, createMarkdownCaretParagraph(schema.nodes.paragraph, direction));
         selection = TextSelection.create(tr.doc, $gap.pos + 1);
         tr.setMeta(markdownCaretParagraphKey, true).setMeta('addToHistory', false);
       }
     }
   }
 
-  if (extend) {
+  if (extend && !(selection instanceof MarkdownReadOnlyGapSelection)) {
     // Shift extends the current selection to the clicked edge, as a click inside the text does.
     selection = TextSelection.between(tr.doc.resolve(tr.mapping.map(current.anchor)), selection.$head);
   }
   return tr.setSelection(selection).setMeta('pointer', true);
+}
+
+/** Chromium can keep a vertical arrow inside the temporary paragraph's empty line. */
+export function moveFromMarkdownCaretParagraph(view: EditorView, event: KeyboardEvent): boolean {
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+  const direction = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+  const { doc, selection, tr } = view.state;
+  const { $head } = selection;
+  if (!direction || !selection.empty || $head.depth !== 1 || markdownCaretParagraphSide($head.parent) === undefined) {
+    return false;
+  }
+  const edge = doc.resolve(direction < 0 ? $head.before() : $head.after());
+  const next = Selection.findFrom(edge, direction);
+  if (!next) return false;
+  view.dispatch(tr.setSelection(next).scrollIntoView());
+  return true;
 }
 
 export function syncReadOnlyMarkdownSelection(view: EditorView): void {

@@ -11,7 +11,9 @@ import type { IMarkdownSourceBlock, IParsedMarkdown } from '../../../../editor/c
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
 import { getTextModelEdit } from '../../../../editor/common/model.js';
 import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
-import { isEmptyMarkdownCaretParagraph } from './markdownEditorSelection.js';
+import {
+  authorMarkdownCaretParagraph, isEmptyMarkdownCaretParagraph, markdownCaretParagraphKey, markdownCaretParagraphSide,
+} from './markdownEditorSelection.js';
 
 interface SourceDocument {
   readonly doc: Node;
@@ -86,6 +88,20 @@ function withoutUnwrittenParagraphs(doc: Node, source: Node): Node {
     content = content.cut(0, content.size - last.nodeSize);
   }
   return content === doc.content ? doc : doc.copy(content);
+}
+
+interface CaretParagraph {
+  readonly pos: number;
+  readonly node: Node;
+  readonly side: -1 | 1;
+}
+
+function selectedCaretParagraph(state: EditorState): CaretParagraph | undefined {
+  const { $head } = state.selection;
+  const side = markdownCaretParagraphSide($head.parent);
+  if ($head.depth === 1 && side !== undefined) {
+    return { pos: $head.before(), node: $head.parent, side };
+  }
 }
 
 function appendChangedRange(ranges: number[], start: number, end: { a: number; b: number }): void {
@@ -398,14 +414,13 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   dispatch(transaction: Transaction, isolate = false): void {
-    if (!this.shouldDeferEdit()) {
-      this.applyDispatch(transaction, isolate);
+    if (isHistoryTransaction(transaction)) {
+      // Recompute native beforeinput history against the current source and without a temporary caret.
+      this.runCommand(transaction.getMeta(markdownHistory).redo ? redo : undo);
       return;
     }
-    if (isHistoryTransaction(transaction)) {
-      // ProseMirror's native beforeinput history handler dispatches a history transaction as well.
-      // Its history state was computed before the pending change, so rerun the command.
-      this.runCommand(transaction.getMeta(markdownHistory).redo ? redo : undo);
+    if (!this.shouldDeferEdit()) {
+      this.applyDispatch(transaction, isolate);
       return;
     }
     const before = this.state;
@@ -425,7 +440,15 @@ export class MarkdownEditorModel extends Disposable {
   }
 
   private runCommand(command: Command, isolate = false): boolean {
-    const run = () => command(this.state, transaction => this.applyDispatch(transaction, isolate));
+    const run = () => {
+      const caret = command === undo || command === redo ? selectedCaretParagraph(this.state) : undefined;
+      if (caret && command(this.state)) {
+        const mapping = new Mapping();
+        this.removeCaretParagraph(caret, mapping);
+        this.mapDeferredEdits(mapping);
+      }
+      return command(this.state, transaction => this.applyDispatch(transaction, isolate));
+    };
     if (!this.shouldDeferEdit()) {
       return run();
     }
@@ -468,19 +491,28 @@ export class MarkdownEditorModel extends Disposable {
       }
       remap.appendMap(step.getMap(), transaction.steps.length - 1 - index);
     }
+    this.copyTransactionState(transaction, rebased, remap.slice(), over);
+    return rebased;
+  }
+
+  private copyTransactionState(
+    transaction: Transaction, copy: Transaction, selection: Mapping, over: Mapping, inputRulesTransform = copy,
+  ): void {
     if (transaction.selectionSet) {
-      rebased.setSelection(transaction.selection.map(rebased.doc, remap.slice()));
+      copy.setSelection(transaction.selection.map(copy.doc, selection));
     }
     if (transaction.storedMarksSet) {
-      rebased.setStoredMarks(transaction.storedMarks);
+      copy.setStoredMarks(transaction.storedMarks);
     }
     if (transaction.scrolledIntoView) {
-      rebased.scrollIntoView();
+      copy.scrollIntoView();
     }
+    const caret = transaction.getMeta(markdownCaretParagraphKey);
+    if (caret) copy.setMeta(markdownCaretParagraphKey, true);
     for (const key of ['addToHistory', 'uiEvent', 'paste', 'pointer', 'composition']) {
       const value = transaction.getMeta(key);
       if (value !== undefined) {
-        rebased.setMeta(key, value);
+        copy.setMeta(key, value);
       }
     }
     for (const plugin of this.plugins) {
@@ -491,19 +523,75 @@ export class MarkdownEditorModel extends Disposable {
       if (plugin.spec.isInputRules) {
         const from = over.map(value.from, 1);
         const to = Math.max(from, over.map(value.to, -1));
-        rebased.setMeta(plugin, { ...value, transform: rebased, from, to });
+        copy.setMeta(plugin, { ...value, transform: inputRulesTransform, from, to });
       } else {
-        rebased.setMeta(plugin, value);
+        copy.setMeta(plugin, value);
       }
     }
-    return rebased;
+  }
+
+  private removeCaretParagraph(caret: CaretParagraph, mapping: Mapping): void {
+    const tr = this.state.tr.delete(caret.pos, caret.pos + caret.node.nodeSize);
+    const gap = tr.doc.resolve(caret.pos);
+    const { selection, storedMarks } = this.state;
+    if (selection.empty) {
+      tr.setSelection(TextSelection.between(gap, gap, caret.side));
+      if (storedMarks && tr.selection.$head.parent.inlineContent) tr.setStoredMarks(storedMarks);
+    }
+    this.applyState(tr.setMeta('addToHistory', false), mapping);
+  }
+
+  private removeUnusedCaretParagraphs(mapping: Mapping): void {
+    const { state } = this;
+    const active = selectedCaretParagraph(state);
+    const tr = state.tr;
+    state.doc.forEach((node, pos) => {
+      if (pos !== active?.pos && isEmptyMarkdownCaretParagraph(node)) {
+        const from = tr.mapping.map(pos);
+        tr.delete(from, from + node.nodeSize);
+      }
+    });
+    if (tr.docChanged) this.applyState(tr.setMeta('addToHistory', false), mapping);
+  }
+
+  private editsCaretParagraph(transaction: Transaction, caret: CaretParagraph): boolean {
+    const { doc, mapping } = transaction;
+    const inside = caret.pos + 1;
+    return doc.nodeAt(mapping.map(caret.pos, 1)) !== caret.node
+      || mapping.map(inside, -1) !== mapping.map(inside, 1);
   }
 
   private applyDispatch(transaction: Transaction, isolate: boolean): void {
     isolate ||= transaction.getMeta('uiEvent') === 'paste' || transaction.getMeta('uiEvent') === 'drop';
     const previousDoc = this.state.doc;
-    this.applyTransaction(transaction, isolate);
-    if (previousDoc !== this.state.doc) {
+    const caret = selectedCaretParagraph(this.state);
+    const mapping = new Mapping();
+    let displayOnly = transaction.getMeta(markdownCaretParagraphKey) === true;
+    let historyPrefix: StepMap | undefined;
+    if (caret && transaction.docChanged && !displayOnly && this.editsCaretParagraph(transaction, caret)) {
+      displayOnly = withoutUnwrittenParagraphs(previousDoc, this.sourceDoc.doc)
+        .eq(withoutUnwrittenParagraphs(transaction.doc, this.sourceDoc.doc));
+      if (displayOnly) {
+        transaction.setMeta('addToHistory', false);
+      } else {
+        // History starts with the authored insertion. Undo can remove the whole paragraph,
+        // and Redo has an insertion to replay even after the cursor has moved.
+        this.removeCaretParagraph(caret, mapping);
+        authorMarkdownCaretParagraph(caret.node);
+        const authored = this.state.tr.insert(caret.pos, caret.node).setTime(transaction.time);
+        for (const step of transaction.steps) authored.step(step);
+        const identity = new Mapping();
+        this.copyTransactionState(transaction, authored, identity, identity, transaction);
+        if (!transaction.selectionSet) authored.setSelection(transaction.selection.map(authored.doc, identity));
+        transaction = closeHistory(authored);
+        historyPrefix = authored.mapping.maps[0];
+      }
+    }
+    this.applyTransaction(transaction, isolate && !displayOnly, mapping, undefined, historyPrefix);
+    const changedDocument = this.state.doc !== previousDoc;
+    if (caret || displayOnly) this.removeUnusedCaretParagraphs(mapping);
+    this.mapDeferredEdits(mapping);
+    if (changedDocument && !displayOnly) {
       const fromHistory = isHistoryTransaction(transaction);
       const snapshot = fromHistory ? this.snapshots.get(this.state.doc.content) : undefined;
       if (snapshot) {
@@ -576,29 +664,35 @@ export class MarkdownEditorModel extends Disposable {
       && range.endLineNumber === edit.range.endLineNumber && range.endColumn === edit.range.endColumn;
   }
 
-  private applyTransaction(transaction: Transaction, isolate: boolean, externalMap?: StepMap): void {
+  private applyTransaction(
+    transaction: Transaction, isolate: boolean, mapping: Mapping, externalMap?: StepMap, historyPrefix?: StepMap,
+  ): void {
     isolate &&= transaction.docChanged;
-    this.applyState(isolate ? closeHistory(transaction) : transaction, externalMap);
+    this.applyState(isolate ? closeHistory(transaction) : transaction, mapping, externalMap, historyPrefix);
     if (isolate) {
-      this.applyState(closeHistory(this.state.tr));
+      this.applyState(closeHistory(this.state.tr), mapping);
     }
   }
 
-  private applyState(transaction: Transaction, externalMap?: StepMap): void {
+  private applyState(transaction: Transaction, mapping: Mapping, externalMap?: StepMap, historyPrefix?: StepMap): void {
     const { state, transactions } = this.state.applyTransaction(transaction);
     this.state = state;
-    this.mapDeferredEdits(transactions, transactions.length ? externalMap : undefined);
+    for (const applied of transactions) {
+      if (applied === transaction && externalMap) {
+        mapping.appendMap(externalMap);
+      } else if (applied === transaction && historyPrefix) {
+        mapping.appendMap(historyPrefix, 0);
+        mapping.appendMapping(applied.mapping.slice(1));
+      } else {
+        mapping.appendMapping(applied.mapping);
+      }
+    }
   }
 
-  private mapDeferredEdits(transactions: readonly Transaction[], externalMap?: StepMap): void {
+  private mapDeferredEdits(change: Mapping): void {
     for (const { owner, mapping } of this.deferred.pending) {
       if (owner === this && mapping) {
-        if (externalMap) {
-          mapping.appendMap(externalMap);
-        }
-        for (let index = externalMap ? 1 : 0; index < transactions.length; index++) {
-          mapping.appendMapping(transactions[index].mapping);
-        }
+        mapping.appendMapping(change);
       }
     }
   }
@@ -628,7 +722,7 @@ export class MarkdownEditorModel extends Disposable {
     if (next === previous) {
       // A batch can replace a paragraph with identical text while a different copy survives.
       // Rebase over the move without adding a no-op source change to history.
-      this.mapDeferredEdits([], externalMap);
+      if (externalMap) this.mapDeferredEdits(new Mapping([externalMap]));
       return;
     }
     const doc = source.doc;
@@ -660,7 +754,9 @@ export class MarkdownEditorModel extends Disposable {
       }
       externalMap = new StepMap(ranges);
     }
-    this.applyTransaction(transaction, true, externalMap);
+    const mapping = new Mapping();
+    this.applyTransaction(transaction, true, mapping, externalMap);
+    this.mapDeferredEdits(mapping);
     this.onStateChange(this.state);
   }
 
