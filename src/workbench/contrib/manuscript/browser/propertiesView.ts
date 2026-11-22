@@ -132,7 +132,8 @@ export class PropertiesView extends Disposable {
     this.created.value.textContent = new Date(node.createdAt).toLocaleString();
     this.updated.value.textContent = new Date(node.updatedAt).toLocaleString();
     this.contents.row.hidden = !manuscriptNodeTypes[node.kind].container;
-    this.contents.value.textContent = `${index.children.get(node.id)?.length ?? 0} items`;
+    const items = index.children.get(node.id)?.length ?? 0;
+    this.contents.value.textContent = `${items} ${items === 1 ? 'item' : 'items'}`;
   }
 
   private discard(): void {

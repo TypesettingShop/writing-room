@@ -39,15 +39,22 @@ export class NavigatorDrag extends Disposable {
     this._register(addDisposableListener(tree, 'dragstart', event => {
       const row = (event.target as HTMLElement).closest<HTMLElement>('.manuscript-row[draggable="true"]');
       const id = row?.dataset.key;
-      if (!row || !id || !state.workId || state.editing) {
+      if (!row || !id) {
+        return;
+      }
+      if (!state.workId || state.editing) {
+        // A row drag without a manuscript session would carry nothing any target can take.
+        event.preventDefault();
         return;
       }
       const nodeIds = state.selected.has(id) ? [...state.selected] : [id];
       observer.startDrag(event, row, { workId: state.workId, nodeIds });
     }));
     this._register(addDisposableListener(tree, 'dragend', event => this.reportRejectedRelease(event), true));
+    // The browser can release before the next dragover, so entering each row is answered too,
+    // not only entering the tree: the pointer may have moved from a refused row to an allowed one.
+    this._register(addDisposableListener(tree, 'dragenter', event => this.hover(event)));
     const target = this._register(new DragAndDropObserver(tree, {
-      onDragEnter: event => this.hover(event),
       onDragOver: event => this.hover(event),
       onDragLeave: () => this.clear(),
       onDrop: event => this.drop(event),

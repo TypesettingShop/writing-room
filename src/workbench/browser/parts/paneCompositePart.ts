@@ -166,9 +166,12 @@ export abstract class PaneCompositePart extends Part {
     if (incoming && !reset) {
       this.state[this.activeKey] = incoming.viewContainer.id;
     } else if (outgoing) {
-      const remaining = this.viewDescriptors.getViewContainersByLocation(this.location)
-        .filter(container => this.contextKeyService.contextMatchesRules(container.when));
-      this.state[this.activeKey] = (remaining[outgoing.fromIndex] ?? remaining.at(-1))?.id;
+      // `fromIndex` counts every container of the location, hidden ones too: take the first shown one
+      // that moved up into its place, or else the last shown one before it.
+      const remaining = this.viewDescriptors.getViewContainersByLocation(this.location);
+      const shown = (container: ViewContainer) => this.contextKeyService.contextMatchesRules(container.when);
+      const next = remaining.slice(outgoing.fromIndex).find(shown) ?? remaining.slice(0, outgoing.fromIndex).reverse().find(shown);
+      this.state[this.activeKey] = next?.id;
     }
     this.transferring = false;
     this.refresh();

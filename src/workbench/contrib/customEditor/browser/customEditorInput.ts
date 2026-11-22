@@ -20,6 +20,7 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../../common/editor/editorInput.js';
 import { IFileDialogService } from '../../../services/dialogs/common/dialogs.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { onDidChangeResourceLabels, resourceLabelProvider } from '../../../services/label/common/resourceLabels.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IUntitledTextEditorService } from '../../../services/untitled/common/untitledTextEditorService.js';
 import { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
@@ -116,6 +117,7 @@ export class CustomEditorInput extends EditorInput {
       this._register(Event.filter(textFiles.onDidChangeDirty, changed => isEqual(changed, resource))(() => this._onDidChangeDirty.fire()));
       this._register(Event.filter(textFiles.files.onDidChangeReadonly, model => isEqual(model.resource, resource))(() => this._onDidChangeLabel.fire()));
     }
+    this._register(Event.filter(onDidChangeResourceLabels, scheme => scheme === resource.scheme)(() => this._onDidChangeLabel.fire()));
     this._register(webview.onDidShow(() => instantiation.invokeFunction(accessor => accessor.get(ICustomEditorService)).resolve(this)));
   }
 
@@ -124,10 +126,15 @@ export class CustomEditorInput extends EditorInput {
   }
 
   override getName(): string {
-    return basename(this.resource) || this.resource.toString();
+    return resourceLabelProvider(this.resource.scheme)?.getName(this.resource) ?? (basename(this.resource) || this.resource.toString());
   }
 
   override getTitle(): string {
+    const provider = resourceLabelProvider(this.resource.scheme);
+    const name = provider?.getName(this.resource);
+    if (name) {
+      return [provider?.getDescription(this.resource), name].filter(Boolean).join(' / ');
+    }
     const folder = this.workspace.getWorkspaceFolder(this.resource);
     const relative = folder && relativePath(folder.uri, this.resource);
     return folder && relative ? `${folder.name}/${relative}` : this.resource.toString(true);

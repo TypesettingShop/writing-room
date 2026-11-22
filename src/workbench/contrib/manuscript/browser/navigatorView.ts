@@ -103,7 +103,10 @@ export class NavigatorView extends Disposable {
       }
       this.tree.focus({ preventScroll: true });
       if (line.kind === 'up') {
-        this.state.up();
+        // The second click of a double click lands on the next `..` and would go up one more level.
+        if (event.detail <= 1) {
+          this.state.up();
+        }
       } else if ((event.target as HTMLElement).closest('button')) {
         if (event.detail <= 1) {
           this.state.toggle(line.key);
@@ -120,8 +123,11 @@ export class NavigatorView extends Disposable {
     }));
     this._register(addDisposableListener(this.rows, 'contextmenu', event => {
       const line = this.lineAt(event.target);
-      if (line?.kind === 'node') {
+      if (line) {
+        // The parent row has no menu of its own, and the browser's menu does not belong here either.
         event.preventDefault();
+      }
+      if (line?.kind === 'node') {
         if (!this.state.selected.has(line.key)) {
           this.state.select(line.key);
         }
@@ -296,6 +302,10 @@ export class NavigatorView extends Disposable {
     const node = edit && this.state.index?.nodes.get(edit.id);
     const at = edit && this.positions.get(edit.id);
     if (!edit || !node || at === undefined) {
+      // The edited row is out of the list (its folder was collapsed): do not leave the field over another row.
+      if (this.editor) {
+        this.editor.element.hidden = true;
+      }
       return;
     }
     if (!this.editor) {
@@ -333,6 +343,7 @@ export class NavigatorView extends Disposable {
       input.focus({ preventScroll: true });
       input.select();
     }
+    this.editor.element.hidden = false;
     this.editor.element.style.top = `${at * ROW_HEIGHT}px`;
     this.editor.input.readOnly = this.state.busy;
   }

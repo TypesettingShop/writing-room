@@ -67,8 +67,11 @@ function readDrag(event: DragEvent, element: HTMLElement, getManuscriptOpener: G
   return EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, element);
 }
 
-function isBodyDropOffered(groupsView: IEditorGroupsView, group: IEditorGroupView, item: EditorAreaDrag): boolean {
-  return 'workId' in item || isDropIntoGroupOffered(groupsView, group, item);
+/** Whether `item` may be dropped onto the body of `group`; a manuscript drag only when it would open a document. */
+function isBodyDropOffered(
+  groupsView: IEditorGroupsView, group: IEditorGroupView, item: EditorAreaDrag, getManuscriptOpener: GetManuscriptOpener,
+): boolean {
+  return 'workId' in item ? getManuscriptOpener().hasDocuments(item.nodeIds) : isDropIntoGroupOffered(groupsView, group, item);
 }
 
 const positions: Record<GroupDirection | 'center', { readonly name: string; readonly top: string; readonly left: string; readonly width: string; readonly height: string }> = {
@@ -115,7 +118,7 @@ export class DropOverlay extends Disposable {
 
   private onDragOver(event: DragEvent): void {
     const item = readDrag(event, this.element, this.getManuscriptOpener);
-    if (item && isBodyDropOffered(this.groupsView, this.groupView, item)) {
+    if (item && isBodyDropOffered(this.groupsView, this.groupView, item, this.getManuscriptOpener)) {
       this.update(event, item);
     } else {
       this.onDidLeave();
@@ -125,7 +128,7 @@ export class DropOverlay extends Disposable {
   /** Ends the drag and carries out the drop of `event` on this group's body, where it is offered. */
   drop(event: DragEvent): void {
     const item = readDrag(event, this.element, this.getManuscriptOpener);
-    const offered = !!item && isBodyDropOffered(this.groupsView, this.groupView, item);
+    const offered = !!item && isBodyDropOffered(this.groupsView, this.groupView, item, this.getManuscriptOpener);
     if (offered) {
       this.update(event, item);
     }
@@ -142,11 +145,9 @@ export class DropOverlay extends Disposable {
       return;
     }
     if ('workId' in item) {
-      const opener = this.getManuscriptOpener();
-      if (opener.hasDocuments(item.nodeIds)) {
-        const group = splitDirection === undefined ? this.groupView : this.groupsView.addGroup(this.groupView, splitDirection);
-        void opener.openDocuments(item.nodeIds, { group });
-      }
+      // Offered only with a document to open, so a split never leaves an empty group behind.
+      const group = splitDirection === undefined ? this.groupView : this.groupsView.addGroup(this.groupView, splitDirection);
+      void this.getManuscriptOpener().openDocuments(item.nodeIds, { group });
     } else {
       handleDrop(this.groupsView, this.groupView, item, splitDirection);
     }
@@ -266,7 +267,7 @@ export class EditorDropTarget extends Disposable {
       }
       return;
     }
-    if (item && isBodyDropOffered(this.groupsView, group, item)) {
+    if (item && isBodyDropOffered(this.groupsView, group, item, this.getManuscriptOpener)) {
       // The first event over the body puts the overlay in place; the ones after reach the overlay,
       // but a drop can still come here if the browser has not moved its target onto the overlay yet.
       if (this.overlay?.groupView !== group) {
