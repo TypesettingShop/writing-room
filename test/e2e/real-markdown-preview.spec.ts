@@ -452,7 +452,7 @@ test('나: Reopen With switches the tab to the Markdown Preview custom editor an
     await expect(editor.getByRole('heading', { name: 'Notes title' })).toBeVisible();
     await expect(editor.getByRole('img', { name: 'logo' })).toBeVisible();
     await command(page, 'View: Reopen Editor With...');
-    await expect(page.getByRole('option', { name: /^Markdown Editor/ })).toContainText('Active');
+    await expect(page.getByRole('option', { name: /^Manuscript Editor/ })).toContainText('Active');
     await chooseOption(page, 'Markdown Preview');
     await expectPreviewWorks(page);
     expect(await tabNames(group)).toEqual(before);
