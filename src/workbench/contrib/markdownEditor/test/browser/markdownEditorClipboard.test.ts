@@ -96,6 +96,20 @@ describe('Markdown clipboard', () => {
     expect(lines(cleared.markdownClipboard.clipboardTextParser!(markdown, context, true, view))[0]).toContain('{.underline}');
   });
 
+  it('keeps the last copy only in memory when its serialized bytes exceed the session storage limit', () => {
+    const key = 'writing-room:markdownEditor:lastCopy';
+    const small = parseMarkdown('**small**');
+    markdownClipboard.clipboardTextSerializer!(small.slice(0, small.content.size), view);
+    expect(sessionStorage.getItem(key)).not.toBeNull();
+
+    const visible = '글'.repeat(180_000);
+    const large = parseMarkdown(`**${visible}**`);
+    const markdown = markdownClipboard.clipboardTextSerializer!(large.slice(0, large.content.size), view);
+    expect(sessionStorage.getItem(key) === null).toBe(true);
+    const plain = markdownClipboard.clipboardTextParser!(markdown, parseMarkdown('x').resolve(1), true, view);
+    expect(plain.content.firstChild!.textContent === visible).toBe(true);
+  });
+
   it('keeps emphasis declarations and the editor slice context but no other attributes', () => {
     const html = markdownClipboard.transformPastedHTML!([
       '<b style="font-weight:normal;color:red" id="x"><span style="font-weight:700">Bold</span> ',
@@ -177,6 +191,18 @@ describe('Markdown context menu plain-text paste', () => {
   it('pastes other clipboard text literally and reads it without clipboard.read', async () => {
     expect(await paste({ read: async () => [item({ 'text/plain': '**글**', 'text/html': '<b>글</b>' })] })).toEqual(['**글**']);
     expect(await paste({ readText: async () => '**글**' })).toEqual(['**글**']);
+  });
+
+  it('pastes image alt text in place of images and omits images without alt text', async () => {
+    const { html, text } = copied('앞 ![대체 글자](photo.png) 뒤\n\n![](blank.png)문장');
+    expect(await paste({ read: async () => [item({ 'text/plain': text, 'text/html': html })] }))
+      .toEqual(['앞 대체 글자 뒤\n문장']);
+    const plain = markdownClipboard.clipboardTextParser!(text, parseMarkdown('x').resolve(1), true, view);
+    expect(plain.content.textBetween(0, plain.content.size, '\n')).toBe('앞 대체 글자 뒤\n문장');
+
+    const withoutAlt = copied('![](blank.png)');
+    expect(await paste({ read: async () => [item({ 'text/plain': withoutAlt.text, 'text/html': withoutAlt.html })] }))
+      .toEqual([]);
   });
 
   it('does not ask for the clipboard text again after the browser refuses the clipboard read', async () => {

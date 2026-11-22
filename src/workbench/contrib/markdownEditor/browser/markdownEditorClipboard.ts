@@ -33,10 +33,14 @@ function applyPastedUnderline(document: Document, content: DocumentFragment, und
   }
 }
 
-/** The text a copied fragment shows: blocks and hard breaks become line breaks, soft breaks spaces, other leaves nothing. */
+/** The text a copied fragment shows, with line breaks between blocks and alt text for images. */
 function visibleText(content: Fragment): string {
-  const { hard_break, soft_break } = markdownSchema.nodes;
-  return content.textBetween(0, content.size, '\n', node => node.type === hard_break ? '\n' : node.type === soft_break ? ' ' : '');
+  const { hard_break, soft_break, image } = markdownSchema.nodes;
+  return content.textBetween(0, content.size, '\n', node => {
+    if (node.type === image) return node.attrs.alt ?? '';
+    if (node.type === hard_break) return '\n';
+    return node.type === soft_break ? ' ' : '';
+  });
 }
 
 // The native Ctrl/Cmd+Shift+V paste event carries only text/plain, which holds the Markdown this editor wrote on copy.
@@ -51,8 +55,15 @@ function rememberCopy(view: EditorView, markdown: string, content: Fragment): vo
   lastCopy = { markdown: lineBreaks(markdown), text: visibleText(content) };
   try {
     const storage = view.dom.ownerDocument.defaultView?.sessionStorage;
-    if (lastCopy.markdown.length + lastCopy.text.length > lastCopyLimit) storage?.removeItem(lastCopyKey);
-    else storage?.setItem(lastCopyKey, JSON.stringify(lastCopy));
+    if (!storage) return;
+    if (lastCopy.markdown.length + lastCopy.text.length <= lastCopyLimit) {
+      const serialized = JSON.stringify(lastCopy);
+      if (new TextEncoder().encode(serialized).byteLength <= lastCopyLimit) {
+        storage.setItem(lastCopyKey, serialized);
+        return;
+      }
+    }
+    storage.removeItem(lastCopyKey);
   } catch {
     // Without session storage the copy is remembered until a reload.
   }
