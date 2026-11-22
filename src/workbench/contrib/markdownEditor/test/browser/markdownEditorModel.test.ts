@@ -797,7 +797,7 @@ describe('MarkdownEditorModel', () => {
 
   it.each([
     { original: 'Before\n\n---\n\nRemoved\n\nTail', external: 'Before\n\nReplacement', index: 1, side: -1,
-      from: 8, to: 28, text: 'Replacement', expected: 'Before!\n\nReplacement' },
+      from: 8, to: 26, text: 'Replacement', expected: 'Before!\n\nReplacement' },
     { original: 'Before\n\n---\n\nAfter\n\nTail', external: 'Before\n\nReplacement\n\nAfter\n\nTail', index: 1, side: 1,
       from: 8, to: 11, text: 'Replacement', expected: 'Before\n\nReplacement\n\n!After\n\nTail' },
     { original: '[ref]: /path\n\nAfter', external: 'Replacement\n\nAfter', index: 0, side: -1,
@@ -818,7 +818,7 @@ describe('MarkdownEditorModel', () => {
       const sync = new MarkdownEditorModel(model, [], () => {});
       try {
         placeAtomCaret(sync, index, side);
-        if ('from' in edit) {
+        if (edit.from !== undefined) {
           applyOffsets(model, edit.from, edit.to, edit.text);
         } else {
           model.setValue(external);
@@ -881,7 +881,7 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
-  it.each([true, false])('rebases a queued caret edit in a source batch if the rule survives (%s)', keepRule => {
+  it.each([true, false])('keeps a queued composition through a source batch (rule survives: %s)', keepRule => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
     const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
       sync.dispatch(sync.state.tr.insertText('Added').setMeta('composition', 1));
@@ -892,13 +892,98 @@ describe('MarkdownEditorModel', () => {
         { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, text: 'Altered' },
         { range: { startLineNumber: keepRule ? 5 : 3, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
       ]);
-      // Current behavior (backlog wr-d821) discards flushed input when the rule is removed.
-      expect(model.getValue()).toBe(keepRule ? 'Altered\n\n---\n\nAdded\n\nReplaced' : 'Altered\n\nReplaced');
+      const external = keepRule ? 'Altered\n\n---\n\nReplaced' : 'Altered\n\nReplaced';
+      const expected = keepRule ? 'Altered\n\n---\n\nAdded\n\nReplaced' : 'Added\n\nAltered\n\nReplaced';
+      const expectSource = (source: string) => {
+        expect(model.getValue()).toBe(source);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(source).doc)).toBe(true);
+      };
+      expectSource(expected);
+      expect(sync.state.selection.$head.parent.textContent).toBe('Added');
+      expect(sync.undo()).toBe(true);
+      expectSource(external);
+      expect(sync.undo()).toBe(true);
+      expectSource('First\n\n---\n\nLast');
+      expect(sync.canUndo).toBe(false);
+      expect(sync.redo()).toBe(true);
+      expectSource(external);
+      expect(sync.redo()).toBe(true);
+      expectSource(expected);
+      expect(sync.canRedo).toBe(false);
     } finally {
       sync.dispose();
       model.dispose();
     }
   });
+
+  it.each(['single edit', 'skipped version', 'cancelled', 'ordinary typing', 'cross-block'] as const)(
+    'handles pending input at a deleted link definition (%s)', kind => {
+      const original = 'First\n\n[ref]: /path\n\nLast';
+      const external = kind === 'skipped version' ? 'New First\n\nLast' : 'First\n\nLast';
+      const recovers = kind === 'single edit' || kind === 'skipped version';
+      const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+      let sync: MarkdownEditorModel;
+      const first = model.onDidChangeContent(event => {
+        if (event.versionId === 2 && kind === 'skipped version') editLine(model, 1, 1, 1, 'New ');
+      });
+      const enqueue = () => {
+        const { state } = sync;
+        if (state.doc.childCount !== 4) return;
+        const { head } = state.selection;
+        const tr = state.tr.insertText('요');
+        if (kind === 'cancelled') tr.delete(head, head + 1);
+        if (kind === 'cross-block') tr.insertText('X', 1);
+        if (kind !== 'ordinary typing') tr.setMeta('composition', 1);
+        sync.dispatch(tr);
+      };
+      sync = new MarkdownEditorModel(model, [], () => {}, undefined, enqueue);
+      const last = model.onDidChangeContent(event => {
+        if (event.versionId === 2 && kind === 'skipped version') {
+          applyOffsets(model, 11, 25, '');
+        }
+      });
+      const other = new MarkdownEditorModel(model, [], () => {});
+      try {
+        placeAtomCaret(sync, 1, 1);
+        if (kind === 'skipped version') {
+          // The reload event is read first. On its delivery, v4 (deletion) arrives before v3 (prefix).
+          model.setValue(original);
+        } else {
+          applyOffsets(model, 7, 21, '');
+        }
+        const expected = recovers ? external.replace('Last', '요\n\nLast') : external;
+        const expectSource = (source: string) => {
+          const parsed = parseMarkdownWithSource(source).doc;
+          expect(model.getValue()).toBe(source);
+          expect(sync.state.doc.eq(parsed)).toBe(true);
+          expect(other.state.doc.eq(parsed)).toBe(true);
+        };
+        expectSource(expected);
+        if (recovers) {
+          expect(sync.state.selection.$head.parent.textContent).toBe('요');
+          expect(sync.state.selection.$head.parentOffset).toBe(1);
+          expect(sync.undo()).toBe(true);
+          expectSource(external);
+        }
+        expect(sync.undo()).toBe(true);
+        expectSource(original);
+        expect(sync.canUndo).toBe(false);
+        expect(sync.redo()).toBe(true);
+        expectSource(external);
+        if (recovers) {
+          expect(sync.redo()).toBe(true);
+          expectSource(expected);
+        }
+        expect(sync.canRedo).toBe(false);
+      } finally {
+        first.dispose();
+        last.dispose();
+        other.dispose();
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
 
   it('keeps an extended range when its anchor leaves with the temporary paragraph', () => {
     const original = 'First\n\n---\n\nLast';
