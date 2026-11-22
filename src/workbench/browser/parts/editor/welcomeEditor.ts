@@ -31,12 +31,23 @@ export class WelcomeEditorInput extends EditorInput {
   }
 }
 
+/** Reuse the Welcome tab even when it is in another group. */
+export function openWelcome(groups: IEditorGroupsService, preserveFocus = false) {
+  for (const group of [groups.activeGroup, ...groups.groups]) {
+    const existing = group.editors.find(editor => editor instanceof WelcomeEditorInput);
+    if (existing) {
+      return group.openEditor(existing, { preserveFocus });
+    }
+  }
+  return groups.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus });
+}
+
 export class WelcomePageContribution {
   static readonly ID = 'workbench.contrib.welcomePage';
 
   constructor(@IEditorGroupsService groups: IEditorGroupsService) {
     if (!groups.hasStoredState) {
-      void groups.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus: true }).catch(console.error);
+      void openWelcome(groups, true).catch(console.error);
     }
   }
 }

@@ -1,6 +1,9 @@
 import { MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
 
+export const MenubarWorkMenu = MenuId.for('MenubarWorkMenu');
+
 for (const [submenu, title, order] of [
+  [MenubarWorkMenu, 'Work', 0],
   [MenuId.MenubarFileMenu, 'File', 1],
   [MenuId.MenubarEditMenu, 'Edit', 2],
   [MenuId.MenubarViewMenu, 'View', 4],
