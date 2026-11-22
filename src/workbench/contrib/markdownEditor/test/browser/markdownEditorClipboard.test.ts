@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { EditorState } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
+import { DOMParser } from 'prosemirror-model';
 import type { Slice } from 'prosemirror-model';
 import { CellSelection } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseMarkdown } from '../../../../../editor/common/markdown/parser.js';
+import { markdownSchema } from '../../../../../editor/common/markdown/schema.js';
 import { markdownClipboard } from '../../browser/markdownEditorClipboard.js';
 import { markdownTablePlugins } from '../../browser/markdownEditorTables.js';
 
@@ -78,5 +80,17 @@ describe('Markdown clipboard', () => {
       '<b style="font-weight: normal;"><span style="font-weight: 700;">Bold</span> ',
       '<span style="font-style: italic;">It</span></b><p data-pm-slice="1 1 []">x</p>',
     ].join(''));
+  });
+
+  it('keeps the classes of nested underline and class spans in pasted HTML', () => {
+    const parser = DOMParser.fromSchema(markdownSchema);
+    const classesOf = (html: string) => {
+      const element = document.createElement('div');
+      element.innerHTML = html;
+      return parser.parse(element).firstChild!.firstChild!.marks.map(mark => mark.attrs.classes);
+    };
+    expect(classesOf('<p><span class="size-lg"><u>x</u></span></p>')).toEqual([['size-lg', 'underline']]);
+    expect(classesOf('<p><u><strong><span class="size-lg">x</span></strong></u></p>')[0]).toEqual(['underline', 'size-lg']);
+    expect(classesOf('<p><u class="keep">x</u></p>')).toEqual([['keep', 'underline']]);
   });
 });

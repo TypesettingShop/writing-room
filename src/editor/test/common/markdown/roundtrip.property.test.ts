@@ -2,6 +2,7 @@
 import { EditorState } from 'prosemirror-state';
 import type { Node } from 'prosemirror-model';
 import { expect, it } from 'vitest';
+import { createMarkdownIt } from '../../../common/markdown/markdownIt.js';
 import { parseMarkdown } from '../../../common/markdown/parser.js';
 import { serializeMarkdown } from '../../../common/markdown/serializer.js';
 
@@ -228,6 +229,8 @@ it('round trips underline applied to generated selections across paragraphs, emp
       const edited = state.tr.addMark(from, to, underline).doc;
       const written = serializeMarkdown(edited);
       expect(written.match(/\.underline(?= )/g)?.length, source).toBe(2);
+      // The class syntax alone also saved before underline existed; the `u` element is what this format adds.
+      expect(createMarkdownIt().render(written).match(/<u class="underline keep">/g)?.length, written).toBe(2);
       const reopened = parseMarkdown(written);
       expect(reopened.toJSON(), written).toEqual(edited.toJSON());
       expect(canonical(reopened), written).toBe(written);

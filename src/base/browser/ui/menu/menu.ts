@@ -98,6 +98,8 @@ export class Menu extends Disposable {
     container.append(this.element);
     this._register(toDisposable(() => this.element.remove()));
     this.element.addEventListener('keydown', this.onKeyDown);
+    // A keyboard request lands on the focused item: Windows sends the Menu key's on key up, after a keydown opened this menu.
+    this.element.addEventListener('contextmenu', event => event.preventDefault());
 
     if (!parent) {
       const dismiss = (event: MouseEvent) => {
@@ -217,7 +219,8 @@ export class Menu extends Disposable {
     }
     const row = { button, action, horizontal };
     this.rows.push(row);
-    if (horizontal) button.addEventListener('focus', () => { this.lastHorizontalRow = row; });
+    // A click can focus a disabled item; the vertical stop stays on an item the arrow keys can reach.
+    if (horizontal) button.addEventListener('focus', () => { if (action.enabled !== false) this.lastHorizontalRow = row; });
     button.addEventListener('click', () => this.activate(row));
     button.addEventListener('mouseenter', () => {
       if (action.enabled !== false) {
@@ -273,9 +276,17 @@ export class Menu extends Disposable {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     const active = this.rows.find(row => row.button === this.element.ownerDocument.activeElement);
     if (active?.horizontal && (event.key === 'ArrowRight' || event.key === 'ArrowLeft')) {
-      const enabled = this.rows.filter(row => row.horizontal && row.action.enabled !== false);
+      this.closeChild();
+      // Step from the active item's place in the row, which may be a disabled item a click focused.
+      const items = this.rows.filter(row => row.horizontal);
       const step = event.key === 'ArrowRight' ? 1 : -1;
-      enabled.at((enabled.indexOf(active) + step) % enabled.length)?.button.focus();
+      for (let offset = 1; offset <= items.length; offset++) {
+        const next = items.at((items.indexOf(active) + step * offset) % items.length);
+        if (next && next.action.enabled !== false) {
+          next.button.focus();
+          break;
+        }
+      }
       event.preventDefault();
       event.stopPropagation();
       return;

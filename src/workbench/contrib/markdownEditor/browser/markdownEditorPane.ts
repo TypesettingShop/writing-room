@@ -400,13 +400,20 @@ export class MarkdownEditorPane extends EditorPane {
     const { selection } = view.state;
     const hit = event && view.posAtCoords({ left: event.clientX, top: event.clientY });
     const nearSelection = event && hit && selection.from <= hit.pos && hit.pos <= selection.to;
+    // Below the pressed line, not the pointer, so the toolbox leaves the selected line readable.
     const bounds = nearSelection
-      ? { left: event.clientX, bottom: event.clientY } : view.coordsAtPos(selection.head);
+      ? { left: event.clientX, bottom: Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) } : view.coordsAtPos(selection.head);
+    // The head can be scrolled out of the surface (after Select All, for example); open at the nearest visible edge.
+    const surface = this.surface.getBoundingClientRect();
+    const anchor = {
+      x: Math.min(Math.max(bounds.left, surface.left), surface.right),
+      y: Math.min(Math.max(bounds.bottom, surface.top), surface.bottom),
+    };
     this.groups.activateGroup(group);
     view.focus();
     const isCurrent = () => this.view === view && view.editable && this.groups.activeGroup.activeEditorPane === this;
     this.contextToolbox.value = this.instantiation.invokeFunction(
-      showMarkdownContextToolbox, view, scope, { x: bounds.left, y: bounds.bottom }, isCurrent,
+      showMarkdownContextToolbox, view, scope, anchor, isCurrent,
     );
     return this.contextToolbox.value !== undefined;
   }

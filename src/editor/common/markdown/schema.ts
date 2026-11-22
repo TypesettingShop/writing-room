@@ -14,6 +14,22 @@ function readClasses(element: HTMLElement): string[] {
   return (element.getAttribute('class') ?? '').split(/\s+/).filter(isMarkdownClass);
 }
 
+// Inline elements a span can sit in. The first other ancestor ends the walk below.
+const inlineElements = 'a, abbr, b, cite, code, del, em, font, i, ins, kbd, mark, q, s, small, span, strike, strong, sub, sup, u';
+
+/**
+ * The span mark excludes itself, so a `u` or classed `span` inside another one replaces it.
+ * The inner mark carries the outer class lists so `<span class="size-lg"><u>` keeps both.
+ */
+function spanClasses(element: HTMLElement, own: readonly string[]): string[] {
+  const outer: string[] = [];
+  for (let parent = element.parentElement; parent?.matches(inlineElements); parent = parent.parentElement) {
+    if (parent.localName === 'u') outer.unshift(...readClasses(parent), markdownUnderlineClass);
+    else if (parent.localName === 'span') outer.unshift(...readClasses(parent));
+  }
+  return outer.length ? [...new Set([...outer, ...own])] : [...own];
+}
+
 function styledBlock(tag: string, spec: NodeSpec = {}): NodeSpec {
   return {
     group: 'block',
@@ -150,9 +166,11 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [
       { tag: 'span[class]', getAttrs: element => {
         const classes = readClasses(element);
-        return classes.length ? { classes } : false;
+        return classes.length ? { classes: spanClasses(element, classes) } : false;
       } },
-      { tag: 'u', getAttrs: element => ({ classes: [...new Set([...readClasses(element), markdownUnderlineClass])] }) },
+      { tag: 'u', getAttrs: element => ({
+        classes: spanClasses(element, [...new Set([...readClasses(element), markdownUnderlineClass])]),
+      }) },
     ],
     toDOM: mark => [mark.attrs.classes.includes(markdownUnderlineClass) ? 'u' : 'span', classAttribute(mark.attrs), 0],
   },
