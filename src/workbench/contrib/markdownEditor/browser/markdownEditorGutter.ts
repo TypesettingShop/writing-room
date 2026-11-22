@@ -153,6 +153,7 @@ export function moveFromMarkdownCaretParagraph(view: EditorView, event: Keyboard
   if (!direction || !selection.empty || $head.depth !== 1 || markdownCaretParagraphSide($head.parent) === undefined) {
     return false;
   }
+  // Move to the adjoining block edge. A temporary empty line has no text column to carry over.
   const edge = doc.resolve(direction < 0 ? $head.before() : $head.after());
   const next = Selection.findFrom(edge, direction);
   if (!next) return false;

@@ -820,6 +820,82 @@ describe('MarkdownEditorModel', () => {
     }
   });
 
+  it.each([
+    { side: 1, head: 'Last', removed: 'First\n\n---\n\nst' },
+    { side: -1, head: 'First', removed: 'Fi\n\n---\n\nLast' },
+  ] as const)('leaves the target rule out when a range leaves the temporary paragraph ($side)', ({ side, head, removed }) => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, side);
+      const { doc, selection, tr } = sync.state;
+      // Extend away from the rule: down into Last below it, or up into First above it.
+      sync.dispatch(tr.setSelection(TextSelection.create(doc, selection.anchor, side === 1 ? selection.anchor + 4 : 3)));
+      expect(sync.state.selection.$anchor.parent.textContent).toBe(head);
+      sync.dispatch(sync.state.tr.deleteSelection());
+      expect(model.getValue()).toBe(removed);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('restores a text range, not the rule, when undoing typing over a range ending in the temporary paragraph', () => {
+    const original = 'First\n\n---\n\nLast';
+    const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 1, -1);
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 3, sync.state.selection.head)));
+      sync.dispatch(sync.state.tr.insertText('X'));
+      expect(model.getValue()).toBe('FiX\n\n---\n\nLast');
+      expect(sync.undo()).toBe(true);
+      expect(model.getValue()).toBe(original);
+      expect(sync.state.selection).toBeInstanceOf(TextSelection);
+      sync.dispatch(sync.state.tr.insertText('Y'));
+      expect(model.getValue()).toBe('FiY\n\n---\n\nLast');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('keeps the range anchor when an external change leaves no gap for the temporary paragraph', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\nMid\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      placeRuleCaret(sync, 2, -1);
+      sync.dispatch(sync.state.tr.setSelection(TextSelection.create(sync.state.doc, 2, sync.state.selection.head)));
+      model.applyEdits([{ range: { startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 4 }, text: '***' }]);
+      expect(sync.state.selection.anchor).toBe(2);
+      expect(sync.state.selection.$head.parent.textContent).toBe('Mid');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
+  it('rebases a queued replacement of the whole temporary paragraph over a source batch', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---\n\nLast');
+    const sync = new MarkdownEditorModel(model, [], () => {}, undefined, () => {
+      const { state } = sync;
+      const { $head } = state.selection;
+      const paragraph = state.schema.nodes.paragraph.create(null, state.schema.text('Pasted'));
+      sync.dispatch(state.tr.replaceWith($head.before(), $head.after(), paragraph).setMeta('uiEvent', 'paste'));
+    });
+    try {
+      placeRuleCaret(sync, 1, 1);
+      model.applyEdits([
+        { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, text: 'Altered' },
+        { range: { startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 5 }, text: 'Replaced' },
+      ]);
+      expect(model.getValue()).toBe('Altered\n\n---\n\nPasted\n\nReplaced');
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
+
   it('keeps an empty split of the temporary paragraph out of the document history', () => {
     const original = 'First\n\n---\n\nLast';
     const model = new TestTextModel(URI.parse('file:///draft.md'), original);

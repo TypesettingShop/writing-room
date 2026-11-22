@@ -324,7 +324,9 @@ function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null
     if (removedCaret !== undefined && (remap.getMirror(removedCaret) ?? -1) > index) {
       const beforeCaret = remap.slice(start, removedCaret);
       const removal = remap.maps[removedCaret];
-      if (positions.every(({ pos, assoc }) => removal.mapResult(beforeCaret.map(pos, assoc), assoc).deletedAcross)) {
+      // `deleted` holds exactly for the positions the mirrored reinsertion recovers, including
+      // the paragraph's own boundaries on their inner side.
+      if (positions.every(({ pos, assoc }) => removal.mapResult(beforeCaret.map(pos, assoc), assoc).deleted)) {
         continue;
       }
     }
@@ -596,6 +598,11 @@ export class MarkdownEditorModel extends Disposable {
     if (selection.empty) {
       tr.setSelection(TextSelection.between(gap, gap, caret.side));
       if (storedMarks && tr.selection.$head.parent.inlineContent) tr.setStoredMarks(storedMarks);
+    } else if (selection instanceof TextSelection) {
+      // Plain mapping would collapse the range or select the target block. Keep the anchor and
+      // move the head to text on the paragraph's side of the gap, away from the target block.
+      const head = Selection.findFrom(gap, caret.side, true) ?? Selection.findFrom(gap, -caret.side, true);
+      if (head) tr.setSelection(TextSelection.between(tr.doc.resolve(tr.mapping.map(selection.anchor)), head.$head));
     }
     const removal = new CaretParagraphRemovalMap([caret.pos, caret.node.nodeSize, 0]);
     this.applyState(tr.setMeta('addToHistory', false), mapping, { map: removal });
@@ -605,20 +612,24 @@ export class MarkdownEditorModel extends Disposable {
     const { state } = this;
     const active = selectedCaretParagraph(state);
     const tr = state.tr;
+    const { selection } = state;
+    let anchorSide: -1 | 1 | undefined;
     state.doc.forEach((node, pos) => {
-      if (pos !== active?.pos && isEmptyMarkdownCaretParagraph(node)) {
+      const side = pos === active?.pos ? undefined : markdownCaretParagraphSide(node);
+      if (side !== undefined) {
+        if (pos < selection.anchor && selection.anchor < pos + node.nodeSize) anchorSide = side;
         const from = tr.mapping.map(pos);
         tr.delete(from, from + node.nodeSize);
       }
     });
     if (!tr.docChanged) return;
-    const { selection } = state;
     if (selection instanceof TextSelection && !selection.empty) {
       const anchor = tr.doc.resolve(tr.mapping.map(selection.anchor));
       const head = tr.doc.resolve(tr.mapping.map(selection.head));
-      // Keep an extended selection when its old anchor was inside the retired paragraph.
+      // Keep an extended selection when its old anchor was inside the retired paragraph. Its
+      // replacement lies on the paragraph's side of the gap, so the target block is not pulled in.
       const outside = anchor.parent.inlineContent ? anchor
-        : Selection.findFrom(anchor, selection.anchor < selection.head ? -1 : 1, true)?.$head ?? anchor;
+        : Selection.findFrom(anchor, anchorSide ?? (selection.anchor < selection.head ? -1 : 1), true)?.$head ?? anchor;
       tr.setSelection(TextSelection.between(outside, head));
     }
     this.applyState(tr.setMeta('addToHistory', false), mapping);
