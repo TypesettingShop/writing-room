@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { defineConfig, normalizePath } from 'vite';
-import type { Connect, Plugin, ViteDevServer } from 'vite';
+import { defineConfig, mergeConfig, normalizePath } from 'vite';
+import type { Connect, Plugin, UserConfig, ViteDevServer } from 'vite';
 import { readApiProxyTarget } from './server/config.js';
 
 const webviewAssets = new Map([
@@ -166,12 +166,10 @@ const require = createRequire(import.meta.url);
 const codiconModule = 'virtual:codicon-names';
 const resolvedCodiconModule = '\0' + codiconModule;
 
-const apiProxy = { '/api': readApiProxyTarget(process.env) };
-
-export default defineConfig({
+export const browserConfig: UserConfig = {
   appType: 'mpa',
-  server: { host: '127.0.0.1', proxy: apiProxy },
-  preview: { host: '127.0.0.1', proxy: apiProxy },
+  server: { host: '127.0.0.1' },
+  preview: { host: '127.0.0.1' },
   build: {
     assetsInlineLimit(filePath) {
       // The browser should fetch even small glyph subsets only when their Unicode range is needed.
@@ -224,4 +222,12 @@ export default defineConfig({
       },
     },
   ],
+};
+
+export default defineConfig(({ command }) => {
+  if (command !== 'serve') {
+    return browserConfig;
+  }
+  const proxy = { '/api': readApiProxyTarget(process.env) };
+  return mergeConfig(browserConfig, { server: { proxy }, preview: { proxy } });
 });
