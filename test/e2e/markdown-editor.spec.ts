@@ -1748,12 +1748,16 @@ test('keeps the last copy when the drag of a selection starts', async ({ appPage
 
   await editor.locator('em').dblclick();
   const word = await box(editor.locator('em'));
-  // Playwright cannot start a native text drag, so dispatch the event the browser sends when the drag of a selection starts.
-  await editor.locator('em').evaluate((element, point) => {
-    element.dispatchEvent(new DragEvent('dragstart', {
-      bubbles: true, cancelable: true, dataTransfer: new DataTransfer(), clientX: point.x, clientY: point.y,
-    }));
+  // Playwright cannot start a native text drag, so dispatch the events the browser sends when the drag of a selection
+  // starts and is cancelled. ProseMirror's own dragstart must still serialize the selection for the drag.
+  const dragged = await editor.locator('em').evaluate((element, point) => {
+    const dataTransfer = new DataTransfer();
+    const init = { bubbles: true, cancelable: true, dataTransfer, clientX: point.x, clientY: point.y };
+    element.dispatchEvent(new DragEvent('dragstart', init));
+    element.dispatchEvent(new DragEvent('dragend', init));
+    return dataTransfer.getData('text/plain');
   }, { x: word.x + word.width / 2, y: word.y + word.height / 2 });
+  expect(dragged).toBe('*둘째*');
   await expect(editor.locator('em')).toHaveText('둘째');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('**첫째**');
 
@@ -1776,7 +1780,8 @@ test('pastes the visible text of a copy from the menu without resolving it again
   await page.keyboard.press('ControlOrMeta+c');
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('\\*\\*굵게\\*\\*');
 
-  // Another tab's earlier copy: its Markdown is the visible text of this copy.
+  // The copy above stands for one from another tab. This tab's own earlier copy record has the Markdown that
+  // equals the visible text of that copy.
   await page.reload();
   await expect(editor).toBeVisible({ timeout: 20_000 });
   await page.evaluate(key => sessionStorage.setItem(key, JSON.stringify({ markdown: '**굵게**', text: '굵게' })), key);

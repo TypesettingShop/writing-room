@@ -54,7 +54,8 @@ const lastCopyKey = 'writing-room:markdownEditor:lastCopy';
 const lastCopyLimit = 1 << 20;
 let lastCopy: { readonly markdown: string; readonly text: string } | undefined;
 // ProseMirror serializes the selection for a drag as it does for a copy. A drag leaves the clipboard alone, so
-// it must not replace the last copy; the flag covers only the synchronous `dragstart` handler that serializes.
+// it must not replace the last copy. ProseMirror's `dragstart` serializes once, right after the handler that sets
+// this flag, which that serialization clears. A microtask clears it when the drag serializes nothing.
 let serializingDrag = false;
 // The menu paste hands `pasteText` text it has already resolved, which `clipboardTextParser` must not resolve again.
 let resolvedPlainPaste = false;
@@ -300,12 +301,16 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
 
   clipboardTextSerializer(slice, view) {
     const markdown = serializeClipboardMarkdown(slice);
-    if (!serializingDrag) rememberCopy(view.dom.ownerDocument.defaultView, markdown, slice.content);
+    if (serializingDrag) serializingDrag = false;
+    else rememberCopy(view.dom.ownerDocument.defaultView, markdown, slice.content);
     return markdown;
   },
 };
 
-/** DOM event handlers of the editor that keep the last copy tied to what the clipboard holds. */
+/**
+ * DOM event handlers of the editor that keep the last copy tied to what the clipboard holds. A view that uses
+ * `markdownClipboard` merges them into its `handleDOMEvents`, or a selection drag replaces the last copy.
+ */
 export const markdownClipboardEvents: NonNullable<EditorProps['handleDOMEvents']> = {
   dragstart() {
     serializingDrag = true;

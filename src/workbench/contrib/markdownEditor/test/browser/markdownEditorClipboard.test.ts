@@ -114,11 +114,15 @@ describe('Markdown clipboard', () => {
     expect(dragged).toBe('*둘째 글*');
     expect(pasted(first)).toBe('첫 글');
     expect(readTabStorage(window, 'writing-room:markdownEditor:lastCopy')).toBe(JSON.stringify({ markdown: first, text: '첫 글' }));
-    // The guard ends with the drag event, so the next copy is remembered again.
+    // The drag's own serialization ends the guard, so a copy right after it is remembered.
+    const next = copy('*셋째 글*');
+    expect(pasted(next)).toBe('셋째 글');
+    expect(pasted(first)).toBe(first);
+    // A drag that serializes nothing keeps the guard only until its event ends.
+    markdownClipboardEvents.dragstart!(view, new Event('dragstart') as DragEvent);
     return Promise.resolve().then(() => {
-      const next = copy('*셋째 글*');
-      expect(pasted(next)).toBe('셋째 글');
-      expect(pasted(first)).toBe(first);
+      const last = copy('*넷째 글*');
+      expect(pasted(last)).toBe('넷째 글');
     });
   });
 
@@ -197,10 +201,10 @@ describe('Markdown context menu plain-text paste', () => {
     getType: async (type: string) => new Blob([data[type]], { type }),
   }) as unknown as ClipboardItem;
   // jsdom has no ClipboardEvent for ProseMirror's plain-text paste, so record the text it receives.
-  const paste = async (clipboard: Partial<Clipboard>) => {
+  const paste = async (clipboard: Partial<Clipboard>, received = (text: string) => text) => {
     Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: clipboard });
     const pasted: string[] = [];
-    vi.spyOn(view, 'pasteText').mockImplementation(text => { pasted.push(text); return true; });
+    vi.spyOn(view, 'pasteText').mockImplementation(text => { pasted.push(received(text)); return true; });
     await pasteFromMarkdownClipboard(view, () => true, true);
     return pasted;
   };
@@ -215,17 +219,10 @@ describe('Markdown context menu plain-text paste', () => {
   });
 
   // Run the parser as the real `pasteText` does, outside code blocks, so a second resolution of the text shows.
-  const pasteThroughParser = async (clipboard: Partial<Clipboard>) => {
-    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: clipboard });
-    const pasted: string[] = [];
-    vi.spyOn(view, 'pasteText').mockImplementation(text => {
-      const slice = markdownClipboard.clipboardTextParser!(text, view.state.doc.resolve(1), true, view);
-      pasted.push(slice.content.textBetween(0, slice.content.size, '\n'));
-      return true;
-    });
-    await pasteFromMarkdownClipboard(view, () => true, true);
-    return pasted;
-  };
+  const pasteThroughParser = (clipboard: Partial<Clipboard>) => paste(clipboard, text => {
+    const slice = markdownClipboard.clipboardTextParser!(text, view.state.doc.resolve(1), true, view);
+    return slice.content.textBetween(0, slice.content.size, '\n');
+  });
 
   it('resolves text/plain that equals the last copy to its visible text, as in a code block', async () => {
     const { text } = copied('**굵게**');
