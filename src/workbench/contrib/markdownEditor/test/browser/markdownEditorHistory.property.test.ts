@@ -1,3 +1,4 @@
+import { baseKeymap, splitBlock } from 'prosemirror-commands';
 import { redoDepth, undoDepth } from 'prosemirror-history';
 import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
@@ -7,7 +8,7 @@ import { Transform } from 'prosemirror-transform';
 import { describe, expect, it } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
-import type { IModelContentChangedEvent } from '../../../../../editor/common/model.js';
+import type { IModelContentChangedEvent, IPosition } from '../../../../../editor/common/model.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
 import {
@@ -35,10 +36,33 @@ function textPositions(doc: Node): number[] {
   return positions;
 }
 
-function exerciseHistory(seed: number, paneCount: number, exactSource: boolean): void {
+/** Use the LF fixture's edit and event machinery with CRLF line and offset coordinates. */
+class CRLFHistoryModel extends TestTextModel {
+  override getEOL(): string { return '\r\n'; }
+  override getLinesContent(): string[] { return this.getValue().split(this.getEOL()); }
+
+  override getOffsetAt(position: IPosition): number {
+    const line = Math.min(Math.max(position.lineNumber, 1), this.getLineCount());
+    return super.getOffsetAt(position) + line - 1;
+  }
+
+  override getPositionAt(offset: number): IPosition {
+    const prefix = this.getValue().slice(0, Math.max(0, offset));
+    return super.getPositionAt(prefix.replaceAll('\r', '').length);
+  }
+
+  override onDidChangeContent(listener: (event: IModelContentChangedEvent) => void) {
+    return super.onDidChangeContent(event => listener({ ...event, eol: this.getEOL() }));
+  }
+}
+
+function exerciseHistory(seed: number, paneCount: number, exactSource: boolean, gap?: string): void {
   const nextRandom = random(seed);
   const pick = <T>(values: readonly T[]): T => values[Math.floor(nextRandom() * values.length)];
-  const model = new TestTextModel(URI.parse('file:///history.md'), 'First\n\nMiddle\n\nLast');
+  const source = ['First', 'Middle', 'Last'].join(gap ?? '\n\n');
+  const uri = URI.parse('file:///history.md');
+  const model = gap?.includes('\r') ? new CRLFHistoryModel(uri, source) : new TestTextModel(uri, source);
+  const separator = model.getEOL().repeat(2);
   const panes: MarkdownEditorModel[] = [];
   const trace: string[] = [];
   let depth = 0;
@@ -118,7 +142,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
     }
     if (operation < 0.35) {
       const offset = Math.floor(nextRandom() * (model.getValueLength() + 1));
-      let text = pick(exactSource ? ['a', 'Z', '\n\n', 'q', 's'] : ['a', 'Z ', '\n\n', 'q', '# ']);
+      let text = pick(exactSource ? ['a', 'Z', separator, 'q', 's'] : ['a', 'Z ', separator, 'q', '# ']);
       let { lineNumber, column } = model.getPositionAt(offset);
       if (exactSource) {
         // Keep one spelling per document: edit within a paragraph, or split it into two nonempty
@@ -127,7 +151,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
           lineNumber--;
           column = model.getLineContent(lineNumber).length + 1;
         }
-        if (text === '\n\n' && (column === 1 || column > model.getLineContent(lineNumber).length)) {
+        if (text === separator && (column === 1 || column > model.getLineContent(lineNumber).length)) {
           text = 's';
         }
       }
@@ -155,7 +179,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   }
 
   const listener = (label: string) => () => {
-    if (recording && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
+    if (recording && gap === undefined && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
       trace.push(label + '[');
       depth++;
       try {
@@ -195,7 +219,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
       if (source !== recordedText) {
         throw new Error(`${step} recorded ${JSON.stringify(recordedText)}, model has ${JSON.stringify(source)}`);
       }
-    } else if (exactSource && !writtenTexts.has(source)) {
+    } else if ((exactSource || gap !== undefined) && !writtenTexts.has(source)) {
       throw new Error(`${step} restored unwritten text ${JSON.stringify(source)}`);
     }
     const parsed = parseMarkdownWithSource(source).doc;
@@ -207,9 +231,30 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   };
 
   try {
-    for (let step = 0; step < 12; step++) {
-      act();
-      check(`step ${step}`);
+    if (gap !== undefined) {
+      // Keep the gap oracle independent of the reentrant edits. Dispatch the native split with
+      // the new block's first text so every pane sees a source-backed block, then walk history.
+      const pane = pick(panes);
+      const middle = pane.state.doc.child(1);
+      const suffix = pick(['a', 'Z', 'q']);
+      const added = pick(['x', 'Y', 'k']);
+      trace.push(`source then split ${JSON.stringify({ gap, suffix, added })}`);
+      model.applyEdits([{
+        range: { startLineNumber: 1, startColumn: 6, endLineNumber: 1, endColumn: 6 }, text: suffix,
+      }]);
+      expect(pane.state.doc.child(1), 'source edit reused the unchanged middle block').toBe(middle);
+      const { doc } = pane.state;
+      const end = doc.child(0).nodeSize + middle.nodeSize - 1;
+      pane.dispatch(pane.state.tr.setSelection(TextSelection.create(doc, end)));
+      expect(splitBlock(pane.state, tr => pane.dispatch(tr.insertText(added).setTime(time)))).toBe(true);
+      expect(model.getValue(), 'split kept the original gap before the middle paragraph')
+        .toBe('First' + suffix + gap + 'Middle' + separator + added + separator + 'Last');
+      check('source then split');
+    } else {
+      for (let step = 0; step < 12; step++) {
+        act();
+        check(`step ${step}`);
+      }
     }
     // Freeze the set of texts before walking history so an Undo/Redo write cannot validate itself.
     recording = false;
@@ -259,10 +304,15 @@ function exerciseCaretHistory(seed: number): void {
     redo: redoDepth(pane.state),
   });
 
-  function check(carets = 0): Node {
+  function check(carets = 0, authoredAt?: number): Node {
     const { doc } = pane.state;
     const blocks = doc.content.content.filter(node => !isEmptyMarkdownCaretParagraph(node));
     expect(doc.childCount - blocks.length, 'visible temporary paragraphs').toBe(carets);
+    if (authoredAt !== undefined) {
+      const [authored] = blocks.splice(doc.resolve(authoredAt).index(), 1);
+      expect(authored?.type.name).toBe('paragraph');
+      expect(authored?.content.size, 'authored blank has no Markdown').toBe(0);
+    }
     const written = doc.copy(Fragment.fromArray(blocks));
     const text = model.getValue();
     const parsed = parseMarkdownWithSource(text).doc;
@@ -271,13 +321,13 @@ function exerciseCaretHistory(seed: number): void {
     return written;
   }
 
-  function display(transaction: Transaction, carets: number): void {
+  function display(transaction: Transaction, carets: number, authoredAt?: number): void {
     const before = history();
     const otherBefore = other.state;
     pane.dispatch(transaction);
     expect(history(), 'display-only operation changed the source or history').toEqual(before);
     expect(other.state, 'display-only operation reached the other pane').toBe(otherBefore);
-    check(carets);
+    check(carets, authoredAt);
   }
 
   try {
@@ -334,7 +384,7 @@ function exerciseCaretHistory(seed: number): void {
       const edge = gap + side;
       const neighbor = docBeforeInput.resolve(edge).parent;
       const inside = edge + side * (1 + Math.floor(nextRandom() * neighbor.content.size));
-      const operation = pick(['move', 'extend', 'replace', 'type'] as const);
+      const operation = pick(['move', 'extend', 'replace', 'type', 'enter'] as const);
       trace.push(`${operation}@${inside}`);
 
       if (operation === 'move') {
@@ -347,6 +397,31 @@ function exerciseCaretHistory(seed: number): void {
         display(pane.state.tr.setSelection(TextSelection.create(pane.state.doc, gap + 1, placeInView(inside))), 0);
         expect(pane.state.selection.anchor, 'range starts on the clicked side of the atom').toBe(edge);
         expect(pane.state.selection.head).toBe(inside);
+        continue;
+      }
+      if (operation === 'enter') {
+        const before = history();
+        const otherBefore = other.state;
+        const after = { ...before, undo: before.undo + 1, redo: 0 };
+        const checkEnter = () => {
+          check(1, gap);
+          expect(history(), 'only the undo history changed').toEqual(after);
+          expect(other.state, 'the other pane sees only written Markdown').toBe(otherBefore);
+          expect(pane.state.selection.head).toBe(gap + paragraph.nodeSize + 1);
+          expect(markdownCaretParagraphSide(pane.state.selection.$head.parent)).toBe(side);
+        };
+        expect(baseKeymap.Enter(pane.state, tr => pane.dispatch(tr))).toBe(true);
+        checkEnter();
+        if (nextRandom() < 0.5) {
+          display(pane.state.tr.setSelection(TextSelection.create(pane.state.doc, 1)), 0, gap);
+        }
+        expect(pane.undo()).toBe(true);
+        expect(check().eq(docBeforeInput)).toBe(true);
+        expect(history()).toEqual({ ...before, redo: 1 });
+        expect(pane.redo()).toBe(true);
+        checkEnter();
+        expect(pane.undo()).toBe(true);
+        expect(check().eq(docBeforeInput)).toBe(true);
         continue;
       }
 
@@ -408,6 +483,13 @@ describe('Markdown editor history across reentrant text edits', () => {
   ];
   it.each(cases)('synchronizes $paneCount panes through $input history', { timeout: full ? 300_000 : 10_000 },
     ({ paneCount, exactSource }) => {
+      if (!exactSource) {
+        const gaps = ['\n\n', '\n\n\n', '\r\n\r\n\r\n', '\n\n \t\n'];
+        const gapSeeds = full ? 24 : gaps.length;
+        for (let seed = 1; seed <= gapSeeds; seed++) {
+          exerciseHistory(seed, paneCount, exactSource, gaps[(seed - 1) % gaps.length]);
+        }
+      }
       const seeds = full ? (paneCount === 2 ? 600 : 1500) : 24;
       for (let seed = 1; seed <= seeds; seed++) {
         exerciseHistory(seed, paneCount, exactSource);

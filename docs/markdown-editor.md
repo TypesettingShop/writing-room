@@ -8,6 +8,7 @@
 - `.md`와 `.markdown`의 기본 모드는 WYSIWYG다. 같은 탭의 제목 툴바, **Markdown: Toggle Source Mode**, **Ctrl+Shift+M**(macOS는 **Cmd+Shift+M**)으로 원문 모드와 오간다. 기본 모드 설정과 저장 방법은 시작 가이드에 있다. [마크다운 편집하기](getting-started.md#마크다운-편집하기)
 - 두 모드는 `TextFileEditorModel`을 공유한다. WYSIWYG 문서 변경은 매 트랜잭션에서 직렬화하고 달라진 범위만 모델에 적용한다. 원문 탭이나 확장이 모델을 고치면 WYSIWYG도 새 텍스트를 읽는다.
 - WYSIWYG는 이어서 입력한 글자를 500ms 간격으로 묶는다. 서식 명령과 외부에서 들어온 모델 변경은 각각 별도 실행 취소 단계다. 키보드와 **Edit → Undo/Redo**가 같은 이력을 사용하며, 저장한 텍스트로 돌아오면 dirty 표시가 사라진다.
+- 원문 탭이나 다른 창에서 파일을 고치면 WYSIWYG에만 있던 빈 문단이 화면에서 사라진다. 외부 변경을 한 번 실행 취소하면 그 빈 문단이 다시 나타난다.
 - 모드를 전환한 순간의 마크다운이 새 이력의 시작점이 된다. 그 뒤 첫 편집을 실행 취소하면 전환 순간의 텍스트로 돌아온다. 원문 모드로 전환할 때 같은 파일을 보여 주는 Monaco 창도 새 이력의 시작점을 공유한다. 새로고침은 탭 모드와 초안을 복원한다.
 - 이미지의 상대 경로는 문서 폴더를 기준으로 읽는다. 작업 폴더 안의 이미지는 파일 서비스로 읽어 보여 주고, 작업 폴더 밖의 경로나 지원하지 않는 형식은 대체 텍스트와 사유를 보여 준다. HTTPS 이미지는 이미지마다 **Load image** 버튼을 눌러야 요청하며 referrer를 보내지 않는다. HTTP 이미지는 요청하지 않고 대체 텍스트를 보여 준다. 어느 경우든 저장할 때 원래 주소를 유지한다.
 
@@ -227,4 +228,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk, wr-2iyf
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk, wr-2iyf, wr-pq4t
