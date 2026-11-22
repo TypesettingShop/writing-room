@@ -1839,6 +1839,25 @@ test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage
   expect(data.html).toContain('<a href="https://example.test/">link</a>');
 });
 
+test('shows the same grapheme counts for Unicode text and selections in both modes', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'unicode-counts.md', '한 한 é 👩‍👩‍👧‍👦\n\nTail');
+  const editor = richEditor(group);
+  const total = page.getByText('5 words · 12 characters · 8 without spaces', { exact: true });
+  const selection = page.getByText('Selection · 4 words · 7 characters · 4 without spaces', { exact: true });
+  await expect(total).toBeVisible({ timeout: 20_000 });
+  await editor.locator('p').first().click();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+End');
+  await expect(selection).toBeVisible();
+
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
+  await page.keyboard.press('ControlOrMeta+Home');
+  await expect(total).toBeVisible();
+  await page.keyboard.press('Shift+End');
+  await expect(selection).toBeVisible();
+});
+
 test('updates word counts and navigates the outline in visual and source Markdown', async ({ appPage: page }) => {
   const group = await openMarkdown(page, 'outline.md', '# First\n\n한글 **문장**\n\n### Nested\n\nCaption {.subtitle}\n\n## Last');
   const editor = richEditor(group);
