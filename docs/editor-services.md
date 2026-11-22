@@ -60,6 +60,7 @@ Monaco 내장 기능(Ctrl+호버 정의 미리보기, 참조 미리보기 등)�
 - 확인 대화상자가 열려 있는 동안 동일한 에디터의 닫기 요청이 다시 들어오면 기존 확인의 응답을 기다린다(중복 확인을 띄우지 않는다). 사용자의 확인 응답이 전달되었을 때 이미 해당 그룹이 제거되었거나 에디터가 다른 곳으로 이동한 상태라면 닫지 않는다.
 - 물을 것이 없으면 v0.1.0처럼 호출이 돌아오기 전에 닫힌다. 확인 대상은 수정된 파일(`FileEditorInput`)과 내용이 입력된 제목 없는 문서다. 두 경우 모두 `IFileDialogService.showSaveConfirm`(퀵 픽)을 통해 확인한다. 제목 없는 입력은 인스턴스화 서비스를 거쳐 생성된 경우에만 확인 및 저장을 진행한다(`new UntitledTextEditorInput(model)`은 테스트용이다).
 - `Close All Editors`는 그룹 순서대로 에디터를 닫아가며, 취소나 저장 실패 등으로 닫히지 않은 에디터가 남은 그룹에서 처리를 중단한다.
+- 작품 전환은 모든 그룹의 저장 확인을 모은 뒤 사용자가 고른 저장을 진행한다. 공유 텍스트나 공유 커스텀 문서는 한 번만 묻는다. **New Work...**는 확인과 저장이 끝나면 서버에 작품을 만들고, 목적지가 준비되면 버리기로 한 변경을 처리하고 에디터를 닫는다. 취소나 저장 실패는 전환을 멈춘다.
 - `ITextFileService`의 `onWillSave`(`waitUntil`), `onDidSave`, `onDidChangeDirty`가 문서 API가 확장으로 넘기는 저장 이벤트다. 기본 구현체는 실제 저장을 수행하지 않는다. 실제 구현은 파일을 저장하고(`save`, `revert`), `saveAs(source, target?)`로 제목 없는 문서나 파일의 텍스트를 다른 파일에 쓴다(대상이 없으면 저장 대화상자로 묻는다). 제목 없는 문서의 `save`는 내부적으로 `saveAs`로 처리된다.
 - 경로를 묻는 것은 `IFileDialogService`(`src/workbench/services/dialogs/common/dialogs.ts`)다: `showOpenDialog`, `showSaveDialog`, `pickFileToSave`, `showSaveConfirm`, `defaultFilePath`. 구현은 퀵 인풋으로 만든 `SimpleFileDialog`이고 워크스페이스 폴더 안만 고른다.
 - 파일 모델은 `ITextFileService.files`(VS Code의 모델 관리자 형태)에서 관리한다: `get`, `resolve`, `models`, 이벤트 `onDidCreate`, `onDidResolve`, `onDidChangeDirty`, `onDidChangeOrphaned`, `onDidChangeReadonly`, `onDidSave`, `onDidRevert`, `onDidRemove`, 그리고 충돌과 실패를 묻는 `saveErrorHandler`를 제공한다. 개별 모델(`ITextFileEditorModel`)은 `isDirty`, `isOrphaned`, `isReadonly`, `isSaving`, `save`(성공 시 `true`), `revert({ soft })` 메서드를 갖춘다. 사용자 인터랙션 동작은 [파일 편집과 Explorer](files-and-explorer.md#텍스트-파일-편집)를 참조한다.
@@ -102,4 +103,4 @@ Monaco 내장 기능(Ctrl+호버 정의 미리보기, 참조 미리보기 등)�
 - Monaco 기능의 모델 참조는 Monaco 독립 실행형 서비스 위치를 재정의해 워크벤치에 위임한다. VS Code의 편집기는 처음부터 워크벤치 서비스 기반으로 구성된다 (wr-v108.qc2)
 - `when`의 `==`는 지금처럼 느슨한 비교이고 `!!a`를 받는다. 알 수 없는 문자는 건너뛰지 않고 구문 오류다. 정규식 복구에서 이스케이프하거나 문자 클래스 안의 괄호는 그룹으로 세지 않는다 (wr-h23m.gek)
 
-Decided in: wr-qd31
+Decided in: wr-qd31, wr-88fi

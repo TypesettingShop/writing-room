@@ -1,7 +1,24 @@
+import type { Locator } from '@playwright/test';
 import { box, expect, test } from './fixtures.js';
 import { runCommand } from './configuration.helpers.js';
 import { treeItem } from './explorer.helpers.js';
 import { groups, readWorkspaceText, waitForStorage, writeWorkspaceFile } from './files.helpers.js';
+
+/** Change the source before ProseMirror records Chromium's native DOM mutation. */
+async function deleteSourceLinesOnComposition(editor: Locator, name: string, fromLine: number, toLine: number): Promise<void> {
+  await editor.evaluate(async (element, { name, fromLine, toLine }) => {
+    const modulePath = '/src/editor/browser/monaco.ts';
+    const { loadMonaco } = await import(modulePath) as typeof import('../../src/editor/browser/monaco.js');
+    const monaco = await loadMonaco();
+    const model = monaco.editor.getModels().find(candidate => candidate.uri.path.endsWith('/' + name))!;
+    const onInput = (event: Event) => {
+      if (!event.isTrusted || (event as InputEvent).inputType !== 'insertCompositionText') return;
+      element.removeEventListener('input', onInput, true);
+      model.applyEdits([{ range: new monaco.Range(fromLine, 1, toLine, 1), text: '' }]);
+    };
+    element.addEventListener('input', onInput, true);
+  }, { name, fromLine, toLine });
+}
 
 test('restores the last Hangul syllable deleted by an IME reset before a click', async ({ appPage: page }) => {
   const name = 'hangul-reset.md';
@@ -93,18 +110,7 @@ for (const editContext of [true, false]) {
       const paragraphs = editor.locator(':scope > p');
       await expect(paragraphs).toHaveText(['First', '', 'Last']);
 
-      // Apply the external edit within Chromium's native input event, before
-      // ProseMirror can record the DOM mutation against the old source version.
-      await editor.evaluate(async (element, file) => {
-        const modulePath = '/src/editor/browser/monaco.ts';
-        const { loadMonaco } = await import(modulePath) as typeof import('../../src/editor/browser/monaco.js');
-        const monaco = await loadMonaco();
-        const model = monaco.editor.getModels().find(candidate => candidate.uri.path.endsWith('/' + file))!;
-        element.addEventListener('input', event => {
-          if (!event.isTrusted || (event as InputEvent).inputType !== 'insertCompositionText') return;
-          model.applyEdits([{ range: new monaco.Range(3, 1, 5, 1), text: '' }]);
-        }, { capture: true, once: true });
-      }, name);
+      await deleteSourceLinesOnComposition(editor, name, 3, 5);
       const cdp = await page.context().newCDPSession(page);
       await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
       await expect(rule).toHaveCount(0);
@@ -132,6 +138,63 @@ for (const editContext of [true, false]) {
       await expect.poll(() => readWorkspaceText(page, name)).toBe(recovered);
     },
   );
+
+  for (const survives of [true, false]) {
+    test(`${survives ? 'keeps' : 'drops'} native composition for a ${survives ? 'surviving' : 'deleted'} duplicate list item (${editContext ? 'EditContext' : 'textarea'})`,
+      async ({ appPage: page }) => {
+        test.skip(process.env.E2E_TARGET === 'preview', 'The test needs the dev module to apply a synchronous Monaco model edit.');
+        if (!editContext) {
+          await page.addInitScript(() => Object.defineProperty(window, 'EditContext', { value: undefined }));
+          await page.reload();
+        }
+        const name = 'hangul-duplicate-list-items.md';
+        const original = '- Bravo\n- Alpha\n- Bravo';
+        const external = '- Bravo';
+        const expectedItem = survives ? 'Bravo요' : 'Bravo';
+        await waitForStorage(page);
+        await writeWorkspaceFile(page, name, original);
+        await treeItem(page, name).dblclick();
+        const editor = groups(page).first().getByRole('textbox', { name: 'Markdown editor' });
+        const items = editor.locator('li');
+        await expect(items).toHaveText(['Bravo', 'Alpha', 'Bravo'], { timeout: 20_000 });
+        await runCommand(page, 'Split Editor Right', /^View: Split Editor Right$/);
+        const source = groups(page).nth(1);
+        await source.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+        await expect(source.locator(editContext ? '.native-edit-context' : 'textarea.inputarea'))
+          .toBeFocused({ timeout: 20_000 });
+
+        await items.nth(survives ? 2 : 0).click();
+        await page.keyboard.press('End');
+        await deleteSourceLinesOnComposition(editor, name, 1, 3);
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send('Input.imeSetComposition', { text: '요', selectionStart: 1, selectionEnd: 1 });
+        await expect(items).toHaveText([expectedItem]);
+        await expect.poll(() => items.first().evaluate(item => {
+          const selection = item.ownerDocument.getSelection();
+          return item.contains(selection?.focusNode ?? null) && selection?.focusOffset === item.textContent?.length;
+        })).toBe(true);
+        await page.keyboard.press('ControlOrMeta+s');
+        await expect.poll(() => readWorkspaceText(page, name)).toBe('- ' + expectedItem);
+
+        if (survives) {
+          await page.keyboard.press('ControlOrMeta+z');
+          await expect(items).toHaveText(['Bravo']);
+          await page.keyboard.press('ControlOrMeta+s');
+          await expect.poll(() => readWorkspaceText(page, name)).toBe(external);
+        }
+        await page.keyboard.press('ControlOrMeta+z');
+        await expect(items).toHaveText(['Bravo', 'Alpha', 'Bravo']);
+        await page.keyboard.press('ControlOrMeta+s');
+        await expect.poll(() => readWorkspaceText(page, name)).toBe(original);
+        await page.keyboard.press('ControlOrMeta+Shift+z');
+        await expect(items).toHaveText(['Bravo']);
+        if (survives) await page.keyboard.press('ControlOrMeta+Shift+z');
+        await expect(items).toHaveText([expectedItem]);
+        await page.keyboard.press('ControlOrMeta+s');
+        await expect.poll(() => readWorkspaceText(page, name)).toBe('- ' + expectedItem);
+      },
+    );
+  }
 }
 
 for (const action of [

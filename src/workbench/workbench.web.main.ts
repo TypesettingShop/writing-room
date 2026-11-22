@@ -9,6 +9,7 @@ import './browser/parts/editor/editor.contribution.js';
 // Commands, menus and keybindings
 import './browser/parts/titlebar/menubar.contribution.js';
 import './browser/parts/editor/editorHistory.contribution.js';
+import './contrib/work/browser/work.contribution.js';
 import './contrib/quickaccess/browser/quickAccess.contribution.js';
 
 // Extensions

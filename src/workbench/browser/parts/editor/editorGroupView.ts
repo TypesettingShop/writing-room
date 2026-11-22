@@ -242,7 +242,7 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     return editor ? this.closeEditors([editor]) : Promise.resolve(false);
   }
 
-  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): Promise<boolean> {
+  closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter, confirmed?: ReadonlySet<EditorInput>): Promise<boolean> {
     const requested = Array.isArray(editors)
       ? editors as readonly EditorInput[]
       : this.editors.filter(editor => editor !== (editors as ICloseEditorsFilter).except);
@@ -251,7 +251,8 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     const closing = new Set(held);
     const asking: EditorInput[] = [];
     for (const editor of held) {
-      if (this.shouldConfirmClose(editor, closing) && !asking.some(other => editor.closeHandler?.sharesDirtyState?.(other))) {
+      if (!confirmed?.has(editor) && this.shouldConfirmClose(editor, closing)
+        && !asking.some(other => editor.closeHandler?.sharesDirtyState?.(other))) {
         asking.push(editor);
       }
     }
@@ -262,8 +263,8 @@ export class EditorGroupView extends Disposable implements IEditorGroupView {
     return this.closeEditorsAfterConfirm(held, asking);
   }
 
-  closeAllEditors(): Promise<boolean> {
-    return this.closeEditors(this.editors);
+  closeAllEditors(confirmed?: ReadonlySet<EditorInput>): Promise<boolean> {
+    return this.closeEditors(this.editors, confirmed);
   }
 
   async replaceEditors(editors: readonly IEditorReplacement[]): Promise<void> {

@@ -16,19 +16,29 @@ export interface IMarkdownSourceBlock {
   readonly endLine: number;
   readonly startOffset: number;
   readonly endOffset: number;
+  /** Nested ranges exclude trailing whitespace and the optional opening pipe of a table row. */
+  readonly children?: readonly IMarkdownSourceBlock[];
 }
 
 export interface IParsedMarkdown {
   readonly doc: Node;
   readonly blocks: readonly IMarkdownSourceBlock[];
+  readonly includesChildRanges: boolean;
 }
 
 type LineRange = [start: number, end: number];
 
+interface SourceToken {
+  readonly type: string;
+  readonly range: LineRange | null;
+  readonly children: SourceToken[];
+}
+
 interface IParseEnvironment {
   readonly source: string;
   readonly lines: number[];
-  readonly ranges: (LineRange | null)[];
+  readonly includeChildRanges: boolean;
+  readonly blocks: { range: LineRange | null; children?: readonly SourceToken[] }[];
   footnotes?: { list?: { content?: string }[] };
 }
 
@@ -197,6 +207,58 @@ function supportedTokenTypes(): Set<string> {
   return types;
 }
 
+/** Follow the block nodes emitted by MarkdownParser. Ignored wrappers like thead and tbody are transparent. */
+function sourceTokenChildren(tokens: readonly Token[]): readonly SourceToken[] | undefined {
+  const rootType = tokenSpecs[tokens[0].type.replace(/_open$/, '')]?.block;
+  if (!rootType || markdownSchema.nodes[rootType].inlineContent) return;
+
+  const children: SourceToken[] = [];
+  const stack = [children];
+  for (let index = 1; index < tokens.length - 1; index++) {
+    const token = tokens[index];
+    const spec = tokenSpecs[token.type.replace(/_(open|close)$/, '')];
+    const type = spec?.block ?? spec?.node;
+    if (!type || !markdownSchema.nodes[type].isBlock) continue;
+    if (token.nesting < 0) {
+      stack.pop();
+    } else {
+      const child: SourceToken = { type, range: token.map, children: [] };
+      stack.at(-1)!.push(child);
+      if (token.nesting > 0) stack.push(child.children);
+    }
+  }
+  return children;
+}
+
+function sourceBlock(
+  node: Node, from: number, [startLine, endLine]: LineRange, tokens: readonly SourceToken[] | undefined,
+  source: string, lines: readonly number[], nested = false,
+): IMarkdownSourceBlock {
+  const lineStart = lines[startLine] ?? source.length;
+  const lineEnd = lines[endLine] ?? source.length;
+  let startOffset = lineStart;
+  let endOffset = lineEnd;
+  if (nested) {
+    const text = source.slice(lineStart, lineEnd).trimEnd();
+    endOffset = lineStart + text.length;
+    if (node.type.spec.tableRole === 'row') {
+      // Surviving cells may follow the preceding row's opening pipe after a line-spanning deletion.
+      startOffset += (/^[ \t>]*\|[ \t]*/.exec(text)?.[0].length ?? 0);
+    }
+  }
+  const children: IMarkdownSourceBlock[] = [];
+  if (tokens?.length === node.childCount) {
+    node.forEach((child, offset, index) => {
+      const token = tokens[index];
+      if (token.type === child.type.name && token.range) {
+        children.push(sourceBlock(child, from + 1 + offset, token.range, token.children, source, lines, true));
+      }
+    });
+  }
+  return { from, to: from + node.nodeSize, startLine, endLine, startOffset, endOffset,
+    ...(children.length ? { children } : {}) };
+}
+
 function sourceLineStarts(source: string): number[] {
   return [0, ...Array.from(source.matchAll(/\r\n|\r|\n/g), match => match.index + match[0].length)];
 }
@@ -212,7 +274,7 @@ export function getOriginalMarkdown(doc: Node): IOriginalMarkdown | undefined {
   return originalMarkdown.get(doc.attrs);
 }
 
-export function createMarkdownParser(options?: IMarkdownItOptions): (source: string) => IParsedMarkdown {
+export function createMarkdownParser(options?: IMarkdownItOptions): (source: string, includeChildRanges?: boolean) => IParsedMarkdown {
   const markdownIt = createMarkdownIt(options);
   adaptBlockRules(markdownIt);
   keepUnresolvedFootnotes(markdownIt);
@@ -224,8 +286,11 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
     state.tokens = groupTopLevel(state.tokens).flatMap(group => {
       const first = group[0];
       const range = first.map;
-      env.ranges.push(range);
-      if (group.every(token => isSupported(token, supported))) return group;
+      if (group.every(token => isSupported(token, supported))) {
+        env.blocks.push({ range, children: env.includeChildRanges ? sourceTokenChildren(group) : undefined });
+        return group;
+      }
+      env.blocks.push({ range });
       const raw = new state.Token('raw_source', '', 0);
       // A nested unknown token can depend on its surrounding syntax. Keep the entire outer block.
       raw.content = range
@@ -239,26 +304,24 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
   });
   const parser = new MarkdownParser(markdownSchema, markdownIt, tokenSpecs);
 
-  return source => {
+  return (source, includeChildRanges = false) => {
     const lines = sourceLineStarts(source);
-    const env: IParseEnvironment = { source, lines, ranges: [] };
+    const env: IParseEnvironment = { source, lines, includeChildRanges, blocks: [] };
     const parsed = parser.parse(source, env);
     // ProseMirror transactions copy the document with these same attrs. Keep source
     // provenance off the public schema and out of ProseMirror JSON.
     const doc = parsed.type.create({}, parsed.content);
     const blocks: IMarkdownSourceBlock[] = [];
-    if (env.ranges.length !== 0 && env.ranges.length !== doc.childCount) {
+    if (env.blocks.length !== 0 && env.blocks.length !== doc.childCount) {
       throw new Error('Markdown token groups and document blocks do not match');
     }
     doc.forEach((node, offset, index) => {
-      const range = env.ranges[index];
-      if (!range) return;
-      const [startLine, endLine] = range;
-      const startOffset = lines[startLine] ?? source.length;
-      const endOffset = lines[endLine] ?? source.length;
-      blocks.push({ from: offset, to: offset + node.nodeSize, startLine, endLine, startOffset, endOffset });
+      const block = env.blocks[index];
+      if (block?.range) {
+        blocks.push(sourceBlock(node, offset, block.range, block.children, source, lines));
+      }
     });
-    const result = { doc, blocks };
+    const result = { doc, blocks, includesChildRanges: includeChildRanges };
     originalMarkdown.set(doc.attrs, { source, parsed: result });
     return result;
   };

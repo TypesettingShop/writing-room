@@ -31,6 +31,7 @@ import { IEditorService } from '../../../../services/editor/common/editorService
 import { WorkbenchLanguageService } from '../../../../services/language/common/languageService.js';
 import { UntitledTextEditorInput } from '../../../../services/untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService } from '../../../../services/untitled/common/untitledTextEditorService.js';
+import { WorkService } from '../../../../services/work/browser/workService.js';
 import { IExtensionService } from '../../../../services/extensions/common/extensions.js';
 import { ExtensionMessageCollector } from '../../../../services/extensions/common/extensionsRegistry.js';
 import type { IExtensionPointUser } from '../../../../services/extensions/common/extensionsRegistry.js';
@@ -437,6 +438,41 @@ describe('the open editors', () => {
     expect(group.editors[1]).toBeInstanceOf(FileEditorInput);
     expect(group.editors[1]!.isDirty()).toBe(true);
     expect(custom!.isDisposed()).toBe(true);
+  });
+
+  test("Close Work asks once for shared text and discards it even if a later prompt would have saved it", async () => {
+    provide('one.preview');
+    const editors = service(IEditorService);
+    const resource = file('shared-close-work.md');
+    const files = service(IFileService);
+    await files.writeFile(resource, new TextEncoder().encode('# Original'));
+    await editors.openEditor({ resource });
+    const text = part.activeGroup.activeEditor as FileEditorInput;
+    await text.resolve();
+    await editors.openEditor({ resource, options: { override: 'one.preview' } });
+    const custom = part.activeGroup.activeEditor as CustomEditorInput;
+    expect(custom).toBeInstanceOf(CustomEditorInput);
+    const model = await custom.acquireModel();
+    model.setValue('unsaved draft');
+    expect(text.isDirty()).toBe(true);
+    expect(custom.isDirty()).toBe(true);
+
+    const href = window.location.href;
+    const state = history.state;
+    history.replaceState(state, '', '/?work=12345678-abcd-4000-8000-123456789abc');
+    const work = instantiation.createInstance(WorkService);
+    // Keep the final navigation in this document so jsdom can follow it.
+    history.replaceState(state, '', '/#before-close');
+    try {
+      answerPick = items => items.find(item => item.id === (picks.length === 1 ? 'dontSave' : 'save'));
+      await work.close();
+      expect(picks).toHaveLength(1);
+      expect(part.activeGroup.isEmpty).toBe(true);
+      expect(window.location.hash).toBe('#works');
+      expect(new TextDecoder().decode((await files.readFile(resource)).value)).toBe('# Original');
+    } finally {
+      history.replaceState(state, '', href);
+    }
   });
 
   test('untitled text keeps its text when Reopen With puts a custom editor in its place, and goes with the last editor', async () => {

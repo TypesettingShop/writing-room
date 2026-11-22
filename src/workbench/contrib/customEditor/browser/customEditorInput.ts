@@ -22,7 +22,9 @@ import { IFileDialogService } from '../../../services/dialogs/common/dialogs.js'
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { onDidChangeResourceLabels, resourceLabelProvider } from '../../../services/label/common/resourceLabels.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
+import { UntitledTextEditorInput } from '../../../services/untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService } from '../../../services/untitled/common/untitledTextEditorService.js';
+import { FileEditorInput } from '../../files/browser/editors/fileEditorInput.js';
 import { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
 import type { CustomDocumentModel } from './customDocumentModel.js';
 import { ICustomEditorService } from './customEditorService.js';
@@ -111,6 +113,7 @@ export class CustomEditorInput extends EditorInput {
     this.closeHandler = {
       // Another editor of the same text (the text editor, say) keeps the changes: closing this one loses nothing.
       showConfirm: () => this.isDirty() && !this.isShownElsewhere(),
+      sharesDirtyState: other => this.sharesDirtyState(other),
       confirm: editors => fileDialogs.showSaveConfirm(editors.map(({ editor }) => editor.getName())),
     };
     if (kind === 'text') {
@@ -317,6 +320,15 @@ export class CustomEditorInput extends EditorInput {
     this.resolution = CustomEditorResolution.Pending;
     this.detachDocument();
     this.webview.resetForRestore();
+  }
+
+  private sharesDirtyState(other: EditorInput): boolean {
+    if (this.kind === 'custom') {
+      return other instanceof CustomEditorInput && this.document !== undefined && this.document.model === other.document?.model;
+    }
+    return isEqual(this.resource, other.resource) && (other instanceof CustomEditorInput
+      ? other.kind === 'text'
+      : other instanceof FileEditorInput || other instanceof UntitledTextEditorInput);
   }
 
   /**

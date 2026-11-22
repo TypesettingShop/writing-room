@@ -29,6 +29,25 @@ WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
 WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
 ```
 
+### 이메일과 비밀번호로 로그인하기
+
+계정으로 원고를 저장할 때는 API 서버에서 `WRITING_ROOM_AUTH`를 설정하지 않고 실행한다. 이메일·비밀번호 가입과 로그인은 같은 오리진의 `/api/auth`에서 처리한다. 테스트나 개발 중에 계정과 원고를 메모리에 둘 때는 `WRITING_ROOM_STORE=memory npm run server`를 실행한다. 재시작한 뒤에도 계정, 세션, 원고를 유지하려면 아래 Postgres 명령에서 `WRITING_ROOM_AUTH=dev`를 빼고 실행한다.
+
+세션은 로그인 때마다 새로 발급되며 30일 뒤에 만료된다. 루프백에 바인딩한 개발 서버에서 루프백 HTTP 오리진으로 열 때는 HTTP에서도 쿠키를 사용할 수 있다. 그 외에는 HTTPS로 연다. 가입 응답은 이미 가입된 이메일을 알려 준다. 이메일 인증과 비밀번호 재설정은 지원 범위에서 제외했다.
+
+API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 받고, 그 프록시가 `X-Forwarded-For` 맨 뒤에 실제 접속 주소를 추가할 때는 `WRITING_ROOM_TRUST_PROXY=true`로 설정한다. 기본값은 `false`이며, 시도 횟수 제한에 소켓의 접속 주소를 쓴다. 로컬 Vite에서 앱을 열 때는 기본값으로 충분하다.
+
+가입과 로그인 시도는 정규화한 이메일별로 15분에 10회, 접속 주소별로 15분에 60회까지 받는다. 가입이나 로그인이 성공하면 해당 이메일의 시도 횟수가 초기화된다. IPv6 주소는 /64 대역으로 센다. 시도 한도가 차면 API는 429와 `Retry-After`를 보내고, 비밀번호 처리 대기열이 차면 재시도를 요청하는 503을 보낸다.
+
+### 개발 환경에서 Google 로그인 설정하기
+
+1. Google Cloud Console에서 프로젝트를 고른다. Google Auth Platform의 **Branding**에서 동의 화면을 설정하고 `openid`, `email`, `profile` 범위를 사용한다. 테스트 상태인 외부 앱은 **Audience**에서 로그인에 쓸 계정을 테스트 사용자로 추가한다. [Google OpenID Connect 설정](https://developers.google.com/identity/openid-connect/openid-connect#appsetup)
+2. **Clients**에서 유형이 **Web application**인 OAuth 클라이언트를 만든다. **Authorized redirect URIs**에 `http://localhost:5173/api/auth/oauth/google/callback`을 추가한다.
+3. 받은 값을 API 서버 프로세스의 `WRITING_ROOM_GOOGLE_CLIENT_ID`, `WRITING_ROOM_GOOGLE_CLIENT_SECRET`에 설정한다. 비밀값은 Vite 클라이언트 설정이나 Git에 넣지 않는다. API 서버의 `WRITING_ROOM_PUBLIC_ORIGIN`은 하나의 오리진인 `http://localhost:5173`으로 설정한다. 콜백은 항상 이 오리진의 `/api/auth/oauth/google/callback`으로 돌아온다.
+4. 개발 주소를 고정하려면 `npm run dev -- --host localhost --port 5173 --strictPort`로 Vite를 실행하고 `http://localhost:5173`을 연다. 이메일·비밀번호 계정과 별도로 Google 계정이 만들어진다. 같은 이메일이라도 각 로그인 방식의 작품 목록은 서로 독립적이다.
+
+클라이언트 ID와 비밀값이 둘 다 비어 있으면 Google 로그인이 꺼지고 이메일 로그인은 계속 쓸 수 있다. Google 로그인 시작은 같은 접속 주소에서 10분에 20회까지 받는다. 서버의 대기 상태가 가득 차면 새 시작을 잠시 거절하고 이미 진행 중인 로그인은 계속 처리한다. 자동 테스트는 로컬 테스트 서버를 Google 대신 사용한다. 콘솔에 등록한 클라이언트로 실제 동의 화면과 콜백을 확인하려면 위 주소에서 Google 로그인을 한 번 진행한다.
+
 ### Postgres에 원고 저장하기
 
 Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다.
@@ -64,6 +83,14 @@ WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5
 브라우저는 **Ctrl+N**, **Ctrl+W**, **Ctrl+T**와 macOS의 대응 키를 자체 창이나 탭에 사용할 수 있다. 워크벤치의 에디터를 닫으려면 탭의 닫기 버튼이나 팔레트의 **View: Close All Editors**를 사용한다.
 
 **Go to Symbol in Workspace**는 확장이 제공한 워크스페이스 기호를 검색한다. 키는 **Ctrl+T**(macOS에서는 **Cmd+T**)이다. 검색 화면은 입력이 `#`로 시작한 채 열리고, `#` 뒤에 기호 이름을 입력한다. 커맨드 팔레트에 `#`를 입력해서는 열리지 않는다. 브라우저 탭이 이 키를 가져가면 팔레트에서 **Go to Symbol in Workspace...**를 실행한다. 팔레트는 `>` 없이 커맨드만 보여 주는 화면으로 따로 열린다. 이 화면은 기호를 제공하는 확장이 활성화된 뒤에 결과를 낸다. 자세한 동작은 [언어 기능](extension-api-language-features.md#워크스페이스-기호-go-to-symbol-in-workspace)에 있다.
+
+## 작품 열기와 닫기
+
+- **Work → New Work...**에서 작품 제목을 입력한다. 열린 글의 저장 확인을 마치면 작품을 만들고 같은 브라우저 탭에서 연다. **Cancel**을 고르면 열린 글과 서버의 작품 목록이 그대로 남는다.
+- **Work → Open Work...**에서 작품을 고른다. Welcome의 **Works**에서도 최근에 수정한 작품 20개를 열 수 있다. **More...**는 전체 목록을 연다. 현재 작품에는 **(current)**가 붙는다.
+- **Work → Close Work**는 열린 글의 저장 여부를 확인한 뒤 Welcome의 **Works**에 초점을 둔다. 작품을 열기 전과 닫기 전의 확인에서 같은 글을 여러 편집기로 열고 있었다면 한 번만 묻는다.
+- 열린 작품은 탭 제목과 주소의 `?work=<uuid>`로 확인할 수 있다. 열린 문서와 레이아웃은 작품마다 따로 저장된다. Explorer의 연습 폴더와 사용자 설정은 같은 브라우저 프로필의 창이 공유한다.
+- Works에 로그인 안내나 서버 오류가 보이면 [API 서버 실행](#api-서버-실행)을 확인한다. 명시적인 브라우저 메모리 모드에서는 새로고침하면 임시 작품이 사라지므로 Works를 만들거나 열 때 서버 연결을 안내한다.
 
 ## 파일 다루기
 
@@ -246,4 +273,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk, wr-88fi

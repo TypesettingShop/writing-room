@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contextkey.js';
+import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
 import { WorkbenchState } from '../../../../../platform/workspace/common/workspace.js';
 import { WorkService } from '../../../work/browser/workService.js';
 import { WorkspaceContextService } from '../../browser/workspaceContextService.js';
@@ -9,7 +10,7 @@ import { WorkspaceContextService } from '../../browser/workspaceContextService.j
 test('publishes the folder and its context keys without opening storage', () => {
   const context = new ContextKeyService();
   try {
-    const service = new WorkspaceContextService(context, new WorkService());
+    const service = new WorkspaceContextService(context, new WorkService(new InstantiationService()));
     const { id, folders } = service.getWorkspace();
     expect(id).toBe('writing-room');
     expect(folders).toHaveLength(1);
@@ -44,7 +45,7 @@ test('fixes the Work ID and workspace context at startup while sharing the pract
   const { state } = window.history;
   try {
     window.history.replaceState(state, '', `?work=${id}`);
-    const work = new WorkService();
+    const work = new WorkService(new InstantiationService());
     const service = new WorkspaceContextService(context, work);
     window.history.replaceState(state, '', '/');
 

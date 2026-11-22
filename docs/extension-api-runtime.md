@@ -23,15 +23,17 @@
 `logPath`는 해당 URI의 `fsPath`다. `asAbsolutePath`는 상대 경로를 이어 붙여
 정규화한다. 리소스를 실제로 읽거나 쓸 때 파일 접근 범위가 적용된다.
 
-상태는 공개 확장 ID를 붙인 키에 JSON 객체로 저장한다. 각 확장이 범위마다
-256 KiB, 두 범위를 합해 모든 확장이 2 MiB를 공유한다. 한도를 넘는 쓰기는
-거부하고 이전 값을 유지한다. 이미 전체 한도를 넘긴 상태에서 크기를 줄이는
-쓰기는 받는다. 여러 `update`는 메인 스레드에서 순서대로 처리한다.
-영속 모드에서는 다른 탭이 쓴 상태 변경도 받은 다음 읽기에 반영한다.
+상태는 공개 확장 ID를 붙인 키에 JSON 객체로 저장한다. 각 확장에는 프로필과
+각 작업 영역에서 각각 UTF-8 256 KiB 한도가 있다. 영속 데이터의 전체 2 MiB는
+같은 오리진의 프로필, 작품 없는 작업 영역, 모든 작품의 작업 영역이 공유한다.
+한도를 넘는 쓰기는 거부하고 이전 값을 유지한다. 이미 전체 한도를 넘겼어도
+상태를 줄이거나 삭제할 수 있다. 여러 `update`는 메인 스레드에서 순서대로
+처리한다. 영속 모드에서는 프로필이나 현재 작업 영역의 다른 탭이 쓴 상태
+변경도 다음 읽기에 반영한다.
 
 브라우저가 사이트 데이터를 막거나 스토리지 쓰기가 실패하는 등 탭이 메모리
 모드로 전환되면, 세션에 설치한 확장과 내장 확장, 기존에 설치한 확장 모두
-`update`로 두 상태를 그 탭에 저장할 수 있다. 같은 한도를 적용하고, 저장한
+`update`로 두 상태를 그 탭에 저장할 수 있다. 256 KiB와 2 MiB 한도는 현재 탭의 두 상태 캐시에 적용하고, 저장한
 값은 곧바로 `get`과 `keys`에 반영한다. 새로고침하면 메모리 모드에서 쓴
 값은 사라지고, 읽을 수 있는 영속 값이 있으면 그 값이 다시 보인다.
 
@@ -170,4 +172,4 @@ Worker에서 잡히지 않은 오류와 처리되지 않은 Promise 거부는 �
 | 외부 API | `debug`, `scm`, `tests`, `comments`, `authentication`, `chat`, `lm`, `notebooks`는 `undefined`다. |
 | Worker | 모듈 Worker와 중계 Worker 안의 상대 경로 `importScripts`는 오류로 거부한다. 호스트 자체의 `postMessage`, `close`, `importScripts`는 사용할 수 없다. |
 
-Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t, wr-eycu.4bd, wr-54me, wr-yxz6
+Decided in: wr-efqx.n9k, wr-mn1x, wr-jbmd.g2y, wr-s9ew, wr-eycu.u4t, wr-eycu.4bd, wr-54me, wr-yxz6, wr-88fi

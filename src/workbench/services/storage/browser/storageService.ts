@@ -3,6 +3,7 @@ import { MutableDisposable, toDisposable } from '../../../../base/common/lifecyc
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IStorageDatabase, IStorageUpdate } from '../../../../base/parts/storage/common/storage.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { isManuscriptId } from '../../../../platform/manuscript/common/manuscript.js';
 import {
   AbstractStorageService, IStorageService, parseStorageKey, StorageScope, storageKey, WillSaveStateReason,
 } from '../../../../platform/storage/common/storage.js';
@@ -13,6 +14,8 @@ export const STORAGE_VERSION_KEY = STORAGE_PREFIX + 'version';
 // 2: installed extension records carry their source and version (webExtensionsScannerService.ts migrates 1).
 export const STORAGE_SCHEMA_VERSION = 2;
 const WORKSPACE_KEY_PREFIX = storageKey(StorageScope.WORKSPACE, '');
+const WORK_STORAGE_PREFIX = STORAGE_PREFIX + 'work:';
+const utf8 = new TextEncoder();
 
 // Draft keys have the scope prefix produced by storageKey, with no browser prefix.
 type StorageMigration = (draft: Map<string, string>) => undefined;
@@ -221,6 +224,32 @@ class LocalStorageDatabase implements IStorageDatabase {
     return area.getItem(this.browserKey(key)) ?? undefined;
   }
 
+  getWorkspaceValueSizeOutsideCurrent(keyPrefix: string): number {
+    const area = this.area;
+    if (!area) {
+      throw new Error('Workbench storage is not open.');
+    }
+    this.checkVersion(area);
+    const prefix = WORKSPACE_KEY_PREFIX + keyPrefix;
+    let size = 0;
+    for (const key of this.prefixedKeys(area)) {
+      if (key.startsWith(WORK_STORAGE_PREFIX)) {
+        const separator = key.indexOf(':', WORK_STORAGE_PREFIX.length);
+        if (separator === -1 || (this.workPrefix && key.startsWith(this.workPrefix))
+          || !key.startsWith(prefix, separator + 1) || !isManuscriptId(key.slice(WORK_STORAGE_PREFIX.length, separator))) {
+          continue;
+        }
+      } else if (!this.workPrefix || !key.startsWith(STORAGE_PREFIX + prefix)) {
+        continue;
+      }
+      const value = area.getItem(key);
+      if (value !== null) {
+        size += utf8.encode(value).byteLength;
+      }
+    }
+    return size;
+  }
+
   readExternal(event: StorageEvent): ReadonlyMap<string, string | undefined> | undefined {
     const area = this.area;
     if (!area || event.storageArea !== area) {
@@ -268,11 +297,14 @@ export function writeTabStorage(browserWindow: Window | null, key: string, value
 }
 
 export class BrowserStorageService extends AbstractStorageService {
+  private readonly database: LocalStorageDatabase;
+
   constructor(browserWindow: Window = window, schemaVersion = STORAGE_SCHEMA_VERSION) {
     const work = readWindowWork(browserWindow.location);
-    const workPrefix = work ? `${STORAGE_PREFIX}work:${work.id}:` : undefined;
+    const workPrefix = work ? WORK_STORAGE_PREFIX + work.id + ':' : undefined;
     const database = new LocalStorageDatabase(() => browserWindow.localStorage, schemaVersion, workPrefix);
     super(database);
+    this.database = database;
     const document = browserWindow.document;
     this.disposables.add(addDisposableListener(document, 'visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
@@ -331,6 +363,10 @@ export class BrowserStorageService extends AbstractStorageService {
       schedule();
       return task;
     });
+  }
+
+  override getPersistedWorkspaceValueSizeOutsideCurrent(keyPrefix: string): number {
+    return this.usesMemory ? 0 : this.database.getWorkspaceValueSizeOutsideCurrent(keyPrefix);
   }
 }
 

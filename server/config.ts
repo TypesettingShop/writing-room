@@ -1,3 +1,5 @@
+import { readGoogleConfig, type GoogleConfig } from './auth/googleConfig.js';
+
 export const defaultApiPort = 8787;
 
 export interface ApiConfig {
@@ -8,6 +10,9 @@ export interface ApiConfig {
   databaseUrl?: string;
   databasePoolSize: number;
   allowedOrigins: readonly string[];
+  trustProxy: boolean;
+  allowLoopbackHttpCookies: boolean;
+  google?: GoogleConfig;
 }
 
 export function readApiPort(env: NodeJS.ProcessEnv): number {
@@ -50,7 +55,8 @@ export function readApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (auth !== undefined && auth !== 'dev') {
     throw new Error('WRITING_ROOM_AUTH must be dev or unset.');
   }
-  if (auth === 'dev' && (env.NODE_ENV === 'production' || !['127.0.0.1', '::1'].includes(host))) {
+  const allowLoopbackHttpCookies = env.NODE_ENV !== 'production' && ['127.0.0.1', '::1'].includes(host);
+  if (auth === 'dev' && !allowLoopbackHttpCookies) {
     throw new Error('Development authentication requires a loopback host and a non-production environment.');
   }
 
@@ -62,5 +68,12 @@ export function readApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   })) {
     throw new Error('WRITING_ROOM_PUBLIC_ORIGIN must contain HTTP origins without paths.');
   }
-  return { host, port, store, auth, databaseUrl, databasePoolSize, allowedOrigins };
+  const trustProxy = env.WRITING_ROOM_TRUST_PROXY ?? 'false';
+  if (trustProxy !== 'true' && trustProxy !== 'false') {
+    throw new Error('WRITING_ROOM_TRUST_PROXY must be true or false.');
+  }
+  return {
+    host, port, store, auth, databaseUrl, databasePoolSize, allowedOrigins,
+    trustProxy: trustProxy === 'true', allowLoopbackHttpCookies, google: readGoogleConfig(env, allowLoopbackHttpCookies),
+  };
 }
