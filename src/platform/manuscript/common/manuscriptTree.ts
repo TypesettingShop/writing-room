@@ -1,6 +1,6 @@
 import {
   isManuscriptId, isManuscriptNodeKind, manuscriptLimits, manuscriptNodeTypes, ManuscriptStoreError,
-  normalizeManuscriptMetadata, normalizeManuscriptTitle, type ManuscriptNode, type ManuscriptNodeKind,
+  normalizeManuscriptMetadata, normalizeManuscriptTitle, utf8Size, type ManuscriptNode, type ManuscriptNodeKind,
 } from './manuscript.js';
 import type { CreateNode, NodeDestination, UpdateNode } from './manuscriptStore.js';
 
@@ -97,14 +97,35 @@ export class ManuscriptTreeEditor {
     if (input.title === undefined && input.metadata === undefined) {
       return node;
     }
+    const metadata = input.metadata === undefined ? node.metadata : normalizeManuscriptMetadata(input.metadata);
+    if (metadata !== node.metadata) {
+      this.checkMetadataBudget(node, metadata);
+    }
     const updated = {
       ...node,
       title: input.title === undefined ? node.title : normalizeManuscriptTitle(input.title, true),
-      metadata: input.metadata === undefined ? node.metadata : normalizeManuscriptMetadata(input.metadata),
+      metadata,
       updatedAt: now,
     };
     this.changed.set(nodeId, updated);
     return updated;
+  }
+
+  private checkMetadataBudget(node: ManuscriptNode, metadata: ManuscriptNode['metadata']): void {
+    // Empty metadata has a fixed per-node cost already bounded by the node limit.
+    const size = (value: ManuscriptNode['metadata']) => Object.keys(value).length ? utf8Size(JSON.stringify(value)) : 0;
+    let total = size(metadata);
+    if (total <= size(node.metadata)) {
+      return;
+    }
+    for (const sibling of this.nodes.values()) {
+      if (sibling.id !== node.id) {
+        total += size(sibling.metadata);
+      }
+      if (total > manuscriptLimits.workMetadata) {
+        throw new ManuscriptStoreError('too_large');
+      }
+    }
   }
 
   /** Preorder traversal supplies the current tree order for a multi-node selection. */
