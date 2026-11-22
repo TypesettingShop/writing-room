@@ -158,4 +158,11 @@ v0.2.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 - 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 확장 호스트 재시작의 비동기 비활성화와 종료 단계 정리(wr-gl87), Worker 오류 귀속에서 변조 가능한 스택과 재사용한 진입 URL을 구별하는 일(wr-fy2l).
 - 빌드와 테스트: `package.json`의 `dompurify` override가 `dist`에 닿지 않는다(wr-q1ee). 브라우저 스펙의 팔레트, 도킹, 확장 설치 도우미가 스펙마다 흩어져 있다(wr-7sbl). 도킹 테스트의 공백과 Firefox 확인(wr-4rbz). Playwright를 병렬로 돌리면 시간 초과가 나는 알려진 문제는 워커 2개로 피한다.
 
-Decided in: wr-510x, wr-efqx, wr-jbmd
+## 11. 브랜치와 PR 규칙
+
+- `main`과 `develop`에는 PR로만 변경을 반영한다.
+- `main`을 대상으로 하는 PR은 같은 저장소의 `develop` 또는 `hotfix/*`에서 연다. `Check main PR source` 상태 체크가 출발 저장소와 브랜치를 확인한다. 워크플로가 `main`에 들어가고 검사에 성공한 실행이 생기면 저장소 관리자가 이 상태 체크를 `main`의 필수 검사로 지정한다.
+- 마일스톤 작업을 통합한 `milestone/*` 브랜치는 `develop`으로 PR을 연다.
+- 루트 워크트리의 `develop`에 로컬로 쌓인 `.moai/` 트래커 커밋은 `chore/tracker-*` 브랜치에 담아 `develop`으로 PR을 연다.
+
+Decided in: wr-510x, wr-efqx, wr-jbmd, wr-zqjd
