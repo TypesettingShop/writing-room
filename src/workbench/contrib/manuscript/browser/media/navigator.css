@@ -38,13 +38,15 @@
 }
 
 .manuscript-row {
+  --manuscript-indent: 16px;
+  --manuscript-row-gap: 4px;
   height: 24px;
   box-sizing: border-box;
   position: absolute;
   inset-inline: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--manuscript-row-gap);
   padding-inline: 8px;
   white-space: nowrap;
   user-select: none;
@@ -76,7 +78,7 @@
 
 .manuscript-toggle,
 .manuscript-toggle-spacer {
-  flex: 0 0 16px;
+  flex: 0 0 var(--manuscript-indent);
 }
 
 .manuscript-toggle {
@@ -92,7 +94,11 @@
 }
 
 .manuscript-twig {
+  /* Start the guides at the same inset as the top-level toggle. */
+  position: relative;
+  inset-inline-start: var(--manuscript-row-gap);
   display: flex;
+  flex: none;
   height: 100%;
   align-items: stretch;
   color: var(--vscode-descriptionForeground);
@@ -102,7 +108,7 @@
 
 .manuscript-twig span {
   position: relative;
-  width: 12px;
+  width: var(--manuscript-indent);
   font-size: 0;
 }
 
@@ -113,7 +119,7 @@
 .manuscript-twig-end::after {
   content: '';
   position: absolute;
-  inset-inline-start: 4px;
+  inset-inline-start: calc(50% - 0.5px);
   background: currentColor;
 }
 
@@ -132,7 +138,11 @@
 .manuscript-twig-end::after {
   height: 1px;
   top: 50%;
-  inset-inline-end: 0;
+  inset-inline-end: var(--manuscript-row-gap);
+}
+
+.manuscript-row:has(> .manuscript-toggle-spacer) .manuscript-twig > :last-child::after {
+  inset-inline-end: calc(0px - var(--manuscript-indent) - var(--manuscript-row-gap));
 }
 
 .manuscript-inline-editor {
@@ -157,15 +167,37 @@
   color: var(--vscode-input-foreground);
 }
 
-.manuscript-row[data-manuscript-drop='before'] {
-  box-shadow: inset 0 2px var(--vscode-focusBorder);
+.manuscript-row:is([data-manuscript-drop='before'], [data-manuscript-drop='after'])::after {
+  content: '';
+  position: absolute;
+  /* The insertion line crosses the guides above their vertical strokes. */
+  z-index: 1;
+  inset-inline: 0;
+  border-block-start: 2px solid var(--vscode-focusBorder);
+  pointer-events: none;
 }
 
-.manuscript-row[data-manuscript-drop='after'] {
-  box-shadow: inset 0 -2px var(--vscode-focusBorder);
+.manuscript-row[data-manuscript-drop='before']::after {
+  inset-block-start: 0;
+}
+
+.manuscript-row[data-manuscript-drop='after']::after {
+  inset-block-end: 0;
 }
 
 .manuscript-row[data-manuscript-drop='into'],
 .manuscript-drop-end {
   background: var(--vscode-list-dropBackground);
+}
+
+@media (forced-colors: active) {
+  /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
+  .manuscript-twig {
+    forced-color-adjust: none;
+    color: CanvasText;
+  }
+
+  .manuscript-row:is([data-manuscript-drop='before'], [data-manuscript-drop='after'])::after {
+    border-color: CanvasText;
+  }
 }
