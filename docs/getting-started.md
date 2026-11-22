@@ -105,7 +105,7 @@ npm run dev
 - WYSIWYG 툴바에서 글머리 목록, 번호 목록, 작업 목록, 표, 구분선, 이미지를 넣는다. 작업 항목의 체크박스를 눌러 완료 상태를 바꾼다. **Table** 메뉴에서는 행·열을 추가하거나 지우고 열 정렬을 선택한다.
 - 일반 문단과 제목에서 **Tab**과 **Shift+Tab**은 포커스 순서를 따른다. 목록에서는 들여쓰기와 내어쓰기에, 표에서는 다음·이전 셀 이동에 쓰며 편집기에 포커스가 남는다. 코드 블록에서는 커서 줄이나 선택된 줄을 **Tab**으로 네 칸 들여쓰고, **Shift+Tab**으로 줄 시작의 탭 하나 또는 공백 네 칸까지 뺀다.
 - 줄 첫머리에 제목, 목록, 작업 항목, 인용, 코드 펜스, 구분선의 Markdown 표기를 입력하면 블록으로 바뀐다. 굵게·기울임·취소선·인라인 코드도 닫는 기호를 입력하면 적용된다. 직후 **Backspace**로 변환을 되돌린다.
-- **Paste**는 웹에서 복사한 HTML의 문서 구조와 지원하는 서식을 가져오며, 일반 텍스트는 Markdown으로 읽는다. **Paste as Plain Text** 또는 **Ctrl+Shift+V**(macOS는 **Cmd+Shift+V**)는 클립보드의 일반 텍스트를 글자 그대로 붙인다. 붙여넣은 글은 커서 자리의 인라인 서식을 이어받지 않아 굵게, 링크 등 서식 안에서는 구간이 나뉠 수 있다. 편집기에서 복사하면 Markdown 텍스트와 렌더된 HTML이 함께 클립보드에 들어간다.
+- **Paste**는 웹에서 복사한 HTML의 문서 구조와 지원하는 서식을 가져오며, 일반 텍스트는 Markdown으로 읽는다. **Paste as Plain Text** 또는 **Ctrl+Shift+V**(macOS는 **Cmd+Shift+V**)로 이 브라우저 탭의 WYSIWYG에서 복사한 글을 붙이면 보이는 글자만 들어간다. 일반 텍스트만 담긴 클립보드는 글자 그대로 붙인다. 붙여넣은 글은 커서 자리의 인라인 서식을 이어받지 않아 굵게나 링크 안에서는 구간이 나뉠 수 있다. 다른 브라우저 탭이나 창에서 WYSIWYG로 복사한 글은 단축키로 붙이면 Markdown 원문이 들어갈 수 있으므로 메뉴의 **Paste as Plain Text**를 사용한다. [서식 없이 붙여넣기](markdown-editor.md#서식-없이-붙여넣기)
 - **Image**에서 주소와 대체 텍스트를 입력한다. 작업 폴더에 있는 이미지는 문서의 폴더를 기준으로 찾는다. 원격 HTTPS 이미지는 **Load image**를 눌러 불러온다. [이미지 표시와 저장 규칙](markdown-editor.md#편집-모드와-실행-취소)
 
 ### 분량과 집중 모드
@@ -181,4 +181,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk
