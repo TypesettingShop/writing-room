@@ -6,7 +6,7 @@ import { IContextKeyService } from '../../platform/contextkey/common/contextkey.
 import { InstantiationService } from '../../platform/instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../platform/instantiation/common/serviceCollection.js';
 import { IKeybindingService } from '../../platform/keybinding/common/keybinding.js';
-import { IStorageService } from '../../platform/storage/common/storage.js';
+import { IStorageService, StorageScope } from '../../platform/storage/common/storage.js';
 import {
   ActivityBarVisibleContext, PanelVisibleContext, SideBarVisibleContext, StatusBarVisibleContext,
 } from '../common/contextkeys.js';
@@ -15,6 +15,7 @@ import type { WorkbenchContribution } from '../common/contributions.js';
 import { IExtensionService } from '../services/extensions/common/extensions.js';
 import { IWorkbenchLayoutService, Parts } from '../services/layout/browser/layoutService.js';
 import { IStatusbarService } from '../services/statusbar/browser/statusbar.js';
+import { IWorkService } from '../services/work/common/work.js';
 import { Layout } from './layout.js';
 import type { Part } from './part.js';
 import { ActivitybarPart } from './parts/activitybar/activitybarPart.js';
@@ -48,9 +49,12 @@ export class Workbench extends Layout {
     }));
 
     const instantiation = this.instantiationService;
-    const storage = instantiation.invokeFunction(accessor => accessor.get(IStorageService));
-    this.layoutState.load(storage, this.initialState);
-    this._register(storage.onWillSaveState(() => this.layoutState.save(storage)));
+    const [storage, work] = instantiation.invokeFunction(accessor => [
+      accessor.get(IStorageService), accessor.get(IWorkService),
+    ] as const);
+    const sizeScope = work.current ? StorageScope.WORKSPACE : StorageScope.PROFILE;
+    this.layoutState.load(storage, sizeScope, this.initialState);
+    this._register(storage.onWillSaveState(() => this.layoutState.save(storage, sizeScope)));
     this._register(instantiation.invokeFunction(accessor => accessor.get(IConfigurationService)));
 
     const context = this._register(instantiation.invokeFunction(accessor => accessor.get(IContextKeyService)));
