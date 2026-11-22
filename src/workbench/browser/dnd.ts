@@ -12,15 +12,31 @@ export const treeMime = 'application/x-writing-room-tree';
 const manuscriptMime = 'application/x-writing-room-manuscript';
 
 /**
- * Calls `end` on the source's `dragend`, Escape, or `pagehide`.
- * Window `blur` and `mousemove` leave the session active on every platform.
- * Wayland can move focus away from the window during a native drag, and Firefox can deliver
- * `mousemove` just after `dragstart`.
+ * Native drops leave the payload available through the target's synchronous handling.
+ * A removed source can miss dragend, so also recover on trusted pointer input that
+ * confirms release, or on the start of a new native drag. Wayland blur can occur
+ * during a valid drag and Firefox can still deliver pointer movement with the button down.
  */
 function trackDragSession(session: DisposableStore, source: HTMLElement, end: () => void): void {
   const window = source.ownerDocument.defaultView!;
   session.add(addDisposableListener(source, 'dragend', end));
   session.add(addDisposableListener(window, 'pagehide', end));
+  session.add(addDisposableListener(window, 'drop', () => {
+    const timer = window.setTimeout(end, 0);
+    session.add(toDisposable(() => window.clearTimeout(timer)));
+  }, true));
+  const finishOrphaned = (event: PointerEvent) => {
+    if (!source.isConnected && event.isTrusted && event.isPrimary && (event.buttons & 1) === 0) {
+      end();
+    }
+  };
+  session.add(addDisposableListener(window, 'pointerup', finishOrphaned, true));
+  session.add(addDisposableListener(window, 'pointermove', finishOrphaned, true));
+  session.add(addDisposableListener(window, 'dragstart', event => {
+    if (!source.isConnected && event.isTrusted) {
+      end();
+    }
+  }, true));
   session.add(addDisposableListener(window, 'keydown', event => {
     if (event.key === 'Escape') {
       end();
@@ -303,17 +319,6 @@ export class ManuscriptDragAndDropObserver {
     transfer.effectAllowed = 'copyMove';
     transfer.setData(manuscriptMime, '1');
     trackDragSession(this.session, source, () => this.endDrag());
-    const window = source.ownerDocument.defaultView!;
-    this.session.add(addDisposableListener(window, 'drop', () => {
-      // Accepted targets end the session themselves. Defer the fallback through event dispatch.
-      const active = this.active;
-      const timer = window.setTimeout(() => {
-        if (this.active === active) {
-          this.endDrag();
-        }
-      }, 0);
-      this.session.add(toDisposable(() => window.clearTimeout(timer)));
-    }, true));
   }
 
   getDraggedItems(event: DragEvent, element: HTMLElement): DraggedManuscriptItems | undefined {
