@@ -40,8 +40,8 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
-import { bindMarkdownGutter, MarkdownEditorView, onMarkdownScrollbar } from './markdownEditorGutter.js';
-import { markdownCaretParagraphKey, toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
+import { bindMarkdownGutter, MarkdownEditorView, moveFromMarkdownCaretParagraph, onMarkdownScrollbar } from './markdownEditorGutter.js';
+import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
 import {
@@ -247,6 +247,7 @@ export class MarkdownEditorPane extends EditorPane {
           'aria-readonly': String(input.isReadonly()), tabindex: '0',
         }),
         ...markdownClipboard,
+        handleKeyDown: moveFromMarkdownCaretParagraph,
         handleScrollToSelection: view => {
           if (this.pointerSelection) return false;
           this.scheduleTypewriter();
@@ -268,8 +269,7 @@ export class MarkdownEditorPane extends EditorPane {
           }, () => !input.isReadonly()),
         },
         dispatchTransaction: transaction => {
-          // Read-only gutters may need a display-only paragraph to hold a collapsed selection.
-          if (!transaction.docChanged || !input.isReadonly() || transaction.getMeta(markdownCaretParagraphKey) === true) {
+          if (!transaction.docChanged || !input.isReadonly()) {
             // Native read-only selection and table cell drags can arrive without the pointer flag.
             // Keep the viewport in place unless the transaction requested scrolling.
             this.pointerSelection = transaction.getMeta('pointer') === true
