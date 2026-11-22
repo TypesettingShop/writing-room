@@ -8,6 +8,7 @@ import { EditorView } from 'prosemirror-view';
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
 import { Emitter } from '../../../../base/common/event.js';
+import { getKeybindingPlatform } from '../../../../base/common/keybindings.js';
 import { combinedDisposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { clearMonacoUndoHistory } from '../../../../editor/browser/monaco.js';
@@ -309,9 +310,12 @@ export class MarkdownEditorPane extends EditorPane {
         if (event.pointerType !== 'touch') this.commitComposition();
       }, true));
       const isOverScrollbar = (event: MouseEvent) => event.target === this.surface && onMarkdownScrollbar(this.surface, event);
+      // macOS also opens the context menu on Control+click, which reports the primary button.
+      const mac = getKeybindingPlatform(view.dom.ownerDocument.defaultView!.navigator.platform) === 'mac';
       this.session.add(addDisposableListener(this.surface, 'mousedown', event => {
-        // The app positions the caret on contextmenu. Keep the browser from changing the selection first.
-        if (event.button === 2 && !event.shiftKey && !isOverScrollbar(event)) event.preventDefault();
+        // The app positions the caret on contextmenu. Keep the browser and ProseMirror from changing the selection first.
+        const secondary = event.button === 2 || (mac && event.button === 0 && event.ctrlKey);
+        if (secondary && !event.shiftKey && !isOverScrollbar(event)) event.preventDefault();
       }, true));
       this.session.add(addDisposableListener(this.surface, 'contextmenu', event => {
         if (event.shiftKey || isOverScrollbar(event)) return;

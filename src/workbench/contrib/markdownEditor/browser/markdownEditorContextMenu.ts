@@ -63,13 +63,15 @@ export function moveMarkdownContextCaret(
   const at = doc.resolve(hit?.pos ?? selection.head);
   const next = markdownGutterSelection(surface, view, event)
     ?? (event.clientY < view.dom.getBoundingClientRect().top ? Selection.atStart(doc) : TextSelection.between(at, at));
-  if (view.editable) {
-    // Keep a caret already at the hit position and preserve its pending marks.
-    if (!selection.eq(next)) view.dispatch(view.state.tr.setSelection(next).setMeta('pointer', true));
-  } else {
+  if (!view.editable) {
+    // A read-only view only syncs a native selection that is already inside it, so place that one first.
     const { node, offset } = view.domAtPos(next.head);
     view.dom.ownerDocument.getSelection()?.collapse(node, offset);
   }
+  // Keep a caret already at the hit position and preserve its pending marks. Without the pointer flag, a
+  // read-only view would adopt the native caret later as a plain selection, and typewriter centering would
+  // scroll the surface and close the menu.
+  if (!selection.eq(next)) view.dispatch(view.state.tr.setSelection(next).setMeta('pointer', true));
 }
 
 export function showMarkdownContextMenu(

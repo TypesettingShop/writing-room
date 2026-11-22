@@ -28,6 +28,16 @@ async function openTypewriterMarkdown(page: Page, name: string, text: string): P
   return openMarkdown(page, name, text);
 }
 
+async function openReadOnlyMarkdown(page: Page, fixture = 'Open Read-only Markdown Fixture'): Promise<Locator> {
+  await seedInstalledExtensions(page, [{
+    manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
+    location: extensionFixtureLocation('memfs'),
+  }]);
+  await page.reload();
+  await runCommand(page, fixture, new RegExp(`^${fixture}$`));
+  return richEditor(groups(page).first());
+}
+
 test('opens Markdown from Explorer and carries its draft and saved text through reloads', async ({ appPage: page }) => {
   const name = 'draft.markdown';
   const group = await openMarkdown(page, name, 'First\n=====\n\nHello\n');
@@ -999,14 +1009,7 @@ test('moves the Markdown caret and opens basic editing commands outside a select
 
 test('allows Copy and Select All in the read-only Markdown context menu', async ({ appPage: page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await seedInstalledExtensions(page, [{
-    manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
-    location: extensionFixtureLocation('memfs'),
-  }]);
-  await page.reload();
-  await runCommand(page, 'Open Read-only Markdown Fixture', /^Open Read-only Markdown Fixture$/);
-  const group = groups(page).first();
-  const editor = richEditor(group);
+  const editor = await openReadOnlyMarkdown(page);
   const text = editor.getByText('Read-only Markdown');
   await expect(text).toBeVisible({ timeout: 20_000 });
   await expect(editor).toHaveAttribute('contenteditable', 'false');
@@ -1040,6 +1043,35 @@ test('allows Copy and Select All in the read-only Markdown context menu', async 
   await menu.getByRole('menuitem', { name: 'Select All' }).click();
   await expect(editor).toBeFocused();
   await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Read-only Markdown');
+});
+
+test('keeps the read-only Markdown context menu open with typewriter scrolling enabled', async ({ appPage: page }) => {
+  await page.addInitScript(key => {
+    localStorage.setItem(key, JSON.stringify({ 'markdownEditor.typewriterScroll': true }));
+  }, settingsKey);
+  const editor = await openReadOnlyMarkdown(page, 'Open Read-only Typewriter Fixture');
+  const line = editor.getByText('Line 3', { exact: true });
+  await expect(line).toBeVisible({ timeout: 20_000 });
+  await expect(editor).toHaveAttribute('aria-readonly', 'true');
+  const surface = groups(page).first().locator('.markdown-editor-surface');
+  await expect(surface).toHaveClass(/markdown-typewriter/);
+  const scrollTop = await surface.evaluate(async element => {
+    element.scrollTop = 12;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return element.scrollTop;
+  });
+  expect(scrollTop).toBe(12);
+  await line.click({ button: 'right', position: { x: 18, y: 8 } });
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
+  const caret = await line.evaluate(async element => {
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const selection = document.getSelection()!;
+    return { collapsed: selection.isCollapsed, onClickedLine: element.contains(selection.anchorNode) };
+  });
+  expect(caret).toEqual({ collapsed: true, onClickedLine: true });
+  await expect(menu).toBeVisible();
+  expect(await surface.evaluate(element => element.scrollTop)).toBe(scrollTop);
 });
 
 test('cuts, copies and pastes through the Markdown selection toolbox and sanitizes rich paste', async ({ appPage: page }) => {

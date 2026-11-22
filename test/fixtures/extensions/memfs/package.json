@@ -4,8 +4,14 @@
   "version": "1.0.0",
   "engines": { "vscode": "*" },
   "browser": "./extension.js",
-  "activationEvents": ["onFileSystem:memfs", "onFileSystem:memfs-readonly", "onCommand:fixture.memfs.openReadOnlyMarkdown"],
+  "activationEvents": [
+    "onFileSystem:memfs", "onFileSystem:memfs-readonly",
+    "onCommand:fixture.memfs.openReadOnlyMarkdown", "onCommand:fixture.memfs.openReadOnlyTypewriter"
+  ],
   "contributes": {
-    "commands": [{ "command": "fixture.memfs.openReadOnlyMarkdown", "title": "Open Read-only Markdown Fixture" }]
+    "commands": [
+      { "command": "fixture.memfs.openReadOnlyMarkdown", "title": "Open Read-only Markdown Fixture" },
+      { "command": "fixture.memfs.openReadOnlyTypewriter", "title": "Open Read-only Typewriter Fixture" }
+    ]
   }
 }

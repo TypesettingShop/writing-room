@@ -33,7 +33,10 @@ function applyPastedUnderline(document: Document, content: DocumentFragment, und
   }
 }
 
-/** Supply the browser's clipboard formats to the same paste handler as a keyboard paste. */
+/**
+ * Supply the browser's clipboard formats to the same paste handler as a keyboard paste. With `plain`, read
+ * only text/plain and insert it literally through ProseMirror's plain-text paste, as Ctrl/Cmd+Shift+V does.
+ */
 export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean, plain = false): Promise<void> {
   const clipboard = view.dom.ownerDocument.defaultView?.navigator.clipboard;
   if (!clipboard) throw new Error('Clipboard access is unavailable');
