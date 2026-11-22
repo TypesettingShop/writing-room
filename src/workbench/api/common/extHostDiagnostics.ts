@@ -45,6 +45,7 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
     private readonly sync: {
       changeMany(entries: readonly MarkerChangeDto[]): void;
       clear(): void;
+      didClear?(): void;
       changed(uris: readonly vscode.Uri[]): void;
       disposed(): void;
     },
@@ -138,6 +139,7 @@ export class DiagnosticCollection implements vscode.DiagnosticCollection {
   clear(): void {
     this.checkDisposed();
     this.clearData();
+    this.sync.didClear?.();
   }
 
   forEach(
@@ -220,6 +222,7 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
   createDiagnosticCollection(
     key: string, name?: string, id = 'unknown extension',
     canonicalResource: (uri: vscode.Uri) => vscode.Uri = uri => uri,
+    didClear?: () => void,
   ): vscode.DiagnosticCollection {
     const owned = this.collections.get(key) ?? new Map<string, DiagnosticCollection>();
     this.collections.set(key, owned);
@@ -241,6 +244,7 @@ export class ExtHostDiagnostics implements ExtHostDiagnosticsShape {
     const collection = new DiagnosticCollection(name, {
       changeMany: entries => report(this.proxy.$changeMany(key, owner, entries)),
       clear: () => report(this.proxy.$clear(key, owner)),
+      didClear,
       changed: uris => this.changed(uris),
       disposed: () => {
         if (owned.get(owner) === collection) {
@@ -365,7 +369,8 @@ extHostApiRegistry.register('diagnostics', ({ rpc, getService }) => {
       namespaces: {
         languages: {
           createDiagnosticCollection: (name?: string) =>
-            diagnostics.createDiagnosticCollection(key, name, id, uri => documents.documentResource(key, uri)),
+            diagnostics.createDiagnosticCollection(key, name, id, uri => documents.documentResource(key, uri),
+              name === 'markdownlint' ? () => documents.refreshMarkdownlintDocuments(key) : undefined),
           getDiagnostics: ((resource?: vscode.Uri) => diagnostics.getDiagnostics(resource === undefined
             ? undefined : documents.documentResource(key, resource))) as typeof vscode.languages.getDiagnostics,
           // Looked up on each call: a released extension that is activated again gets events again.

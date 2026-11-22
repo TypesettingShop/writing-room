@@ -15,9 +15,14 @@ import type { DocumentDelta, MainThreadDocumentsShape, OpenDocumentOptions } fro
 export enum TextDocumentChangeReason { Undo = 1, Redo = 2 }
 export enum TextDocumentSaveReason { Manual = 1, AfterDelay = 2, FocusOut = 3 }
 
+interface MarkdownlintRefresh {
+  readonly opened: Emitter<vscode.TextDocument>;
+  pending: boolean;
+}
+
 export class ExtHostDocuments extends Disposable {
   private readonly extensionIds = new Map<string, string>();
-  private readonly markdownlintRefresh = new Map<string, Emitter<vscode.TextDocument>>();
+  private readonly markdownlintRefresh = new Map<string, MarkdownlintRefresh>();
   private readonly markdownlint = new ExtHostMarkdownlintDocuments();
   private readonly documents = new Map<string, ExtHostDocumentData>();
   private readonly byResource = new Map<string, string>();
@@ -30,14 +35,20 @@ export class ExtHostDocuments extends Disposable {
   private readonly saved = this._register(new Emitter<vscode.TextDocument>());
   private readonly saveParticipant = this._register(new ExtHostDocumentSaveParticipant());
 
-  constructor(readonly proxy: MainThreadDocumentsShape, private readonly isLive: (key: string) => boolean) {
+  constructor(
+    readonly proxy: MainThreadDocumentsShape,
+    private readonly isLive: (key: string) => boolean,
+    private readonly visibleDocuments: () => readonly vscode.TextDocument[] = () => [],
+  ) {
     super();
   }
 
   associateExtension(extension: HostExtensionDescription): void {
     this.extensionIds.set(extension.key, extension.id.toLowerCase());
+    this.markdownlintRefresh.get(extension.key)?.opened.dispose();
+    this.markdownlintRefresh.delete(extension.key);
     if (usesMarkdownlintDocumentAliases(extension)) {
-      this.markdownlintRefresh.set(extension.key, new Emitter());
+      this.markdownlintRefresh.set(extension.key, { opened: new Emitter(), pending: false });
     }
   }
 
@@ -53,20 +64,23 @@ export class ExtHostDocuments extends Disposable {
     return this.markdownlintRefresh.has(extension) ? this.markdownlint.resource(uri) : uri;
   }
 
-  refreshMarkdownlintDocuments(extension: string, editors: readonly Pick<vscode.TextEditor, 'document'>[]): void {
+  refreshMarkdownlintDocuments(extension: string): void {
     const refresh = this.markdownlintRefresh.get(extension);
-    if (!refresh) return;
+    if (!refresh || refresh.pending) return;
 
-    // markdownlint clears its collection before revisiting visible TextEditors. A rich manuscript
-    // only has a TextDocument, so notify this extension about those missing from its scan.
-    const visible = new Set(editors.map(editor => editor.document));
-    const hidden = [...this.documents.values()].flatMap(({ document }) => {
-      const view = this.markdownlint.document(document);
-      return view !== document && !visible.has(view) ? [document] : [];
-    });
-    if (hidden.length) queueMicrotask(() => {
-      for (const document of hidden) {
-        if (!document.isClosed) refresh.fire(document);
+    // A collection reset tells us markdownlint is rebuilding its diagnostics. Its synchronous
+    // scan covers real TextEditors. Revisit the other open manuscripts after that scan starts.
+    refresh.pending = true;
+    queueMicrotask(() => {
+      if (this.markdownlintRefresh.get(extension) !== refresh) return;
+      refresh.pending = false;
+      if (!this.isLive(extension)) return;
+
+      const visible = new Set(this.visibleDocuments());
+      for (const { document } of this.documents.values()) {
+        if (document.uri.scheme === 'manuscript' && !visible.has(document)) {
+          refresh.opened.fire(document);
+        }
       }
     });
   }
@@ -155,7 +169,7 @@ export class ExtHostDocuments extends Disposable {
       return document === event.document ? event : { ...event, document };
     };
     const refresh = this.markdownlintRefresh.get(extension);
-    const opened = refresh ? Event.any(this.opened.event, refresh.event) : this.opened.event;
+    const opened = refresh ? Event.any(this.opened.event, refresh.opened.event) : this.opened.event;
     return {
       onDidOpenTextDocument: this.event(extension, opened, readable, view),
       onDidCloseTextDocument: this.event(extension, this.closed.event, readable, view),
@@ -193,7 +207,7 @@ export class ExtHostDocuments extends Disposable {
     this.subscriptions.get(extension)?.dispose();
     this.subscriptions.delete(extension);
     this.extensionIds.delete(extension);
-    this.markdownlintRefresh.get(extension)?.dispose();
+    this.markdownlintRefresh.get(extension)?.opened.dispose();
     this.markdownlintRefresh.delete(extension);
   }
 
@@ -205,7 +219,7 @@ export class ExtHostDocuments extends Disposable {
       data.close();
     }
     this.extensionIds.clear();
-    for (const refresh of this.markdownlintRefresh.values()) refresh.dispose();
+    for (const refresh of this.markdownlintRefresh.values()) refresh.opened.dispose();
     this.markdownlintRefresh.clear();
     this.documents.clear();
     this.byResource.clear();

@@ -43,7 +43,7 @@ export class ExtHostMarkdownlintDocuments {
   }
 
   resource(uri: vscode.Uri): vscode.Uri {
-    // Only URIs issued by this host are aliases. A parsed or fabricated gist URI remains a gist URI.
+    // Keep real gist resources separate even if their path matches an alias. Only issued URI objects map back.
     return this.resources.get(uri) ?? uri;
   }
 }

@@ -97,9 +97,9 @@ Open VSX의 실제 웹 확장을 수정 없이 설치해 개발 서버와 프리
 | 바닥 | `Tyriar.sort-lines` | 1.12.0 | MIT | `feecf004b40c9a9e73ba81347d61b69bb231f24df72d01b6b9a17435542deec9` | 선택한 줄 정렬: 키와 에디터 컨텍스트 메뉴, 제거 (`real-markdownlint.spec.ts`) |
 | 바닥 | `vscode.simple-browser` | 1.95.3 | MIT | `9c3694e2707ce18863d49b7447955e36f9faf9c98ca8035170795d08fa9844cb` | WebviewPanel과 새로고침 뒤 복원 (`real-markdown-preview.spec.ts`) |
 
-원고에서 연 Markdown 문서는 일반 확장에 `manuscript://<workId>/<nodeId>.md`로 제공한다. `DavidAnson.vscode-markdownlint` 0.62.1은 이 스킴을 검사 대상에 넣지 않으므로, 이 버전의 확장 호스트 API에서는 열린 원고를 `gist:` URI로 보여 준다. 확장이 표시된 에디터를 다시 검사할 때, 이미 열려 있는 WYSIWYG 원고도 그 확장의 열기 이벤트로 전달한다. 이 보기는 같은 문서와 편집 이벤트를 공유하며, 게시한 진단은 원본 `manuscript:` URI의 Problems와 원문 편집기에 표시된다. 원고는 메모리의 텍스트를 검사하는 경로를 사용하므로 markdownlint의 파일 기반 설정 탐색은 작업 폴더의 일반 Markdown 파일에 적용된다. 서명된 0.62.1 패키지로 제목 간격 진단 `MD018`의 표시·해제와 원고 저장을 확인했다 (`test/e2e/manuscript-navigator.spec.ts`).
-
 바닥 셋은 작은 확장으로 한 영역만 따로 돌려 주 후보가 깨질 때 어느 영역의 문제인지 좁힌다. 이 표에 없는 확장이 돈다고 보장하지 않는다. `main`만 있고 `browser` 진입점이 없는 확장은 기여만 적용되고 코드는 돌지 않는다([확장 설치](extension-installation.md)). 캐시를 채우고 이 스위트를 돌리는 법은 [시작하기](getting-started.md#검증하기)에 있다.
+
+원고에서 연 Markdown 문서는 일반 확장에 `manuscript://<workId>/<nodeId>.md`로 제공한다. `DavidAnson.vscode-markdownlint` 0.62.1은 이 스킴을 검사 대상에 넣지 않으므로, 이 버전의 확장 호스트 API에서는 열린 원고를 `gist:` URI로 보여 준다. 확장이 진단 컬렉션을 비우고 다시 검사할 때, 표시 텍스트 에디터 목록에 들지 않은 WYSIWYG 원고도 이 확장의 열기 이벤트로 전달한다. 이 보기는 같은 문서와 편집 이벤트를 공유하며, 게시한 진단은 원본 `manuscript:` URI의 Problems와 원문 편집기에 표시된다. 확장에 발급된 `gist:` URI 객체는 URI를 받는 진단 API, `openTextDocument`, `showTextDocument`, `setTextDocumentLanguage`에서 원본으로 돌아간다. 문자열을 다시 파싱한 사본은 일반 `gist:` URI로 처리한다. 진단 컬렉션 순회와 진단 변경 이벤트는 원본 URI를 보고한다. `workspace.applyEdit`나 제공자가 돌려준 `WorkspaceEdit`에 담긴 별칭 URI는 원고에 적용되지 않으며, 0.62.1의 빠른 수정은 `TextEditor.edit`를 쓴다. `languages.match`의 스킴 선택자는 전달받은 문서의 URI를 비교한다. `vscode.execute*`에는 원본 URI를 사용한다. 원고는 메모리의 텍스트를 검사하는 경로를 사용하므로 markdownlint의 파일 기반 설정 탐색은 작업 폴더의 일반 Markdown 파일에 적용된다. 서명된 0.62.1 패키지로 제목 간격 진단 `MD018`의 표시·해제와 원고 저장을 확인했다 (`test/e2e/manuscript-navigator.spec.ts`).
 
 ## 매니페스트와 진입점
 

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type * as vscode from 'vscode';
 import { expect, test, vi } from 'vitest';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -7,6 +8,7 @@ import { ExtHostDocuments, TextDocumentSaveReason } from '../../common/extHostDo
 import { ExtHostDiagnostics, Diagnostic, DiagnosticSeverity } from '../../common/extHostDiagnostics.js';
 import { ExtHostDocumentSaveParticipant } from '../../common/extHostDocumentSaveParticipant.js';
 import { ExtHostTextEditor } from '../../common/extHostTextEditor.js';
+import { ExtHostTextEditors } from '../../common/extHostTextEditors.js';
 import type { ExtHostTextEditorDecorations } from '../../common/extHostTextEditorDecorations.js';
 import { ExtHostDocumentsProxy, MainThreadDocumentsProxy } from '../../common/extHost.protocol.documents.js';
 import type { MainThreadDocumentsShape, MainThreadEditorsShape } from '../../common/extHost.protocol.documents.js';
@@ -46,19 +48,23 @@ test('a mirror reads Monaco changes in their original order across replace, undo
   expect(data.document.version).toBe(4);
 });
 
+const markdownlintExtension = {
+  id: 'DavidAnson.vscode-markdownlint', key: 'lint', location: '', entry: '', activationEvents: [],
+  manifest: { publisher: 'DavidAnson', name: 'vscode-markdownlint', version: '0.62.1' },
+};
+
 test('markdownlint aliases share one live manuscript and route diagnostics only for the supported extension', async () => {
   const proxy = {
     $openDocument: vi.fn(async () => 'model'),
     $saveDocument: vi.fn(async () => true),
   };
-  const documents = new ExtHostDocuments(proxy as unknown as MainThreadDocumentsShape, () => true);
+  let visibleDocuments: readonly vscode.TextDocument[] = [];
+  const documents = new ExtHostDocuments(proxy as unknown as MainThreadDocumentsShape, () => true, () => visibleDocuments);
+  const editors = new ExtHostTextEditors({} as MainThreadEditorsShape, documents, {} as ExtHostTextEditorDecorations);
   const $changeMany = vi.fn(async () => {});
   const diagnostics = new ExtHostDiagnostics({ $changeMany, $clear: async () => {}, $requestMarkers: async () => {} });
   try {
-    const extension = {
-      id: 'DavidAnson.vscode-markdownlint', key: 'lint', location: '', entry: '', activationEvents: [],
-      manifest: { publisher: 'DavidAnson', name: 'vscode-markdownlint', version: '0.62.1' },
-    };
+    const extension = markdownlintExtension;
     documents.associateExtension(extension);
     documents.associateExtension({ ...extension, key: 'new', manifest: { ...extension.manifest, version: '0.63.0' } });
     documents.associateExtension({ ...extension, key: 'other', id: 'fixture.lint' });
@@ -77,7 +83,16 @@ test('markdownlint aliases share one live manuscript and route diagnostics only 
     seen.onDidChangeTextDocument(changed);
     seen.onDidSaveTextDocument(saved);
     seen.onDidCloseTextDocument(closed);
-    documents.refreshMarkdownlintDocuments('lint', []);
+    const editorApi = editors.createApi('lint');
+    expect(editorApi.visibleTextEditors).toEqual([]);
+    expect(editorApi.visibleTextEditors).toEqual([]);
+    await Promise.resolve();
+    expect(opened).not.toHaveBeenCalled();
+
+    const collection = diagnostics.createDiagnosticCollection('lint', 'markdownlint', extension.id,
+      resource => documents.documentResource('lint', resource), () => documents.refreshMarkdownlintDocuments('lint'));
+    collection.clear();
+    collection.clear();
     await Promise.resolve();
     expect(otherOpened).not.toHaveBeenCalled();
     await documents.$acceptDocumentDelta({ added: [{ id: 'second', uri: second, ...snapshot }] });
@@ -88,8 +103,9 @@ test('markdownlint aliases share one live manuscript and route diagnostics only 
     expect(another.uri.toString()).not.toBe(doc.uri.toString());
     expect(opened.mock.calls.map(([document]) => document)).toEqual([doc, another]);
     expect(otherOpened).toHaveBeenCalledExactlyOnceWith(documents.get('second'));
-    documents.refreshMarkdownlintDocuments('other', []);
-    documents.refreshMarkdownlintDocuments('lint', [{ document: doc }]);
+    visibleDocuments = [canonical];
+    documents.refreshMarkdownlintDocuments('other');
+    collection.clear();
     await Promise.resolve();
     expect(opened.mock.calls.map(([document]) => document)).toEqual([doc, another, another]);
     expect(doc.getText()).toBe('##Heading');
@@ -101,8 +117,6 @@ test('markdownlint aliases share one live manuscript and route diagnostics only 
     const copied = URI.parse(doc.uri.toString());
     expect(documents.documentResource('lint', copied)).toBe(copied);
 
-    const collection = diagnostics.createDiagnosticCollection('lint', 'markdownlint', extension.id,
-      resource => documents.documentResource('lint', resource));
     const warning = new Diagnostic(new Range(0, 0, 0, 2), 'MD018', DiagnosticSeverity.Warning);
     collection.set(doc.uri, [warning]);
     expect($changeMany).toHaveBeenLastCalledWith('lint', 'markdownlint', [[uri, expect.any(Array)]]);
@@ -133,6 +147,31 @@ test('markdownlint aliases share one live manuscript and route diagnostics only 
     expect($changeMany).toHaveBeenLastCalledWith('lint', 'markdownlint', [[uri, undefined]]);
   } finally {
     diagnostics.dispose();
+    editors.dispose();
+    documents.dispose();
+  }
+});
+
+test('reassociation disposes the previous markdownlint refresh and removes its alias scope', async () => {
+  const documents = new ExtHostDocuments({} as MainThreadDocumentsShape, () => true);
+  try {
+    const extension = markdownlintExtension;
+    documents.associateExtension(extension);
+    await documents.$acceptDocumentDelta({ added: [{
+      id: 'model', uri: URI.parse('manuscript://work/node.md'), lines: ['heading'],
+      eol: '\n', version: 1, language: 'markdown', dirty: false,
+    }] });
+    const open = vi.fn();
+    documents.events(extension.key, extension.id).onDidOpenTextDocument(open);
+    expect(documents.allFor(extension.key)[0].uri.scheme).toBe('gist');
+    documents.refreshMarkdownlintDocuments(extension.key);
+
+    documents.associateExtension({ ...extension, manifest: { ...extension.manifest, version: '0.63.0' } });
+    await Promise.resolve();
+
+    expect(open).not.toHaveBeenCalled();
+    expect(documents.allFor(extension.key)[0]).toBe(documents.get('model'));
+  } finally {
     documents.dispose();
   }
 });

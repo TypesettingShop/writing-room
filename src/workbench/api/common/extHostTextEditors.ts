@@ -30,7 +30,7 @@ export class ExtHostTextEditors extends Disposable {
     return this.active === null ? undefined : this.editors.get(this.active)?.value;
   }
 
-  private get visibleTextEditors(): readonly vscode.TextEditor[] {
+  get visibleTextEditors(): readonly vscode.TextEditor[] {
     return this.visible.flatMap(id => this.editors.get(id)?.value ?? []);
   }
 
@@ -71,11 +71,7 @@ export class ExtHostTextEditors extends Disposable {
     };
     return {
       get activeTextEditor() { return getActive(); },
-      get visibleTextEditors() {
-        const editors = getVisible();
-        service.documents.refreshMarkdownlintDocuments(key, editors);
-        return editors;
-      },
+      get visibleTextEditors() { return getVisible(); },
       createTextEditorDecorationType: (options: vscode.DecorationRenderOptions) => this.decorations.create(key, options),
       onDidChangeActiveTextEditor,
       onDidChangeVisibleTextEditors,
