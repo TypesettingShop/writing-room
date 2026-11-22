@@ -76,13 +76,13 @@ function parseSource(text: string): SourceDocument {
 }
 
 /**
- * A new empty top-level paragraph writes no Markdown, but it would still shift the serializer's block
- * alignment and so the source gaps it keeps. Authored Enter paragraphs must count when comparing
- * edits for history, but they also write nothing while empty.
+ * Drop temporary carets and new trailing blanks. Keep authored Enter blanks when comparing edits
+ * for history. Omit them when serializing so one-for-one markup changes can reuse original gaps
+ * even when the changed block has fresh attrs.
  */
 function withoutUnwrittenParagraphs(doc: Node, source: Node, forSerialization = false): Node {
   const blocks = doc.content.content.filter(node => !isEmptyMarkdownCaretParagraph(node)
-    && (!forSerialization || node.content.size > 0 || !caretEnterParagraphs.has(node.attrs)));
+    && (!forSerialization || !isEmptyEnterParagraph(node)));
   let content = blocks.length && blocks.length !== doc.childCount ? Fragment.fromArray(blocks) : doc.content;
   let parsed: Set<Node> | undefined;
   while (content.childCount > 1) {
@@ -93,6 +93,24 @@ function withoutUnwrittenParagraphs(doc: Node, source: Node, forSerialization = 
     content = content.cut(0, content.size - last.nodeSize);
   }
   return content === doc.content ? doc : doc.copy(content);
+}
+
+function isEmptyEnterParagraph(node: Node): boolean {
+  return node.content.size === 0 && caretEnterParagraphs.has(node.attrs);
+}
+
+/** Leave out empty Enter paragraphs and move `pos`, a gap between blocks, with the blocks after them. */
+function withoutEnterParagraphs(doc: Node, pos: number): { readonly doc: Node; readonly pos: number } {
+  const blocks: Node[] = [];
+  let shift = 0;
+  doc.forEach((node, offset) => {
+    if (!isEmptyEnterParagraph(node)) {
+      blocks.push(node);
+    } else if (offset < pos) {
+      shift += node.nodeSize;
+    }
+  });
+  return blocks.length === doc.childCount ? { doc, pos } : { doc: doc.copy(Fragment.fromArray(blocks)), pos: pos - shift };
 }
 
 interface CaretParagraph {
@@ -859,6 +877,9 @@ export class MarkdownEditorModel extends Disposable {
     if (caret) this.removeCaretParagraph(caret, mapping);
     const { state } = this;
     const doc = next === previous ? state.doc : updatedSource.doc;
+    // An Enter blank has no source block. Find the caret's target among the written blocks.
+    const written = caret && next !== previous ? withoutEnterParagraphs(state.doc, caret.pos) : undefined;
+    const oldDoc = written?.doc ?? state.doc;
     let before: IParsedMarkdown | undefined;
     let matches: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null> | undefined;
     let externalMap: StepMap | undefined;
@@ -867,15 +888,16 @@ export class MarkdownEditorModel extends Disposable {
       // A rich write or incremental paragraph edit may have left older parser ranges.
       const parsed = original?.source === previous ? original.parsed : parseMarkdownWithSource(previous);
       const after = next === previous ? parsed : getOriginalMarkdown(doc)?.parsed ?? parseMarkdownWithSource(next);
-      if (state.doc.eq(parsed.doc)) {
+      if (oldDoc.eq(parsed.doc)) {
         before = parsed;
         matches = sourceBlockMatches(parsed, after, previous, next, changes);
       }
       if (hasDeferredMapping && batch) {
-        externalMap = sourceBatchChangeMap(state.doc, parsed, after, matches);
+        // The matches describe the written blocks' offsets, which an Enter blank would shift.
+        externalMap = sourceBatchChangeMap(state.doc, parsed, after, oldDoc === state.doc ? matches : undefined);
       }
     }
-    const caretGap = caret && remapCaretGap(caret, state.doc, doc, before, matches);
+    const caretGap = caret && remapCaretGap(written ? { ...caret, pos: written.pos } : caret, oldDoc, doc, before, matches);
     let afterSource = mapping.maps.length;
     if (next !== previous) {
       this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });

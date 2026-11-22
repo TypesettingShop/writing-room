@@ -1,4 +1,4 @@
-import { baseKeymap } from 'prosemirror-commands';
+import { baseKeymap, splitBlock } from 'prosemirror-commands';
 import { redoDepth, undoDepth } from 'prosemirror-history';
 import { Fragment } from 'prosemirror-model';
 import type { Node } from 'prosemirror-model';
@@ -8,7 +8,7 @@ import { Transform } from 'prosemirror-transform';
 import { describe, expect, it } from 'vitest';
 import { URI } from '../../../../../base/common/uri.js';
 import { parseMarkdownWithSource } from '../../../../../editor/common/markdown/parser.js';
-import type { IModelContentChangedEvent } from '../../../../../editor/common/model.js';
+import type { IModelContentChangedEvent, IPosition } from '../../../../../editor/common/model.js';
 import { TestTextModel } from '../../../../../editor/test/common/testTextModel.js';
 import { MarkdownEditorModel } from '../../browser/markdownEditorModel.js';
 import {
@@ -36,14 +36,40 @@ function textPositions(doc: Node): number[] {
   return positions;
 }
 
+/** Use the LF fixture's edit and event machinery with CRLF line and offset coordinates. */
+class CRLFHistoryModel extends TestTextModel {
+  override getEOL(): string { return '\r\n'; }
+  override getLinesContent(): string[] { return this.getValue().split(this.getEOL()); }
+
+  override getOffsetAt(position: IPosition): number {
+    const line = Math.min(Math.max(position.lineNumber, 1), this.getLineCount());
+    return super.getOffsetAt(position) + line - 1;
+  }
+
+  override getPositionAt(offset: number): IPosition {
+    const prefix = this.getValue().slice(0, Math.max(0, offset));
+    return super.getPositionAt(prefix.replaceAll('\r', '').length);
+  }
+
+  override onDidChangeContent(listener: (event: IModelContentChangedEvent) => void) {
+    return super.onDidChangeContent(event => listener({ ...event, eol: this.getEOL() }));
+  }
+}
+
 function exerciseHistory(seed: number, paneCount: number, exactSource: boolean): void {
   const nextRandom = random(seed);
   const pick = <T>(values: readonly T[]): T => values[Math.floor(nextRandom() * values.length)];
-  const model = new TestTextModel(URI.parse('file:///history.md'), 'First\n\nMiddle\n\nLast');
+  const gaps = ['\n\n', '\n\n\n', '\r\n\r\n\r\n', '\n\n \t\n'];
+  const gap = exactSource ? gaps[0] : gaps[(seed - 1) % gaps.length];
+  const source = ['First', 'Middle', 'Last'].join(gap);
+  const uri = URI.parse('file:///history.md');
+  const model = gap.includes('\r') ? new CRLFHistoryModel(uri, source) : new TestTextModel(uri, source);
+  const separator = model.getEOL().repeat(2);
   const panes: MarkdownEditorModel[] = [];
   const trace: string[] = [];
   let depth = 0;
   let recording = true;
+  let seedingGaps = false;
   let time = 1000;
   let recordedVersion = model.getVersionId();
   let recordedText = model.getValue();
@@ -119,7 +145,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
     }
     if (operation < 0.35) {
       const offset = Math.floor(nextRandom() * (model.getValueLength() + 1));
-      let text = pick(exactSource ? ['a', 'Z', '\n\n', 'q', 's'] : ['a', 'Z ', '\n\n', 'q', '# ']);
+      let text = pick(exactSource ? ['a', 'Z', separator, 'q', 's'] : ['a', 'Z ', separator, 'q', '# ']);
       let { lineNumber, column } = model.getPositionAt(offset);
       if (exactSource) {
         // Keep one spelling per document: edit within a paragraph, or split it into two nonempty
@@ -128,7 +154,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
           lineNumber--;
           column = model.getLineContent(lineNumber).length + 1;
         }
-        if (text === '\n\n' && (column === 1 || column > model.getLineContent(lineNumber).length)) {
+        if (text === separator && (column === 1 || column > model.getLineContent(lineNumber).length)) {
           text = 's';
         }
       }
@@ -156,7 +182,7 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   }
 
   const listener = (label: string) => () => {
-    if (recording && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
+    if (recording && !seedingGaps && !paragraphMove && depth < 3 && nextRandom() < 0.3) {
       trace.push(label + '[');
       depth++;
       try {
@@ -208,6 +234,29 @@ function exerciseHistory(seed: number, paneCount: number, exactSource: boolean):
   };
 
   try {
+    if (!exactSource && seed % 3 === 1) {
+      // Start some mixed runs with an exact gap oracle, before reentrant edits can change the
+      // fixture. A native split and the new block's first text are dispatched together so every
+      // pane sees a source-backed block. The random edits and history walk then include both edits.
+      seedingGaps = true;
+      const pane = pick(panes);
+      const middle = pane.state.doc.child(1);
+      const suffix = pick(['a', 'Z', 'q']);
+      const added = pick(['x', 'Y', 'k']);
+      trace.push(`source then split ${JSON.stringify({ gap, suffix, added })}`);
+      model.applyEdits([{
+        range: { startLineNumber: 1, startColumn: 6, endLineNumber: 1, endColumn: 6 }, text: suffix,
+      }]);
+      expect(pane.state.doc.child(1), 'source edit reused the unchanged middle block').toBe(middle);
+      const { doc } = pane.state;
+      const end = doc.child(0).nodeSize + middle.nodeSize - 1;
+      pane.dispatch(pane.state.tr.setSelection(TextSelection.create(doc, end)));
+      expect(splitBlock(pane.state, tr => pane.dispatch(tr.insertText(added).setTime(time)))).toBe(true);
+      expect(model.getValue(), 'split kept the original gap before the middle paragraph')
+        .toBe('First' + suffix + gap + 'Middle' + separator + added + separator + 'Last');
+      seedingGaps = false;
+      check('source then split');
+    }
     for (let step = 0; step < 12; step++) {
       act();
       check(`step ${step}`);
