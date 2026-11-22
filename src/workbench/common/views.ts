@@ -27,6 +27,7 @@ export interface ViewContainer {
   readonly title: string;
   readonly icon?: string | URL;
   readonly defaultActive?: boolean;
+  readonly when?: ContextKeyExpression;
 }
 
 export interface IViewBody extends Partial<IDisposable> {

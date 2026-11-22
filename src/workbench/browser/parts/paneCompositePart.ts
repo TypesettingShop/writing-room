@@ -130,7 +130,8 @@ export abstract class PaneCompositePart extends Part {
   }
 
   override canShow(): boolean {
-    return this.viewDescriptors.getViewContainersByLocation(this.location).length > 0;
+    return this.viewDescriptors.getViewContainersByLocation(this.location)
+      .some(container => this.contextKeyService.contextMatchesRules(container.when));
   }
 
   bindContainerLocations(listener: (event: IViewContainerLocationChangeEvent) => void): void {
@@ -165,7 +166,8 @@ export abstract class PaneCompositePart extends Part {
     if (incoming && !reset) {
       this.state[this.activeKey] = incoming.viewContainer.id;
     } else if (outgoing) {
-      const remaining = this.viewDescriptors.getViewContainersByLocation(this.location);
+      const remaining = this.viewDescriptors.getViewContainersByLocation(this.location)
+        .filter(container => this.contextKeyService.contextMatchesRules(container.when));
       this.state[this.activeKey] = (remaining[outgoing.fromIndex] ?? remaining.at(-1))?.id;
     }
     this.transferring = false;
@@ -214,7 +216,10 @@ export abstract class PaneCompositePart extends Part {
   private updateComposites(): void {
     const available = new Map<ViewContainer, readonly IViewDescriptor[]>();
     this.relevantContextKeys = new Set();
-    const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location);
+    const descriptors = this.viewDescriptors.getViewContainersByLocation(this.location).filter(container => {
+      container.when?.keys().forEach(key => this.relevantContextKeys.add(key));
+      return this.contextKeyService.contextMatchesRules(container.when);
+    });
     this.layoutService.setPartHidden(descriptors.length === 0, this.id, { automatic: true });
     for (const container of descriptors) {
       const views = viewsRegistry.getViews(container).filter(view => {

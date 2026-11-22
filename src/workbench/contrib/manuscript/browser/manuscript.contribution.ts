@@ -17,7 +17,7 @@ export const MANUSCRIPT_SELECTION_KIND = 'manuscriptSelectionKind';
 
 const workOpen = WorkOpenContext.isEqualTo(true);
 const container = viewContainersRegistry.registerViewContainer({
-  id: MANUSCRIPT_CONTAINER_ID, title: 'Manuscript', icon: '$(book)', defaultActive: true,
+  id: MANUSCRIPT_CONTAINER_ID, title: 'Manuscript', icon: '$(book)', defaultActive: true, when: workOpen,
 }, ViewContainerLocation.Sidebar);
 viewsRegistry.registerViews([{
   id: NAVIGATOR_VIEW_ID,
