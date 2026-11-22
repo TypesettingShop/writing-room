@@ -15,8 +15,11 @@ function transfer() {
   };
 }
 
-function dispatch(element: HTMLElement, type: string, dataTransfer: ReturnType<typeof transfer>) {
-  const event = Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer });
+function dispatch(element: HTMLElement, type: string, dataTransfer: ReturnType<typeof transfer>): DragEvent {
+  // jsdom does not supply DragEvent or DataTransfer. The observer only uses the fake fields above.
+  const event = Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true }), {
+    dataTransfer: dataTransfer as unknown as DataTransfer,
+  });
   element.dispatchEvent(event);
   return event;
 }
@@ -148,7 +151,7 @@ describe('drag sessions with a detached source', () => {
 
   it('keeps the tab or group payload until the destination has read the drop', async () => {
     const data = transfer();
-    const start = dispatch(source, 'dragstart', data) as DragEvent;
+    const start = dispatch(source, 'dragstart', data);
     const item = new DraggedEditorGroupIdentifier(7);
     editor.startDrag(start, source, item, 'Group');
     source.remove();
@@ -165,13 +168,13 @@ describe('drag sessions with a detached source', () => {
 
   it('does not let an older drop finish a new drag started in the same task', async () => {
     const first = transfer();
-    editor.startDrag(dispatch(source, 'dragstart', first) as DragEvent, source, new DraggedEditorGroupIdentifier(1), 'First');
+    editor.startDrag(dispatch(source, 'dragstart', first), source, new DraggedEditorGroupIdentifier(1), 'First');
     source.remove();
     dispatch(target, 'drop', first);
 
     const next = transfer();
     const item = new DraggedEditorGroupIdentifier(2);
-    const start = dispatch(target, 'dragstart', next) as DragEvent;
+    const start = dispatch(target, 'dragstart', next);
     editor.startDrag(start, target, item, 'Next');
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(editor.getDraggedItem(start, target)).toBe(item);
@@ -179,7 +182,7 @@ describe('drag sessions with a detached source', () => {
 
   it('releases extension-host tree data once if a drop has no explicit session cleanup', async () => {
     const data = transfer();
-    const start = dispatch(source, 'dragstart', data) as DragEvent;
+    const start = dispatch(source, 'dragstart', data);
     const item = new DraggedTreeItems('fixture.tree', 'fixture', ['row'], 'token', [], Promise.resolve([]));
     const finished = vi.fn();
     const subscription = tree.onDidEndDrag(finished);
