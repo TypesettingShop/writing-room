@@ -43,7 +43,7 @@ import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext
 import { bindMarkdownGutter, MarkdownEditorView, moveFromMarkdownCaretParagraph, onMarkdownScrollbar } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
-import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
+import { markdownClipboard, markdownClipboardEvents, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
 import {
   getReadOnlyMarkdownSelection, isOverMarkdownSelection, setMarkdownContextSelection, showMarkdownContextMenu,
 } from './markdownEditorContextMenu.js';
@@ -283,6 +283,7 @@ export class MarkdownEditorPane extends EditorPane {
           }
         },
         handleDOMEvents: {
+          ...markdownClipboardEvents,
           // ProseMirror handles mousedown even in read-only views and cancels native selection.
           mousedown: view => !view.editable,
           keydown: (_view, event) => {

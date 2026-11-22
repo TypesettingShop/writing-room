@@ -53,6 +53,11 @@ function visibleText(content: Fragment): string {
 const lastCopyKey = 'writing-room:markdownEditor:lastCopy';
 const lastCopyLimit = 1 << 20;
 let lastCopy: { readonly markdown: string; readonly text: string } | undefined;
+// ProseMirror serializes the selection for a drag as it does for a copy. A drag leaves the clipboard alone, so
+// it must not replace the last copy; the flag covers only the synchronous `dragstart` handler that serializes.
+let serializingDrag = false;
+// The menu paste hands `pasteText` text it has already resolved, which `clipboardTextParser` must not resolve again.
+let resolvedPlainPaste = false;
 const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n');
 
 function rememberCopy(browserWindow: Window | null, markdown: string, content: Fragment): void {
@@ -174,19 +179,20 @@ function copiedFragmentText(document: Document, html: string): string | undefine
   return visibleText(DOMParser.fromSchema(markdownSchema).parseSlice(root, { preserveWhitespace: true }).content);
 }
 
-async function readPlainClipboardText(clipboard: Clipboard, document: Document): Promise<string> {
+/** The text for a plain paste and whether it is the visible text of a copy that is already resolved. */
+async function readPlainClipboardText(clipboard: Clipboard, document: Document): Promise<{ text: string; visible: boolean }> {
   // Keep literal text paste available when the richer clipboard read is unavailable. A rejected read (a denied or
   // dismissed permission request) is not retried with readText, which would ask the person a second time.
-  if (!clipboard.read) return clipboard.readText();
+  if (!clipboard.read) return { text: await clipboard.readText(), visible: false };
   const items = await clipboard.read();
   const plain = items.find(item => item.types.includes('text/plain'));
   const item = plain ?? items.find(item => item.types.includes('text/html'));
   if (item?.types.includes('text/html')) {
     const html = await item.getType('text/html').then(blob => blob.text()).catch(() => undefined);
     const visibleText = html === undefined ? undefined : copiedFragmentText(document, html);
-    if (visibleText !== undefined) return visibleText;
+    if (visibleText !== undefined) return { text: visibleText, visible: true };
   }
-  return plain ? (await plain.getType('text/plain')).text() : '';
+  return { text: plain ? await (await plain.getType('text/plain')).text() : '', visible: false };
 }
 
 /** Insert a copied fragment's visible text in plain mode, or use the browser's regular paste formats. */
@@ -195,8 +201,16 @@ export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: ()
   const clipboard = document.defaultView?.navigator.clipboard;
   if (!clipboard) throw new Error('Clipboard access is unavailable');
   if (plain) {
-    const text = await readPlainClipboardText(clipboard, document);
-    if (text && isCurrent()) view.pasteText(text);
+    const { text, visible } = await readPlainClipboardText(clipboard, document);
+    if (!text || !isCurrent()) return;
+    // ProseMirror pastes into a code block without calling `clipboardTextParser`, so the last copy is resolved here.
+    // The visible text of a copy's HTML is not Markdown to resolve again, even when it equals another copy's source.
+    resolvedPlainPaste = true;
+    try {
+      view.pasteText(visible ? text : copiedPlainText(view, text));
+    } finally {
+      resolvedPlainPaste = false;
+    }
     return;
   }
   const data = new DataTransfer();
@@ -271,7 +285,7 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
   clipboardTextParser(text, $context, plain, view) {
     if (plain) {
       const { paragraph } = markdownSchema.nodes;
-      const blocks = copiedPlainText(view, text).split(/\r\n?|\n/).map(line => paragraph.create(
+      const blocks = (resolvedPlainPaste ? text : copiedPlainText(view, text)).split(/\r\n?|\n/).map(line => paragraph.create(
         null, line ? markdownSchema.text(line) : undefined,
       ));
       return Slice.maxOpen(Fragment.fromArray(blocks));
@@ -286,8 +300,17 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
 
   clipboardTextSerializer(slice, view) {
     const markdown = serializeClipboardMarkdown(slice);
-    rememberCopy(view.dom.ownerDocument.defaultView, markdown, slice.content);
+    if (!serializingDrag) rememberCopy(view.dom.ownerDocument.defaultView, markdown, slice.content);
     return markdown;
+  },
+};
+
+/** DOM event handlers of the editor that keep the last copy tied to what the clipboard holds. */
+export const markdownClipboardEvents: NonNullable<EditorProps['handleDOMEvents']> = {
+  dragstart() {
+    serializingDrag = true;
+    queueMicrotask(() => { serializingDrag = false; });
+    return false;
   },
 };
 

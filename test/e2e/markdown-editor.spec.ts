@@ -1722,6 +1722,72 @@ test('keeps the last successful Markdown copy when a clipboard write fails', asy
   await expect(target.locator('strong')).toHaveCount(0);
 });
 
+test('pastes a Markdown copy as visible text into a code block from the menu', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const editor = richEditor(await openMarkdown(page, 'paste-code-block.md', '**굵게**\n\n```\nx\n```'));
+  await expect(editor.locator('strong')).toHaveText('굵게', { timeout: 20_000 });
+  await editor.locator('strong').dblclick();
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Copy as Markdown' }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('**굵게**');
+
+  await editor.locator('pre').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
+  await expect(editor.locator('pre')).toHaveText('x굵게');
+});
+
+test('keeps the last copy when the drag of a selection starts', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const editor = richEditor(await openMarkdown(page, 'drag-keeps-copy.md', '**첫째**\n\n*둘째*\n\n'));
+  await expect(editor.locator('strong')).toHaveText('첫째', { timeout: 20_000 });
+  await editor.locator('strong').dblclick();
+  await page.keyboard.press('ControlOrMeta+c');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('**첫째**');
+
+  await editor.locator('em').dblclick();
+  const word = await box(editor.locator('em'));
+  // Playwright cannot start a native text drag, so dispatch the event the browser sends when the drag of a selection starts.
+  await editor.locator('em').evaluate((element, point) => {
+    element.dispatchEvent(new DragEvent('dragstart', {
+      bubbles: true, cancelable: true, dataTransfer: new DataTransfer(), clientX: point.x, clientY: point.y,
+    }));
+  }, { x: word.x + word.width / 2, y: word.y + word.height / 2 });
+  await expect(editor.locator('em')).toHaveText('둘째');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('**첫째**');
+
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(editor.locator('p').last()).toHaveText('첫째');
+  await expect(editor.locator('p').last().locator('strong')).toHaveCount(0);
+});
+
+test('pastes the visible text of a copy from the menu without resolving it against an earlier copy', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const key = 'writing-room:markdownEditor:lastCopy';
+  const editor = richEditor(await openMarkdown(page, 'visible-asterisks.md', '\\*\\*굵게\\*\\*\n\n'));
+  await expect(editor.locator('p').first()).toHaveText('**굵게**', { timeout: 20_000 });
+  await editor.locator('p').first().click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('ControlOrMeta+c');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('\\*\\*굵게\\*\\*');
+
+  // Another tab's earlier copy: its Markdown is the visible text of this copy.
+  await page.reload();
+  await expect(editor).toBeVisible({ timeout: 20_000 });
+  await page.evaluate(key => sessionStorage.setItem(key, JSON.stringify({ markdown: '**굵게**', text: '굵게' })), key);
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
+  await expect(editor.locator('p')).toHaveText(['**굵게**', '**굵게**']);
+});
+
 test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {
   const group = await openMarkdown(page, 'copy.md', '## Heading\n\nOne **bold** [link](https://example.test/)');
   const editor = richEditor(group);
