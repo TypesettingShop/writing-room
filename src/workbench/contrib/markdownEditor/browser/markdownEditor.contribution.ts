@@ -35,14 +35,14 @@ import './markdownWriting.contribution.js';
 import './markdownFocusMode.contribution.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPane(
-  EditorPaneDescriptor.create(MarkdownEditorPane, MarkdownEditorPane.ID, 'Markdown Editor'), [MarkdownEditorInput.ID],
+  EditorPaneDescriptor.create(MarkdownEditorPane, MarkdownEditorPane.ID, 'Manuscript Editor'), [MarkdownEditorInput.ID],
 );
 Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!
   .registerEditorSerializer(MarkdownEditorInput.ID, MarkdownEditorInputSerializer);
 
 configurationRegistry.registerConfiguration({
   id: 'markdownEditor',
-  title: 'Markdown Editor',
+  title: 'Manuscript Editor',
   properties: {
     [MARKDOWN_EDITOR_CONTENT_WIDTH]: {
       type: 'integer',
@@ -117,7 +117,7 @@ class MarkdownEditorContribution extends Disposable {
       for (const glob of ['*.md', '*.markdown']) {
         registrations.add(resolver.registerEditor(
           glob,
-          { id: MarkdownEditorInput.ID, label: 'Markdown Editor', priority },
+          { id: MarkdownEditorInput.ID, label: 'Manuscript Editor', priority },
           { canSupportResource: resource => isMarkdownResource(resource) && isTextFileResource(resource, fileService) },
           ({ resource, options }) => {
             const existing = groups.groups.flatMap(group => group.editors)
