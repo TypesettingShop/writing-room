@@ -1,7 +1,8 @@
 name: Main PR source
 
 on:
-  pull_request:
+  # Run the workflow from the base repository. Do not add checkout or run PR code.
+  pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, edited]
 
@@ -28,7 +29,7 @@ jobs:
           case "$HEAD_REF" in
             develop|hotfix/*) ;;
             *)
-              echo '::error::Pull requests to main must come from develop or hotfix/*.'
+              echo "::error::Pull requests to main must come from develop or hotfix/*, not ${HEAD_REF}. Retarget this pull request to develop."
               exit 1
               ;;
           esac

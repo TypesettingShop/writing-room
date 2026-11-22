@@ -16,7 +16,7 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 | --- | --- |
 | [getting-started.md](getting-started.md) | 설치, 조작, 파일, 설정, 확장 설치와 서명의 뜻, 포워딩 주소에서 실행하기, 테스트 실행 |
 | [extension-api.md](extension-api.md) | v0.2.0 호환 표(네임스페이스별 지원 범위, 받기만 하는 API, 지원하지 않는 네임스페이스와 기여 지점, 인수한 확장), 매니페스트와 진입점, 영역 페이지 색인 |
-| [maintainability.md](maintainability.md) | 유지보수와 확장 가이드: 레이어 규칙, DI, 레지스트리와 기여, 에디터·확장 확장법, 저장, 테스트, 기술 부채 |
+| [maintainability.md](maintainability.md) | 유지보수와 확장 가이드: 레이어 규칙, DI, 레지스트리와 기여, 에디터·확장 확장법, 저장, 테스트, 기술 부채, 브랜치와 PR 규칙 |
 | [editor-services.md](editor-services.md) | 모델, 에디터 해석기, 파일 저장과 닫기, 테마 및 컨텍스트 키 이음매 |
 | [markdown-editor.md](markdown-editor.md) | 마크다운 클래스 속성과 편집 뒤 정규화 규칙 |
 | [architecture.md](architecture.md) | VS Code 경로와 이 저장소 경로의 대응표, VS Code와 달라진 점 목록 |
