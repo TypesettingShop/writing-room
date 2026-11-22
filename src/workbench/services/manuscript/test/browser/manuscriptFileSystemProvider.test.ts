@@ -96,16 +96,37 @@ it('reports authentication changes and server outage without switching to memory
   try {
     await expect(service.store.listWorks()).rejects.toMatchObject({ code: 'unauthorized' });
     expect(service.availability).toBe('signedOut');
-    expect(auth).toHaveBeenCalled();
+    expect(auth).toHaveBeenLastCalledWith({ signedIn: false, reason: 'request' });
     await expect(service.store.listWorks()).rejects.toThrow('The manuscript server is unavailable.');
     expect(service.availability).toBe('unavailable');
+    expect(service.signedIn).toBe(false);
+    expect(auth).toHaveBeenCalledTimes(1);
     expect(service.usesMemory).toBe(false);
     await expect(service.store.listWorks()).resolves.toEqual([]);
+    expect(auth).toHaveBeenLastCalledWith({ signedIn: true, reason: 'request' });
     expect(availability.mock.calls).toEqual([['signedOut'], ['unavailable'], ['ready']]);
     expect(fetch).toHaveBeenLastCalledWith('/api/works', { credentials: 'same-origin', method: 'GET' });
   } finally {
     availabilityListener.dispose();
     authListener.dispose();
+    service.dispose();
+  }
+});
+
+it('keeps an explicit account change when an older Works response arrives late', async () => {
+  let settle!: (response: Response) => void;
+  const response = new Promise<Response>(resolve => { settle = resolve; });
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, () => response));
+  const auth = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+  try {
+    const pending = service.store.listWorks();
+    await service.auth!.signOut();
+    settle(Response.json({ works: [] }));
+    await expect(pending).resolves.toEqual([]);
+    expect(service.signedIn).toBe(false);
+    expect(service.availability).toBe('signedOut');
+  } finally {
+    auth.mockRestore();
     service.dispose();
   }
 });

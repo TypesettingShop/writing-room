@@ -1,13 +1,16 @@
+import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { ContextKeyExpr, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import {
   isManuscriptId, manuscriptLimits, ManuscriptStoreError, normalizeManuscriptTitle,
 } from '../../../../platform/manuscript/common/manuscript.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { openWelcome } from '../../../browser/parts/editor/welcomeEditor.js';
+import { openWelcome, openWelcomeWorks, WelcomeEditorInput } from '../../../browser/parts/editor/welcomeEditor.js';
 import { MenubarWorkMenu } from '../../../browser/parts/titlebar/menubar.contribution.js';
+import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { IManuscriptService } from '../../../services/manuscript/common/manuscriptService.js';
 import { IWorkService, WorkOpenContext } from '../../../services/work/common/work.js';
@@ -145,5 +148,80 @@ registerAction2(class CloseWorkAction extends Action2 {
 
   override run(accessor: ServicesAccessor): Promise<void> {
     return accessor.get(IWorkService).close();
+  }
+});
+
+const signedInContext = new RawContextKey<boolean>('signedIn', false);
+const workAccountContext = new RawContextKey<boolean>('workAccountAvailable', false);
+
+class WorkAuthContribution extends Disposable {
+  constructor(
+    @IContextKeyService context: IContextKeyService,
+    @IManuscriptService manuscript: IManuscriptService,
+    @IWorkService work: IWorkService,
+    @IEditorGroupsService groups: IEditorGroupsService,
+    @INotificationService notifications: INotificationService,
+  ) {
+    super();
+    if (!manuscript.auth) {
+      return;
+    }
+    workAccountContext.bindTo(context).set(true);
+    const signedInKey = signedInContext.bindTo(context);
+    signedInKey.set(manuscript.signedIn === true);
+    this._register(manuscript.onDidChangeAuth(({ signedIn, reason }) => {
+      signedInKey.set(signedIn);
+      if (!signedIn && reason === 'request' && work.current) {
+        notifications.warn('You are signed out. Sign in to keep saving.');
+        void openWelcomeWorks(groups).catch(console.error);
+      }
+    }));
+
+    // Work links and visible Welcome panes already read the list at startup.
+    if (!work.current && groups.hasStoredState && window.location.hash !== '#works' &&
+        !groups.groups.some(group => group.activeEditor instanceof WelcomeEditorInput)) {
+      void manuscript.store.listWorks().catch(() => { /* The store reports its status. */ });
+    }
+  }
+}
+
+registerWorkbenchContribution2('workbench.contrib.workAuth', WorkAuthContribution);
+
+registerAction2(class SignInAction extends Action2 {
+  constructor() {
+    const when = ContextKeyExpr.and(workAccountContext.isEqualTo(true), signedInContext.toNegated());
+    super({
+      id: 'work.signIn', title: 'Sign In...', category: 'Work', f1: true, precondition: when,
+      menu: { id: MenubarWorkMenu, group: '3_account', order: 1, when },
+    });
+  }
+
+  override run(accessor: ServicesAccessor): Promise<void> {
+    return openWelcomeWorks(accessor.get(IEditorGroupsService));
+  }
+});
+
+registerAction2(class SignOutAction extends Action2 {
+  constructor() {
+    const when = signedInContext.isEqualTo(true);
+    super({
+      id: 'work.signOut', title: 'Sign Out', category: 'Work', f1: true, precondition: when,
+      menu: { id: MenubarWorkMenu, group: '3_account', order: 2, when },
+    });
+  }
+
+  override async run(accessor: ServicesAccessor): Promise<void> {
+    const { auth } = accessor.get(IManuscriptService);
+    const notifications = accessor.get(INotificationService);
+    const groups = accessor.get(IEditorGroupsService);
+    if (!auth) {
+      return;
+    }
+    try {
+      await auth.signOut();
+      await openWelcomeWorks(groups);
+    } catch (error) {
+      notifications.error(error instanceof Error ? error.message : 'Could not sign out. Try again.');
+    }
   }
 });

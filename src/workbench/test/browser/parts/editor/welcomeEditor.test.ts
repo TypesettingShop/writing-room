@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { Event as WorkbenchEvent } from '../../../../../base/common/event.js';
 import type { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { ManuscriptStoreError, type ManuscriptWork } from '../../../../../platform/manuscript/common/manuscript.js';
 import { WelcomeEditorInput, WelcomeEditorPane } from '../../../../browser/parts/editor/welcomeEditor.js';
@@ -8,7 +9,10 @@ import type { IWorkService } from '../../../../services/work/common/work.js';
 function welcome(listWorks: () => Promise<ManuscriptWork[]>, availability: ManuscriptAvailability) {
   const parent = document.createElement('div');
   const commands = { executeCommand: vi.fn() } as unknown as ICommandService;
-  const manuscript = { store: { listWorks }, availability } as IManuscriptService;
+  const manuscript = {
+    store: { listWorks }, signedIn: availability === 'ready', onDidChangeAuth: WorkbenchEvent.None,
+    auth: { hasGoogle: async () => false, signIn: vi.fn(), signOut: vi.fn() },
+  } as unknown as IManuscriptService;
   const work = { current: undefined } as IWorkService;
   const pane = new WelcomeEditorPane(commands, manuscript, work);
   const input = new WelcomeEditorInput();
@@ -64,7 +68,7 @@ test('shows the sign-in message when the Works request is unauthorized', async (
   try {
     await pane.setInput(input, undefined);
     await vi.waitFor(() => expect(section.querySelector('[role="status"]')?.textContent).toBe('Sign in to see your Works.'));
-    expect(section.querySelector('.welcome-works-account')).not.toBeNull();
+    expect(section.querySelector<HTMLFormElement>('.welcome-works-account form')?.hidden).toBe(false);
   } finally {
     pane.dispose();
     input.dispose();
