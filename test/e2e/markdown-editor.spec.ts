@@ -866,7 +866,7 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
     .toEqual(['Bold', 'Italic', 'Underline', 'Strikethrough']);
   await expect(row.getByRole('menuitem')).toHaveText(['Style⌄', 'Size⌄', 'Font⌄']);
   await expect(toolbox.getByRole('menuitem', { name: 'Cut' })).toBeEnabled();
-  await expect(toolbox.getByRole('menuitem', { name: 'Copy' })).toBeEnabled();
+  await expect(toolbox.getByRole('menuitem', { name: 'Copy', exact: true })).toBeEnabled();
   const bold = row.getByRole('menuitemcheckbox', { name: 'Bold' });
   await expect(bold).toHaveAttribute('aria-checked', 'true');
   await expect(bold).toBeFocused();
@@ -928,12 +928,12 @@ test('shows basic editing commands at the Markdown caret and shares editor histo
   await first.click({ button: 'right', timeout: 20_000 });
   await expect(menu.getByRole('group')).toHaveCount(0);
   expect(await menu.getByRole('menuitem').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))))
-    .toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Paste as Plain Text', 'Select All']);
+    .toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Copy as Markdown', 'Copy as HTML', 'Paste', 'Paste as Plain Text', 'Select All']);
   await expect(menu.locator('.wr-menu-shortcut')).toHaveText([
     /^(Ctrl\+|⌘)Z$/, /^(Ctrl\+Y|⇧⌘Z)$/, /^(Ctrl\+|⌘)X$/, /^(Ctrl\+|⌘)C$/,
     /^(Ctrl\+|⌘)V$/, /^(Ctrl\+Shift\+|⇧⌘)V$/, /^(Ctrl\+|⌘)A$/,
   ]);
-  for (const name of ['Undo', 'Redo', 'Cut', 'Copy']) await expect(item(name)).toBeDisabled();
+  for (const name of ['Undo', 'Redo', 'Cut', 'Copy', 'Copy as Markdown', 'Copy as HTML']) await expect(item(name)).toBeDisabled();
   await expect(item('Paste')).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(item('Paste as Plain Text')).toBeFocused();
@@ -982,7 +982,7 @@ test('moves the Markdown caret and opens basic editing commands outside a select
   await outside.click({ position: point, button: 'right' });
   await expect(editor).toHaveAttribute('data-context-prevented', 'true');
   const menu = page.getByRole('menu', { name: 'Markdown editor' });
-  await expect(menu.getByRole('menuitem', { name: 'Copy' })).toBeDisabled();
+  await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
   await expect(menu.getByRole('group')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(editor).toBeFocused();
@@ -1000,7 +1000,7 @@ test('moves the Markdown caret and opens basic editing commands outside a select
   const body = await box(editor);
   const second = await box(editor.getByText('OutXside text'));
   await page.mouse.click(body.x - 8, second.y + second.height / 2, { button: 'right' });
-  await expect(menu.getByRole('menuitem', { name: 'Copy' })).toBeDisabled();
+  await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
   await expect(menu.getByRole('group')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.keyboard.type('Y');
@@ -1054,14 +1054,29 @@ test('allows Copy and Select All in the read-only Markdown context menu', async 
   const formatting = menu.getByRole('group');
   await expect(formatting.getByRole('menuitemcheckbox', { name: 'Bold' })).toBeDisabled();
   await expect(formatting.getByRole('menuitem', { name: 'Style' })).toBeDisabled();
-  const copy = menu.getByRole('menuitem', { name: 'Copy' });
+  const copy = menu.getByRole('menuitem', { name: 'Copy', exact: true });
   await expect(copy).toBeFocused();
+  const copyAsMarkdown = menu.getByRole('menuitem', { name: 'Copy as Markdown', exact: true });
+  const copyAsHTML = menu.getByRole('menuitem', { name: 'Copy as HTML', exact: true });
+  await expect(copyAsMarkdown).toBeEnabled();
+  await expect(copyAsHTML).toBeEnabled();
+  await page.evaluate(() => navigator.clipboard.writeText('Previous clipboard value'));
+  await copyAsMarkdown.click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Read-only Markdown');
+  await runCommand(page, 'Copy as HTML', /^Markdown: Copy as HTML$/);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('<p>Read-only Markdown</p>\n');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Read-only Markdown');
+  await page.keyboard.press('Shift+F10');
   await copy.click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Read-only Markdown');
   await expect(editor).toBeFocused();
   await text.evaluate(() => document.getSelection()!.removeAllRanges());
   await page.keyboard.press('Shift+F10');
   await expect(copy).toBeDisabled();
+  await expect(copyAsMarkdown).toBeDisabled();
+  await expect(copyAsHTML).toBeDisabled();
   await menu.getByRole('menuitem', { name: 'Select All' }).click();
   await expect(editor).toBeFocused();
   await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Read-only Markdown');
@@ -1109,7 +1124,7 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
     await word.click({ button: 'right' });
   };
   await selectWord();
-  await toolbox.getByRole('menuitem', { name: 'Copy' }).click();
+  await toolbox.getByRole('menuitem', { name: 'Copy', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('[**word**]{.underline}');
   await expect(word).toHaveText('word');
   const copiedHTML = await page.evaluate(async () => {
@@ -1598,6 +1613,113 @@ test('right-click selects a Markdown image for Copy and Cut', async ({ appPage: 
   await expect(editor.locator('p')).toHaveText('Before after');
   await page.keyboard.press('ControlOrMeta+z');
   await expect(image).toBeVisible();
+});
+
+test('copies the WYSIWYG selection as Markdown or rendered HTML', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const source = [
+    '**굵게** *기울임* [밑줄]{.underline} [크기와 글꼴]{.size-24pt .font-serif} {.center}',
+    '[링크](https://example.test/link) ![그림](https://example.test/image.png)',
+    '- 첫 항목\n- 둘째 항목',
+    '| 이름 | 값 |\n| --- | --- |\n| 첫째 | 둘째 |',
+    '<script>literal script</script>',
+    '<img src="https://example.test/literal.png" onerror="literal">',
+  ].join('\n\n');
+  const group = await openMarkdown(page, 'copy-in-formats.md', source);
+  const editor = richEditor(group);
+  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const copyMenuItem = (name: string) => menu.getByRole('menuitem', { name, exact: true });
+  const bold = editor.locator('strong');
+  await expect(bold).toHaveText('굵게', { timeout: 20_000 });
+  await bold.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('Shift+F10');
+  await copyMenuItem('Copy as HTML').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain('<p class="center"><strong>굵게</strong>');
+
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Shift+F10');
+  await expect(copyMenuItem('Copy as HTML')).toBeEnabled();
+  await copyMenuItem('Copy as HTML').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('<table>');
+  const data = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    const plain = await (await item.getType('text/plain')).text();
+    const html = await (await item.getType('text/html')).text();
+    const parse = (value: string) => new DOMParser().parseFromString(value, 'text/html').body;
+    const body = parse(html);
+    return {
+      types: [...item.types].sort(),
+      sourceMatchesHTML: parse(plain).innerHTML === body.innerHTML,
+      classes: Array.from(body.querySelectorAll('[class]'), element => element.getAttribute('class')),
+      formats: ['strong', 'em', 'u', 'a', 'ul', 'table', 'img'].map(selector => body.querySelector(selector)?.textContent),
+      image: body.querySelector('img')?.getAttribute('alt'),
+      imageSrc: body.querySelector('img')?.getAttribute('src'),
+      unsafeElements: body.querySelectorAll('script, [onerror]').length,
+      renderedText: body.textContent,
+    };
+  });
+  expect(data.types).toEqual(['text/html', 'text/plain']);
+  expect(data.sourceMatchesHTML).toBe(true);
+  expect(data.classes).toEqual(expect.arrayContaining(['center', 'underline', 'size-24pt font-serif']));
+  expect(data.formats).toEqual([
+    '굵게', '기울임', '밑줄', '링크', expect.stringContaining('둘째 항목'), expect.stringContaining('첫째'), '',
+  ]);
+  expect(data.image).toBe('그림');
+  expect(data.imageSrc).toBe('https://example.test/image.png');
+  expect(data.unsafeElements).toBe(0);
+  expect(data.renderedText).toContain('<script>literal script</script>');
+
+  await runCommand(page, 'Copy as Markdown', /^Markdown: Copy as Markdown$/);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('[밑줄]{.underline}');
+  const markdown = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    return { types: [...item.types], text: await (await item.getType('text/plain')).text() };
+  });
+  expect(markdown.types).toEqual(['text/plain']);
+  for (const expected of ['**굵게** *기울임*', '[밑줄]{.underline}', '{.size-24pt .font-serif}', '{.center}',
+    '[링크](https://example.test/link)', '![그림](https://example.test/image.png)', '- 둘째 항목', '| 첫째 | 둘째 |']) {
+    expect(markdown.text).toContain(expected);
+  }
+
+  const target = richEditor(await openMarkdown(page, 'paste-copied-markdown.md', ''));
+  await target.focus();
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(target.locator('p').first()).toHaveText('굵게 기울임 밑줄 크기와 글꼴');
+  await expect(target.locator('strong, em, u, ul, table, img')).toHaveCount(0);
+});
+
+test('keeps the last successful Markdown copy when a clipboard write fails', async ({ appPage: page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const key = 'writing-room:markdownEditor:lastCopy';
+  const copyDocument = async (name: string, markdown: string) => {
+    const editor = richEditor(await openMarkdown(page, name, markdown));
+    await editor.focus({ timeout: 20_000 });
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Shift+F10');
+    const copy = page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Copy as Markdown' });
+    await expect(copy).toBeEnabled();
+    await copy.click();
+  };
+
+  await copyDocument('successful-copy.md', '**first copy**');
+  const lastCopy = () => page.evaluate(key => sessionStorage.getItem(key), key);
+  await expect.poll(lastCopy).toBe(JSON.stringify({ markdown: '**first copy**', text: 'first copy' }));
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async () => { throw new DOMException('Clipboard write denied', 'NotAllowedError'); };
+  });
+  await copyDocument('denied-copy.md', '**denied copy**');
+  await expect(page.getByText('Could not copy as Markdown using the clipboard.', { exact: true })).toBeVisible();
+  expect(await lastCopy()).toBe(JSON.stringify({ markdown: '**first copy**', text: 'first copy' }));
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('**first copy**');
+
+  const target = richEditor(await openMarkdown(page, 'paste-last-copy.md', ''));
+  await target.focus();
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(target.locator('p')).toHaveText('first copy');
+  await expect(target.locator('strong')).toHaveCount(0);
 });
 
 test('copies rendered HTML and Markdown text to the clipboard', async ({ appPage: page }) => {

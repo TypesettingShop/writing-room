@@ -1,6 +1,9 @@
 import { DOMParser, Fragment, Slice } from 'prosemirror-model';
-import type { Mark, Node as ProseMirrorNode } from 'prosemirror-model';
+import type { Mark, Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model';
+import type { Selection } from 'prosemirror-state';
+import { CellSelection } from 'prosemirror-tables';
 import type { EditorProps, EditorView } from 'prosemirror-view';
+import { createMarkdownIt } from '../../../../editor/common/markdown/markdownIt.js';
 import { parseMarkdown } from '../../../../editor/common/markdown/parser.js';
 import { markdownSchema } from '../../../../editor/common/markdown/schema.js';
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
@@ -17,6 +20,7 @@ const safeAttributes = new Set([
 const alignments = new Set(['left', 'center', 'right', 'justify']);
 // The schema reads bold and italics from these declarations (Google Docs wraps its HTML in `<b style="font-weight:normal">`).
 const emphasisStyles = ['font-weight', 'font-style'] as const;
+const clipboardRenderer = createMarkdownIt();
 
 function applyPastedUnderline(document: Document, content: DocumentFragment, underlined: ReadonlySet<Element>): void {
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
@@ -51,9 +55,8 @@ const lastCopyLimit = 1 << 20;
 let lastCopy: { readonly markdown: string; readonly text: string } | undefined;
 const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n');
 
-function rememberCopy(view: EditorView, markdown: string, content: Fragment): void {
+function rememberCopy(browserWindow: Window | null, markdown: string, content: Fragment): void {
   lastCopy = { markdown: lineBreaks(markdown), text: visibleText(content) };
-  const browserWindow = view.dom.ownerDocument.defaultView;
   if (lastCopy.markdown.length + lastCopy.text.length <= lastCopyLimit) {
     const serialized = JSON.stringify(lastCopy);
     if (new TextEncoder().encode(serialized).byteLength <= lastCopyLimit) {
@@ -62,6 +65,85 @@ function rememberCopy(view: EditorView, markdown: string, content: Fragment): vo
     }
   }
   writeTabStorage(browserWindow, lastCopyKey, undefined);
+}
+
+/** An ordered list cut after its first items keeps the numbers its remaining items show. */
+function withListStarts(slice: Slice, $from: ResolvedPos): Slice {
+  const { ordered_list } = markdownSchema.nodes;
+  const edge = (fragment: Fragment, depth: number): Fragment => {
+    const first = fragment.firstChild;
+    if (!first || depth > Math.min(slice.openStart, $from.depth)) return fragment;
+    const source = $from.node(depth);
+    const attrs = first.type === ordered_list && source.type === ordered_list
+      ? { ...first.attrs, order: source.attrs.order + $from.index(depth) } : first.attrs;
+    return fragment.replaceChild(0, first.type.create(attrs, edge(first.content, depth + 1), first.marks));
+  };
+  return new Slice(edge(slice.content, 1), slice.openStart, slice.openEnd);
+}
+
+/** The selection with the blocks around it, which Copy as HTML renders. */
+function enclosedSlice(selection: Selection): Slice {
+  if (selection instanceof CellSelection) {
+    const slice = selection.content();
+    // A cell range smaller than the table keeps its table, as the regular copy's HTML does.
+    return slice.content.firstChild?.type === markdownSchema.nodes.table_row
+      ? new Slice(Fragment.from(selection.$anchorCell.node(-1).copy(slice.content)), 1, 1) : slice;
+  }
+  // A selected list item stays in its list. Text selections already include their parents.
+  const { $from, from, to } = selection;
+  return withListStarts($from.doc.slice(from, to, true), $from);
+}
+
+function renderClipboardHTML(markdown: string, slice: Slice): string {
+  const { table, table_cell } = markdownSchema.nodes;
+  const bodyOnlyTables: boolean[] = [];
+  slice.content.descendants(node => {
+    if (node.type !== table) return;
+    bodyOnlyTables.push(node.firstChild?.firstChild?.type === table_cell);
+    return false;
+  });
+  if (!bodyOnlyTables.includes(true)) return clipboardRenderer.render(markdown);
+
+  // Markdown tables require a header. Restore body cell roles removed by that intermediate format.
+  const env = {};
+  const tokens = clipboardRenderer.parse(markdown, env);
+  let tableIndex = 0;
+  let bodyOnly = false;
+  const renderedTokens = tokens.filter((token, index) => {
+    if (token.type === 'table_open') bodyOnly = bodyOnlyTables[tableIndex++] ?? false;
+    if (!bodyOnly) return true;
+    if ((token.type === 'thead_close' && tokens[index + 1]?.type === 'tbody_open')
+      || (token.type === 'tbody_open' && tokens[index - 1]?.type === 'thead_close')) {
+      return false;
+    }
+    if (token.tag === 'thead') {
+      token.tag = 'tbody';
+      token.type = token.nesting === 1 ? 'tbody_open' : 'tbody_close';
+    } else if (token.tag === 'th') {
+      token.tag = 'td';
+      token.type = token.nesting === 1 ? 'td_open' : 'td_close';
+    }
+    return true;
+  });
+  return clipboardRenderer.renderer.render(renderedTokens, clipboardRenderer.options, env);
+}
+
+export async function copyMarkdownFragment(browserWindow: Window, selection: Selection, format: 'markdown' | 'html'): Promise<void> {
+  const clipboard = browserWindow.navigator.clipboard;
+  if (!clipboard) throw new Error('Clipboard access is unavailable');
+  const slice = format === 'html' ? enclosedSlice(selection) : selection.content();
+  const markdown = serializeClipboardMarkdown(slice, format === 'html');
+  if (format === 'markdown') {
+    await clipboard.writeText(markdown);
+    rememberCopy(browserWindow, markdown, slice.content);
+  } else {
+    const html = renderClipboardHTML(markdown, slice);
+    const { ClipboardItem } = browserWindow as Window & typeof globalThis;
+    await clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([html], { type: 'text/plain' }),
+    })]);
+  }
 }
 
 function copiedPlainText(view: EditorView, text: string): string {
@@ -204,26 +286,28 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
 
   clipboardTextSerializer(slice, view) {
     const markdown = serializeClipboardMarkdown(slice);
-    rememberCopy(view, markdown, slice.content);
+    rememberCopy(view.dom.ownerDocument.defaultView, markdown, slice.content);
     return markdown;
   },
 };
 
-function serializeClipboardMarkdown(slice: Slice): string {
+function serializeClipboardMarkdown(slice: Slice, preserveBlocks = false): string {
   let { content, openStart, openEnd } = slice;
   // A cell selection over the whole table copies the table, opened only at its rows.
   if (content.childCount === 1 && content.firstChild!.type === markdownSchema.nodes.table && openStart === 1 && openEnd === 1) {
     return serializeMarkdown(markdownSchema.topNodeType.create(null, content));
   }
-  // A selection inside one block copies that block's text, not the markers of the blocks around it.
-  while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
-    content = content.firstChild!.content;
-    openStart--;
-    openEnd--;
-  }
-  if (content.childCount === 1 && openStart > 0 && openEnd > 0 && content.firstChild!.isTextblock) {
-    if (content.firstChild!.type.spec.code) return content.firstChild!.textContent;
-    content = content.firstChild!.content;
+  // Markdown text from one block omits surrounding markers. HTML renders the enclosing blocks and their classes.
+  if (!preserveBlocks) {
+    while (content.childCount === 1 && openStart > 0 && openEnd > 0 && !content.firstChild!.isTextblock) {
+      content = content.firstChild!.content;
+      openStart--;
+      openEnd--;
+    }
+    if (content.childCount === 1 && openStart > 0 && openEnd > 0 && content.firstChild!.isTextblock) {
+      if (content.firstChild!.type.spec.code) return content.firstChild!.textContent;
+      content = content.firstChild!.content;
+    }
   }
   content = content.firstChild?.isInline
     ? Fragment.from(markdownSchema.nodes.paragraph.create(null, content)) : content;
