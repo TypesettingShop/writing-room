@@ -17,7 +17,7 @@ describe('Markdown IME reset recovery', () => {
 
   beforeEach(() => {
     now = 1_000;
-    vi.spyOn(window.performance, 'now').mockImplementation(() => now);
+    // jsdom stamps event.timeStamp from Date.now; history groups by it too.
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     host = document.createElement('div');
     button = document.createElement('button');
@@ -137,6 +137,16 @@ describe('Markdown IME reset recovery', () => {
     now += 51;
     pressOutside();
     expect(view.state.doc.firstChild!.textContent).toBe('안녕하세');
+  });
+
+  it.each([-1, 1])('recovers a pointer stamped %d ms from the reset even when dispatch is delayed', offset => {
+    vi.spyOn(window.performance, 'now').mockImplementation(() => now);
+    reset();
+    now += offset;
+    const pointer = new MouseEvent('pointerdown', { bubbles: true });
+    now += 100;
+    button.dispatchEvent(pointer);
+    expect(view.state.doc.firstChild!.textContent).toBe('안녕하세요');
   });
 
   it('leaves the normal boundary between two committed syllables alone', () => {

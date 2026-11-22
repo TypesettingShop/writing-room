@@ -58,10 +58,11 @@ export class MarkdownCompositionRecovery {
         composition.lastInputWasEmpty = true;
       }
     },
-    compositionend: (view, event) => {
+    compositionend: (_view, event) => {
       const composition = this.composition;
       if (composition?.text && composition.endedAt === undefined && (!event.data || composition.lastInputWasEmpty)) {
-        composition.endedAt = view.dom.ownerDocument.defaultView!.performance.now();
+        // Compare event times: rendering or other tasks between the two dispatches must not use up the window.
+        composition.endedAt = event.timeStamp;
       } else {
         this.composition = undefined;
       }
@@ -104,9 +105,9 @@ export class MarkdownCompositionRecovery {
   bind(view: EditorView): IDisposable {
     const document = view.dom.ownerDocument;
     const window = document.defaultView!;
-    const recover = () => this.recover(view);
+    const recover = (event: Event) => this.recover(view, event.timeStamp);
     const editorLosesFocus = (event: FocusEvent) => {
-      if (event.target === view.dom) recover();
+      if (event.target === view.dom) recover(event);
     };
     return combinedDisposable(
       addDisposableListener(document, 'pointerdown', recover, true),
@@ -114,17 +115,17 @@ export class MarkdownCompositionRecovery {
       addDisposableListener(view.dom, 'blur', editorLosesFocus),
       addDisposableListener(view.dom, 'focusout', editorLosesFocus),
       addDisposableListener(window, 'blur', recover),
-      addDisposableListener(document, 'visibilitychange', () => {
-        if (document.hidden) recover();
+      addDisposableListener(document, 'visibilitychange', event => {
+        if (document.hidden) recover(event);
       }),
     );
   }
 
-  private recover(view: EditorView): void {
+  private recover(view: EditorView, at: number): void {
     const composition = this.composition;
     if (composition?.endedAt === undefined) return;
-    const now = view.dom.ownerDocument.defaultView!.performance.now();
-    if (view.isDestroyed || !view.editable || now - composition.endedAt > resetWindowMs) {
+    // The OS can time-stamp the pointer before the reset it triggered, so a negative gap also counts.
+    if (view.isDestroyed || !view.editable || at - composition.endedAt > resetWindowMs) {
       this.composition = undefined;
       return;
     }
