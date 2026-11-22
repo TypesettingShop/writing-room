@@ -96,16 +96,61 @@ it('reports authentication changes and server outage without switching to memory
   try {
     await expect(service.store.listWorks()).rejects.toMatchObject({ code: 'unauthorized' });
     expect(service.availability).toBe('signedOut');
-    expect(auth).toHaveBeenCalled();
+    expect(auth).toHaveBeenLastCalledWith({ signedIn: false, reason: 'request' });
     await expect(service.store.listWorks()).rejects.toThrow('The manuscript server is unavailable.');
     expect(service.availability).toBe('unavailable');
+    expect(service.signedIn).toBe(false);
+    expect(auth).toHaveBeenCalledTimes(1);
     expect(service.usesMemory).toBe(false);
     await expect(service.store.listWorks()).resolves.toEqual([]);
+    expect(auth).toHaveBeenLastCalledWith({ signedIn: true, reason: 'request' });
     expect(availability.mock.calls).toEqual([['signedOut'], ['unavailable'], ['ready']]);
     expect(fetch).toHaveBeenLastCalledWith('/api/works', { credentials: 'same-origin', method: 'GET' });
   } finally {
     availabilityListener.dispose();
     authListener.dispose();
+    service.dispose();
+  }
+});
+
+it('keeps an explicit account change when an older Works response arrives late', async () => {
+  let settle!: (response: Response) => void;
+  const response = new Promise<Response>(resolve => { settle = resolve; });
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, () => response));
+  const auth = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+  try {
+    const pending = service.store.listWorks();
+    await service.auth!.signOut();
+    settle(Response.json({ works: [] }));
+    await expect(pending).resolves.toEqual([]);
+    expect(service.signedIn).toBe(false);
+    expect(service.availability).toBe('signedOut');
+  } finally {
+    auth.mockRestore();
+    service.dispose();
+  }
+});
+
+it('keeps a sign-in from another tab when an earlier unauthorized response arrives late', async () => {
+  let settle!: (response: Response) => void;
+  const late = new Promise<Response>(resolve => { settle = resolve; });
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(new Response(null, { status: 401 }))
+    .mockReturnValueOnce(late)
+    .mockResolvedValueOnce(Response.json({ works: [] }));
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, fetch));
+  const auth = vi.fn();
+  const listener = service.onDidChangeAuth(auth);
+  try {
+    await expect(service.store.listWorks()).rejects.toMatchObject({ code: 'unauthorized' });
+    const stale = service.store.listWorks();
+    await expect(service.store.listWorks()).resolves.toEqual([]);
+    settle(new Response(null, { status: 401 }));
+    await expect(stale).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(service.signedIn).toBe(true);
+    expect(auth.mock.calls).toEqual([[{ signedIn: false, reason: 'request' }], [{ signedIn: true, reason: 'request' }]]);
+  } finally {
+    listener.dispose();
     service.dispose();
   }
 });
@@ -123,6 +168,28 @@ it('explains address rejection for both document stats and JSON requests', async
       .toThrow('The manuscript server does not allow this address.');
     expect(service.availability).toBe('unavailable');
   } finally {
+    service.dispose();
+  }
+});
+
+it('reports a reachable API when a router error confirms reachability but not the session', async () => {
+  const fetch = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Connection refused'))
+    .mockResolvedValueOnce(Response.json({
+      error: { code: 'forbidden_origin', message: 'Origin is required and must be allowed.' },
+    }, { status: 403 }));
+  const service = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status, fetch));
+  const auth = vi.fn();
+  const listener = service.onDidChangeAuth(auth);
+  try {
+    await expect(service.store.listWorks()).rejects.toThrow('The manuscript server is unavailable.');
+    expect(service.availability).toBe('unavailable');
+    await expect(service.store.createWork({ title: 'Work' })).rejects.toThrow('Origin is required and must be allowed.');
+    expect(service.availability).toBe('ready');
+    expect(service.signedIn).toBeUndefined();
+    expect(auth).not.toHaveBeenCalled();
+  } finally {
+    listener.dispose();
     service.dispose();
   }
 });

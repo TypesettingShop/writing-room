@@ -16,6 +16,8 @@ export interface IMarkdownSourceBlock {
   readonly endLine: number;
   readonly startOffset: number;
   readonly endOffset: number;
+  /** Empty explicit cells use their closing pipe as evidence of their position. */
+  readonly tableCell?: 'text' | 'empty';
   /** Nested ranges exclude trailing whitespace and the optional opening pipe of a table row. */
   readonly children?: readonly IMarkdownSourceBlock[];
 }
@@ -31,7 +33,15 @@ type LineRange = [start: number, end: number];
 interface SourceToken {
   readonly type: string;
   readonly range: LineRange | null;
+  readonly cell?: TableCellSource;
   readonly children: SourceToken[];
+}
+
+interface TableCellSource {
+  readonly range: LineRange;
+  readonly startOffset: number;
+  readonly endOffset: number;
+  readonly tableCell: NonNullable<IMarkdownSourceBlock['tableCell']>;
 }
 
 interface IParseEnvironment {
@@ -114,7 +124,54 @@ const tokenSpecs: Record<string, ParseSpec> = {
   class_span: { mark: 'span', getAttrs: blockAttrs },
 };
 
-function adaptBlockRules(markdownIt: MarkdownIt): void {
+function tableCellSources(line: string, offset: number, range: LineRange): TableCellSource[] {
+  const text = line.trim();
+  offset += line.length - line.trimStart().length;
+  const cells: TableCellSource[] = [];
+  let start = text.startsWith('|') ? 1 : 0;
+  const append = (end: number) => {
+    const field = text.slice(start, end);
+    const body = field.trim();
+    const from = offset + (body ? start + field.length - field.trimStart().length : end);
+    cells.push({ range, startOffset: from, endOffset: from + (body.length || 1), tableCell: body ? 'text' : 'empty' });
+  };
+  for (let pos = start; pos < text.length; pos++) {
+    // Match markdown-it's table splitter. It separates cells before parsing inlines,
+    // and treats a pipe immediately after a backslash as escaped.
+    if (text[pos] === '|' && text[pos - 1] !== '\\') {
+      append(pos);
+      start = pos + 1;
+    }
+  }
+  if (start < text.length) append(text.length);
+  return cells;
+}
+
+function adaptBlockRules(markdownIt: MarkdownIt, cellSources: WeakMap<Token, TableCellSource>): void {
+  wrapMarkdownRule(markdownIt.block.ruler, 'table', original => (state, start, end, silent) => {
+    const index = state.tokens.length;
+    if (!original(state, start, end, silent)) return false;
+    const env = state.env as IParseEnvironment;
+    if (silent || !env.includeChildRanges) return true;
+    let cells: TableCellSource[] = [];
+    let column = 0;
+    for (let cursor = index; cursor < state.tokens.length; cursor++) {
+      const token = state.tokens[cursor];
+      if (token.type === 'tr_open' && token.map) {
+        const line = token.map[0];
+        const from = state.bMarks[line] + state.tShift[line];
+        const lineStart = from === 0 ? 0 : state.src.lastIndexOf('\n', from - 1) + 1;
+        // The block rule sees nested quote/list prefixes and normalized line endings.
+        // Convert its column back to the original file using the original line starts.
+        cells = tableCellSources(state.src.slice(from, state.eMarks[line]), env.lines[line] + from - lineStart, token.map);
+        column = 0;
+      } else if (token.type === 'th_open' || token.type === 'td_open') {
+        const cell = cells[column++];
+        if (cell) cellSources.set(token, cell);
+      }
+    }
+    return true;
+  }, ['paragraph', 'reference']);
   wrapMarkdownRule(markdownIt.block.ruler, 'reference', original => (state, start, end, silent) => {
     if (!original(state, start, end, silent)) return false;
     if (!silent) {
@@ -208,7 +265,7 @@ function supportedTokenTypes(): Set<string> {
 }
 
 /** Follow the block nodes emitted by MarkdownParser. Ignored wrappers like thead and tbody are transparent. */
-function sourceTokenChildren(tokens: readonly Token[]): readonly SourceToken[] | undefined {
+function sourceTokenChildren(tokens: readonly Token[], cellSources: WeakMap<Token, TableCellSource>): readonly SourceToken[] | undefined {
   const rootType = tokenSpecs[tokens[0].type.replace(/_open$/, '')]?.block;
   if (!rootType || markdownSchema.nodes[rootType].inlineContent) return;
 
@@ -222,7 +279,8 @@ function sourceTokenChildren(tokens: readonly Token[]): readonly SourceToken[] |
     if (token.nesting < 0) {
       stack.pop();
     } else {
-      const child: SourceToken = { type, range: token.map, children: [] };
+      const cell = cellSources.get(token);
+      const child: SourceToken = { type, range: cell?.range ?? token.map, cell, children: [] };
       stack.at(-1)!.push(child);
       if (token.nesting > 0) stack.push(child.children);
     }
@@ -232,13 +290,15 @@ function sourceTokenChildren(tokens: readonly Token[]): readonly SourceToken[] |
 
 function sourceBlock(
   node: Node, from: number, [startLine, endLine]: LineRange, tokens: readonly SourceToken[] | undefined,
-  source: string, lines: readonly number[], nested = false,
+  source: string, lines: readonly number[], nested = false, cell?: TableCellSource,
 ): IMarkdownSourceBlock {
   const lineStart = lines[startLine] ?? source.length;
   const lineEnd = lines[endLine] ?? source.length;
   let startOffset = lineStart;
   let endOffset = lineEnd;
-  if (nested) {
+  if (cell) {
+    ({ startOffset, endOffset } = cell);
+  } else if (nested) {
     const text = source.slice(lineStart, lineEnd).trimEnd();
     endOffset = lineStart + text.length;
     if (node.type.spec.tableRole === 'row') {
@@ -251,11 +311,12 @@ function sourceBlock(
     node.forEach((child, offset, index) => {
       const token = tokens[index];
       if (token.type === child.type.name && token.range) {
-        children.push(sourceBlock(child, from + 1 + offset, token.range, token.children, source, lines, true));
+        children.push(sourceBlock(child, from + 1 + offset, token.range, token.children, source, lines, true, token.cell));
       }
     });
   }
   return { from, to: from + node.nodeSize, startLine, endLine, startOffset, endOffset,
+    ...(cell ? { tableCell: cell.tableCell } : {}),
     ...(children.length ? { children } : {}) };
 }
 
@@ -276,7 +337,8 @@ export function getOriginalMarkdown(doc: Node): IOriginalMarkdown | undefined {
 
 export function createMarkdownParser(options?: IMarkdownItOptions): (source: string, includeChildRanges?: boolean) => IParsedMarkdown {
   const markdownIt = createMarkdownIt(options);
-  adaptBlockRules(markdownIt);
+  const cellSources = new WeakMap<Token, TableCellSource>();
+  adaptBlockRules(markdownIt, cellSources);
   keepUnresolvedFootnotes(markdownIt);
   const supported = supportedTokenTypes();
   markdownIt.core.ruler.push('prosemirror_source', state => {
@@ -287,7 +349,7 @@ export function createMarkdownParser(options?: IMarkdownItOptions): (source: str
       const first = group[0];
       const range = first.map;
       if (group.every(token => isSupported(token, supported))) {
-        env.blocks.push({ range, children: env.includeChildRanges ? sourceTokenChildren(group) : undefined });
+        env.blocks.push({ range, children: env.includeChildRanges ? sourceTokenChildren(group, cellSources) : undefined });
         return group;
       }
       env.blocks.push({ range });

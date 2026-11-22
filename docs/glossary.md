@@ -1,9 +1,9 @@
-# 용어집: VS Code에서 온 이름
+# 용어집: VS Code와 writing-room의 이름
 
-화면의 무엇을 가리킬 때 쓰는 이름을 모은 페이지다. 이름은 VS Code를 따르므로, 사람이 이 이름으로 말하면 화면 위치와 이 저장소의 코드, VS Code 원본까지 바로 찾아갈 수 있다. 화면 라벨은 실제 UI 문자열의 영어 그대로 적고 한국어 이름은 괄호에 둔다. 제품의 메뉴 라벨은 영어로만 둔다.
+화면과 코드를 가리킬 때 쓰는 이름을 모은 페이지다. VS Code에서 이어받은 이름은 화면 위치, 이 저장소의 코드, VS Code 원본을 함께 적는다. writing-room에서 붙인 이름에는 화면과 이 저장소의 코드 위치를 적는다. 화면 라벨은 실제 UI 문자열의 영어 그대로 적고 한국어 이름은 괄호에 둔다. 제품의 메뉴 라벨은 영어로만 둔다.
 
 - 설명은 옮겨 적지 않고 마지막 열의 페이지로 링크한다. 이 페이지는 이름과 위치만 정한다.
-- 우리 코드 경로는 `src/` 아래이고, VS Code 경로는 `src/vs/` 아래다. 두 경로는 대개 [대응 규칙](architecture.md#대응-규칙)에 따라 `vs/`만 다르다. 구현 위치나 심볼이 다른 행은 두 열에 각자의 실제 위치를 적는다. VS Code 경로와 심볼은 [기준 커밋](README.md#기준-vs-code-커밋)에서 확인했다. 줄 번호는 적지 않는다.
+- 우리 코드 경로는 `src/` 기준이며, `server/`로 시작하는 경로는 저장소 루트 기준이다. VS Code 경로는 `src/vs/` 기준이다. 두 소스 경로는 대개 [대응 규칙](architecture.md#대응-규칙)에 따라 `vs/`만 다르다. 구현 위치나 심볼이 다른 행은 두 열에 각자의 실제 위치를 적는다. VS Code 경로와 심볼은 [기준 커밋](README.md#기준-vs-code-커밋)에서 확인했다. 줄 번호는 적지 않는다.
 - 같은 개념에 이름이 둘이면 하나를 고르고 나머지는 "다른 이름"으로 적는다.
 - 용어를 더하거나 고치면 이 표의 한 줄만 바꾼다.
 
@@ -88,9 +88,33 @@
 | User Settings (사용자 설정) | `settings.json`. **Preferences: Open User Settings (JSON)** 커맨드로 연다. | `platform/configuration/common/configuration.ts` | `platform/configuration/common/configuration.ts` | [상태와 설정](vscode-state-settings.md), [사용자 설정 편집하기](getting-started.md#사용자-설정-편집하기) |
 | Memento (메멘토) | 컴포넌트가 자기 상태를 스토리지에 맡기는 도구. 탭 복원이 이것을 쓴다. | `workbench/common/memento.ts`, `Memento` | `workbench/common/memento.ts`, `Memento` | [상태와 설정](vscode-state-settings.md) |
 
+## 작품
+
+| 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
+| --- | --- | --- | --- |
+| Work (작품) | 원고 트리를 담는 단위. Welcome의 Works에서 작품 제목을 고른다. | `platform/manuscript/common/manuscript.ts`, `ManuscriptWork` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
+| Work 메뉴 | Menu Bar 맨 앞의 최상위 메뉴. **New Work...**, **Open Work...**, **Close Work**가 있다. | `workbench/browser/parts/titlebar/menubar.contribution.ts`, `MenubarWorkMenu` 및 `workbench/contrib/work/browser/work.contribution.ts` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
+| Works (작품 목록) | Welcome 에디터에서 최근 작품을 보여 주는 절. | `workbench/browser/parts/editor/welcomeEditor.ts`, `WelcomeEditorPane` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
+| 작품 창 | 주소에 `?work=<uuid>`로 열린 작품을 지정한 창. | `workbench/services/work/common/work.ts`, `WindowWork`, `readWindowWork` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
+| `workOpen` (작품 열림) | 작품 창에서 Manuscript 컨테이너와 **Close Work** 등을 표시하거나 활성화할 때 쓰는 컨텍스트 키. | `workbench/services/work/common/work.ts`, `WorkOpenContext` | [작품 열기와 닫기](getting-started.md#작품-열기와-닫기) |
+
+## 원고 구조와 뷰
+
+| 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
+| --- | --- | --- | --- |
+| Manuscript (원고) | 작품 창의 Activity Bar에서 책 아이콘으로 여는 View Container. Navigator와 Properties가 들어 있다. | `workbench/contrib/manuscript/browser/manuscript.contribution.ts`, `MANUSCRIPT_CONTAINER_ID` | [원고 탐색창](manuscript.md) |
+| Navigator (탐색창) | Manuscript에서 부·장·문서를 보고 선택하는 뷰. | `workbench/contrib/manuscript/browser/navigatorView.ts`, `NavigatorView` | [원고 탐색창](manuscript.md) |
+| Properties (메타데이터창) | Navigator에서 고른 항목의 제목과 메타데이터를 보여 주는 뷰. | `workbench/contrib/manuscript/browser/propertiesView.ts`, `PropertiesView` | [Properties에서 제목 고치기](manuscript.md#properties에서-제목-고치기) |
+| Part (부) | 원고 최상위에서 장과 문서를 담는 폴더. | `platform/manuscript/common/manuscript.ts`, `manuscriptNodeTypes.part` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
+| Chapter (장) | 원고 최상위나 부 안에서 문서를 담는 폴더. | `platform/manuscript/common/manuscript.ts`, `manuscriptNodeTypes.chapter` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
+| Document (문서) | Navigator에서 에디터 탭으로 여는 마크다운 원고 항목. | `platform/manuscript/common/manuscript.ts`, `manuscriptNodeTypes.document` | [문서 열기](manuscript.md#문서-열기) |
+| 현재 폴더와 `..` | Navigator가 목록의 기준으로 삼는 폴더와 상위 폴더로 돌아가는 맨 위 행. | `workbench/contrib/manuscript/common/manuscriptTree.ts`, `UP_KEY` 및 `workbench/contrib/manuscript/browser/manuscriptViewState.ts`, `ManuscriptViewState` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
+| 번호 라벨 | Navigator와 Properties에서 부·장의 순서를 나타내는 `1부`, `1장` 같은 표시. 같은 부모 아래에서 종류별로 1부터 세며 문서에는 번호를 붙이지 않는다. | `workbench/contrib/manuscript/common/manuscriptTree.ts`, `buildIndex` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
+| Open All Documents | Navigator 폴더의 문맥 메뉴에서 하위 문서를 여는 명령. | `workbench/contrib/manuscript/browser/manuscript.contribution.ts` 및 `workbench/contrib/manuscript/browser/manuscriptOpener.ts`, `ManuscriptOpener` | [문서 열기](manuscript.md#문서-열기) |
+
 ## 편집기
 
-이 절은 이 제품에서 새로 붙인 이름이다. VS Code에는 대응하는 이름이 없다.
+이 절에는 Manuscript Editor의 화면과 동작을 설명할 때 쓰는 용어를 모았다.
 
 | 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
 | --- | --- | --- | --- |
@@ -100,24 +124,27 @@
 | Typewriter Scroll (타자기 스크롤) | 쓰는 줄을 화면 가운데에 붙들어 두는 설정 `markdownEditor.typewriterScroll`. | `workbench/contrib/markdownEditor/common/markdownEditor.ts`, `MARKDOWN_EDITOR_TYPEWRITER` | [분량과 집중 모드](getting-started.md#분량과-집중-모드) |
 | Formatting Toolbar (서식 툴바) | Manuscript Editor 본문 위의 툴바. Style, Size, Font, 정렬, 굵게 같은 버튼이 있다. | `workbench/contrib/markdownEditor/browser/markdownEditorToolbar.contribution.ts`, `MenuId.MarkdownEditorToolbar` | [서식 툴바](getting-started.md#서식-툴바) |
 | Gutter (본문 옆 여백) | 본문 좌우의 빈 영역. 눌러서 줄의 시작과 끝, 블록 앞뒤로 커서를 옮긴다. | `workbench/contrib/markdownEditor/browser/markdownEditorGutter.ts` | [마크다운 편집하기](getting-started.md#마크다운-편집하기) |
+| Section (절) | 문서 본문에서 절 구분선으로 나뉘는 구간. | `workbench/contrib/markdownEditor/browser/markdownEditorSections.ts` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
+| Section Break (절 구분선) | Manuscript Editor에서 절 경계를 표시하는 최상위 가로 구분선. 삽입 명령의 표시 이름은 **Horizontal Rule**이다. | `workbench/contrib/markdownEditor/browser/markdownEditorSections.ts` 및 `workbench/contrib/markdownEditor/browser/markdownEditorToolbar.contribution.ts` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
+| Section Numbers (절 번호) | **View → Appearance → Section Numbers**로 켜는 절의 윗첨자 번호. 설정은 `markdownEditor.sectionNumbers`다. | `workbench/contrib/markdownEditor/common/markdownEditor.ts`, `MARKDOWN_EDITOR_SECTION_NUMBERS` 및 `workbench/contrib/markdownEditor/browser/markdownEditorPresentation.contribution.ts` | [절 구분선과 절 번호](markdown-editor.md#절-구분선과-절-번호) |
+| Footnotes Panel (각주 패널) | Manuscript Editor 하단의 **Footnotes** 영역. 팔레트의 명령 이름은 **Markdown: Toggle Footnotes Panel**이다. | `workbench/contrib/markdownEditor/browser/markdownEditorFootnotes.ts` 및 `workbench/contrib/markdownEditor/browser/markdownEditorPresentation.contribution.ts` | [각주 패널](markdown-editor.md#각주-패널) |
+| IME (입력기), IME 리셋 | 한글 입력기의 조합과 조합 중 발생하는 입력기 리셋을 가리킨다. | `workbench/contrib/markdownEditor/browser/markdownCompositionRecovery.ts`, `MarkdownCompositionRecovery` | [마크다운 편집하기](getting-started.md#마크다운-편집하기) |
 
 ### 이름의 내력
 
 2026-11-22에 사람이 "이렇게 계속 부를 수는 없다"고 하여 Manuscript Editor(원고 편집기)로 정했다. VS Code의 내장 확장도 Markdown Editor(`vscode.markdown.editor`)를 등록하므로 같은 이름이 둘이어서 헷갈렸다. 바뀐 것은 화면에 보이는 이름뿐이다. 저장되는 id(에디터 입력의 `typeId`, `markdownEditor.*` 설정 키), 커맨드 category `Markdown`, 본문 textbox의 접근 이름 `Markdown editor`는 그대로다. 두 모드는 같은 `TextFileEditorModel`을 쓴다. [아키텍처](architecture.md#markdown-editor)
 
-## v0.4.0에서 생길 이름
+## 원고 저장과 로그인
 
-아직 화면에 없다. 사람이 지금부터 이 이름으로 지시할 수 있도록 이름만 적고, 내용은 v0.4.0의 작업이 끝난 뒤에 채운다.
-
-| 이름 | 한국어 |
-| --- | --- |
-| Work | 작품 |
-| Manuscript | 원고 |
-| Navigator | 탐색창 |
-| Properties | 메타데이터창 |
-| Part | 부 |
-| Chapter | 장 |
-| Section | 절 |
-| Document | 문서 |
+| 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
+| --- | --- | --- | --- |
+| Manuscript Store (원고 저장 계약) | 작품, 원고 트리, 문서 본문의 읽기와 쓰기를 정의하는 `ManuscriptStore` 인터페이스. | `platform/manuscript/common/manuscriptStore.ts`, `ManuscriptStore` | [원고 저장소](architecture.md#원고-저장소) |
+| `manuscript:` 스킴 | 원고 문서를 편집기에서 여는 URI의 스킴. 형식은 `manuscript://<workId>/<nodeId>.md`다. | `workbench/services/manuscript/browser/manuscriptFileSystemProvider.ts`, `manuscriptScheme`, `manuscriptDocumentUri` | [원고 저장소](architecture.md#원고-저장소) |
+| revision 충돌 | 같은 작품의 원고 트리를 바꿀 때 보낸 revision이 저장소의 현재 값과 다르면 생기는 충돌. 다른 이름은 저장 충돌이다. | `platform/manuscript/common/manuscript.ts`, `checkRevision` 및 `workbench/contrib/manuscript/browser/manuscriptViewState.ts`, `ManuscriptViewState` | [다른 창의 변경 가져오기](manuscript.md#다른-창의-변경-가져오기) |
+| API 서버 | 브라우저에서 보낸 원고 저장과 로그인 `/api` 요청을 처리하는 Node 서버. | `server/apiServer.ts`, `createApiServer` | [API 서버 실행](getting-started.md#api-서버-실행) |
+| 로그인 API | `/api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`에서 가입, 로그인, 로그아웃, 현재 세션 확인을 처리한다. | `server/auth/authRoutes.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기) |
+| Google 로그인 API | `/api/auth/oauth/google/start`와 `/api/auth/oauth/google/callback`에서 Google 로그인을 시작하고 완료한다. | `server/auth/googleRoutes.ts`, `createGoogleRoutes` 및 `server/auth/googleConfig.ts` | [Google 로그인 설정](getting-started.md#개발-환경에서-google-로그인-설정하기) |
+| 세션 | 로그인 뒤 계정을 확인하는 단위. 브라우저는 `wr_session` 쿠키로 세션을 전달한다. | `server/auth/session.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기) |
+| Sign In / Sign Out (로그인과 로그아웃) | Welcome의 **Sign In**, **Create Account**, **Continue with Google**과 Work 메뉴의 **Sign In...**, **Sign Out**. | `workbench/browser/parts/editor/welcomeAccount.ts` 및 `workbench/contrib/work/browser/work.contribution.ts` | [이메일과 비밀번호로 로그인하기](getting-started.md#이메일과-비밀번호로-로그인하기), [Google 로그인 설정](getting-started.md#개발-환경에서-google-로그인-설정하기) |
 
 Decided in: wr-cbej

@@ -310,7 +310,7 @@ export class MarkdownEditorPane extends EditorPane {
               || (!transaction.docChanged && !transaction.scrolledIntoView
                 && ((!view.editable && transaction.selectionSet) || transaction.selection instanceof CellSelection));
             try {
-              sync.dispatch(transaction);
+              sync.dispatch(transaction, false, composition.deferredInput);
             } finally {
               this.pointerSelection = false;
             }

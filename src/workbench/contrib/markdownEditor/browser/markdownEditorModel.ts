@@ -12,6 +12,7 @@ import { isMarkdownClass } from '../../../../editor/common/markdown/plugins/attr
 import { serializeMarkdown } from '../../../../editor/common/markdown/serializer.js';
 import { getTextModelEdit } from '../../../../editor/common/model.js';
 import type { IModelContentChange, IModelContentChangedEvent, ISingleEditOperation, ITextModel } from '../../../../editor/common/model.js';
+import type { IMarkdownCompositionInput } from './markdownCompositionRecovery.js';
 import {
   authorMarkdownCaretParagraph, createMarkdownCaretParagraph, isEmptyMarkdownCaretParagraph, markdownCaretParagraphKey,
   markdownCaretParagraphSide,
@@ -39,9 +40,24 @@ interface SourceWrite {
 interface DeferredEdit {
   readonly owner: MarkdownEditorModel;
   readonly mapping?: Mapping;
-  readonly composition?: { readonly caret: CaretParagraph };
+  readonly composition?: DeferredComposition;
   run(): void;
 }
+
+interface ContainerComposition {
+  readonly doc: Node;
+  readonly target: number;
+  readonly containerEnd: number;
+  readonly id: number;
+  readonly start: number;
+  readonly text: string;
+  /** The native caret's offset in `text`. */
+  readonly caretOffset: number;
+  readonly input?: IMarkdownCompositionInput;
+  previous?: ContainerComposition;
+}
+
+type DeferredComposition = { readonly caret: CaretParagraph } | ContainerComposition;
 
 interface DeferredEdits {
   pending: DeferredEdit[];
@@ -54,6 +70,8 @@ const deferredByModel = new WeakMap<ITextModel, DeferredEdits>();
 const markdownHistory = history({ newGroupDelay: 500 });
 // An empty Enter paragraph has no Markdown spelling. Remember its gutter side for Redo.
 const caretEnterParagraphs = new WeakMap<Node['attrs'], -1 | 1>();
+// Redo of a whole block insertion otherwise puts the caret in the following block.
+const recoveredCompositionCarets = new WeakMap<Node['attrs'], number>();
 
 // Exclude most Markdown delimiters and indentation before parsing a line outside its document context.
 // Markdown syntax is ASCII, so prose punctuation and symbols beyond ASCII stay plain text. A line that
@@ -318,6 +336,16 @@ function survivingText(source: string, from: number, to: number): boolean {
   return false;
 }
 
+function survivingBlockText(
+  oldBlock: IMarkdownSourceBlock, newBlock: IMarkdownSourceBlock, source: string, from: number, to: number, shift: number,
+): boolean {
+  if (oldBlock.tableCell) return oldBlock.tableCell === 'text' && newBlock.tableCell === 'text';
+  if (survivingText(source, from, to)) return true;
+  // An empty table cell can be the only surviving field in its row.
+  return oldBlock.children?.some(cell => cell.tableCell === 'empty' && cell.startOffset >= from && cell.endOffset <= to
+    && newBlock.children?.some(next => next.tableCell === 'empty' && next.startOffset === cell.startOffset + shift)) ?? false;
+}
+
 function sourceBlockMatches(
   before: readonly IMarkdownSourceBlock[], after: readonly IMarkdownSourceBlock[],
   previous: string, unchanged: readonly UnchangedSourceSpan[],
@@ -351,7 +379,7 @@ function sourceBlockMatches(
       const to = Math.min(end, oldEnd, newEnd);
       const intact = from === oldBlock.startOffset && from === newBlock.startOffset - shift && to === oldEnd && to === newEnd;
       // A partial overlap needs surviving body text. An intact range also identifies an empty item.
-      if (from < to && (intact || survivingText(previous, from, to))) {
+      if (from < to && (intact || survivingBlockText(oldBlock, newBlock, previous, from, to, shift))) {
         const existing = forward.get(oldBlock);
         if (existing === undefined) {
           forward.set(oldBlock, { block: newBlock, intact });
@@ -427,7 +455,7 @@ function sourceChangeMap(
       const block = oldNodes.get(source.from)!;
       const updated = newNodes.get(match.block.from)!;
       const intact = match.intact && block.eq(updated);
-      if (intact || block.isTextblock && block.sameMarkup(updated)) {
+      if (intact || block.isTextblock && (block.sameMarkup(updated) || source.tableCell && block.type === updated.type)) {
         appendGap(source.from, match.block.from);
         if (!intact) {
           const from = block.content.findDiffStart(updated.content, source.from + 1);
@@ -531,6 +559,92 @@ function mapDeferredStep(step: Step, remap: Mapping, start: number): Step | null
     }
   }
   return mapped;
+}
+
+/** The native text can extend past the changed range when a replacement shares letters with the selection. */
+function pendingCompositionText(
+  doc: Node, from: number, to: number, input?: IMarkdownCompositionInput,
+): { readonly text: string; readonly start: number } {
+  const inserted = doc.textBetween(from, to);
+  const native = input?.text;
+  if (!native) return { text: inserted, start: from };
+  const within = inserted.indexOf(native);
+  if (within !== -1) return { text: native, start: from + within };
+  const $from = doc.resolve(from);
+  // A preedit that keeps only part of the selection it replaced can leave a pure deletion step.
+  for (let offset = 0; offset + inserted.length <= native.length; offset++) {
+    if (!native.startsWith(inserted, offset)) continue;
+    const start = from - offset;
+    const end = start + native.length;
+    if (start >= $from.start() && end <= $from.end() && doc.textBetween(start, end) === native) return { text: native, start };
+  }
+  return { text: '', start: from };
+}
+
+/** Record only a contiguous plain-text edit inside a single nested textblock. */
+function containerComposition(transaction: Transaction, id: number, input?: IMarkdownCompositionInput): ContainerComposition | undefined {
+  const [first] = transaction.steps;
+  if (!(first instanceof ReplaceStep) || transaction.getMeta('addToHistory') === false) return;
+  const $start = transaction.before.resolve(first.from);
+  if ($start.depth < 2 || !$start.parent.isTextblock) return;
+  const container = $start.node(1);
+  const nodes = transaction.doc.type.schema.nodes;
+  if (container.type !== nodes.bullet_list && container.type !== nodes.ordered_list &&
+      container.type !== nodes.blockquote && container.type !== nodes.table) return;
+  const target = $start.before();
+  let from = first.from;
+  let to = first.to;
+  for (let index = 0; index < transaction.steps.length; index++) {
+    const step = transaction.steps[index];
+    if (!(step instanceof ReplaceStep) || step.slice.openStart || step.slice.openEnd ||
+        step.slice.content.content.some(node => !node.isText) || step.from > to || step.to < from) return;
+    const before = transaction.docs[index];
+    const start = before.resolve(step.from);
+    if (!start.parent.isTextblock || start.before() !== target || !start.sameParent(before.resolve(step.to))) return;
+    from = Math.min(from, step.from);
+    to = Math.max(step.from + step.slice.size, to + step.slice.size - (step.to - step.from));
+  }
+  const { text, start } = pendingCompositionText(transaction.doc, from, to, input);
+  // Keep a native caret inside its preedit, as a recovered temporary paragraph does.
+  const { empty, head } = transaction.selection;
+  const caretOffset = empty && head >= start && head <= start + text.length ? head - start : text.length;
+  return { doc: transaction.before, target, containerEnd: $start.after(1), id, start, text, caretOffset, input };
+}
+
+function sameCompositionTarget(before: DeferredComposition, after: DeferredComposition): boolean {
+  if ('caret' in before) return 'caret' in after && before.caret.node === after.caret.node;
+  return !('caret' in after) && before.doc === after.doc && before.target === after.target;
+}
+
+function sameNativeComposition(before: ContainerComposition, after: ContainerComposition): boolean {
+  return before.input && after.input ? before.input === after.input : before.id === after.id;
+}
+
+function recoverableCompositionText(doc: Node, composition: ContainerComposition): { text: string; caretOffset: number } {
+  const target = doc.nodeAt(composition.target)!;
+  const contentStart = composition.target + 1;
+  const parts: ContainerComposition[] = [];
+  for (let part: ContainerComposition | undefined = composition; part; part = part.previous) {
+    const { start, text, input } = part;
+    if (!text || /[\r\n]/.test(text) || input?.lastInputWasEmpty || (input?.text && input.text !== text)) continue;
+    const end = start + text.length;
+    // The last DOM snapshot is authoritative. Keep earlier commits that are still present
+    // at their recorded positions and have not been replaced by a newer composition.
+    if (start < contentStart || end > contentStart + target.content.size ||
+        doc.textBetween(start, end) !== text || parts.some(next => start < next.start + next.text.length && next.start < end)) {
+      continue;
+    }
+    parts.push(part);
+  }
+  parts.sort((left, right) => left.start - right.start);
+  const text = parts.map(part => part.text).join('');
+  if (!parts.includes(composition)) return { text, caretOffset: text.length };
+  let caretOffset = composition.caretOffset;
+  for (const part of parts) {
+    if (part === composition) break;
+    caretOffset += part.text.length;
+  }
+  return { text, caretOffset };
 }
 
 /** One pane's ProseMirror state, synchronized with the shared text file. */
@@ -663,7 +777,7 @@ export class MarkdownEditorModel extends Disposable {
     return this.runCommand(command, true);
   }
 
-  dispatch(transaction: Transaction, isolate = false): void {
+  dispatch(transaction: Transaction, isolate = false, input?: IMarkdownCompositionInput): void {
     if (isHistoryTransaction(transaction)) {
       // Recompute native beforeinput history against the current source and without a temporary caret.
       this.runCommand(transaction.getMeta(markdownHistory).redo ? redo : undo);
@@ -675,20 +789,27 @@ export class MarkdownEditorModel extends Disposable {
     }
     const before = this.state;
     const id: unknown = transaction.getMeta('composition');
-    const caret = transaction.docChanged && typeof id === 'number' ? selectedCaretParagraph(before) : undefined;
-    const composition = caret ? { caret } : undefined;
+    let composition: DeferredComposition | undefined;
+    if (transaction.docChanged && typeof id === 'number') {
+      const caret = selectedCaretParagraph(before);
+      composition = caret ? { caret } : containerComposition(transaction, id, input);
+    }
     const mapping = new Mapping();
     this.deferred.pending.push({ owner: this, mapping, composition, run: () => {
       const rebased = before === this.state && mapping.maps.length === 0 ? transaction : this.rebaseTransaction(transaction, mapping);
       if (rebased) {
         this.applyDispatch(rebased, isolate);
       } else if (composition) {
-        // Reentrant flushes can queue another update against the same still-empty paragraph.
-        // It reads the DOM against the same unchanged state, so its composition text supersedes
-        // the older update if the paragraph was lost, even after the IME started a new composition.
-        const updated = this.deferred.pending.some(edit => edit.owner === this
-          && edit.composition?.caret.node === composition.caret.node);
-        if (!updated) this.recoverDeferredComposition(transaction, composition.caret, mapping);
+        // A later flush of the same native composition supersedes the old preedit. A new
+        // composition can share that flush window with the one that just committed.
+        const updated = this.deferred.pending.find(edit => edit.owner === this
+          && edit.composition && sameCompositionTarget(composition, edit.composition))?.composition;
+        if (!updated) {
+          if ('caret' in composition) this.recoverDeferredComposition(transaction, composition.caret, mapping);
+          else this.recoverContainerComposition(transaction, composition, mapping);
+        } else if (!('caret' in composition) && !('caret' in updated)) {
+          updated.previous = sameNativeComposition(composition, updated) ? composition.previous : composition;
+        }
       }
     } });
   }
@@ -772,21 +893,9 @@ export class MarkdownEditorModel extends Disposable {
     }
 
     const { gap, direction, mapCount } = (over.maps[lost] as CaretParagraphRemovalMap).recovery!;
-    const { doc } = this.state;
-    const $gap = doc.resolve(over.slice(lost + mapCount).map(gap, direction));
-    // Parsing empty Markdown supplies a placeholder paragraph. Fill it as the only
-    // authored block so the rich tree agrees with a fresh parse of the recovered text.
-    const placeholder = !this.lastSource.trim() && doc.childCount === 1 && doc.firstChild?.type === paragraph.type
-      && !doc.firstChild.content.size;
-    const boundary = $gap.depth === 0 ? $gap.pos : direction < 0 ? $gap.after(1) : $gap.before(1);
-    const position = placeholder ? 0 : boundary;
     const restored = paragraph.type.create(null, paragraph.content);
-    const recovered = this.state.tr.setTime(transaction.time);
-    if (placeholder) {
-      recovered.replaceWith(0, doc.content.size, restored);
-    } else {
-      recovered.insert(position, restored);
-    }
+    const mapped = over.slice(lost + mapCount).map(gap, direction);
+    const { recovered, position } = this.insertCompositionParagraph(restored, mapped, direction, transaction.time);
     const offset = new Mapping([StepMap.offset(position - caret.pos)]);
     const { selection } = transaction;
     const inside = selection.from > caret.pos && selection.to < caret.pos + paragraph.nodeSize;
@@ -795,6 +904,44 @@ export class MarkdownEditorModel extends Disposable {
     this.copyTransactionState(transaction, recovered, restoredSelection, offset);
     // Start a separate history event, but let later updates of the same composition join it.
     this.applyDispatch(closeHistory(recovered), false);
+  }
+
+  private recoverContainerComposition(transaction: Transaction, composition: ContainerComposition, over: Mapping): void {
+    const { target, containerEnd } = composition;
+    const { text, caretOffset } = recoverableCompositionText(transaction.doc, composition);
+    if (!text) return;
+    let inside = target + 1;
+    for (let index = over.from; index < over.to; index++) {
+      const change = over.maps[index];
+      if (change instanceof SourceChangeMap && change.conflicts(inside, inside)) {
+        // A separate paragraph at the mapped outer boundary leaves every surviving item and cell intact.
+        const { schema } = this.state;
+        const paragraph = schema.nodes.paragraph.create({}, schema.text(text));
+        recoveredCompositionCarets.set(paragraph.attrs, caretOffset);
+        const gap = over.map(containerEnd, 1);
+        const { recovered, position } = this.insertCompositionParagraph(paragraph, gap, -1, transaction.time);
+        recovered.setSelection(TextSelection.create(recovered.doc, position + 1 + caretOffset))
+          .setMeta('composition', transaction.getMeta('composition'));
+        if (transaction.scrolledIntoView) recovered.scrollIntoView();
+        this.applyDispatch(closeHistory(recovered), false);
+        return;
+      }
+      inside = change.map(inside, 1);
+    }
+  }
+
+  private insertCompositionParagraph(paragraph: Node, gap: number, direction: number, time: number) {
+    const { doc } = this.state;
+    const $gap = doc.resolve(gap);
+    // An empty file already has an unwritten placeholder paragraph.
+    const placeholder = !this.lastSource.trim() && doc.childCount === 1 && doc.firstChild?.type === paragraph.type
+      && !doc.firstChild.content.size;
+    const boundary = $gap.depth === 0 ? $gap.pos : direction < 0 ? $gap.after(1) : $gap.before(1);
+    const position = placeholder ? 0 : boundary;
+    const recovered = this.state.tr.setTime(time);
+    if (placeholder) recovered.replaceWith(0, doc.content.size, paragraph);
+    else recovered.insert(position, paragraph);
+    return { recovered, position };
   }
 
   private copyTransactionState(
@@ -923,6 +1070,26 @@ export class MarkdownEditorModel extends Disposable {
       .setMeta('addToHistory', false).scrollIntoView(), mapping);
   }
 
+  private selectRecoveredCompositionOnRedo(transaction: Transaction): void {
+    if (!isHistoryTransaction(transaction) || !transaction.getMeta(markdownHistory).redo) return;
+    for (let index = transaction.steps.length - 1; index >= 0; index--) {
+      const step = transaction.steps[index];
+      if (!(step instanceof ReplaceStep) || step.slice.openStart || step.slice.openEnd ||
+          step.slice.content.childCount !== 1) continue;
+      const paragraph = step.slice.content.firstChild!;
+      const offset = recoveredCompositionCarets.get(paragraph.attrs);
+      if (offset === undefined) continue;
+      const remaining = transaction.mapping.slice(index + 1);
+      const position = remaining.map(step.from, 1);
+      const restored = transaction.doc.nodeAt(position);
+      if (restored?.attrs !== paragraph.attrs) continue;
+      const caret = remaining.map(step.from + 1 + Math.min(offset, paragraph.content.size), 1);
+      const inside = Math.max(position + 1, Math.min(caret, position + restored.nodeSize - 1));
+      transaction.setSelection(TextSelection.create(transaction.doc, inside));
+      return;
+    }
+  }
+
   private applyDispatch(transaction: Transaction, isolate: boolean): void {
     isolate ||= transaction.getMeta('uiEvent') === 'paste' || transaction.getMeta('uiEvent') === 'drop';
     const previousDoc = this.state.doc;
@@ -954,6 +1121,7 @@ export class MarkdownEditorModel extends Disposable {
         firstMap = { map: authored.mapping.maps[0], mirror: 0 };
       }
     }
+    this.selectRecoveredCompositionOnRedo(transaction);
     this.applyTransaction(transaction, isolate && !displayOnly, mapping, firstMap);
     this.restoreCaretAfterEnter(transaction, mapping);
     const changedDocument = this.state.doc !== previousDoc;
