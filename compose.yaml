@@ -13,7 +13,7 @@ services:
       - writing-room-pg:/var/lib/postgresql/data
       - ./scripts/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "writing_room", "-d", "writing_room"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "writing_room", "-d", "writing_room"]
       interval: 2s
       timeout: 3s
       retries: 15
