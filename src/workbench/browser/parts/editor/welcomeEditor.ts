@@ -6,6 +6,7 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import type { IEditorFactoryRegistry, IEditorSerializer } from '../../../common/editor.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { EditorPane } from './editorPane.js';
 import './media/welcomeEditor.css';
 
@@ -27,6 +28,16 @@ export class WelcomeEditorInput extends EditorInput {
 
   override matches(other: EditorInput): boolean {
     return other instanceof WelcomeEditorInput;
+  }
+}
+
+export class WelcomePageContribution {
+  static readonly ID = 'workbench.contrib.welcomePage';
+
+  constructor(@IEditorGroupsService groups: IEditorGroupsService) {
+    if (!groups.hasStoredState) {
+      void groups.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus: true }).catch(console.error);
+    }
   }
 }
 

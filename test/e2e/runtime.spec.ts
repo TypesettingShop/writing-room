@@ -118,6 +118,33 @@ test('exposes runtime context paths and resolves explicit activation exports', a
   )).toBeVisible();
 });
 
+test('gives each Work its own extension workspace state and storage URI', async ({ page }) => {
+  const first = '12345678-abcd-4000-8000-123456789abc';
+  const second = '23456789-abcd-4000-8000-123456789abc';
+  const location = extensionFixtureLocation('runtime');
+  await seedInstalledExtensions(page, [
+    { manifest: contextManifest, location: location + 'context/' },
+    { manifest: { name: 'runtime-export', publisher: 'test', version: '1.0.0', browser: './extension.js' },
+      location: location + 'export/' },
+  ]);
+
+  await page.goto(`/?work=${first}`);
+  await runRuntimeCommand(page, 'Inspect Runtime Environment');
+  await expect(page.getByText(`vscode-userdata:/User/workspaceStorage/work-${first}/test.runtime-context`)).toBeVisible();
+  await runRuntimeCommand(page, 'Store Runtime State');
+  await expect(page.getByText('Runtime stored. Copy isolated: true')).toBeVisible();
+
+  for (const url of [`/?work=${second}`, '/']) {
+    await page.goto(url);
+    await runRuntimeCommand(page, 'Restore Runtime State');
+    await expect(page.getByText('Runtime state: 1, stored safely, false, no secret')).toBeVisible();
+  }
+
+  await page.goto(`/?work=${first}`);
+  await runRuntimeCommand(page, 'Restore Runtime State');
+  await expect(page.getByText('Runtime state: 1, stored safely, true, no secret')).toBeVisible();
+});
+
 for (const installedFrom of ['folder', 'package'] as const) {
   test(`localizes a manifest and runs its nested worker from a ${installedFrom}`, async ({ page }) => {
     await page.addInitScript(() => {
