@@ -546,23 +546,33 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
   const eol = /\r\n|\r|\n/.exec(source)?.[0] ?? '\n';
   const ranges = new Map(parsed.blocks.map(block => [block.from, block]));
   const pieces = new Map<Node, SourcePiece>();
+  const piecesByAttrs = new Map<Attrs, SourcePiece | undefined>();
   const starts: (SourcePiece | undefined)[] = [];
   parsed.doc.forEach((node, offset, index) => {
     const range = ranges.get(offset);
-    if (!range) return;
-    const start = range.startOffset;
-    const end = endOfBlockContent(source, start, range.endOffset);
-    const piece = { index, start, end, reusable: isClosedBlock(node, source.slice(start, end)) };
-    pieces.set(node, piece);
-    starts[index] = piece;
+    let piece: SourcePiece | undefined;
+    if (range) {
+      const start = range.startOffset;
+      const end = endOfBlockContent(source, start, range.endOffset);
+      piece = { index, start, end, reusable: isClosedBlock(node, source.slice(start, end)) };
+      pieces.set(node, piece);
+      starts[index] = piece;
+    }
+    piecesByAttrs.set(node.attrs, piecesByAttrs.has(node.attrs) ? undefined : piece);
   });
 
-  // Positional alignment preserves gaps around a one-for-one edit. Identity
-  // anchors prevent old whitespace being assigned to reordered blocks.
+  // Parser-created attrs survive content edits. A split or copy can share them,
+  // so an original range may supply separators only if exactly one block claims it.
+  const candidates: (SourcePiece | undefined)[] = [];
+  const owners = new Map<SourcePiece, number | undefined>();
+  // Keep the positional fallback for one-for-one edits that rebuild the attrs.
   let aligned = doc.childCount === parsed.doc.childCount;
   doc.forEach((node, _offset, index) => {
-    const match = pieces.get(node);
-    if (match && match.index !== index) aligned = false;
+    const piece = pieces.get(node) ?? piecesByAttrs.get(node.attrs);
+    if (!piece) return;
+    candidates[index] = piece;
+    owners.set(piece, owners.has(piece) ? undefined : index);
+    if (piece.index !== index) aligned = false;
   });
 
   const oldReferences = referenceDefinitions(parsed.doc);
@@ -585,7 +595,9 @@ export function serializeMarkdown(doc: Node, options: { preserveSource?: boolean
     const differentMarker = writtenList && list?.marker !== writtenList.marker;
     const keep = Boolean(match && (match.reusable || index === doc.childCount - 1) &&
       !linkMayResolveDifferently && !trailerMayAttach && !differentMarker);
-    const piece = match ?? (aligned ? starts[index] : undefined);
+    const candidate = candidates[index];
+    const unique = candidate && owners.get(candidate) === index ? candidate : undefined;
+    const piece = unique ?? (aligned ? starts[index] : undefined);
     const attrs = differentMarker
       ? { ...node.attrs, [node.type.name === 'bullet_list' ? 'bullet' : 'markup']: writtenList.marker }
       : null;
