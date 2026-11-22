@@ -3,24 +3,27 @@ import { request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { manuscriptLimits } from '../../src/platform/manuscript/common/manuscript.js';
 import { InMemoryManuscriptRepository } from '../../src/platform/manuscript/common/inMemoryManuscriptStore.js';
-import { contractTime, manuscriptStoreContract } from '../../src/platform/manuscript/test/common/manuscriptStoreContract.js';
+import { contractOwner, contractTime, fillWork, manuscriptStoreContract } from '../../src/platform/manuscript/test/common/manuscriptStoreContract.js';
 import { readApiConfig } from '../config.js';
 import { startTestApi, testOrigin } from './apiFixture.js';
 import { httpContractStore } from './httpContractStore.js';
 
 describe('in-memory API', () => {
   let api: Awaited<ReturnType<typeof startTestApi>>;
+  let repository: InMemoryManuscriptRepository;
   const headers = { 'X-Test-User': 'owner', Origin: testOrigin };
   const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
 
   beforeEach(async () => {
-    api = await startTestApi({ repository: new InMemoryManuscriptRepository(() => contractTime), store: 'memory' });
+    repository = new InMemoryManuscriptRepository(() => contractTime);
+    api = await startTestApi({ repository, store: 'memory' });
   });
   afterEach(async () => api.close());
 
   manuscriptStoreContract('HTTP manuscript contract', async () => ({
     owner: httpContractStore(api.fetch, 'owner'),
     other: httpContractStore(api.fetch, 'other'),
+    seedFullWork: workId => fillWork(repository.forUser(contractOwner), workId),
   }));
 
   it('requires an allowed Origin for writes, sets response headers and authenticates reads', async () => {

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
+import { manuscriptLimits } from '../../src/platform/manuscript/common/manuscript.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   contractOther, contractOwner, contractTime, manuscriptStoreContract,
@@ -42,9 +43,19 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
     }
   });
 
+  async function seedFullWork(workId: string): Promise<number> {
+    // Fill the work directly so this test exercises the limit without 10,000 locked SQL transactions.
+    await pool.query(`
+      INSERT INTO nodes (work_id, kind, position)
+      SELECT $1, 'part', value FROM generate_series(0, $2::integer - 1) AS value
+    `, [workId, manuscriptLimits.nodes]);
+    return 0;
+  }
+
   manuscriptStoreContract('repository contract', async () => ({
     owner: repository.forUser(contractOwner),
     other: repository.forUser(contractOther),
+    seedFullWork,
   }));
 
   describe('HTTP contract against PostgreSQL', () => {
@@ -54,6 +65,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
     manuscriptStoreContract('HTTP', async () => ({
       owner: httpContractStore(api.fetch, 'owner'),
       other: httpContractStore(api.fetch, 'other'),
+      seedFullWork,
     }));
   });
 
