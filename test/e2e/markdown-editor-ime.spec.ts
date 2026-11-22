@@ -78,7 +78,7 @@ for (const action of [
         await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');
         await expect(page.locator('html')).toHaveAttribute('data-test-context-menu-at-composition-end', 'false');
         await expect(menu.getByRole('menuitem', { name: 'Undo' })).toBeEnabled();
-        await expect(menu.getByRole('menuitem', { name: 'Copy' })).toBeEnabled();
+        await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeEnabled();
         await menu.getByRole('menuitemcheckbox', { name: 'Underline' }).click();
         await expect(first.locator('u.underline')).toHaveText('요');
         await expect(editor).toBeFocused();
