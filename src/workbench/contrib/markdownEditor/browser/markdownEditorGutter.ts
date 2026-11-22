@@ -56,7 +56,10 @@ export function markdownEndCaretTransaction(
 export function bindMarkdownGutter(surface: HTMLElement, getView: () => EditorView | undefined): IDisposable {
   const moveCaret = (event: MouseEvent) => {
     const view = getView();
-    if (!view?.editable || view.composing || event.button !== 0) return;
+    if (!view || view.composing || event.button !== 0) return;
+    // A read-only view leaves presses on its text to native selection. The gutter around it cannot take
+    // focus, so a native press there would move focus to the editor group and out of the document.
+    if (!view.editable && event.target !== surface) return;
     let transaction = markdownEndCaretTransaction(surface, view, event, event.shiftKey);
     if (!transaction) {
       let selection = markdownGutterSelection(surface, view, event);
@@ -69,6 +72,8 @@ export function bindMarkdownGutter(surface: HTMLElement, getView: () => EditorVi
     }
     event.preventDefault();
     view.dispatch(transaction);
+    // EditorView.focus() only focuses an editable view.
+    if (!view.editable) view.dom.focus({ preventScroll: true });
     view.focus();
   };
   return addDisposableListener(surface, 'mousedown', moveCaret, true);

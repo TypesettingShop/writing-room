@@ -65,6 +65,30 @@ test('typing still replaces an explicitly selected Markdown rule', async ({ appP
   await expect(editor.locator('p')).toHaveText(['First paragraph', 'Replacement']);
 });
 
+test('clicking below a final rule keeps edited gaps and the source caret after the rule', async ({ appPage: page }) => {
+  const file = 'edited-gaps.md';
+  await waitForStorage(page);
+  await writeWorkspaceFile(page, file, 'First\n\n\n\nSecond\n\n---\n');
+  await treeItem(page, file).dblclick();
+  const group = groups(page).first();
+  const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+  await editor.getByText('First', { exact: true }).click({ timeout: 20_000 });
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, file)).toBe('First!\n\n\n\nSecond\n\n---\n');
+  const rule = await box(editor.locator('hr'));
+  const paper = await box(editor);
+  await page.mouse.click(paper.x + paper.width / 2, rule.y + rule.height + 24);
+  await expect(editor).toBeFocused();
+  await expect(selectedTab(group)).toHaveAccessibleDescription('');
+  await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+  await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
+  await page.keyboard.type('added');
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => readWorkspaceText(page, file)).toBe('First!\n\n\n\nSecond\n\n---\nadded');
+});
+
 async function textPoint(line: Locator, offset: number): Promise<{ x: number; y: number }> {
   return line.evaluate((element, offset) => {
     const range = element.ownerDocument.createRange();
@@ -130,4 +154,10 @@ test('selects and copies read-only Markdown with the mouse without moving the ty
   await copy.click();
   await expect.poll(clipboard).toBe(range);
   expect(await surface.evaluate(element => element.scrollTop)).toBe(scrollTop);
+
+  // The gutter cannot take focus itself, so a press there keeps the read-only document focused.
+  const paper = await box(editor);
+  await page.mouse.click(paper.x - 12, end.y);
+  await expect(editor).toBeFocused();
+  await expect.poll(selection).toBe('');
 });

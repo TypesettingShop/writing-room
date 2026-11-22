@@ -68,7 +68,8 @@ function mapPosition(blocks: readonly Block[], value: number, from: 'document' |
   }
   const text = block.text.find(item => value <= item[from].to) ?? block.text.at(-1);
   if (!text) {
-    return block[to].from;
+    // A position after the last mapped block, such as an empty paragraph below a final rule, follows that block.
+    return value >= block[from].to ? block[to].to : block[to].from;
   }
   const delta = Math.max(0, Math.min(value, text[from].to) - text[from].from);
   return text[to].from + delta;

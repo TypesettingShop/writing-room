@@ -68,6 +68,24 @@ function parseSource(text: string): SourceDocument {
   return { doc, text, paragraphIndices };
 }
 
+/**
+ * A new empty top-level paragraph writes no Markdown, but it would still shift the serializer's block
+ * alignment and so the source gaps it keeps. Leave trailing ones out, such as the caret paragraph a
+ * click below a final rule adds, so that click does not rewrite or dirty the file.
+ */
+function withoutAddedTrailingParagraphs(doc: Node, source: Node): Node {
+  let content = doc.content;
+  let parsed: Set<Node> | undefined;
+  while (content.childCount > 1) {
+    const last = content.lastChild!;
+    if (last.type.name !== 'paragraph' || last.childCount !== 0) break;
+    parsed ??= new Set(source.content.content);
+    if (parsed.has(last)) break;
+    content = content.cut(0, content.size - last.nodeSize);
+  }
+  return content === doc.content ? doc : doc.copy(content);
+}
+
 function appendChangedRange(ranges: number[], start: number, end: { a: number; b: number }): void {
   // Equal prefixes and suffixes can overlap for repeated text.
   const overlap = Math.max(0, start - Math.min(end.a, end.b));
@@ -503,8 +521,9 @@ export class MarkdownEditorModel extends Disposable {
     this.onStateChange(this.state);
   }
 
-  private serializeDocument(doc: Node): string {
+  private serializeDocument(edited: Node): string {
     const source = this.sourceDoc;
+    const doc = withoutAddedTrailingParagraphs(edited, source.doc);
     if (source.incrementalText === undefined) {
       return serializeMarkdown(source.doc.copy(doc.content));
     }

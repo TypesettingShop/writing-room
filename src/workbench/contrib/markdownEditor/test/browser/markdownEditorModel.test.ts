@@ -682,4 +682,22 @@ describe('MarkdownEditorModel', () => {
       model.dispose();
     }
   });
+
+  it('keeps edited source gaps when an empty caret paragraph follows a final rule', () => {
+    const model = new TestTextModel(URI.parse('file:///draft.md'), '\nFirst\n\n\n\nSecond\n  \n---\n');
+    const sync = new MarkdownEditorModel(model, [], () => {});
+    try {
+      sync.dispatch(sync.state.tr.insertText('!', 6));
+      const edited = model.getValue();
+      expect(edited).toBe('\nFirst!\n\n\n\nSecond\n  \n---\n');
+      const version = model.getVersionId();
+      const end = sync.state.doc.content.size;
+      sync.dispatch(sync.state.tr.insert(end, sync.state.schema.nodes.paragraph.create()).setMeta('addToHistory', false));
+      expect(model.getValue()).toBe(edited);
+      expect(model.getVersionId()).toBe(version);
+    } finally {
+      sync.dispose();
+      model.dispose();
+    }
+  });
 });
