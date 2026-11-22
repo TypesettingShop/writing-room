@@ -14,9 +14,19 @@
 }
 
 .editor-group-container > .title {
+  position: relative;
   flex: none;
   overflow: hidden;
   background: var(--vscode-editorGroupHeader-tabsBackground, #1c212c);
+}
+
+.editor-group-container > .title::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: var(--vscode-editorGroupHeader-tabsBorder);
+  content: '';
+  pointer-events: none;
 }
 
 .editor-group-container > .editor-container {

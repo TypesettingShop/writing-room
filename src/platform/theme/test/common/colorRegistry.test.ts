@@ -20,14 +20,14 @@ const TREE_VIEW_COLORS = [
 
 /**
  * What v0.1.0 drew: the variables `workbench.css` set, and for variables nothing set, the fallback the
- * stylesheet that reads them gave. The default dark theme must compute the same.
+ * stylesheet that reads them gave. Structural borders have their own palette test.
  */
 const V010_DARK_COLORS: Readonly<Record<string, string>> = {
   'editor.background': '#171b24', 'editor.foreground': '#d7dfec',
   'titleBar.activeBackground': '#232b39', 'titleBar.activeForeground': '#eaf0f9',
   'activityBar.background': '#1a202c', 'activityBar.foreground': '#a5b3c8', 'activityBar.activeBorder': '#90baff',
   'sideBar.background': '#202735', 'sideBar.foreground': '#d1daea', 'sideBarSectionHeader.background': '#262f40',
-  'panel.background': '#181d27', 'panel.border': '#313c50', 'panelTitle.activeBorder': '#90baff',
+  'panel.background': '#181d27', 'panelTitle.activeBorder': '#90baff',
   'statusBar.background': '#20334e', 'statusBar.foreground': '#d8e8ff',
   'menu.background': '#232c3d', 'menu.foreground': '#e0e8f6', 'menu.selectionBackground': '#364663', 'menu.border': '#465672',
   'focusBorder': '#9dc3ff', 'sash.hoverBorder': '#78aaff',
@@ -36,7 +36,7 @@ const V010_DARK_COLORS: Readonly<Record<string, string>> = {
   'list.hoverBackground': '#ffffff12', 'list.inactiveSelectionBackground': '#37373d', 'list.dropBackground': '#383b3d',
   'input.background': '#3c3c3c', 'inputValidation.errorBorder': '#be1100', 'inputValidation.errorBackground': '#5a1d1d',
   'editorGroupHeader.tabsBackground': '#1c212c', 'tab.inactiveForeground': '#8b97ab', 'tab.inactiveBackground': '#1c212c',
-  'tab.border': '#252c3a', 'tab.activeForeground': '#eaf0f9', 'tab.activeBackground': '#171b24',
+  'tab.activeForeground': '#eaf0f9', 'tab.activeBackground': '#171b24',
   'tab.activeBorderTop': '#90baff', 'tab.dragAndDropBorder': '#eaf0f9', 'editorGroup.dropBackground': '#53595d80',
   'textLink.foreground': '#7fb2ff',
   // `inherit` in the side bar, where the explorer draws them.
@@ -45,10 +45,29 @@ const V010_DARK_COLORS: Readonly<Record<string, string>> = {
   'titleBar.iconForeground': '#a9caff', 'descriptionForeground': '#a7b6cb', 'disabledForeground': '#a7b6cb',
 };
 
-test('the default dark values are what v0.1.0 drew', () => {
+test('the default dark theme retains its v0.1.0 base palette', () => {
   for (const [id, value] of Object.entries(V010_DARK_COLORS)) {
     expect(colorRegistry.resolve(id, ColorScheme.DARK), id).toBe(value);
   }
+});
+
+test('structural border defaults share a standard theme tone and retain high contrast and explicit overrides', () => {
+  const ids = [
+    'activityBar.border', 'sideBar.border', 'editorGroup.border', 'editorGroupHeader.tabsBorder',
+    'tab.border', 'panel.border', 'statusBar.border', 'titleBar.border',
+  ];
+  for (const id of ids) {
+    expect(colorRegistry.resolve(id, ColorScheme.DARK), id).toBe('#4a596e');
+    expect(colorRegistry.resolve(id, ColorScheme.LIGHT), id).toBe('#a2aec0');
+    const hasHighContrastDefault = id !== 'editorGroupHeader.tabsBorder';
+    expect(colorRegistry.resolve(id, ColorScheme.HIGH_CONTRAST_DARK), id).toBe(hasHighContrastDefault ? '#6fc3df' : undefined);
+    expect(colorRegistry.resolve(id, ColorScheme.HIGH_CONTRAST_LIGHT), id).toBe(hasHighContrastDefault ? '#0f4a85' : undefined);
+  }
+  const overridePanel = (id: string) => id === 'panel.border' ? '#887766' : undefined;
+  expect(colorRegistry.resolve('sideBar.border', ColorScheme.LIGHT, overridePanel)).toBe('#887766');
+  expect(colorRegistry.resolve('editorGroup.border', ColorScheme.LIGHT, overridePanel)).toBe('#a2aec0');
+  expect(colorRegistry.resolve('markdownEditor.contentBorder', ColorScheme.DARK)).toBe('#313c50');
+  expect(colorRegistry.resolve('markdownEditor.contentBorder', ColorScheme.LIGHT)).toBe('#d3dae6');
 });
 
 test('both built-in kinds give every color the tree view reads', () => {
