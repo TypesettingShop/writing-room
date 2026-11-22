@@ -3,11 +3,11 @@ import { part } from './explorer.helpers.js';
 import { extensionFixtureLocation, seedInstalledExtensions } from './extensionFixture.js';
 import { expectEditorText, groups, selectedTab, waitForStorage } from './files.helpers.js';
 import { box, drag, expect, test } from './fixtures.js';
+import { createWorkForTest } from './work.helpers.js';
 
-const workA = '12345678-abcd-4000-8000-123456789abc';
-const workB = '23456789-abcd-4000-8000-123456789abc';
-
-test('rejects origin-wide extension state growth and still restores the Work layout and untitled draft', async ({ page }) => {
+test('rejects origin-wide extension state growth and still restores the Work layout and untitled draft', async ({ page, request, baseURL }) => {
+  const workA = await createWorkForTest(request, baseURL!, 'Work quota A');
+  const workB = await createWorkForTest(request, baseURL!, 'Work quota B');
   const location = extensionFixtureLocation('work-quota');
   await page.route(location + 'extension.js', route => route.fulfill({
     contentType: 'application/javascript',

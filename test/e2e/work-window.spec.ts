@@ -3,15 +3,19 @@ import { part, treeItem } from './explorer.helpers.js';
 import {
   expectEditorText, focusEditorEnd, groups, listBackups, selectedTab, waitForStorage, writeWorkspaceFile,
 } from './files.helpers.js';
+import { createWorkForTest, showPracticeExplorer } from './work.helpers.js';
 
 const workA = '12345678-abcd-4000-8000-123456789abc';
 const workB = '23456789-abcd-4000-8000-123456789abc';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-test('isolates the layout, open file and dirty draft by Work while sharing the practice folder', async ({ page }) => {
+test('isolates the layout, open file and dirty draft by Work while sharing the practice folder', async ({ page, request, baseURL }) => {
+  const workA = await createWorkForTest(request, baseURL!, 'Work isolation A');
+  const workB = await createWorkForTest(request, baseURL!, 'Work isolation B');
   await page.goto(`/?work=${workA}`);
   await waitForStorage(page);
+  await showPracticeExplorer(page);
   const sidebar = part(page, 'sidebar');
   const initial = await box(sidebar);
   await drag(page, initial.x + initial.width, 190, initial.x + 235, 190);
@@ -31,6 +35,7 @@ test('isolates the layout, open file and dirty draft by Work while sharing the p
     await page.goto(url);
     await expect(group.getByRole('tab')).toHaveText(['Welcome']);
     await expect.poll(async () => (await box(sidebar)).width).toBe(initial.width);
+    await showPracticeExplorer(page);
     await draft.click();
     await expectEditorText(group, 'saved');
     await expect(selectedTab(group)).toHaveAccessibleDescription('');
