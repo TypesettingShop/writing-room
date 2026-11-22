@@ -93,10 +93,29 @@ function mapPosition(blocks: readonly Block[], value: number, from: 'document' |
   return text[to].from + delta;
 }
 
+function mapSourcePosition(doc: Node, blocks: readonly Block[], value: number): number {
+  const last = blocks.at(-1);
+  if (last && value < last.document.to && isEmptyMarkdownCaretParagraph(doc.resolve(value).parent)) {
+    // A display-only paragraph before a block has no source line. Land in nearby text so typing
+    // after switching modes cannot prefix a Markdown delimiter such as a horizontal rule.
+    let previous: number | undefined;
+    for (const block of blocks) {
+      if (block.document.from > value) {
+        const at = previous ?? block.text[0]?.source.from;
+        if (at !== undefined) return at;
+      } else {
+        previous = block.text.at(-1)?.source.to ?? previous;
+      }
+    }
+    return last.source.to;
+  }
+  return mapPosition(blocks, value, 'document', 'source');
+}
+
 export function toSourceSelection(model: ITextModel, doc: Node, from: number, to: number): ITextEditorSelection {
   const blocks = mapBlocks(model, doc);
-  const start = model.getPositionAt(mapPosition(blocks, from, 'document', 'source'));
-  const end = model.getPositionAt(mapPosition(blocks, to, 'document', 'source'));
+  const start = model.getPositionAt(mapSourcePosition(doc, blocks, from));
+  const end = model.getPositionAt(mapSourcePosition(doc, blocks, to));
   return { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column };
 }
 

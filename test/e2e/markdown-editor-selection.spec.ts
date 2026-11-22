@@ -215,6 +215,29 @@ test('keeps pending bold when the same caret is clicked in the gutter', async ({
   await expect.poll(() => readWorkspaceText(page, 'gutter-marks.md')).toBe('Line**Bold**\n');
 });
 
+for (const [name, before, expected] of [
+  ['middle', 'First\n\n', 'FirstZ\n\n---\n\nLast\n'],
+  ['first', '', '---\n\nZLast\n'],
+] as const) {
+  test(`source typing after a caret beside the ${name} rule preserves the rule`, async ({ appPage: page }) => {
+    const file = `source-caret-${name}-rule.md`;
+    const source = `${before}---\n\nLast\n`;
+    const group = await openSelectionDocument(page, file, source);
+    const editor = group.getByRole('textbox', { name: 'Markdown editor' });
+    const rule = editor.locator('hr');
+    await expect(rule).toBeVisible({ timeout: 20_000 });
+    const paper = await box(editor);
+    const bounds = await box(rule);
+    await page.mouse.click(paper.x - 12, bounds.y + bounds.height / 2);
+    await expect(selectedTab(group)).toHaveAccessibleDescription('');
+    await group.getByRole('button', { name: 'Switch to Markdown Source' }).click();
+    await expect(group.getByRole('textbox', { name: 'Editor content' })).toBeFocused({ timeout: 20_000 });
+    await page.keyboard.type('Z');
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect.poll(() => readWorkspaceText(page, file)).toBe(expected);
+  });
+}
+
 test('right-clicking below a read-only rule leaves a collapsed selection', async ({ appPage: page }) => {
   await seedInstalledExtensions(page, [{
     manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
