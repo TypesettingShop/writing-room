@@ -177,6 +177,51 @@ function remapCaretGap(
   }
 }
 
+/** Choose a text edge by the old neighbors of a removed gutter target. */
+function caretFallback(
+  caret: CaretParagraph, oldDoc: Node, doc: Node,
+  before?: IParsedMarkdown, matches?: ReadonlyMap<IMarkdownSourceBlock, SourceBlockMatch | null>,
+): { gap: number; direction: number } {
+  const oldBlocks = new Map(before?.blocks.map(block => [block.from, block]));
+  const $oldGap = oldDoc.resolve(caret.pos);
+  const boundary = $oldGap.index();
+  const offsets = [0];
+  oldDoc.forEach((node, pos) => offsets.push(pos + node.nodeSize));
+  const uniqueBlocks = (source: Node) => {
+    const positions = new Map<string, number | null>();
+    source.forEach((node, pos) => {
+      const key = JSON.stringify(node.toJSON());
+      positions.set(key, positions.has(key) ? null : pos);
+    });
+    return positions;
+  };
+  // A full read has no positional evidence. Only equal blocks unique on both sides can
+  // tell us where an old neighbor went.
+  const oldPositions = matches ? undefined : uniqueBlocks(oldDoc);
+  const newPositions = matches ? undefined : uniqueBlocks(doc);
+  for (const direction of [caret.side, -caret.side]) {
+    for (let index = direction > 0 ? boundary : boundary - 1; index >= 0 && index < oldDoc.childCount; index += direction) {
+      const oldNode = oldDoc.child(index);
+      if (oldNode.isLeaf) continue;
+      const oldOffset = offsets[index];
+      const source = oldBlocks.get(oldOffset);
+      const match = source && matches?.get(source);
+      const key = oldPositions && JSON.stringify(oldNode.toJSON());
+      const from = match?.block.from ?? (key && oldPositions?.get(key) === oldOffset ? newPositions?.get(key) : undefined);
+      if (from == null) continue;
+      const node = doc.nodeAt(from);
+      if (!node || (!match && !oldNode.eq(node))) continue;
+      const gap = direction > 0 ? from : from + node.nodeSize;
+      const selection = Selection.findFrom(doc.resolve(gap), direction, true);
+      if (selection && selection.head > from && selection.head < from + node.nodeSize) {
+        return { gap, direction };
+      }
+    }
+  }
+  const atEnd = caret.pos === oldDoc.content.size;
+  return { gap: atEnd ? doc.content.size : 0, direction: atEnd ? -1 : 1 };
+}
+
 function appendChangedRange(ranges: number[], start: number, end: { a: number; b: number }): void {
   // Equal prefixes and suffixes can overlap for repeated text.
   const overlap = Math.max(0, start - Math.min(end.a, end.b));
@@ -897,7 +942,9 @@ export class MarkdownEditorModel extends Disposable {
         externalMap = sourceBatchChangeMap(state.doc, parsed, after, oldDoc === state.doc ? matches : undefined);
       }
     }
-    const caretGap = caret && remapCaretGap(written ? { ...caret, pos: written.pos } : caret, oldDoc, doc, before, matches);
+    const writtenCaret = caret && written ? { ...caret, pos: written.pos } : caret;
+    const caretGap = writtenCaret && remapCaretGap(writtenCaret, oldDoc, doc, before, matches);
+    const fallback = writtenCaret && caretGap === undefined ? caretFallback(writtenCaret, oldDoc, doc, before, matches) : undefined;
     let afterSource = mapping.maps.length;
     if (next !== previous) {
       this.snapshots.set(state.doc.content, { text: previous, provenance: this.sourceDoc });
@@ -913,17 +960,26 @@ export class MarkdownEditorModel extends Disposable {
       // Queued rich edits and the visible selection should move by the changed positions.
       const transaction = state.tr.replaceWith(0, state.doc.content.size, doc.content);
       this.snapshots.set(transaction.doc.content, { text: next, provenance: updatedSource });
-      if (caret && selection.empty) {
-        const gap = transaction.doc.resolve(diff.map(caret.pos, caret.side === 1 ? -1 : 1));
+      const map = (pos: number) => {
+        if (start === null || end === null || pos <= start) return pos;
+        return pos >= end.a ? Math.max(start, pos + end.b - end.a) : Math.max(start, end.b);
+      };
+      if (fallback) {
+        const gap = transaction.doc.resolve(fallback.gap);
+        const nearby = Selection.findFrom(gap, fallback.direction, true) ?? Selection.near(gap, fallback.direction);
+        if (selection.empty || !(state.selection instanceof TextSelection) || !(nearby instanceof TextSelection)) {
+          transaction.setSelection(nearby);
+        } else {
+          const anchor = transaction.doc.resolve(map(state.selection.anchor));
+          transaction.setSelection(TextSelection.between(anchor, nearby.$head, fallback.direction));
+        }
+      } else if (caret && caretGap !== undefined && selection.empty) {
+        const gap = transaction.doc.resolve(caretGap);
         transaction.setSelection(TextSelection.between(gap, gap, caret.side));
       } else if (state.selection.empty && !(state.selection instanceof TextSelection)) {
         // A read-only caret between atoms maps itself. TextSelection.between would select an atom.
         transaction.setSelection(state.selection.map(transaction.doc, diff));
       } else {
-        const map = (pos: number) => {
-          if (start === null || end === null || pos <= start) return pos;
-          return pos >= end.a ? Math.max(start, pos + end.b - end.a) : Math.max(start, end.b);
-        };
         const anchor = transaction.doc.resolve(map(state.selection.anchor));
         const head = transaction.doc.resolve(map(state.selection.head));
         transaction.setSelection(TextSelection.between(anchor, head));

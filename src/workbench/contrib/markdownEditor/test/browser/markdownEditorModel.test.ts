@@ -16,11 +16,25 @@ function editLine(model: TestTextModel, line: number, startColumn: number, endCo
   model.applyEdits([{ range: { startLineNumber: line, startColumn, endLineNumber: line, endColumn }, text }]);
 }
 
+function applyOffsets(model: TestTextModel, from: number, to: number, text: string): void {
+  const start = model.getPositionAt(from);
+  const end = model.getPositionAt(to);
+  model.applyEdits([{
+    range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column },
+    text,
+  }]);
+}
+
 function placeRuleCaret(sync: MarkdownEditorModel, index: number, side: -1 | 1): void {
+  expect(sync.state.doc.child(index).type.name).toBe('horizontal_rule');
+  placeAtomCaret(sync, index, side);
+}
+
+function placeAtomCaret(sync: MarkdownEditorModel, index: number, side: -1 | 1): void {
   const { state } = sync;
-  const rule = state.doc.child(index);
-  expect(rule.type.name).toBe('horizontal_rule');
-  let gap = side === 1 ? rule.nodeSize : 0;
+  const atom = state.doc.child(index);
+  expect(atom.isAtom).toBe(true);
+  let gap = side === 1 ? atom.nodeSize : 0;
   for (let before = 0; before < index; before++) gap += state.doc.child(before).nodeSize;
   const tr = state.tr.insert(gap, createMarkdownCaretParagraph(state.schema.nodes.paragraph, side));
   sync.dispatch(tr.setSelection(TextSelection.create(tr.doc, gap + 1))
@@ -780,6 +794,53 @@ describe('MarkdownEditorModel', () => {
       model.dispose();
     }
   });
+
+  it.each([
+    { original: 'Before\n\n---\n\nRemoved\n\nTail', external: 'Before\n\nReplacement', index: 1, side: -1,
+      from: 8, to: 28, text: 'Replacement', expected: 'Before!\n\nReplacement' },
+    { original: 'Before\n\n---\n\nAfter\n\nTail', external: 'Before\n\nReplacement\n\nAfter\n\nTail', index: 1, side: 1,
+      from: 8, to: 11, text: 'Replacement', expected: 'Before\n\nReplacement\n\n!After\n\nTail' },
+    { original: '[ref]: /path\n\nAfter', external: 'Replacement\n\nAfter', index: 0, side: -1,
+      from: 0, to: 12, text: 'Replacement', expected: 'Replacement\n\n!After' },
+    { original: 'Before\n\n---', external: 'Before\n\nReplacement', index: 1, side: 1,
+      from: 8, to: 11, text: 'Replacement', expected: 'Before!\n\nReplacement' },
+    { original: 'Repeat\n\n---\n\nRepeat\n\nTail', external: 'Repeat\n\nReplacement\n\nRepeat\n\nTail', index: 1, side: 1,
+      from: 8, to: 11, text: 'Replacement', expected: 'Repeat\n\nReplacement\n\n!Repeat\n\nTail' },
+    { original: 'Before\n\n---\n\nAfter', external: 'Before\n\nReplacement\n\nAfter', index: 1, side: -1,
+      expected: 'Before!\n\nReplacement\n\nAfter' },
+    { original: 'Before\n\n---\n\nAfter', external: 'Replacement', index: 1, side: 1,
+      expected: '!Replacement' },
+    { original: 'Before\n\n---', external: 'Replacement', index: 1, side: 1,
+      expected: 'Replacement!' },
+  ] as const)('moves a deleted gutter caret toward surviving text ($original → $external, $side)',
+    ({ original, external, index, side, expected, ...edit }) => {
+      const model = new TestTextModel(URI.parse('file:///draft.md'), original);
+      const sync = new MarkdownEditorModel(model, [], () => {});
+      try {
+        placeAtomCaret(sync, index, side);
+        if ('from' in edit) {
+          applyOffsets(model, edit.from, edit.to, edit.text);
+        } else {
+          model.setValue(external);
+        }
+        expect(model.getValue()).toBe(external);
+        expect(sync.state.selection).toBeInstanceOf(TextSelection);
+        expect(sync.state.selection.empty).toBe(true);
+        expect(sync.state.doc.eq(parseMarkdownWithSource(external).doc)).toBe(true);
+        expect(model.getVersionId()).toBe(2);
+        sync.dispatch(sync.state.tr.insertText('!'));
+        expect(model.getValue()).toBe(expected);
+        expect(sync.undo()).toBe(true);
+        expect(model.getValue()).toBe(external);
+        expect(sync.undo()).toBe(true);
+        expect(model.getValue()).toBe(original);
+        expect(sync.canUndo).toBe(false);
+      } finally {
+        sync.dispose();
+        model.dispose();
+      }
+    },
+  );
 
   it('rebases input from a temporary caret flushed during an external source change', () => {
     const model = new TestTextModel(URI.parse('file:///draft.md'), 'First\n\n---');
