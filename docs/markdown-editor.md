@@ -3,7 +3,7 @@
 마크다운 원문은 파일에 그대로 저장된다. 편집 모델은 CommonMark 본문, GFM 표·작업
 목록·취소선, 각주와 클래스 속성을 읽는다. 원시 HTML은 본문의 문자로 읽는다.
 
-화면 이름은 Manuscript Editor(원고 편집기)다. **Reopen Editor With...** 목록과 설정 화면에 이 이름으로 보인다.
+화면 이름은 Manuscript Editor(원고 편집기)다. **Reopen Editor With...** 목록에 이 이름으로 보인다.
 
 ## 편집 모드와 실행 취소
 
@@ -232,4 +232,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk, wr-2iyf, wr-pq4t
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk, wr-2iyf, wr-pq4t, wr-cbej

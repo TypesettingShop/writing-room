@@ -85,4 +85,4 @@ writing-room은 브라우저에서 VS Code처럼 동작하는 웹 워크벤치�
 
 - VS Code의 채팅, 세션, 노트북, 터미널, 디버그, 설정 에디터 UI, 원격, 데스크톱 빌드는 v0.2.0에서도 다루지 않는다.
 
-Decided in: wr-e8v6, wr-ggyb, wr-cla6, wr-510x, wr-jbmd
+Decided in: wr-e8v6, wr-ggyb, wr-cla6, wr-510x, wr-jbmd, wr-cbej
