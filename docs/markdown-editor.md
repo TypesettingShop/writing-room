@@ -11,6 +11,14 @@
 - 모드를 전환한 순간의 마크다운이 새 이력의 시작점이 된다. 그 뒤 첫 편집을 실행 취소하면 전환 순간의 텍스트로 돌아온다. 원문 모드로 전환할 때 같은 파일을 보여 주는 Monaco 창도 새 이력의 시작점을 공유한다. 새로고침은 탭 모드와 초안을 복원한다.
 - 이미지의 상대 경로는 문서 폴더를 기준으로 읽는다. 작업 폴더 안의 이미지는 파일 서비스로 읽어 보여 주고, 작업 폴더 밖의 경로나 지원하지 않는 형식은 대체 텍스트와 사유를 보여 준다. HTTPS 이미지는 이미지마다 **Load image** 버튼을 눌러야 요청하며 referrer를 보내지 않는다. HTTP 이미지는 요청하지 않고 대체 텍스트를 보여 준다. 어느 경우든 저장할 때 원래 주소를 유지한다.
 
+## 복사 형식
+
+- WYSIWYG에서 영역을 선택하고 문맥 메뉴의 **Copy** 아래에 있는 **Copy as Markdown**이나 **Copy as HTML**을 고른다. 커맨드 팔레트의 **Markdown** 카테고리에서도 실행할 수 있다. 두 명령의 기본 단축키는 없다.
+- **Copy as Markdown**은 보통 **Copy**와 같은 Markdown 원문을 `text/plain`으로 복사한다. 두 형식 복사 명령 가운데 이 명령만 탭의 마지막 복사 기록을 갱신하므로, 같은 탭에서 서식 없이 붙이면 보이는 글자가 들어간다.
+- **Copy as HTML**은 렌더된 조각을 `text/html`로, 같은 HTML 소스를 `text/plain`으로 담는다. 정렬, 밑줄, 크기와 글꼴 클래스는 `class` 속성에 담긴다. 표에서 본문 셀만 선택하면 머리글 없는 표로 복사한다.
+- 상대 이미지 주소는 문서에 적힌 값으로 내보내므로, 다른 앱에서 같은 경로를 찾지 못하면 이미지가 보이지 않을 수 있다.
+- 읽기 전용에서는 문맥 메뉴의 항목이 브라우저에 표시된 선택에 따라 활성화된다. 커맨드는 팔레트가 포커스를 가져간 뒤에도 편집기가 기억한 선택을 복사한다.
+
 ## 서식 없이 붙여넣기
 
 - WYSIWYG의 **Paste as Plain Text**와 **Ctrl+Shift+V**(macOS는 **Cmd+Shift+V**)는 같은 브라우저 탭의 편집기에서 복사한 조각을 보이는 글자로 붙인다. 문단과 목록 항목 사이는 줄바꿈으로 잇고 표는 칸마다 한 줄로 붙인다. 이미지는 대체 텍스트로 붙이며 대체 텍스트가 없으면 생략한다. 일반 텍스트만 담긴 클립보드는 글자 그대로 붙이고, 보통 복사는 Markdown 원문과 렌더된 HTML을 함께 담는다.
@@ -204,4 +212,4 @@ MARKDOWN_ROUNDTRIP_FULL=1 npm test -- src/editor/test/common/markdown/roundtrip.
 텍스트가 유지되는지 확인하고, 다시 정규화한 출력이 같은 표기로 계속 저장되는지
 검사한다.
 
-Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk
+Decided in: wr-x29i, wr-uo8y, wr-ndsy, wr-60n8, wr-peki, wr-18ym, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-1xlk, wr-2iyf

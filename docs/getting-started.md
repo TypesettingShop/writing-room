@@ -77,9 +77,14 @@ npm run dev
 ### WYSIWYG 문맥 메뉴
 
 - 본문에서 오른쪽 클릭하거나 **문맥 메뉴 키** 또는 **Shift+F10**을 눌러 메뉴를
-  연다. 메뉴에는 **Undo**, **Redo**, **Cut**, **Copy**, **Paste**,
-  **Paste as Plain Text**, **Select All**과 각 단축키가 표시된다.
+  연다. 메뉴에는 **Undo**, **Redo**, **Cut**, **Copy**, **Copy as Markdown**,
+  **Copy as HTML**, **Paste**, **Paste as Plain Text**, **Select All**이 있다.
+  단축키가 있는 항목 옆에는 해당 키가 표시된다.
   **Ctrl+A**(macOS는 **Cmd+A**)로 본문 전체를 선택할 수 있다.
+- 선택한 글은 메뉴나 커맨드 팔레트의 **Copy as Markdown**으로 원문을,
+  **Copy as HTML**로 렌더된 조각과 일반 텍스트용 HTML 소스를 복사할 수 있다.
+  두 형식 복사 명령 가운데 **Copy as Markdown**만 마지막 복사 기록을
+  갱신한다. 같은 탭에서 서식 없이 붙이면 보이는 글자가 들어간다. [복사 형식](markdown-editor.md#복사-형식)
 - 선택한 글 위를 오른쪽 클릭하면 기존 선택을 유지한다. 메뉴 위쪽의 서식
   도구박스에서 굵게·기울임·밑줄·취소선과 **Style**, **Size**, **Font**를 고른다.
   선택 영역 밖을 오른쪽 클릭하면 클릭한 곳으로 커서를 옮기고 앱 메뉴의 기본
@@ -184,4 +189,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf
