@@ -40,7 +40,7 @@ import {
 } from '../common/markdownEditor.js';
 import type { MarkdownEditorMode } from '../common/markdownEditor.js';
 import { bindMarkdownFormattingContext } from './markdownEditorFormattingContext.js';
-import { bindMarkdownGutter, onMarkdownScrollbar } from './markdownEditorGutter.js';
+import { bindMarkdownGutter, markdownEndCaretTransaction, onMarkdownScrollbar } from './markdownEditorGutter.js';
 import { toMarkdownSelection, toSourceSelection } from './markdownEditorSelection.js';
 import { indentMarkdownCode } from './markdownEditorBlockStyles.js';
 import { markdownClipboard, pasteFromMarkdownClipboard } from './markdownEditorClipboard.js';
@@ -271,8 +271,8 @@ export class MarkdownEditorPane extends EditorPane {
           if (!transaction.docChanged || !input.isReadonly()) {
             // A click or drag only moves the selection; centering it would move the text under the pointer.
             // prosemirror-tables selects cells under the mouse without the pointer flag or a scroll request.
-            this.pointerSelection = !transaction.docChanged && (transaction.getMeta('pointer') === true
-              || (transaction.selection instanceof CellSelection && !transaction.scrolledIntoView));
+            this.pointerSelection = transaction.getMeta('pointer') === true
+              || (!transaction.docChanged && transaction.selection instanceof CellSelection && !transaction.scrolledIntoView);
             try {
               sync.dispatch(transaction);
             } finally {
@@ -408,7 +408,11 @@ export class MarkdownEditorPane extends EditorPane {
     if (event) {
       const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
       const inside = isOverMarkdownSelection(view, event);
-      if (!inside) setMarkdownContextSelection(this.surface, view, event, hit);
+      if (!inside) {
+        const append = markdownEndCaretTransaction(this.surface, view, event);
+        if (append) view.dispatch(append);
+        else setMarkdownContextSelection(this.surface, view, event, hit);
+      }
       // Leave the clicked line visible when preserving a selection.
       const y = inside && hit ? Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) : event.clientY;
       point = { x: event.clientX, y };
