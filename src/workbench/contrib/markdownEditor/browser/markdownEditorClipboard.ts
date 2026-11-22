@@ -18,6 +18,21 @@ const alignments = new Set(['left', 'center', 'right', 'justify']);
 // The schema reads bold and italics from these declarations (Google Docs wraps its HTML in `<b style="font-weight:normal">`).
 const emphasisStyles = ['font-weight', 'font-style'] as const;
 
+function applyPastedUnderline(document: Document, content: DocumentFragment, underlined: ReadonlySet<Element>): void {
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    const container = text.parentElement;
+    if (!container || container.closest('a, u')) continue;
+    for (let parent: Element | null = container; parent; parent = parent.parentElement) {
+      if (!underlined.has(parent)) continue;
+      const underline = document.createElement('u');
+      container.insertBefore(underline, text);
+      underline.append(text);
+      break;
+    }
+  }
+}
+
 /** Supply the browser's clipboard formats to the same paste handler as a keyboard paste. */
 export async function pasteFromMarkdownClipboard(view: EditorView, isCurrent: () => boolean): Promise<void> {
   const clipboard = view.dom.ownerDocument.defaultView?.navigator.clipboard;
@@ -55,8 +70,10 @@ function withContextMarks(fragment: Fragment, marks: readonly Mark[]): Fragment 
 export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipboardTextParser' | 'clipboardTextSerializer'> = {
   transformPastedHTML(html, view) {
     // Template content is inert while URLs, attributes and non-document elements are removed.
-    const template = view.dom.ownerDocument.createElement('template');
+    const document = view.dom.ownerDocument;
+    const template = document.createElement('template');
     template.innerHTML = html;
+    const underlined = new Set<Element>();
     for (const element of template.content.querySelectorAll('*')) {
       if (element.namespaceURI !== htmlNamespace || element.matches(discarded)) {
         element.remove();
@@ -65,6 +82,9 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
       const { style } = element as HTMLElement;
       const alignment = style.textAlign;
       const emphasis = emphasisStyles.map(name => [name, style.getPropertyValue(name)] as const).filter(([, value]) => value);
+      // Google Docs also puts this style on link labels. Keep their ordinary link formatting.
+      const decoration = style.textDecorationLine || style.textDecoration;
+      if (decoration?.split(/\s+/).includes('underline')) underlined.add(element);
       for (const attribute of Array.from(element.attributes)) {
         if (!safeAttributes.has(attribute.name)) element.removeAttribute(attribute.name);
       }
@@ -82,6 +102,7 @@ export const markdownClipboard: Pick<EditorProps, 'transformPastedHTML' | 'clipb
         }
       }
     }
+    if (underlined.size) applyPastedUnderline(document, template.content, underlined);
     return template.innerHTML;
   },
 

@@ -64,7 +64,11 @@ for (const action of ['click', 'Tab', 'toolbar', 'window blur', 'save', 'mode sw
       }
       case 'context toolbox': {
         await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('요');
-        await first.click({ button: 'right' });
+        const point = await editor.evaluate(() => {
+          const rect = document.getSelection()!.getRangeAt(0).getBoundingClientRect();
+          return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        });
+        await page.mouse.click(point.x, point.y, { button: 'right' });
         const menu = page.getByRole('menu', { name: 'Markdown selection' });
         await expect(menu).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');

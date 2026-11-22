@@ -281,14 +281,27 @@ export class MarkdownEditorPane extends EditorPane {
             }
             return this.keybindings.dispatchDuringComposition?.(event, compositionCommands) ?? false;
           },
-          mousedown: (_view, event) => {
-            if (event.button !== 2 || event.shiftKey || !this.hasContextToolboxSelection()) return false;
+          mousedown: (view, event) => {
+            if (event.button !== 2 || event.shiftKey || !this.hasContextToolboxSelection() ||
+              !this.isOverContextSelection(view, event)) return false;
             // Keep the selected text when the browser would move the caret on a secondary press.
             event.preventDefault();
             return true;
           },
-          contextmenu: (_view, event) => {
-            if (event.shiftKey || !this.openContextToolbox(event)) return false;
+          contextmenu: (view, event) => {
+            if (event.shiftKey || !this.hasContextToolboxSelection()) return false;
+            const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            if (!this.isOverContextSelection(view, event)) {
+              if (hit) {
+                const at = view.state.doc.resolve(hit.pos);
+                view.dispatch(view.state.tr.setSelection(TextSelection.between(at, at)).setMeta('pointer', true));
+                view.focus();
+              }
+              return false;
+            }
+            // Anchor below the pressed line so the selected text remains readable.
+            const y = hit ? Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) : event.clientY;
+            if (!this.openContextToolbox({ x: event.clientX, y })) return false;
             event.preventDefault();
             return true;
           },
@@ -389,7 +402,22 @@ export class MarkdownEditorPane extends EditorPane {
     return selection !== undefined && !selection.empty && !(selection instanceof NodeSelection);
   }
 
-  private openContextToolbox(event?: MouseEvent): boolean {
+  private isOverContextSelection(view: EditorView, { target, clientX, clientY }: MouseEvent): boolean {
+    const { selection } = view.state;
+    if (selection instanceof CellSelection) {
+      return target instanceof Element && Boolean(target.closest('.selectedCell'));
+    }
+    // Positions round to an insertion point, including clicks in the blank space next to a selection.
+    const start = view.domAtPos(selection.from, 1);
+    const end = view.domAtPos(selection.to, -1);
+    const range = view.dom.ownerDocument.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return Array.from(range.getClientRects()).some(rect => rect.width > 0 &&
+      clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom);
+  }
+
+  private openContextToolbox(point?: { x: number; y: number }): boolean {
     this.commitComposition();
     const view = this.view;
     const scope = this.scoped;
@@ -397,17 +425,15 @@ export class MarkdownEditorPane extends EditorPane {
     const group = this.groups.groups.find(group => group.activeEditorPane === this);
     if (!group) return false;
     this.contextToolbox.clear();
-    const { selection } = view.state;
-    const hit = event && view.posAtCoords({ left: event.clientX, top: event.clientY });
-    const nearSelection = event && hit && selection.from <= hit.pos && hit.pos <= selection.to;
-    // Below the pressed line, not the pointer, so the toolbox leaves the selected line readable.
-    const bounds = nearSelection
-      ? { left: event.clientX, bottom: Math.max(event.clientY, view.coordsAtPos(hit.pos).bottom) } : view.coordsAtPos(selection.head);
+    if (!point) {
+      const caret = view.coordsAtPos(view.state.selection.head);
+      point = { x: caret.left, y: caret.bottom };
+    }
     // The head can be scrolled out of the surface (after Select All, for example); open at the nearest visible edge.
     const surface = this.surface.getBoundingClientRect();
     const anchor = {
-      x: Math.min(Math.max(bounds.left, surface.left), surface.right),
-      y: Math.min(Math.max(bounds.bottom, surface.top), surface.bottom),
+      x: Math.min(Math.max(point.x, surface.left), surface.right),
+      y: Math.min(Math.max(point.y, surface.top), surface.bottom),
     };
     this.groups.activateGroup(group);
     view.focus();

@@ -1,6 +1,7 @@
-import { Selection, TextSelection } from 'prosemirror-state';
+import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
+import { combinedDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 
 function onScrollbar(surface: HTMLElement, event: MouseEvent): boolean {
@@ -10,9 +11,14 @@ function onScrollbar(surface: HTMLElement, event: MouseEvent): boolean {
 }
 
 export function bindMarkdownGutter(surface: HTMLElement, getView: () => EditorView | undefined): IDisposable {
-  return addDisposableListener(surface, 'mousedown', (event: MouseEvent) => {
+  const moveCaret = (event: MouseEvent) => {
     const view = getView();
-    if (!view || view.composing || event.button !== 0) {
+    const contextMenu = event.type === 'contextmenu';
+    if (!view || view.composing) {
+      return;
+    }
+    const current = view.state.selection;
+    if (contextMenu ? event.shiftKey || !view.editable || current.empty || current instanceof NodeSelection : event.button !== 0) {
       return;
     }
     const gutter = event.target === surface;
@@ -48,10 +54,14 @@ export function bindMarkdownGutter(surface: HTMLElement, getView: () => EditorVi
     }
     if (event.shiftKey) {
       // Shift extends the current selection to the clicked edge, as a click inside the text does.
-      selection = TextSelection.between(view.state.selection.$anchor, selection.$head);
+      selection = TextSelection.between(current.$anchor, selection.$head);
     }
-    event.preventDefault();
+    if (!contextMenu) event.preventDefault();
     view.dispatch(view.state.tr.setSelection(selection).setMeta('pointer', true));
     view.focus();
-  }, true);
+  };
+  return combinedDisposable(
+    addDisposableListener(surface, 'mousedown', moveCaret, true),
+    addDisposableListener(surface, 'contextmenu', moveCaret, true),
+  );
 }

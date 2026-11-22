@@ -906,6 +906,49 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
   await expect(toolbox).toHaveCount(0);
 });
 
+test('moves the caret and keeps the browser menu when right-clicking outside the Markdown selection', async ({ appPage: page }) => {
+  const group = await openMarkdown(page, 'outside-selection.md', 'Select me\n\nOutside text');
+  const editor = richEditor(group);
+  await editor.getByText('Select me').click({ timeout: 20_000 });
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Select me');
+  await editor.evaluate(element => {
+    element.addEventListener('contextmenu', event => queueMicrotask(() => {
+      element.setAttribute('data-context-prevented', String(event.defaultPrevented));
+    }), { once: true });
+  });
+  const outside = editor.getByText('Outside text');
+  const point = await outside.evaluate(element => {
+    const range = document.createRange();
+    range.setStart(element.firstChild!, 3);
+    range.collapse(true);
+    const rect = range.getBoundingClientRect();
+    const paragraph = element.getBoundingClientRect();
+    return { x: rect.left - paragraph.left, y: rect.top - paragraph.top + rect.height / 2 };
+  });
+  await outside.click({ position: point, button: 'right' });
+  await expect(editor).toHaveAttribute('data-context-prevented', 'false');
+  await expect(page.getByRole('menu', { name: 'Markdown selection' })).toHaveCount(0);
+  await expect.poll(() => outside.evaluate(element => {
+    const selection = document.getSelection()!;
+    return { collapsed: selection.isCollapsed, onClickedText: element.contains(selection.anchorNode), offset: selection.anchorOffset };
+  })).toEqual({ collapsed: true, onClickedText: true, offset: 3 });
+  await page.keyboard.type('X');
+  await expect(editor.locator('p')).toHaveText(['Select me', 'OutXside text']);
+
+  await editor.getByText('Select me').click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Select me');
+  const body = await box(editor);
+  const second = await box(editor.getByText('OutXside text'));
+  await page.mouse.click(body.x - 8, second.y + second.height / 2, { button: 'right' });
+  await expect(page.getByRole('menu', { name: 'Markdown selection' })).toHaveCount(0);
+  await page.keyboard.type('Y');
+  await expect(editor.locator('p')).toHaveText(['Select me', 'YOutXside text']);
+});
+
 test('keeps the browser context menu for a read-only Markdown selection', async ({ appPage: page }) => {
   await seedInstalledExtensions(page, [{
     manifest: JSON.parse(readFileSync(new URL('../fixtures/extensions/memfs/package.json', import.meta.url), 'utf8')),
@@ -963,7 +1006,9 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await page.evaluate(async () => {
-    const html = '<p><a href="javascript:void(0)" id="foreign">Unsafe URL</a> <u class="keep" title="valid">safe</u></p>';
+    const html = '<p><a href="javascript:void(0)" id="foreign">Unsafe URL</a> <u class="keep" title="valid">safe</u> ' +
+      '<span style="text-decoration: underline">Docs underline</span> ' +
+      '<a href="/linked" style="text-decoration: underline"><span style="text-decoration-line: underline">Docs link</span></a></p>';
     await navigator.clipboard.write([new ClipboardItem({
       'text/html': new Blob([html], { type: 'text/html' }),
       'text/plain': new Blob(['plain fallback'], { type: 'text/plain' }),
@@ -975,9 +1020,14 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
   })).toContain('id="foreign"');
   await page.keyboard.press('Shift+F10');
   await toolbox.getByRole('menuitem', { name: 'Paste' }).click();
-  await expect(editor.locator('p').last()).toHaveText('Unsafe URL safe');
+  await expect(editor.locator('p').last()).toHaveText('Unsafe URL safe Docs underline Docs link');
   await expect(editor.getByRole('link', { name: 'Unsafe URL' })).toHaveCount(0);
   await expect(editor.locator('u.keep.underline')).toHaveText('safe');
+  await expect(editor.locator('u.underline', { hasText: 'Docs underline' })).toBeVisible();
+  const docsLink = editor.getByRole('link', { name: 'Docs link' });
+  await expect(docsLink).toHaveAttribute('href', new URL('/linked', page.url()).href);
+  await expect(docsLink).not.toHaveAttribute('style');
+  await expect(docsLink.locator('u, .underline, [style]')).toHaveCount(0);
   await expect(editor.locator('#foreign')).toHaveCount(0);
 
   await page.keyboard.press('Home');
@@ -986,6 +1036,23 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
   await page.keyboard.press('Shift+F10');
   await toolbox.getByRole('menuitem', { name: 'Paste' }).click();
   await expect(editor.locator('p').last().locator('strong')).toHaveText('Markdown');
+});
+
+test('warns and retains the selection when the browser denies toolbox paste permission', async ({ appPage: page }) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Browser.setPermission', {
+    permission: { name: 'clipboard-read' }, setting: 'denied', origin: new URL(page.url()).origin,
+  });
+  const group = await openMarkdown(page, 'cannot-paste.md', 'Keep this selection');
+  const editor = richEditor(group);
+  await editor.getByText('Keep this selection').click({ timeout: 20_000 });
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menu', { name: 'Markdown selection' }).getByRole('menuitem', { name: 'Paste' }).click();
+  await expect(page.getByText('Could not paste using the clipboard. Try the keyboard shortcut.', { exact: true })).toBeVisible();
+  await expect(editor).toHaveText('Keep this selection');
+  await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Keep this selection');
 });
 
 test('prefills, validates, edits and removes a link through the shortcut, toolbar and palette', async ({ appPage: page }) => {

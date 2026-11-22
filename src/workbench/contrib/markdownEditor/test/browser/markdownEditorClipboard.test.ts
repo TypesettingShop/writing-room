@@ -93,4 +93,17 @@ describe('Markdown clipboard', () => {
     expect(classesOf('<p><u><strong><span class="size-lg">x</span></strong></u></p>')[0]).toEqual(['underline', 'size-lg']);
     expect(classesOf('<p><u class="keep">x</u></p>')).toEqual([['keep', 'underline']]);
   });
+
+  it('keeps CSS underline outside links and preserves explicitly underlined links', () => {
+    const html = markdownClipboard.transformPastedHTML!([
+      '<p style="text-decoration:underline"><span class="size-lg"><strong>a</strong></span>',
+      '<a href="/plain"><span style="text-decoration-line:underline">b</span></a>',
+      '<a href="/explicit"><u>c</u></a></p>',
+    ].join(''), view);
+    expect(html).toBe([
+      '<p><span class="size-lg"><strong><u>a</u></strong></span>',
+      '<a href="/plain"><span>b</span></a>',
+      '<a href="/explicit"><u>c</u></a></p>',
+    ].join(''));
+  });
 });
