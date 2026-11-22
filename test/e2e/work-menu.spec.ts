@@ -71,6 +71,13 @@ test('a canceled Work switch leaves earlier groups and their changes open', asyn
   await (await workMenu(page)).getByRole('menuitem', { name: 'Close Work' }).click();
   await answerCloseQuestion(page, 'first.txt', 'Save');
   await answerCloseQuestion(page, 'second.txt', "Don't Save");
-  await expect(page).toHaveURL(/\/#works$/);
+  await expect(page).toHaveURL('/');
+  const works = page.getByRole('region', { name: 'Works', exact: true });
+  await expect(works).toBeFocused();
+  const listedWork = works.getByRole('button', { name: work.title, exact: true });
+  await expect(listedWork).toBeVisible();
   await expect(part(page, 'editor')).toBeVisible();
+  await listedWork.click();
+  await expect(page).toHaveURL('/?work=' + work.id);
+  await expect(page).toHaveTitle(work.title);
 });
