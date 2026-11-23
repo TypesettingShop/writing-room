@@ -1,5 +1,5 @@
 import type { NodeDestination, TreeChange } from '../../manuscript/common/manuscriptStore.js';
-import type { CharacterValues } from './characterFields.js';
+import type { CharacterTemplate, CharacterValues } from './characterFields.js';
 import type { CharacterNode, CharacterNodeKind, CharacterTree, CharacterType } from './characters.js';
 
 export interface CreateCharacterNode extends NodeDestination {
@@ -22,7 +22,14 @@ export interface CharacterNodeDeletion extends TreeChange {
   deletedCharacterIds: string[];
 }
 
+export interface CharacterTemplateSnapshot {
+  revision: number;
+  fields: CharacterTemplate;
+}
+
 export interface CharactersStore {
+  getTemplate(workId: string): Promise<CharacterTemplateSnapshot>;
+  putTemplate(workId: string, fields: CharacterTemplate, expectedRevision: number): Promise<CharacterTemplateSnapshot>;
   getTree(workId: string): Promise<CharacterTree>;
   createNode(workId: string, input: CreateCharacterNode, expectedRevision: number): Promise<CharacterNodeChange>;
   updateNode(workId: string, nodeId: string, input: UpdateCharacterNode, expectedRevision: number): Promise<CharacterNodeChange>;

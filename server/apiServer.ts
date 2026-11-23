@@ -11,7 +11,6 @@ import { matchRoute, splitTarget } from './http/router.js';
 import { characterRoutes } from './routes/characters.js';
 import { workRoutes } from './routes/works.js';
 
-const storageRoutes = [...workRoutes, ...characterRoutes];
 const mutationMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const loopbackHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -38,6 +37,8 @@ export function createApiServer(options: ApiOptions) {
   const logError = options.logError ?? console.error;
   const allowedHosts = new Set(options.allowedOrigins.map(origin => new URL(origin).host));
   const accountAuth = options.accountAuth;
+  const charactersRepository = options.charactersRepository;
+  const storageRoutes = charactersRepository ? [...workRoutes, ...characterRoutes] : workRoutes;
   const authRoutes = accountAuth ? createAuthRoutes(accountAuth) : [];
   const now = accountAuth?.now ?? Date.now;
 
@@ -82,10 +83,10 @@ export function createApiServer(options: ApiOptions) {
         request, response, workId, nodeId, query,
         get store() { return options.repository.forUser(userId); },
         get characters() {
-          if (!options.charactersRepository) {
-            throw new ApiError(503, 'unavailable', 'Character storage is unavailable.');
+          if (!charactersRepository) {
+            throw new ManuscriptStoreError('not_found');
           }
-          return options.charactersRepository.forUser(userId);
+          return charactersRepository.forUser(userId);
         },
       });
     } catch (error) {

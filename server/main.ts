@@ -9,6 +9,7 @@ import { devAuthenticate, devUserId } from './auth/devAuth.js';
 import { PostgresAuthStore } from './auth/postgresAuthStore.js';
 import { readApiConfig } from './config.js';
 import { migrate } from './store/migrate.js';
+import { PostgresCharactersRepository } from './store/postgresCharactersRepository.js';
 import { createPostgresPool, PostgresManuscriptRepository } from './store/postgresManuscriptRepository.js';
 
 async function main(): Promise<void> {
@@ -17,7 +18,7 @@ async function main(): Promise<void> {
   let pool: Pool | undefined;
   try {
     let repository: ManuscriptRepository;
-    let charactersRepository: CharactersRepository | undefined;
+    let charactersRepository: CharactersRepository;
     if (config.store === 'postgres' && config.databaseUrl) {
       pool = createPostgresPool(config.databaseUrl, config.databasePoolSize);
       pool.on('error', () => console.error('Unexpected failure on an idle PostgreSQL connection.'));
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
         await postgres.ensureDevUser(devUserId);
       }
       repository = postgres;
+      charactersRepository = new PostgresCharactersRepository(pool);
     } else if (config.store === 'memory') {
       const memory = new InMemoryManuscriptRepository();
       repository = memory;

@@ -1,3 +1,4 @@
+import type { CharacterTemplate } from '../../src/platform/characters/common/characterFields.js';
 import { CharacterStoreError } from '../../src/platform/characters/common/characters.js';
 import type { CreateCharacterNode, UpdateCharacterNode } from '../../src/platform/characters/common/charactersStore.js';
 import type { NodeDestination } from '../../src/platform/manuscript/common/manuscriptStore.js';
@@ -48,6 +49,16 @@ export const characterRoutes: readonly Route[] = [
           throw new CharacterStoreError('invalid');
         }
         sendJson(response, 200, await characters.deleteNode(workId, nodeId, Number(expected)));
+      },
+    },
+  },
+  {
+    path: prefix + '/template',
+    handlers: {
+      GET: async ({ response, characters, workId }) => sendJson(response, 200, await characters.getTemplate(workId)),
+      PUT: async ({ request, response, characters, workId }) => {
+        const { fields, expectedRevision } = await readJson(request);
+        sendJson(response, 200, await characters.putTemplate(workId, fields as CharacterTemplate, expectedRevision as number));
       },
     },
   },
