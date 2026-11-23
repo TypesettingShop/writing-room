@@ -15,12 +15,12 @@ configurationRegistry.registerConfiguration({
     [MARKDOWN_EDITOR_SECTION_NUMBERS]: {
       type: 'boolean',
       default: false,
-      description: 'Shows section numbers before the first paragraph of each section in the visual Markdown editor.',
+      description: 'Shows section numbers before the first paragraph of each section in the Manuscript Editor.',
     },
     [MARKDOWN_EDITOR_FOOTNOTES_PANEL]: {
       type: 'boolean',
       default: true,
-      description: 'Shows footnotes below the visual Markdown editor when the document contains them.',
+      description: 'Shows footnotes at the bottom of the Manuscript Editor when the document contains them.',
     },
   },
 });

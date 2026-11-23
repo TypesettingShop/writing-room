@@ -381,7 +381,7 @@ color('charts.purple', '#b38ae0', '#7442a8', '#b180d7', '#652d90', 'Purple in ch
 
 // Editor
 color('editor.background', '#171b24', '#fbfcfe', '#000000', '#ffffff', 'Editor background.');
-color('markdownEditor.contentBorder', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Side borders of the centered Markdown editor content.');
+color('markdownEditor.contentBorder', '#313c50', '#d3dae6', 'contrastBorder', 'contrastBorder', 'Side borders of the centered Manuscript Editor content.');
 color('editor.foreground', '#d7dfec', '#1f2633', '#ffffff', '#292929', 'Editor foreground.');
 color('editor.selectionBackground', '#2f4a72', '#c4d8f6', '#ffffff', '#0f4a85', 'Background of the editor selection.');
 color('editor.inactiveSelectionBackground', '#2f4a7280', '#c4d8f680', '#ffffff80', '#0f4a8580', 'Background of the selection in an unfocused editor.');

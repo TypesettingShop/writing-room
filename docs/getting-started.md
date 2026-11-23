@@ -135,7 +135,7 @@ WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5
   | --- | --- | --- | --- | --- | --- | --- | --- |
   | 12 pt | 24 pt | 18 pt | 14 pt | 12 pt | 10 pt | 9 pt | 16 pt |
 
-- 본문은 기본적으로 가운데에 배치되며 본문 바깥의 좌우 공간에는 빗금이 표시된다. 왼쪽 빈 공간을 클릭하면 해당 줄의 시작으로, 오른쪽을 클릭하면 해당 줄의 끝으로 커서가 이동한다. 본문 아래의 빈 공간을 클릭하면 커서가 문서 끝으로 이동한다. 툴바의 **Content Width (characters)** 칸에 20–400 사이의 글자 수를 입력하고 **Enter**를 누르거나 입력칸을 벗어나면 `markdownEditor.contentWidth`(기본값 `80`)에 저장되어 열려 있는 모든 Markdown 편집기에 적용된다. **Center Content**와 **Fill Editor Width**는 `markdownEditor.contentLayout`(`center` 또는 `fill`)을 변경하며, 전체 채우기에서는 폭 입력칸이 비활성화된다. 집중 모드는 이 두 설정 대신 `markdownEditor.focusMode.width`를 사용한다.
+- 본문은 기본적으로 가운데에 배치되며 본문 바깥의 좌우 공간에는 빗금이 표시된다. 왼쪽 빈 공간을 클릭하면 해당 줄의 시작으로, 오른쪽을 클릭하면 해당 줄의 끝으로 커서가 이동한다. 본문 아래의 빈 공간을 클릭하면 커서가 문서 끝으로 이동한다. 툴바의 **Content Width (characters)** 칸에 20–400 사이의 글자 수를 입력하고 **Enter**를 누르거나 입력칸을 벗어나면 `markdownEditor.contentWidth`(기본값 `80`)에 저장되어 열려 있는 모든 Manuscript Editor에 적용된다. **Center Content**와 **Fill Editor Width**는 `markdownEditor.contentLayout`(`center` 또는 `fill`)을 변경하며, 전체 채우기에서는 폭 입력칸이 비활성화된다. 집중 모드는 이 두 설정 대신 `markdownEditor.focusMode.width`를 사용한다.
 - 굵게는 **Ctrl+B**, 기울임은 **Ctrl+I**, 밑줄은 **Ctrl+U**, 취소선은
   **Ctrl+Shift+X**, 인라인 코드는 **Ctrl+E**, 링크 편집은 **Ctrl+K**다.
   macOS에서는 **Cmd**를 쓴다. 링크를 편집하면 입력창에 기존 URL이 채워진다.
