@@ -23,6 +23,32 @@ export function characterValueSize(values: CharacterValues | undefined): number 
   return size;
 }
 
+export function checkCharacterWorkValuesSize(size: number): void {
+  if (size > characterLimits.workValues) {
+    throw new CharacterStoreError('too_large');
+  }
+}
+
+export function updateCharacterNode(node: CharacterNode, input: UpdateCharacterNode, now: number): CharacterNode {
+  const { title, type, values } = input;
+  if (title === undefined && type === undefined && values === undefined) {
+    return node;
+  }
+  const base = { title: title === undefined ? node.title : normalizeCharacterTitle(title), updatedAt: now };
+  if (node.kind === 'folder') {
+    if (type !== undefined || values !== undefined) {
+      throw new CharacterStoreError('invalid');
+    }
+    return { ...node, ...base };
+  }
+  return {
+    ...node,
+    ...base,
+    type: type === undefined ? node.type : normalizeCharacterType(type),
+    values: values === undefined ? node.values : normalizeCharacterValues(values),
+  };
+}
+
 export class CharacterTreeEditor extends OrderedTreeEditor<CharacterNode> {
   protected override readonly missingDestination = 'not_found';
 
@@ -53,29 +79,18 @@ export class CharacterTreeEditor extends OrderedTreeEditor<CharacterNode> {
 
   update(nodeId: string, input: UpdateCharacterNode, now: number): CharacterNode {
     const node = this.node(nodeId);
-    const { title, type, values } = input;
-    if (title === undefined && type === undefined && values === undefined) {
+    const updated = updateCharacterNode(node, input, now);
+    if (updated === node) {
       return node;
     }
-    const base = { title: title === undefined ? node.title : normalizeCharacterTitle(title), updatedAt: now };
-    let updated: CharacterNode;
-    if (node.kind === 'folder') {
-      if (type !== undefined || values !== undefined) {
-        throw new CharacterStoreError('invalid');
-      }
-      updated = { ...node, ...base };
-    } else {
-      const normalized = values === undefined ? node.values : normalizeCharacterValues(values);
-      if (normalized !== node.values) {
-        this.checkValueBudget(node, normalized);
-      }
-      updated = { ...node, ...base, type: type === undefined ? node.type : normalizeCharacterType(type), values: normalized };
+    if (updated.values !== node.values) {
+      this.checkValueBudget(node, updated.values);
     }
     this.changed.set(node.id, updated);
     return updated;
   }
 
-  private checkValueBudget(node: CharacterNode, values: CharacterValues): void {
+  private checkValueBudget(node: CharacterNode, values: CharacterValues | undefined): void {
     let total = characterValueSize(values);
     if (total <= characterValueSize(node.values)) {
       return;
@@ -84,10 +99,8 @@ export class CharacterTreeEditor extends OrderedTreeEditor<CharacterNode> {
       if (other.id !== node.id) {
         total += characterValueSize(other.values);
       }
-      if (total > characterLimits.workValues) {
-        throw new CharacterStoreError('too_large');
-      }
     }
+    checkCharacterWorkValuesSize(total);
   }
 
   delete(nodeId: string, now: number): string[] {

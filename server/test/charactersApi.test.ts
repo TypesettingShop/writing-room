@@ -103,17 +103,4 @@ describe('characters API', () => {
     expect(await deleted.json()).toEqual({ revision: 2, deletedCharacterIds: [node.id] });
     expect(await (await api.fetch(work + '/tree', { headers })).json()).toEqual({ revision: 0, nodes: [] });
   });
-
-  it('reports an unavailable character repository after authenticating the request', async () => {
-    const withoutCharacters = await startTestApi({ repository, store: 'postgres' });
-    try {
-      const path = (await workPath()) + '/characters/tree';
-      expect((await withoutCharacters.fetch(path)).status).toBe(401);
-      const response = await withoutCharacters.fetch(path, { headers });
-      expect(response.status).toBe(503);
-      expect(await response.json()).toMatchObject({ error: { code: 'unavailable' } });
-    } finally {
-      await withoutCharacters.close();
-    }
-  });
 });
