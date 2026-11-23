@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import type { CharacterValues } from '../../src/platform/characters/common/characterFields.js';
+import { normalizeCharacterTemplate, type CharacterTemplate, type CharacterValues } from '../../src/platform/characters/common/characterFields.js';
 import {
   CharacterTreeEditor, characterValueSize, checkCharacterWorkValuesSize, updateCharacterNode,
 } from '../../src/platform/characters/common/characterTree.js';
@@ -8,8 +8,10 @@ import {
   CharacterStoreError, checkCharacterRevision, type CharacterNode, type CharacterTree, type CharacterType,
 } from '../../src/platform/characters/common/characters.js';
 import type {
-  CharacterNodeChange, CharacterNodeDeletion, CharactersRepository, CharactersStore, CreateCharacterNode, UpdateCharacterNode,
+  CharacterNodeChange, CharacterNodeDeletion, CharacterTemplateSnapshot, CharactersRepository, CharactersStore,
+  CreateCharacterNode, UpdateCharacterNode,
 } from '../../src/platform/characters/common/charactersStore.js';
+import { getDefaultCharacterTemplate } from '../../src/platform/characters/common/defaultCharacterTemplate.js';
 import { isManuscriptId } from '../../src/platform/manuscript/common/manuscript.js';
 import type { NodeDestination, TreeChange } from '../../src/platform/manuscript/common/manuscriptStore.js';
 import { inTransaction } from './transaction.js';
@@ -72,6 +74,36 @@ function assertId(id: string): void {
 
 class PostgresCharactersStore implements CharactersStore {
   constructor(private readonly pool: Pool, private readonly ownerId: string, private readonly now: () => number) {}
+
+  async getTemplate(workId: string): Promise<CharacterTemplateSnapshot> {
+    assertId(workId);
+    const { rows } = await this.pool.query<{ revision: string | null; fields: unknown }>(`
+      SELECT t.revision, t.fields FROM works AS w LEFT JOIN character_templates AS t ON t.work_id = w.id
+      WHERE w.id = $1 AND w.owner_id = $2
+    `, [workId, this.ownerId]);
+    const row = requireRow(rows);
+    return row.revision === null
+      ? { revision: 0, fields: getDefaultCharacterTemplate() }
+      : { revision: Number(row.revision), fields: normalizeCharacterTemplate(row.fields) };
+  }
+
+  putTemplate(workId: string, input: CharacterTemplate, expected: number): Promise<CharacterTemplateSnapshot> {
+    return this.withLockedWork(workId, async client => {
+      // The work row exists before the first template write, so both initial and later PUTs serialize here.
+      const { rows } = await client.query<{ revision: string }>(
+        'SELECT revision FROM character_templates WHERE work_id = $1', [workId],
+      );
+      const revision = rows.length ? Number(rows[0].revision) : 0;
+      checkCharacterRevision(revision, expected);
+      const fields = normalizeCharacterTemplate(input);
+      await client.query(`
+        INSERT INTO character_templates (work_id, revision, fields, updated_at) VALUES ($1, $2, $3, $4)
+        ON CONFLICT (work_id) DO UPDATE
+          SET revision = EXCLUDED.revision, fields = EXCLUDED.fields, updated_at = EXCLUDED.updated_at
+      `, [workId, revision + 1, JSON.stringify(fields), new Date(this.now())]);
+      return { revision: revision + 1, fields };
+    });
+  }
 
   async getTree(workId: string): Promise<CharacterTree> {
     assertId(workId);
@@ -177,13 +209,7 @@ class PostgresCharactersStore implements CharactersStore {
   private mutate<T>(
     workId: string, expected: number, write: (client: PoolClient, now: number) => Promise<{ result: T; changed: boolean }>,
   ): Promise<T & TreeChange> {
-    assertId(workId);
-    return inTransaction(this.pool, async client => {
-      // Holding this owned work row keeps checks, writes and revision changes in one transaction.
-      const locked = await client.query<WorkRevisionRow>(`
-        SELECT characters_revision FROM works WHERE id = $1 AND owner_id = $2 FOR UPDATE
-      `, [workId, this.ownerId]);
-      const revision = Number(requireRow(locked.rows).characters_revision);
+    return this.withLockedWork(workId, async (client, revision) => {
       checkCharacterRevision(revision, expected);
       const now = this.now();
       const { result, changed } = await write(client, now);
@@ -193,6 +219,17 @@ class PostgresCharactersStore implements CharactersStore {
         `, [workId, new Date(now)]);
       }
       return { ...result, revision: changed ? revision + 1 : revision };
+    });
+  }
+
+  private async withLockedWork<T>(workId: string, write: (client: PoolClient, treeRevision: number) => Promise<T>): Promise<T> {
+    assertId(workId);
+    return inTransaction(this.pool, async client => {
+      // The owned work row serializes each revision check with its write.
+      const locked = await client.query<WorkRevisionRow>(`
+        SELECT characters_revision FROM works WHERE id = $1 AND owner_id = $2 FOR UPDATE
+      `, [workId, this.ownerId]);
+      return write(client, Number(requireRow(locked.rows).characters_revision));
     });
   }
 }

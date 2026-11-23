@@ -13,5 +13,6 @@ export interface ICharactersService extends BrandedService {
   readonly store: CharactersStore;
   readonly usesMemory: boolean;
   readonly onDidChangeTree: Event<string>;
+  readonly onDidChangeTemplate: Event<string>;
   readonly onDidDeleteCharacters: Event<DeletedCharacters>;
 }

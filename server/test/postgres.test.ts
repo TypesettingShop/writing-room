@@ -183,6 +183,22 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
       await expect(characterStore.getTree(id)).rejects.toMatchObject({ code: 'not_found' });
     });
 
+    it('persists a template only after PUT and cascades it on work deletion', async () => {
+      const works = repository.forUser(contractOwner);
+      const firstSession = characters.forUser(contractOwner);
+      const { id } = await works.createWork({ title: 'Template lifecycle' });
+      expect(await firstSession.getTemplate(id)).toMatchObject({ revision: 0 });
+      expect((await pool.query('SELECT work_id FROM character_templates WHERE work_id = $1', [id])).rows).toEqual([]);
+
+      const fields = [{ id: 'role', label: '역할', kind: 'choice', options: ['주연'] }];
+      await firstSession.putTemplate(id, fields, 0);
+      const fresh = new PostgresCharactersRepository(pool).forUser(contractOwner);
+      expect(await fresh.getTemplate(id)).toEqual({ fields, revision: 1 });
+      expect((await works.getWork(id)).updatedAt).toBe(contractTime);
+      await pool.query('DELETE FROM works WHERE id = $1', [id]);
+      expect((await pool.query('SELECT work_id FROM character_templates WHERE work_id = $1', [id])).rows).toEqual([]);
+    });
+
     it('upgrades a database with 0001–0004 applied and keeps existing manuscripts', async () => {
       const oldSchema = 'test_' + randomUUID().replaceAll('-', '');
       await admin.query('CREATE SCHEMA ' + oldSchema);
@@ -199,9 +215,11 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
 
         await Promise.all([migrate(oldPool), migrate(oldPool)]);
         expect((await oldPool.query('SELECT version FROM schema_migrations ORDER BY version')).rows)
-          .toContainEqual({ version: '0005' });
+          .toEqual([1, 2, 3, 4, 5, 6].map(version => ({ version: '000' + version })));
         const characterStore = new PostgresCharactersRepository(oldPool).forUser(contractOwner);
         expect(await characterStore.getTree(id)).toEqual({ revision: 0, nodes: [] });
+        expect(await characterStore.getTemplate(id)).toMatchObject({ revision: 0 });
+        expect((await oldPool.query('SELECT work_id FROM character_templates WHERE work_id = $1', [id])).rows).toEqual([]);
         await characterStore.createNode(id, { kind: 'character', title: 'New character', parentId: null }, 0);
         expect((await works.getTree(id)).revision).toBe(1);
         expect((await works.readDocument(id, node.id)).content).toBe('Existing manuscript');

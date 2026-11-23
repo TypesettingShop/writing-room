@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { isManuscriptId } from '../../../manuscript/common/manuscript.js';
 import type { ManuscriptStore, NodeDestination } from '../../../manuscript/common/manuscriptStore.js';
+import type { CharacterTemplate } from '../../common/characterFields.js';
 import { characterLimits } from '../../common/characters.js';
 import type { CharactersStore, CreateCharacterNode, UpdateCharacterNode } from '../../common/charactersStore.js';
+import { getDefaultCharacterTemplate } from '../../common/defaultCharacterTemplate.js';
 
 interface ContractStores {
   owner: CharactersStore;
@@ -137,6 +139,7 @@ export function charactersStoreContract(name: string, makeStores: () => Promise<
         () => stores.other.deleteNode(workId, node.id, 1),
         () => owner.getTree(otherWork.id),
         () => owner.getTree('bad-id'),
+        () => owner.createNode('bad-id', attempt, 0),
         () => owner.createNode(node.id, attempt, 0),
         () => owner.updateNode(ownWork.id, node.id, {}, 0),
         () => owner.deleteNode(workId, 'bad-id', 1),
@@ -186,6 +189,82 @@ export function charactersStoreContract(name: string, makeStores: () => Promise<
       await expect(owner.updateNode(workId, emptyNodeId, { values: maxCharacterValue }, revision + 2))
         .resolves.toMatchObject({ revision: revision + 3 });
     }, 60_000);
+
+    describe('work field templates', () => {
+      it('returns independent defaults and stores an empty override for only that work', async () => {
+        const second = await stores.ownerWorks.createWork({ title: 'Second template' });
+        const snapshot = await owner.getTemplate(workId);
+        expect(snapshot).toEqual({ revision: 0, fields: getDefaultCharacterTemplate() });
+        snapshot.fields[0].label = 'Changed by caller';
+        snapshot.fields[6].options!.push('A new choice');
+        expect(await owner.getTemplate(workId)).toEqual({ revision: 0, fields: getDefaultCharacterTemplate() });
+        expect(await owner.putTemplate(workId, [], 0)).toEqual({ revision: 1, fields: [] });
+        expect(await owner.getTemplate(workId)).toEqual({ revision: 1, fields: [] });
+        expect(await owner.getTemplate(second.id)).toEqual({ revision: 0, fields: getDefaultCharacterTemplate() });
+      });
+
+      it('serializes two initial PUTs and validates later revisions', async () => {
+        const outcomes = await Promise.allSettled([
+          owner.putTemplate(workId, [{ id: 'voice', kind: 'text', label: 'Voice' }], 0),
+          owner.putTemplate(workId, [{ id: 'role', kind: 'text', label: 'Role' }], 0),
+        ]);
+        const completed = outcomes.find(result => result.status === 'fulfilled');
+        expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+        expect(outcomes).toContainEqual({
+          status: 'rejected', reason: expect.objectContaining({ code: 'conflict', currentRevision: 1 }),
+        });
+        expect(await owner.getTemplate(workId)).toEqual(completed?.value);
+        await expect(owner.putTemplate(workId, [], 0)).rejects.toMatchObject({ code: 'conflict', currentRevision: 1 });
+        await expect(owner.putTemplate(workId, [], -1)).rejects.toMatchObject({ code: 'invalid' });
+      });
+
+      it('round-trips normalized definitions without changing the tree or stored field values', async () => {
+        const { node } = await create(0);
+        const values = { role: 'Former role', voice: 'Existing text' };
+        await owner.updateNode(workId, node.id, { values }, 1);
+        const before = await owner.getTree(workId);
+        const fields: CharacterTemplate = [
+          { id: 'voice', label: '  Cafe\u0301  ', kind: 'futureKind' },
+          { id: 'other', label: 'Other', kind: 'choice', options: ['One'] },
+        ];
+        const saved = await owner.putTemplate(workId, fields, 0);
+        expect(saved).toEqual({
+          revision: 1, fields: [{ ...fields[0], label: 'Café' }, fields[1]],
+        });
+        fields[1].options!.push('Changed input');
+        saved.fields[1].options!.push('Changed result');
+        expect(await owner.getTemplate(workId)).toMatchObject({
+          revision: 1, fields: [{ kind: 'futureKind', label: 'Café' }, { options: ['One'] }],
+        });
+        expect(await owner.getTree(workId)).toEqual(before);
+
+        await owner.updateNode(workId, node.id, { title: 'New title' }, 2);
+        expect((await owner.getTemplate(workId)).revision).toBe(1);
+        await owner.putTemplate(workId, getDefaultCharacterTemplate(), 1);
+        expect((await owner.getTree(workId)).nodes[0].values).toEqual(values);
+        expect((await owner.getTree(workId)).revision).toBe(3);
+      });
+
+      it('rejects malformed templates and cross-owner access without persisting a change', async () => {
+        const field = { id: 'note', kind: 'text', label: 'Note' };
+        for (const fields of [
+          [field, field],
+          [{ ...field, kind: 'choice' }],
+          Array.from({ length: 101 }, (_, index) => ({ ...field, id: 'field-' + index })),
+        ]) {
+          await expect(owner.putTemplate(workId, fields, 0)).rejects.toMatchObject({ code: 'invalid' });
+        }
+        const oversized = Array.from({ length: 100 }, (_, index) => ({
+          ...field, id: 'field-' + index, placeholder: '가'.repeat(500),
+        }));
+        await expect(owner.putTemplate(workId, oversized, 0)).rejects.toMatchObject({ code: 'too_large' });
+        await expect(stores.other.getTemplate(workId)).rejects.toMatchObject({ code: 'not_found' });
+        await expect(stores.other.putTemplate(workId, [], 0)).rejects.toMatchObject({ code: 'not_found' });
+        await expect(owner.getTemplate('bad-id')).rejects.toMatchObject({ code: 'not_found' });
+        await expect(owner.putTemplate('bad-id', [], 0)).rejects.toMatchObject({ code: 'not_found' });
+        expect(await owner.getTemplate(workId)).toEqual({ revision: 0, fields: getDefaultCharacterTemplate() });
+      });
+    });
 
     it('enforces the shared node limit for both kinds', async () => {
       const revision = await (stores.seedFullWork ? stores.seedFullWork(workId) : fillCharacterTree(owner, workId));

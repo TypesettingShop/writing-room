@@ -89,7 +89,7 @@ export type CharacterStoreErrorCode = Exclude<ManuscriptStoreErrorCode, 'precond
 
 const characterErrorMessages: Record<CharacterStoreErrorCode, string> = {
   not_found: 'Character resource not found.',
-  conflict: 'The character tree has changed.',
+  conflict: 'The character data has changed.',
   invalid: 'Invalid character input.',
   too_large: 'Character input exceeds the size limit.',
   limit: 'The work has reached the character node limit.',
