@@ -4,7 +4,8 @@ import { Disposable, DisposableStore, toDisposable } from '../../../../base/comm
 import { IMenuService, MenuId } from '../../../../platform/actions/common/actions.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
-import { EditorDragAndDropObserver, ManuscriptDragAndDropObserver } from '../../../browser/dnd.js';
+import { EditorDragAndDropObserver } from '../../../browser/dnd.js';
+import { hasNavigatorDrag, onDidEndNavigatorDrag } from '../../../browser/parts/editor/editorAreaDrops.js';
 import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
 import { IWebviewService } from './webview.js';
 import type { WebviewElement, WebviewElementOptions } from './webviewElement.js';
@@ -43,17 +44,17 @@ export class WebviewOverlay extends Disposable {
     const root = layoutService.mainContainer;
     const window = root.ownerDocument.defaultView!;
     const startDrag = (event: DragEvent) => {
-      // Manuscript rows also drop on editor groups, so the frame must not take their drag either.
+      // Registered navigator rows can drop on editor groups through the frame.
       if (EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, root)
-        || ManuscriptDragAndDropObserver.INSTANCE.getDraggedItems(event, root)) {
+        || hasNavigatorDrag(event, root)) {
         this.setDragging(true);
       }
     };
-    // This runs after the tab, group or manuscript row has registered the drag payload.
+    // This runs after the tab, group or navigator row has registered the drag payload.
     window.addEventListener('dragstart', startDrag);
     this._register(toDisposable(() => window.removeEventListener('dragstart', startDrag)));
     this._register(EditorDragAndDropObserver.INSTANCE.onDidEndDrag(() => this.setDragging(false)));
-    this._register(ManuscriptDragAndDropObserver.INSTANCE.onDidEndDrag(() => this.setDragging(false)));
+    this._register(onDidEndNavigatorDrag(() => this.setDragging(false)));
     const onWindowBlur = () => {
       queueMicrotask(() => this.checkFocus());
     };

@@ -26,7 +26,6 @@ import { UntitledTextEditorInput } from '../../../services/untitled/common/untit
 import { Part } from '../../part.js';
 import { getEditorPartOptions } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView, IEditorPartOptions } from './editor.js';
-import { IManuscriptOpener } from '../../../contrib/manuscript/browser/manuscriptOpener.js';
 import { createEditorDropTarget } from './editorDropTarget.js';
 import { EditorGroupView } from './editorGroupView.js';
 
@@ -560,9 +559,7 @@ export class EditorPart extends Part implements IEditorGroupsService, IEditorGro
   }
 
   private setupDragAndDropSupport(): void {
-    this._register(createEditorDropTarget(this.container, this, () =>
-      this.instantiationService.invokeFunction(accessor => accessor.get(IManuscriptOpener)),
-    ));
+    this._register(createEditorDropTarget(this.container, this, this.instantiationService));
   }
 
   override layout(width: number, height: number, top: number, left: number): void {

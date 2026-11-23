@@ -50,7 +50,7 @@ test('a template change event updates the pane without replacing focused preedit
     onDidChangeTemplate: onDidChangeTemplate.event,
     store: { getTemplate: async () => ({ fields, revision: 1 }) } as unknown as CharactersStore,
   } as ICharactersService;
-  const input = new CharacterEditorInput('work', node, 1,
+  const input = new CharacterEditorInput('work', node.id, { node, revision: 1 },
     { onDidChangeTree: Event.None } as unknown as CharactersViewState, characters, {} as IDialogService,
     {} as IFileDialogService, {} as INotificationService);
   const pane = new CharacterEditorPane(characters, {} as IKeybindingService);
@@ -76,7 +76,7 @@ test('a template change event updates the pane without replacing focused preedit
     expect(parent.querySelector('textarea')).toBe(control);
     expect(document.activeElement).toBe(control);
     expect(control.value).toBe('한');
-    expect(input.model.draft.values).toEqual({ goal: '한', old: 'Keep', role: 'Retired' });
+    expect(input.model?.draft.values).toEqual({ goal: '한', old: 'Keep', role: 'Retired' });
   } finally {
     pane.dispose();
     input.dispose();
