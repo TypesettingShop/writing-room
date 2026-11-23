@@ -30,18 +30,23 @@ export class ExtHostTextEditors extends Disposable {
     return this.active === null ? undefined : this.editors.get(this.active)?.value;
   }
 
-  private get visibleTextEditors(): readonly vscode.TextEditor[] {
+  get visibleTextEditors(): readonly vscode.TextEditor[] {
     return this.visible.flatMap(id => this.editors.get(id)?.value ?? []);
   }
 
   createApi(key: string) {
     const service = this;
     const readable = (editor: vscode.TextEditor) => this.documents.canRead(key, editor.document);
+    const view = (editor: vscode.TextEditor) => this.documents.editorFor(key, editor);
+    const viewEvent = <T extends { textEditor: vscode.TextEditor }>(event: T): T => {
+      const textEditor = view(event.textEditor);
+      return textEditor === event.textEditor ? event : { ...event, textEditor };
+    };
     const getActive = () => {
       const editor = service.activeTextEditor;
-      return editor && readable(editor) ? editor : undefined;
+      return editor && readable(editor) ? view(editor) : undefined;
     };
-    const getVisible = () => service.visibleTextEditors.filter(readable);
+    const getVisible = () => service.visibleTextEditors.filter(readable).map(view);
     const onActive = this.documents.event(key, this.activeChanged.event);
     const onVisible = this.documents.event(key, this.visibleChanged.event);
     const onDidChangeActiveTextEditor: vscode.Event<vscode.TextEditor | undefined> = (listener, thisArg, store) => {
@@ -70,16 +75,18 @@ export class ExtHostTextEditors extends Disposable {
       createTextEditorDecorationType: (options: vscode.DecorationRenderOptions) => this.decorations.create(key, options),
       onDidChangeActiveTextEditor,
       onDidChangeVisibleTextEditors,
-      onDidChangeTextEditorSelection: this.documents.event(key, this.selectionChanged.event, event => readable(event.textEditor)),
-      onDidChangeTextEditorVisibleRanges: this.documents.event(key, this.rangesChanged.event, event => readable(event.textEditor)),
-      onDidChangeTextEditorOptions: this.documents.event(key, this.optionsChanged.event, event => readable(event.textEditor)),
-      onDidChangeTextEditorViewColumn: this.documents.event(key, this.columnChanged.event, event => readable(event.textEditor)),
+      onDidChangeTextEditorSelection: this.documents.event(key, this.selectionChanged.event, event => readable(event.textEditor), viewEvent),
+      onDidChangeTextEditorVisibleRanges: this.documents.event(key, this.rangesChanged.event, event => readable(event.textEditor), viewEvent),
+      onDidChangeTextEditorOptions: this.documents.event(key, this.optionsChanged.event, event => readable(event.textEditor), viewEvent),
+      onDidChangeTextEditorViewColumn: this.documents.event(key, this.columnChanged.event, event => readable(event.textEditor), viewEvent),
       showTextDocument: promiseApiMethod(async (
         document: vscode.TextDocument | vscode.Uri,
         column?: vscode.ViewColumn | vscode.TextDocumentShowOptions,
         preserveFocus?: boolean,
       ): Promise<vscode.TextEditor> => {
-        const target = URI.isUri(document) ? document : this.documents.getId(document as vscode.TextDocument);
+        const target = URI.isUri(document)
+          ? this.documents.documentResource(key, document as unknown as vscode.Uri) as unknown as URI
+          : this.documents.getId(key, document as vscode.TextDocument);
         if (target === undefined) {
           throw new Error('The text document is no longer available.');
         }
@@ -93,7 +100,7 @@ export class ExtHostTextEditors extends Disposable {
         if (!editor) {
           throw new Error('The text editor is no longer available.');
         }
-        return editor.value;
+        return view(editor.value);
       }),
     };
   }

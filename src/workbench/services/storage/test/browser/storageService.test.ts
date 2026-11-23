@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import type { IFileService } from '../../../../../platform/files/common/files.js';
 import { StorageScope, StorageTarget, storageKey, WillSaveStateReason } from '../../../../../platform/storage/common/storage.js';
+import type { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { ExtensionStorage } from '../../../../api/browser/mainThreadStorage.js';
 import {
   BrowserStorageService, registerStorageMigration, STORAGE_PREFIX, STORAGE_SCHEMA_VERSION, STORAGE_VERSION_KEY,
 } from '../../browser/storageService.js';
+
+// These tests install their own migrations. Use the installed extension address without registering the production migration.
+vi.mock('../../../extensionManagement/browser/webExtensionsScannerService.js', () => ({ userExtensionsKey: 'extensions.user' }));
 
 const storageProperty = `${'local'}Storage` as const;
 const scope = StorageScope.PROFILE;
@@ -197,6 +203,162 @@ describe('schema', () => {
     expect(storage.get('saved', scope)).toBe('local only');
     expect(area.getItem(physicalKey('saved'))).toBe('from newer build');
     expect(warning).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Work scope', () => {
+  const workA = '12345678-abcd-4000-8000-123456789abc';
+  const workB = '23456789-abcd-4000-8000-123456789abc';
+  const workspace = StorageScope.WORKSPACE;
+  const editor = 'editor:state';
+  const workspaceKey = storageKey(workspace, editor);
+  const legacyKey = STORAGE_PREFIX + workspaceKey;
+  const workKey = (id: string) => `${STORAGE_PREFIX}work:${id}:${workspaceKey}`;
+
+  function openWorkStorage(id: string): BrowserStorageService {
+    const { href } = window.location;
+    const { state } = window.history;
+    try {
+      window.history.replaceState(state, '', `?work=${id}`);
+      return disposables.add(new BrowserStorageService());
+    } finally {
+      window.history.replaceState(state, '', href);
+    }
+  }
+
+  test('restores only the active Work scope and preserves the legacy and shared key names', () => {
+    const legacy = disposables.add(new BrowserStorageService());
+    const first = openWorkStorage(workA);
+    const second = openWorkStorage(workB);
+    legacy.store(editor, 'legacy state', workspace, target);
+    first.store(editor, 'state A', workspace, target);
+    second.store(editor, 'state B', workspace, target);
+    first.store('preferences', 'shared profile', scope, target);
+    second.store('install', 'shared application', StorageScope.APPLICATION, target);
+    void legacy.flush();
+    void first.flush();
+    void second.flush();
+
+    expect(Object.keys(area).sort()).toEqual([
+      'writing-room:storage:-1:install',
+      'writing-room:storage:0:preferences',
+      'writing-room:storage:1:editor:state',
+      'writing-room:storage:version',
+      `writing-room:storage:work:${workA}:1:editor:state`,
+      `writing-room:storage:work:${workB}:1:editor:state`,
+    ]);
+    const reopened = openWorkStorage(workA);
+    expect(reopened.get(editor, workspace)).toBe('state A');
+    expect(openWorkStorage(workB).get(editor, workspace)).toBe('state B');
+    expect(disposables.add(new BrowserStorageService()).get(editor, workspace)).toBe('legacy state');
+    expect(reopened.get('preferences', scope)).toBe('shared profile');
+    expect(reopened.get('install', StorageScope.APPLICATION)).toBe('shared application');
+
+    area.setItem(workKey(workA), 'new state A');
+    expect(reopened.getPersisted(editor, workspace)).toBe('new state A');
+    reopened.storeImmediately(editor, (stored, snapshot) => {
+      expect(stored).toBe('new state A');
+      expect(snapshot.get(workspaceKey)).toBe(stored);
+      return undefined;
+    }, workspace, target);
+    expect(area.getItem(workKey(workA))).toBeNull();
+    expect(area.getItem(workKey(workB))).toBe('state B');
+    expect(area.getItem(legacyKey)).toBe('legacy state');
+  });
+
+  test('counts persisted Profile, legacy and Work state once across the origin without exposing it in other Works', async () => {
+    const owner = 'test.sample';
+    const key = 'extensions.state.' + owner;
+    const fullValue = 'x'.repeat(256 * 1024 - '{"value":""}'.length);
+    const full = JSON.stringify({ value: fullValue });
+    const small = '{"value":"a"}';
+    const legacyPrefix = STORAGE_PREFIX + storageKey(workspace, '');
+    const workPrefix = (id: string) => STORAGE_PREFIX + 'work:' + id + ':' + storageKey(workspace, '');
+
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    area.setItem(workPrefix(workA) + key, small);
+    const first = openWorkStorage(workA);
+    const firstState = disposables.add(new ExtensionStorage(first, {} as IFileService, {} as IWorkspaceContextService));
+    const second = openWorkStorage(workB);
+    const events = vi.fn();
+    first.onDidChangeValue(workspace, undefined, disposables)(events);
+
+    // Seed the physical backend without updating A's cache. Only the persisted data should decide the limit.
+    area.setItem(workPrefix(workA) + key, full);
+    const profilePrefix = STORAGE_PREFIX + storageKey(scope, '');
+    for (const prefix of [profilePrefix, legacyPrefix, workPrefix(workA), workPrefix(workB)]) {
+      area.setItem(prefix + 'extensions.state.test.first', full);
+      if (prefix !== workPrefix(workA)) {
+        area.setItem(prefix + 'extensions.state.test.second', full);
+      }
+    }
+    const foreignKey = 'extensions.state.test.second';
+    storageEvent(workPrefix(workB) + foreignKey, full);
+    expect(second.get(foreignKey, workspace)).toBe(full);
+    expect(first.get(foreignKey, workspace)).toBeUndefined();
+    expect(events).not.toHaveBeenCalled();
+
+    const update = (name: string, json: string | undefined) => firstState.update(owner, 'workspace', name, json, () => true);
+    // At exactly 2 MiB, a new key would exceed the limit. The target itself must not be counted twice.
+    await expect(firstState.update('test.new', 'global', 'value', '"x"', () => true)).rejects.toThrow('2 MiB');
+    expect(first.get(key, workspace)).toBe(small);
+    expect(area.getItem(workPrefix(workA) + key)).toBe(full);
+    expect(first.usesMemory).toBe(false);
+    await update('value', JSON.stringify(fullValue.slice(1)));
+    await update('value', JSON.stringify(fullValue));
+    area.setItem(legacyPrefix + 'extensions.state.test.over', small);
+    await update('value', '"shorter"');
+    expect(first.get(key, workspace)).toBe('{"value":"shorter"}');
+    await update('value', undefined);
+    expect(area.getItem(workPrefix(workA) + key)).toBeNull();
+    expect(area.getItem(workPrefix(workB) + foreignKey)).toBe(full);
+  });
+
+  test('ignores other workspace events while a same-work event reads the latest persisted value', () => {
+    area.setItem(STORAGE_VERSION_KEY, String(STORAGE_SCHEMA_VERSION));
+    area.setItem(workKey(workA), 'cached A');
+    area.setItem(workKey(workB), 'cached B');
+    area.setItem(legacyKey, 'cached legacy');
+    const first = openWorkStorage(workA);
+    const second = openWorkStorage(workB);
+    const legacy = disposables.add(new BrowserStorageService());
+    const change = vi.fn();
+    first.onDidChangeValue(workspace, undefined, disposables)(change);
+
+    area.setItem(workKey(workA), 'persisted A');
+    area.setItem(workKey(workB), 'persisted B');
+    storageEvent(workKey(workB), 'event B');
+    area.setItem(legacyKey, 'persisted legacy');
+    storageEvent(legacyKey, 'event legacy');
+    expect(first.get(editor, workspace)).toBe('cached A');
+    expect(change).not.toHaveBeenCalled();
+
+    storageEvent(workKey(workA), 'stale event A');
+    expect(first.get(editor, workspace)).toBe('persisted A');
+    expect(second.get(editor, workspace)).toBe('persisted B');
+    expect(legacy.get(editor, workspace)).toBe('persisted legacy');
+    expect(change.mock.calls).toEqual([[{ scope: workspace, key: editor, target: undefined, external: true }]]);
+
+    // The null-key event also rescans through the Work boundary.
+    area.removeItem(workKey(workA));
+    storageEvent(null, null);
+    expect(first.get(editor, workspace)).toBeUndefined();
+    expect(second.get(editor, workspace)).toBe('persisted B');
+    expect(legacy.get(editor, workspace)).toBe('persisted legacy');
+  });
+
+  test('a Work window can migrate older legacy state without adopting its workspace keys', () => {
+    area.setItem(STORAGE_VERSION_KEY, '1');
+    area.setItem(legacyKey, 'old legacy state');
+    disposables.add(registerStorageMigration(1, draft => {
+      expect(draft.get(workspaceKey)).toBe('old legacy state');
+      draft.set(workspaceKey, 'migrated legacy state');
+    }));
+    const work = openWorkStorage(workA);
+    expect(work.usesMemory).toBe(false);
+    expect(work.get(editor, workspace)).toBeUndefined();
+    expect(area.getItem(legacyKey)).toBe('migrated legacy state');
+    expect(area.getItem(workKey(workA))).toBeNull();
   });
 });
 

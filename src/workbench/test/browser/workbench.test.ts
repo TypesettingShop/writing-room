@@ -261,6 +261,28 @@ describe('Workbench', () => {
     expect(context.getContextKeyValue('activePanel')).toBe(output.id);
   });
 
+  it('selects the visible neighbor in the original order when the active container moves out', async () => {
+    const workbench = start();
+    const [views, descriptors, context] = workbench.instantiationService.invokeFunction(accessor => [
+      accessor.get(IViewsService), accessor.get(IViewDescriptorService), accessor.get(IContextKeyService),
+    ] as const);
+    const containers = ['hidden', 'active', 'next', 'last'].map(name => {
+      const container = viewContainersRegistry.registerViewContainer({
+        id: 'test.dock.' + name, title: name,
+        when: name === 'hidden' ? ContextKeyExpr.has('test.hiddenDock') : undefined,
+      }, ViewContainerLocation.Sidebar);
+      viewsRegistry.registerViews([{ id: container.id + '.view', name, renderBody() {} }], container);
+      disposables.add(toDisposable(() => viewContainersRegistry.deregisterViewContainer(container)));
+      return container;
+    });
+
+    const [, active, next] = containers;
+    expect(await views.openViewContainer(active.id)).not.toBeNull();
+    descriptors.moveViewContainerToLocation(active, ViewContainerLocation.Panel);
+    expect(workbench.layoutState.activeViewlet).toBe(next.id);
+    expect(context.getContextKeyValue('activeViewlet')).toBe(next.id);
+  });
+
   it('keeps a part the person hid hidden when its containers come back by reset', () => {
     const workbench = start({ sideBarHidden: true });
     const [descriptors, context] = workbench.instantiationService.invokeFunction(accessor => [

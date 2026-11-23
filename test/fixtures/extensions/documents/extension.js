@@ -204,6 +204,7 @@ exports.activate = context => {
   const report = (prefix, value) => window.showInformationMessage(`[${++runs}] ${prefix}${value}`);
   context.subscriptions.push(
     workspace.onDidOpenTextDocument(document => editorEvents.push(`open ${document.uri.path.split('/').pop()}`)),
+    workspace.onDidCloseTextDocument(document => editorEvents.push(`close ${document.uri.path.split('/').pop()}`)),
     window.onDidChangeActiveTextEditor(editor => editorEvents.push(`active ${describe(editor) ?? 'none'}`)),
     window.onDidChangeVisibleTextEditors(editors => editorEvents.push(`visible ${editors.map(describe).join(',')}`)),
   );

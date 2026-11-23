@@ -4,7 +4,7 @@ import type { CancellationToken } from '../../../../base/common/cancellation.js'
 import { Emitter, Event } from '../../../../base/common/event.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
-import { basename, isEqual, relativePath } from '../../../../base/common/resources.js';
+import { isEqual, relativePath } from '../../../../base/common/resources.js';
 import type { URI } from '../../../../base/common/uri.js';
 import { PLAINTEXT_LANGUAGE_ID } from '../../../../editor/common/languages/language.js';
 import type { ITextModel } from '../../../../editor/common/model.js';
@@ -20,8 +20,11 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import type { IEditorCloseHandler, IRevertOptions, ISaveOptions } from '../../../common/editor/editorInput.js';
 import { IFileDialogService } from '../../../services/dialogs/common/dialogs.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { onDidChangeResourceLabel, resourceDisplayName, resourceLabelDescription, resourceLabelTitle } from '../../../services/label/common/resourceLabels.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
+import { UntitledTextEditorInput } from '../../../services/untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService } from '../../../services/untitled/common/untitledTextEditorService.js';
+import { FileEditorInput } from '../../files/browser/editors/fileEditorInput.js';
 import { WebviewOverlay } from '../../webview/browser/webviewOverlay.js';
 import type { CustomDocumentModel } from './customDocumentModel.js';
 import { ICustomEditorService } from './customEditorService.js';
@@ -110,12 +113,14 @@ export class CustomEditorInput extends EditorInput {
     this.closeHandler = {
       // Another editor of the same text (the text editor, say) keeps the changes: closing this one loses nothing.
       showConfirm: () => this.isDirty() && !this.isShownElsewhere(),
+      sharesDirtyState: other => this.sharesDirtyState(other),
       confirm: editors => fileDialogs.showSaveConfirm(editors.map(({ editor }) => editor.getName())),
     };
     if (kind === 'text') {
       this._register(Event.filter(textFiles.onDidChangeDirty, changed => isEqual(changed, resource))(() => this._onDidChangeDirty.fire()));
       this._register(Event.filter(textFiles.files.onDidChangeReadonly, model => isEqual(model.resource, resource))(() => this._onDidChangeLabel.fire()));
     }
+    this._register(onDidChangeResourceLabel(resource)(() => this._onDidChangeLabel.fire()));
     this._register(webview.onDidShow(() => instantiation.invokeFunction(accessor => accessor.get(ICustomEditorService)).resolve(this)));
   }
 
@@ -124,10 +129,18 @@ export class CustomEditorInput extends EditorInput {
   }
 
   override getName(): string {
-    return basename(this.resource) || this.resource.toString();
+    return resourceDisplayName(this.resource);
+  }
+
+  override getDescription(): string | undefined {
+    return resourceLabelDescription(this.resource) ?? super.getDescription();
   }
 
   override getTitle(): string {
+    const title = resourceLabelTitle(this.resource);
+    if (title !== undefined) {
+      return title;
+    }
     const folder = this.workspace.getWorkspaceFolder(this.resource);
     const relative = folder && relativePath(folder.uri, this.resource);
     return folder && relative ? `${folder.name}/${relative}` : this.resource.toString(true);
@@ -310,6 +323,15 @@ export class CustomEditorInput extends EditorInput {
     this.resolution = CustomEditorResolution.Pending;
     this.detachDocument();
     this.webview.resetForRestore();
+  }
+
+  private sharesDirtyState(other: EditorInput): boolean {
+    if (this.kind === 'custom') {
+      return other instanceof CustomEditorInput && this.document !== undefined && this.document.model === other.document?.model;
+    }
+    return isEqual(this.resource, other.resource) && (other instanceof CustomEditorInput
+      ? other.kind === 'text'
+      : other instanceof FileEditorInput || other instanceof UntitledTextEditorInput);
   }
 
   /**

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { Event } from '../../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ILanguageService } from '../../../../../editor/common/languages/language.js';
@@ -19,6 +19,8 @@ import type { IQuickPickItem } from '../../../../../platform/quickinput/common/q
 import { InMemoryStorageService, IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import type { IWorkspaceContextService as IWorkspace, IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
+import type { IReference, IResolvedTextEditorModel } from '../../../../../editor/common/services/resolverService.js';
+import { DocumentContentEditorInput } from '../../../../api/browser/mainThreadEditorInput.js';
 import { EditorPart } from '../../../../browser/parts/editor/editorPart.js';
 import { IWorkbenchLayoutService } from '../../../../services/layout/browser/layoutService.js';
 import { FileEditorResolverContribution } from '../../../files/browser/editors/fileEditorHandler.js';
@@ -28,9 +30,11 @@ import {
   DEFAULT_EDITOR_ID, EDITOR_ASSOCIATIONS_SETTING, IEditorResolverService, RegisteredEditorPriority,
 } from '../../../../services/editor/common/editorResolverService.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
+import { registerResourceLabelProvider } from '../../../../services/label/common/resourceLabels.js';
 import { WorkbenchLanguageService } from '../../../../services/language/common/languageService.js';
 import { UntitledTextEditorInput } from '../../../../services/untitled/common/untitledTextEditorInput.js';
 import { IUntitledTextEditorService } from '../../../../services/untitled/common/untitledTextEditorService.js';
+import { WorkService } from '../../../../services/work/browser/workService.js';
 import { IExtensionService } from '../../../../services/extensions/common/extensions.js';
 import { ExtensionMessageCollector } from '../../../../services/extensions/common/extensionsRegistry.js';
 import type { IExtensionPointUser } from '../../../../services/extensions/common/extensionsRegistry.js';
@@ -437,6 +441,74 @@ describe('the open editors', () => {
     expect(group.editors[1]).toBeInstanceOf(FileEditorInput);
     expect(group.editors[1]!.isDirty()).toBe(true);
     expect(custom!.isDisposed()).toBe(true);
+  });
+
+  test('file, custom and extension document tabs update their labels from the same provider', async () => {
+    provide('one.preview');
+    const resource = file('a.md');
+    const text = disposables.add(instantiation.createInstance(FileEditorInput, resource, {}));
+    const doc = disposables.add(new DocumentContentEditorInput(resource, { dispose() {} } as IReference<IResolvedTextEditorModel>));
+    const { editor } = await service(IEditorResolverService).resolveEditor({ resource, options: { override: 'one.preview' } }, part.activeGroup);
+    const custom = disposables.add(editor);
+    expect(custom).toBeInstanceOf(CustomEditorInput);
+    const inputs = [text, custom, doc];
+    const updates = inputs.map(input => {
+      const update = vi.fn();
+      disposables.add(input.onDidChangeLabel(update));
+      return update;
+    });
+    const changed = disposables.add(new Emitter<void>());
+    let name = 'First title';
+    const registration = disposables.add(registerResourceLabelProvider(resource.scheme, {
+      getName: () => name, getDescription: () => 'Part / Chapter', onDidChange: changed.event,
+    }));
+    expect(inputs.map(input => input.getName())).toEqual(['First title', 'First title', 'First title']);
+    name = 'Updated title';
+    changed.fire();
+    for (const input of inputs) {
+      expect(input.getTitle()).toBe('Part / Chapter / Updated title');
+      expect(input.getDescription()).toBe('Part / Chapter');
+    }
+    registration.dispose();
+    expect(inputs.map(input => input.getName())).toEqual(['a.md', 'a.md', 'a.md']);
+    for (const update of updates) {
+      expect(update).toHaveBeenCalledTimes(3);
+    }
+  });
+
+  test("Close Work asks once for shared text and discards it even if a later prompt would have saved it", async () => {
+    provide('one.preview');
+    const editors = service(IEditorService);
+    const resource = file('shared-close-work.md');
+    const files = service(IFileService);
+    await files.writeFile(resource, new TextEncoder().encode('# Original'));
+    await editors.openEditor({ resource });
+    const text = part.activeGroup.activeEditor as FileEditorInput;
+    await text.resolve();
+    await editors.openEditor({ resource, options: { override: 'one.preview' } });
+    const custom = part.activeGroup.activeEditor as CustomEditorInput;
+    expect(custom).toBeInstanceOf(CustomEditorInput);
+    const model = await custom.acquireModel();
+    model.setValue('unsaved draft');
+    expect(text.isDirty()).toBe(true);
+    expect(custom.isDirty()).toBe(true);
+
+    const href = window.location.href;
+    const state = history.state;
+    history.replaceState(state, '', '/?work=12345678-abcd-4000-8000-123456789abc');
+    const work = instantiation.createInstance(WorkService);
+    // Keep the final navigation in this document so jsdom can follow it.
+    history.replaceState(state, '', '/#before-close');
+    try {
+      answerPick = items => items.find(item => item.id === (picks.length === 1 ? 'dontSave' : 'save'));
+      await work.close();
+      expect(picks).toHaveLength(1);
+      expect(part.activeGroup.isEmpty).toBe(true);
+      expect(window.location.hash).toBe('#works');
+      expect(new TextDecoder().decode((await files.readFile(resource)).value)).toBe('# Original');
+    } finally {
+      history.replaceState(state, '', href);
+    }
   });
 
   test('untitled text keeps its text when Reopen With puts a custom editor in its place, and goes with the last editor', async () => {

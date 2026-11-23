@@ -126,7 +126,8 @@ export interface IEditorGroup {
   closeEditor(editor?: EditorInput): Promise<boolean>;
   /** Closes the editors, asking about each that wants it first; one cancel keeps them all. */
   closeEditors(editors: readonly EditorInput[] | ICloseEditorsFilter): Promise<boolean>;
-  closeAllEditors(): Promise<boolean>;
+  /** Close this group, reusing confirmation already given for those inputs. */
+  closeAllEditors(confirmed?: ReadonlySet<EditorInput>): Promise<boolean>;
   /**
    * Puts each replacement where its editor is: the same index, active if the editor was, with the
    * editor's view state (cursor, scroll) unless the options give one. The replaced editor closes
@@ -146,6 +147,8 @@ export interface IEditorGroupsService extends BrandedService {
   /** The active group's active editor changed, or another group became active. */
   readonly onDidActiveEditorChange: Event<void>;
 
+  /** Whether a saved editor snapshot was present at startup, even if empty or unreadable. */
+  readonly hasStoredState: boolean;
   readonly activeGroup: IEditorGroup;
   /** The groups in creation order. */
   readonly groups: readonly IEditorGroup[];

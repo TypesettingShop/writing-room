@@ -11,6 +11,7 @@ describe('Markdown IME reset recovery', () => {
   let host: HTMLDivElement;
   let button: HTMLButtonElement;
   let view: EditorView;
+  let recovery: MarkdownCompositionRecovery;
   let binding: IDisposable;
   let received: Transaction[];
   let now: number;
@@ -23,7 +24,7 @@ describe('Markdown IME reset recovery', () => {
     button = document.createElement('button');
     document.body.append(host, button);
     const doc = parseMarkdown('**안녕하세**\n\n다음 문단');
-    const recovery = new MarkdownCompositionRecovery();
+    recovery = new MarkdownCompositionRecovery();
     received = [];
     view = new EditorView(host, {
       state: EditorState.create({
@@ -137,6 +138,23 @@ describe('Markdown IME reset recovery', () => {
     now += 51;
     pressOutside();
     expect(view.state.doc.firstChild!.textContent).toBe('안녕하세');
+  });
+
+  it('tracks whether a deferred native edit kept its text through compositionend', () => {
+    compositionEvent('compositionstart', '');
+    update('요');
+    const pending = recovery.deferredInput;
+    compositionEvent('compositionend', '요');
+    expect(recovery.deferredInput).toBe(pending);
+    expect(pending).toMatchObject({ text: '요', lastInputWasEmpty: false });
+
+    compositionEvent('compositionstart', '');
+    update('요', '안녕하세요');
+    const canceled = recovery.deferredInput;
+    update('', '안녕하세요', null);
+    compositionEvent('compositionend', '');
+    expect(canceled).not.toBe(pending);
+    expect(canceled).toMatchObject({ text: '요', lastInputWasEmpty: true });
   });
 
   it.each([-1, 1])('recovers a pointer stamped %d ms from the reset even when dispatch is delayed', offset => {

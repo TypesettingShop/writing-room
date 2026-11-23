@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node", "vite/client"],
+    "experimentalDecorators": false
+  },
+  "include": ["server/**/*.ts", "src/platform/manuscript/common/**/*.ts"]
+}

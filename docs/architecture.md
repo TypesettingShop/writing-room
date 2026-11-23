@@ -96,7 +96,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 #### Markdown editor
 
-- `.md`와 `.markdown`의 기본 에디터는 ProseMirror 기반 코어 페인(WYSIWYG)이다. VS Code의 기본 Markdown 편집기는 텍스트 에디터이며, 기준 커밋의 내장 확장은 **Markdown Editor**(`vscode.markdown.editor`)와 **Markdown Preview**(`vscode.markdown.preview.editor`)를 텍스트 에디터 자리의 선택형(`option`) 커스텀 에디터로 등록한다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 두 모드가 저장·dirty·초안을 공유하고, 확장이 제공하는 **Markdown Preview**도 **Reopen Editor With...**에서 고를 수 있다 (wr-ndsy, wr-h2sa). [마크다운 편집 모드와 저장 형식](markdown-editor.md#편집-모드와-실행-취소)
+- `.md`와 `.markdown`의 기본 에디터는 ProseMirror 기반 코어 페인(WYSIWYG)이며, 화면 이름은 **Manuscript Editor**(원고 편집기)다. VS Code의 기본 Markdown 편집기는 텍스트 에디터이며, 기준 커밋의 내장 확장은 **Markdown Editor**(`vscode.markdown.editor`)와 **Markdown Preview**(`vscode.markdown.preview.editor`)를 텍스트 에디터 자리의 선택형(`option`) 커스텀 에디터로 등록한다 — 원문 모드는 같은 `TextFileEditorModel`을 Monaco로 보여 주므로 두 모드가 저장·dirty·초안을 공유하고, 확장이 제공하는 **Markdown Preview**도 **Reopen Editor With...** 목록에서 고를 수 있다 (wr-ndsy, wr-h2sa, wr-cbej). [마크다운 편집 모드와 저장 형식](markdown-editor.md#편집-모드와-실행-취소)
 
 #### Monaco editor
 
@@ -141,9 +141,10 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 #### Editor docking
 
 - 드래그 페이로드와 세션은 `browser/dnd.ts`의 `EditorDragAndDropObserver`가 맡는다. 시작할 때 `LocalSelectionTransfer`에 `DraggedEditorIdentifier`나 `DraggedEditorGroupIdentifier`를 넣고, 드롭·소스의 `dragend`·Escape·`pagehide` 중 먼저 오는 것에서 페이로드와 오버레이, 삽입 표시를 함께 지운다. 플랫폼과 관계없이 창 `blur`를 받아도 세션을 유지한다. Wayland에서는 드래그 중에도 창 포커스가 바뀔 수 있기 때문이다. 마우스 이동으로도 세션을 끝내지 않는다. Firefox에서는 네이티브 `dragstart` 직후에도 페이지에 `mousemove`가 올 수 있기 때문이다 (wr-0itb). VS Code는 탭 컨트롤이 `LocalSelectionTransfer`를 직접 쓰고 `dragend`에서 지운다 — 옮겨진 탭은 드롭 중에 문서에서 빠져 자기 `dragend`를 받지 못하므로, 뷰 컨테이너 드래그(wr-cla6.3d4)와 같은 규율로 어떤 출구에서도 낡은 페이로드가 남지 않게 한다 (wr-cla6.bxt)
+- 드래그 도중 소스 DOM이 사라지면 드롭 처리기가 페이로드를 읽은 뒤 세션을 정리한다. 브라우저가 드롭이나 소스의 종료를 전달하지 않으면, 주 포인터 버튼이 해제된 신뢰 입력이 창에 돌아오거나 다음 네이티브 드래그가 시작될 때 정리한다 (wr-1pn9.2su).
 - 드래그에는 텍스트 값(에디터 이름)과 전용 MIME 표시(`application/x-writing-room-editor`)만 싣고, 대상은 이 표시와 진행 중인 세션이 둘 다 있을 때만 페이로드를 읽는다. VS Code는 리소스 전송 데이터와 드래그 이미지도 싣고 표시 형식 없이 전송 싱글턴의 프로토타입만 본다 — 에디터 영역은 파일 드래그를 받지 않고(파일은 Explorer가 받는다), 표시가 있어야 뷰 컨테이너 드래그와 에디터 드래그가 서로의 대상에서 착각되지 않는다 (wr-cla6.bxt)
-- 모든 드래그는 이동이며 `effectAllowed`는 `move`다. VS Code는 `copyMove`이고 Ctrl(macOS는 Alt)로 복사한다. 다중 선택 탭 드래그, 탭 위에 1500 ms 머물면 열기, 드래그 중 탭 줄 자동 스크롤, Alt/Shift로 분할·병합 뒤집기, 새 창으로 끌어내기도 없다 — 릴리스 범위 밖이다 (wr-cla6.bxt)
-- 에디터 영역은 에디터와 그룹 드래그에만 드롭을 내준다. 파일, 텍스트, 뷰 컨테이너 드래그는 파트 어디서나 `dropEffect = 'none'`으로 거절해 브라우저가 파일로 이동하지도 않는다. VS Code는 외부 파일을 `ResourcesDropHandler`로 열고 Monaco가 텍스트 드롭을 받는다 — 에디터 영역에 놓은 파일은 열지 않는다(올리기는 Explorer의 몫이다). 페이지 밖에서 온 것을 놓아도 아무 일도 일어나지 않아야 한다 (wr-cla6.bxt)
+- 에디터와 그룹 드래그는 이동이며 `effectAllowed`는 `move`다. VS Code는 `copyMove`이고 Ctrl(macOS는 Alt)로 복사한다. 다중 선택 탭 드래그, 탭 위에 1500 ms 머물면 열기, 드래그 중 탭 줄 자동 스크롤, Alt/Shift로 분할·병합 뒤집기, 새 창으로 끌어내기도 없다 — 릴리스 범위 밖이다 (wr-cla6.bxt)
+- 에디터 영역은 에디터, 그룹, 현재 작품의 코어 Navigator 드래그를 받는다. 열 문서가 있는 원고만 그룹 본문 가운데에 놓아 열거나 가장자리에 놓아 분할해서 연다. 확장 TreeView 드래그는 거절한다 (wr-1pn9.qae). 파일, 텍스트, 뷰 컨테이너 드래그는 파트 어디서나 `dropEffect = 'none'`으로 거절해 브라우저가 파일로 이동하지도 않는다. VS Code는 외부 파일을 `ResourcesDropHandler`로 열고 Monaco가 텍스트 드롭을 받는다 — 에디터 영역에 놓은 파일은 열지 않는다(올리기는 Explorer의 몫이다). 페이지 밖에서 온 것을 놓아도 아무 일도 일어나지 않아야 한다 (wr-cla6.bxt)
 - `EditorDropTarget`은 파트 콘텐츠의 캡처 단계에서 그룹 본문으로 가는 드래그 이벤트를 모두 멈춰(`stopPropagation`) Monaco가 어떤 드래그도 보지 못하게 하고, 드롭을 내줄 때는 첫 `dragenter`에서 바로 오버레이를 만든다. VS Code는 버블 단계의 `onDragEnter`에서 만들고 `isContentDropTargetEvent`로 에디터에 양보할 위치를 가린다 — 드롭을 내주지 않는 경우(그룹의 유일한 탭, 자기 자신 위의 그룹)에도 Monaco가 드롭 커서를 그리거나 숨은 입력 요소가 텍스트를 받지 않게 한다 (wr-cla6.bxt)
 - `getSplitDirection`은 모듈의 순수 함수로 export하고 `preferSplitVertically`는 언제나 `true`다. VS Code에서는 `DropOverlay`의 메서드이며 `workbench.editor.openSideBySideDirection`에서 읽고 `splitsOnly` 인자도 받는다 — 설정이 없고, 표를 jsdom에서 경계값으로 검증한다 (wr-cla6.bxt)
 - 오버레이는 비어 있는 그룹에서도 탭 줄 아래 본문만 덮는다. VS Code는 빈 그룹이나 탭을 숨긴 그룹에서 그룹 전체를 덮는다 — 여기서는 탭 줄이 늘 보이고 빈 그룹의 탭 줄도 드롭 대상(끝에 삽입)이다 (wr-cla6.bxt)
@@ -168,6 +169,12 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `Memento`의 상태 객체는 인스턴스와 스코프별로 유지된다. VS Code는 같은 ID와 스코프의 객체를 정적 맵에서 공유한다 — 여기서는 상태 객체의 수명을 컴포넌트 인스턴스에 맞춘다. 같은 저장 키를 가진 여러 인스턴스가 각각 수정하면 마지막으로 저장한 값이 남는다 (wr-cla6.68r). [VS Code의 `Memento`](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/common/memento.ts#L11-L60)
 - `IStorageService`는 메모리 모드 여부(`usesMemory`: 백엔드를 열지 못했거나, 쓰기가 실패했거나, 다른 탭의 스키마 변경을 본 뒤에 참이 되고, 한 번 참이면 이 탭의 저장소가 닫힐 때까지 참으로 남는다)와 키 하나의 영속 값 읽기(`getPersisted`: 이미 열린 백엔드에서 스키마 표식과 그 키만 읽고 아무것도 쓰지 않으며, 메모리 모드에서는 이 탭의 값을 답한다)를 드러낸다. `storeImmediately`는 그대로 메모리 모드에서도 백엔드를 다시 열어 쓴다 (wr-uz4j)
 - `keys(scope)`는 범위 접두 없는 이 탭 캐시 키의 사본을 돌려준다. 탭 사이에서 일치해야 하는 판단에는 이 사본이 아니라 `storeImmediately`가 변환 함수에 주는 영속 스냅숏을 쓴다 (wr-s9ew.wx6)
+
+#### 원고 저장소
+
+- `ManuscriptStore`는 작품, 원고 트리, 문서 내용을 다룬다. Node API는 인증된 사용자 범위에서 작품을 조회하고 Postgres에 영속한다. 작품별 revision으로 트리 변경을 비교하고, 문서별 etag로 본문 쓰기를 비교한다. 노드의 메타데이터 JSON은 64 KiB까지 허용하며, 한 작품의 비어 있지 않은 메타데이터 합계는 UTF-8 기준 16 MiB까지 허용한다. 로컬 서버와 DB 실행법은 [API 서버 실행](getting-started.md#api-서버-실행)에 있다.
+- 브라우저는 같은 오리진의 `/api`로 요청한다. 서버 오류는 작품과 편집기 저장 경로에 전달한다. `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 명시적으로 선택하면 창 안에 임시로 저장하고 상태 표시줄에 새로고침 시 사라진다는 경고를 표시한다.
+- 원고 편집기는 `manuscript://<workId>/<nodeId>.md`를 텍스트 파일로 연다. 파일 제공자는 탭을 복원하기 전에 등록되고 창이 연 작품의 URI만 받는다. 작업 영역 ID는 작품별 탭과 초안 복원 범위를 정한다. 편집기 저장과 dirty 상태는 기존 텍스트 파일 경로를 사용한다. 다른 창의 저장은 다음 쓰기에서 etag 충돌로 확인한다. 작품 구조 변경은 작품 트리 API가 담당한다.
 
 #### Settings
 
@@ -213,4 +220,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej, wr-th5n, wr-1pn9

@@ -111,14 +111,19 @@ Worker 타입 검사는 `src/workbench/api/worker/**`와 `src/vscode-dts/*.d.ts`
 ## 7. 상태와 저장
 
 - 무엇: 브라우저에는 저장소가 셋이다. 상태는 `IStorageService`, 파일은 IndexedDB `writing-room-files`의 `vscode-vfs`, 사용자 데이터는 같은 데이터베이스의 `vscode-userdata`다(아래). 상태는 `IStorageService`(`src/platform/storage/common/storage.ts`) 하나를 거친다. 스코프는 `APPLICATION`, `PROFILE`, `WORKSPACE`, 대상은 `USER`, `MACHINE`이다. 브라우저 구현 `BrowserStorageService`(`src/workbench/services/storage/browser/storageService.ts`)는 접두사 `writing-room:storage:` 아래에 키를 쓰고, 키 안에 스코프 번호를 붙인다. 유휴와 `pagehide` 때 `onWillSaveState`가 발생하며, 구성요소는 이 이벤트에 맞춰 저장한다. 객체 상태는 `Memento`(`src/workbench/common/memento.ts`)가 `memento/<id>` 키로 읽고 쓴다.
+- 작품 창의 정체성은 시작 URL의 `?work=<uuid>`로 정한다. 소문자 UUID 하나면 작업 영역 ID는 `work-<uuid>`이고 `WORKSPACE` 물리 키는 `writing-room:storage:work:<uuid>:1:<key>`다. 열린 탭, 파트 표시 여부, 활성 뷰 컨테이너와 사이드바·패널 크기가 이 범위에 저장된다. 초안과 확장 저장 폴더는 작업 영역 ID 아래에 둔다.
+- 작품 없는 창의 작업 영역 ID는 `writing-room`이며 기존 `writing-room:storage:1:<key>`와 프로필의 파트 크기를 사용한다. Explorer의 연습 폴더, `APPLICATION`과 `PROFILE` 상태는 모든 작품 창에서 공유한다. 뷰와 컨테이너 위치도 프로필 설정이다.
+- 저장한 에디터 상태가 없는 창은 Welcome으로 시작한다. `Close Work`가 넘긴 `#works`를 받으면 저장 상태가 있는 창에서도 Welcome을 열고 Works 절에 초점을 둔 뒤 해시를 지운다.
+- 잘못된 작품 링크는 작품 없는 창을 열고 해당 쿼리 매개변수를 지운다. 나머지 URL의 철자를 유지한다. [쿼리에서 관리하는 매개변수만 편집한다](lessons/preserve-unowned-url-query-pairs.md).
 - 스키마 버전: 접두 키 `writing-room:storage:version`에 `STORAGE_SCHEMA_VERSION`(현재 2)을 적는다. 더 새로운 버전이 적혀 있으면 오류, 옛 버전이면 `registerStorageMigration(fromVersion, (draft) => …)`로 등록한 변환을 한 단계씩 적용한다. 등록된 변환이 없는 단계는 오류다. 지금 등록된 변환은 설치 목록의 1에서 2 하나다(`webExtensionsScannerService.ts`). 변환한 브라우저를 이전 버전으로 열면 그 세션은 메모리 모드가 된다([extension-installation.md](extension-installation.md#설치-목록스토리지-스키마-2)).
 - 파일과 사용자 데이터: `src/platform/files/browser/indexedDBFileSystemProvider.ts`가 IndexedDB `writing-room-files`의 객체 저장소 `vscode-vfs`(워크스페이스 폴더 하나 `vscode-vfs://writing-room/workspace`)와 `vscode-userdata`(확장 패키지, 확장별 저장 폴더, 로그, 초안 백업)를 `IFileService`에 등록한다. 사용자 설정 원문 `vscode-userdata:/User/settings.json`은 예외로 `IStorageService`에 있다. 두 탭의 동시 쓰기는 etag와 트랜잭션이, 변경 알림은 같은 오리진의 탭 사이 채널이 맡는다. 열 수 없으면 그 페이지는 메모리 저장소로 물러선다([files-and-explorer.md](files-and-explorer.md#저장소)).
 - 메모리 모드: 스토리지 백엔드를 열 수 없거나 쓰기가 실패하면 `IStorageService.usesMemory`가 참이다. 탭 사이에서 일치해야 하는 판단(설치 목록 같은 것)은 탭 캐시가 아니라 `getPersisted`와 `storeImmediately`의 영속 스냅숏으로 한다.
+- 확장 상태의 영속 쓰기는 확장 상태 잠금 안에서 현재 스냅숏과 다른 작업 영역의 UTF-8 바이트 합계를 읽는다. 브라우저 저장 서비스가 다른 작품과 레거시 영역의 바이트 합계만 돌려주므로 기존 WORKSPACE 조회와 저장 이벤트는 현재 작업 영역에 한정된다. 확장 상태 한도는 [확장 API 런타임](extension-api-runtime.md#상태와-경로)에 있다.
 - 새 상태를 저장할 때 지킬 것:
   1. `localStorage`, `indexedDB` 등을 직접 쓰지 않는다(1절의 레이어링 테스트가 막는다). 파일은 `IFileService`로 읽고 쓴다.
   2. 스코프를 고른다. 사용자가 여러 워크스페이스에서 공유할 것은 `PROFILE`, 이 워크스페이스의 레이아웃과 열린 에디터는 `WORKSPACE`다.
   3. 읽을 때 형태를 검증한다. 저장된 값은 이전 버전이나 다른 탭이 쓴 것일 수 있다(`getObject`는 JSON 파싱에 실패하거나 객체가 아니면 기본값을 돌려준다).
-  4. 저장된 형태를 호환되지 않게 바꾸면 `STORAGE_SCHEMA_VERSION`을 올리고 `registerStorageMigration`을 같은 변경에 넣는다.
+  4. 저장된 형태를 호환되지 않게 바꾸면 `STORAGE_SCHEMA_VERSION`을 올리고 `registerStorageMigration`을 같은 변경에 넣는다. 현재 이행 콜백에는 기존 접두의 키가 들어온다. `WORKSPACE` 상태 형식이 바뀌면 공용 버전 표식을 올리기 전에 작품별 접두의 키도 함께 이행한다.
   5. 사용자 선택과 현재 가용성을 한 값에 섞지 않는다([lessons/separate-saved-preference-from-availability.md](lessons/separate-saved-preference-from-availability.md)).
   6. 원격에서 읽은 자원은 읽는 도중에 한도를 적용한다([lessons/bound-remote-resource-streams.md](lessons/bound-remote-resource-streams.md)).
 - 저장 개념은 [vscode-state-settings.md](vscode-state-settings.md)를 본다.
@@ -152,7 +157,7 @@ v0.2.0을 닫은 뒤에도 backlog에 남은 것의 주제와 대표 이슈다. 
 
 - 서비스와 등록 구조: `InstantiationService`가 만든 싱글턴을 워크벤치 소비자보다 늦게 해제하는 수명 관리가 아직 없다(wr-h1iy). `registerAction2`가 중복 id를 거부해서 개발 중 HMR 재등록과 맞지 않는다(wr-byx6).
 - 스토리지: 버전 표식 없이 접두 키가 남은 오리진의 처리(wr-a5aw), 쓰기 오류 뒤 메모리 모드 전환 범위(wr-vthy), 뒤로/앞으로 캐시 복귀 때 다른 탭의 스토리지 변경 반영 확인(wr-jg40).
-- 에디터: Welcome 시작 판단이 워크벤치 기여가 아니라 워크벤치 본체에 있다(wr-pz63). 여러 그룹에 열린 같은 입력을 그룹마다 직렬화한다(wr-67xb).
+- 에디터: 여러 그룹에 열린 같은 입력을 그룹마다 직렬화한다(wr-67xb).
 - 뷰 컨테이너: 여러 브라우저 탭에서 위치와 순서를 저장할 때 다른 탭의 변경을 보존하는 일(wr-44tg), 패널 복합 파트 서비스의 구독 수명 관리(wr-4449).
 - 파일과 Explorer: Explorer 트리와 확장 트리 뷰가 통합되지 않아 키보드 처리, 행 그리기, 컨텍스트 메뉴가 겹친다([files-and-explorer.md](files-and-explorer.md#기술-부채)). Explorer, Extensions, Problems 뷰 본문이 기여가 채우는 인스턴스화 서비스를 각자 기다린다(wr-wttg).
 - 확장: 활성화 교착을 피하면서 다른 확장의 커맨드 등록을 기다리는 방법(wr-5jqz), 제거 시 `deactivate`가 API를 쓸 수 있게 하는 해제 순서(wr-7987), 확장 호스트 재시작의 비동기 비활성화와 종료 단계 정리(wr-gl87), Worker 오류 귀속에서 변조 가능한 스택과 재사용한 진입 URL을 구별하는 일(wr-fy2l).
@@ -173,4 +178,4 @@ GitHub 브랜치 보호에는 PR의 출발 브랜치를 제한하는 설정이 �
 
 필수 상태 체크는 잡 이름으로 연결된다. 다른 워크플로가 같은 이름으로 결과를 보고해도 필수 체크 조건이 충족될 수 있다. 그래서 `main` 대상 PR에서 `.github/workflows/`를 바꿀 때는 이 변경을 따로 확인한다. 같은 커밋을 가리키는 PR에 실패한 체크가 표시되면, 허용된 출발 브랜치에서 연 PR의 검사를 다시 실행해 결과를 확인한다.
 
-Decided in: wr-510x, wr-efqx, wr-jbmd, wr-zqjd
+Decided in: wr-510x, wr-efqx, wr-jbmd, wr-zqjd, wr-88fi

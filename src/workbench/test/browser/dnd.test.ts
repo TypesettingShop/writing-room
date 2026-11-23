@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { LocalSelectionTransfer } from '../../../platform/dnd/browser/dnd.js';
-import { CompositeDragAndDropObserver, DraggedCompositeIdentifier } from '../../browser/dnd.js';
+import {
+  CompositeDragAndDropObserver, DraggedCompositeIdentifier, DraggedEditorGroupIdentifier, DraggedTreeItems,
+  EditorDragAndDropObserver, TreeDragAndDropObserver,
+} from '../../browser/dnd.js';
 
 function transfer() {
   return {
@@ -12,8 +15,11 @@ function transfer() {
   };
 }
 
-function dispatch(element: HTMLElement, type: string, dataTransfer: ReturnType<typeof transfer>) {
-  const event = Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer });
+function dispatch(element: HTMLElement, type: string, dataTransfer: ReturnType<typeof transfer>): DragEvent {
+  // jsdom does not supply DragEvent or DataTransfer. The observer only uses the fake fields above.
+  const event = Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true }), {
+    dataTransfer: dataTransfer as unknown as DataTransfer,
+  });
   element.dispatchEvent(event);
   return event;
 }
@@ -53,6 +59,22 @@ describe('CompositeDragAndDropObserver', () => {
     }
     expect(onDragOver).not.toHaveBeenCalled();
     expect(onDrop).not.toHaveBeenCalled();
+  });
+
+  it('accepts the first valid dragenter, including one into a descendant of a refused target', () => {
+    const onDrop = vi.fn();
+    const onDragOver = vi.fn((event: DragEvent) => event.target === child);
+    disposables.add(observer.registerTarget(target, { onDragOver, onDrop, onDragLeave() {} }));
+
+    const data = transfer();
+    dispatch(source, 'dragstart', data);
+    expect(dispatch(target, 'dragenter', data).defaultPrevented).toBe(false);
+    expect(data.dropEffect).toBe('none');
+    expect(dispatch(child, 'dragenter', data).defaultPrevented).toBe(true);
+    expect(data.dropEffect).toBe('move');
+    expect(dispatch(child, 'drop', data).defaultPrevented).toBe(true);
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith(expect.any(Event), new DraggedCompositeIdentifier('explorer'));
+    expect(selection.hasData(DraggedCompositeIdentifier.prototype)).toBe(false);
   });
 
   it('preserves a view container drag through window blur and accepts the drop', () => {
@@ -105,5 +127,76 @@ describe('CompositeDragAndDropObserver', () => {
     dispatch(target, 'dragleave', next);
     expect(onDragLeave).toHaveBeenCalledOnce();
     dispatch(source, 'dragend', next);
+  });
+});
+
+describe('drag sessions with a detached source', () => {
+  const editor = EditorDragAndDropObserver.INSTANCE;
+  const tree = TreeDragAndDropObserver.INSTANCE;
+  let source: HTMLElement;
+  let target: HTMLElement;
+
+  beforeEach(() => {
+    source = document.createElement('div');
+    target = document.createElement('div');
+    document.body.append(source, target);
+  });
+
+  afterEach(() => {
+    editor.endDrag();
+    tree.endDrag(false);
+    source.remove();
+    target.remove();
+  });
+
+  it('keeps the tab or group payload until the destination has read the drop', async () => {
+    const data = transfer();
+    const start = dispatch(source, 'dragstart', data);
+    const item = new DraggedEditorGroupIdentifier(7);
+    editor.startDrag(start, source, item, 'Group');
+    source.remove();
+    window.dispatchEvent(new Event('blur'));
+    dispatch(target, 'mousemove', data);
+    expect(editor.getDraggedItem(start, target)).toBe(item);
+
+    const read = vi.fn((event: DragEvent) => editor.getDraggedItem(event, target));
+    target.addEventListener('drop', read);
+    dispatch(target, 'drop', data);
+    expect(read).toHaveReturnedWith(item);
+    await vi.waitFor(() => expect(editor.getDraggedItem(start, target)).toBeUndefined());
+  });
+
+  it('does not let an older drop finish a new drag started in the same task', async () => {
+    const first = transfer();
+    editor.startDrag(dispatch(source, 'dragstart', first), source, new DraggedEditorGroupIdentifier(1), 'First');
+    source.remove();
+    dispatch(target, 'drop', first);
+
+    const next = transfer();
+    const item = new DraggedEditorGroupIdentifier(2);
+    const start = dispatch(target, 'dragstart', next);
+    editor.startDrag(start, target, item, 'Next');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(editor.getDraggedItem(start, target)).toBe(item);
+  });
+
+  it('releases extension-host tree data once if a drop has no explicit session cleanup', async () => {
+    const data = transfer();
+    const start = dispatch(source, 'dragstart', data);
+    const item = new DraggedTreeItems('fixture.tree', 'fixture', ['row'], 'token', [], Promise.resolve([]));
+    const finished = vi.fn();
+    const subscription = tree.onDidEndDrag(finished);
+    try {
+      tree.startDrag(start, source, item);
+      dispatch(target, 'dragover', data);
+      source.remove();
+      expect(tree.getDraggedItem(start, target)).toBe(item);
+      dispatch(target, 'drop', data);
+      expect(finished).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(finished).toHaveBeenCalledExactlyOnceWith({ item, dropped: false }));
+      expect(tree.getDraggedItem(start, target)).toBeUndefined();
+    } finally {
+      subscription.dispose();
+    }
   });
 });

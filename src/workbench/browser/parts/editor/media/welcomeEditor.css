@@ -37,3 +37,72 @@
 .welcome-page button:hover {
   text-decoration: underline;
 }
+
+.welcome-account-form {
+  display: grid;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.welcome-account-form[hidden] {
+  display: none;
+}
+
+.welcome-account-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.welcome-account-form input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  font: inherit;
+}
+
+.welcome-account-form input:focus-visible,
+.welcome-account-form button:focus-visible,
+.welcome-account-form a:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.welcome-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.welcome-account-actions button[type='submit'] {
+  padding: 4px 12px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.welcome-account-actions button[type='submit']:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+  text-decoration: none;
+}
+
+.welcome-account-actions button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.welcome-account-form a {
+  justify-self: start;
+  color: var(--vscode-textLink-foreground);
+}
+
+.welcome-account-error {
+  margin: 0 0 8px;
+  color: var(--vscode-errorForeground);
+}
+
+.welcome-account-error:empty {
+  margin: 0;
+}

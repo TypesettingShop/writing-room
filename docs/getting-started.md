@@ -13,6 +13,64 @@ npm run dev
 
 배포할 파일을 로컬에서 확인하려면 `npm run build`로 `dist/`를 새로 만들고 `npm run preview`로 연다. 개발 서버와 프리뷰의 주소가 다르면 브라우저는 각각의 오리진에 상태를 저장한다. 확장의 Webview는 앱과 다른 오리진에서 열린다. `127.0.0.1`로 연 개발 서버와 프리뷰는 같은 포트의 `localhost`를 Webview 오리진으로 쓰므로 설정이 필요 없다. coder 같은 포워딩 주소로 열 때는 [포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)를 따른다.
 
+## API 서버 실행
+
+원고 기능을 개발할 때는 Vite와 별도 터미널에서 API 서버를 띄운다. 아래 명령은 로컬 개발 인증과 메모리 저장을 켠다. 이 모드의 원고는 API 서버가 종료되면 사라진다.
+
+```sh
+WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
+```
+
+서버 코드 수정을 반영하며 작업할 때는 같은 환경 변수로 `npm run dev:server`를 실행한다. 기본 API 주소는 `127.0.0.1:8787`이고 Vite 개발 서버와 프리뷰가 같은 오리진의 `/api` 요청을 전달한다. API 포트를 바꾸면 두 프로세스에 같은 `WRITING_ROOM_API_PORT`를 지정한다. 앱을 기본 개발 주소인 `http://127.0.0.1:5173` 또는 `http://localhost:5173` 외의 주소에서 열면 API 서버에 실제 앱 오리진을 `WRITING_ROOM_PUBLIC_ORIGIN`으로 지정한다. 개발 인증은 루프백 주소에서만 쓸 수 있다.
+
+기본 Vite 프리뷰(`http://127.0.0.1:4173`)에서 원고를 저장하려면 API 서버에 해당 오리진을 허용한다.
+
+```sh
+WRITING_ROOM_PUBLIC_ORIGIN=http://127.0.0.1:4173 WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=memory npm run server
+```
+
+### 이메일과 비밀번호로 로그인하기
+
+계정으로 원고를 저장할 때는 API 서버에서 `WRITING_ROOM_AUTH`를 설정하지 않고 실행한다. 이메일·비밀번호 가입과 로그인은 같은 오리진의 `/api/auth`에서 처리한다. 테스트나 개발 중에 계정과 원고를 메모리에 둘 때는 `WRITING_ROOM_STORE=memory npm run server`를 실행한다. 재시작한 뒤에도 계정, 세션, 원고를 유지하려면 아래 Postgres 명령에서 `WRITING_ROOM_AUTH=dev`를 빼고 실행한다.
+
+Welcome의 **Works**에서 **Email**과 **Password**를 입력하고 **Sign In**을 누른다. 처음이라면 **Create Account**로 전환한 뒤 같은 이름의 제출 버튼을 누른다. 로그인하면 Works에 계정의 작품이 표시된다. **Work → Sign In...**은 Works를 열고 **Work → Sign Out**은 세션을 끝내고 Works로 돌아간다.
+
+가입, 로그인, 로그아웃 응답이 10초 동안 오지 않으면 화면이 시간 초과를 알린다. 연결이 돌아오면 다시 시도할 수 있다. 작품을 저장하다 세션이 만료되면 Welcome이 열리고 저장 실패를 알린다. 고친 원고 탭과 작품별 로컬 초안은 남으므로 다시 로그인한 뒤 같은 탭에서 저장할 수 있다.
+
+세션은 로그인 때마다 새로 발급되며 30일 뒤에 만료된다. 루프백에 바인딩한 개발 서버에서 루프백 HTTP 오리진으로 열 때는 HTTP에서도 쿠키를 사용할 수 있다. 그 외에는 HTTPS로 연다. 가입 응답은 이미 가입된 이메일을 알려 준다. 이메일 인증과 비밀번호 재설정은 지원 범위에서 제외했다.
+
+API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 받고, 그 프록시가 `X-Forwarded-For` 맨 뒤에 실제 접속 주소를 추가할 때는 `WRITING_ROOM_TRUST_PROXY=true`로 설정한다. 기본값은 `false`이며, 시도 횟수 제한에 소켓의 접속 주소를 쓴다. 로컬 Vite에서 앱을 열 때는 기본값으로 충분하다.
+
+가입과 로그인 시도는 정규화한 이메일별로 15분에 10회, 접속 주소별로 15분에 60회까지 받는다. 가입이나 로그인이 성공하면 해당 이메일의 시도 횟수가 초기화된다. IPv6 주소는 /64 대역으로 센다. 시도 한도가 차면 API는 429와 `Retry-After`를 보내고, 비밀번호 처리 대기열이 차면 재시도를 요청하는 503을 보낸다.
+
+### 개발 환경에서 Google 로그인 설정하기
+
+1. Google Cloud Console에서 프로젝트를 고른다. Google Auth Platform의 **Branding**에서 동의 화면을 설정하고 `openid`, `email`, `profile` 범위를 사용한다. 테스트 상태인 외부 앱은 **Audience**에서 로그인에 쓸 계정을 테스트 사용자로 추가한다. [Google OpenID Connect 설정](https://developers.google.com/identity/openid-connect/openid-connect#appsetup)
+2. **Clients**에서 유형이 **Web application**인 OAuth 클라이언트를 만든다. **Authorized redirect URIs**에 `http://localhost:5173/api/auth/oauth/google/callback`을 추가한다.
+3. 받은 값을 API 서버 프로세스의 `WRITING_ROOM_GOOGLE_CLIENT_ID`, `WRITING_ROOM_GOOGLE_CLIENT_SECRET`에 설정한다. 비밀값은 Vite 클라이언트 설정이나 Git에 넣지 않는다. API 서버의 `WRITING_ROOM_PUBLIC_ORIGIN`은 하나의 오리진인 `http://localhost:5173`으로 설정한다. 콜백은 항상 이 오리진의 `/api/auth/oauth/google/callback`으로 돌아온다.
+4. 개발 주소를 고정하려면 `npm run dev -- --host localhost --port 5173 --strictPort`로 Vite를 실행하고 `http://localhost:5173`을 연다. 이메일·비밀번호 계정과 별도로 Google 계정이 만들어진다. 같은 이메일이라도 각 로그인 방식의 작품 목록은 서로 독립적이다.
+
+설정이 끝나면 Welcome의 **Works**에서 **Continue with Google**을 누른다. Google 화면에서 취소하면 시작한 작품과 주소의 옵션을 유지한 채 Works로 돌아와 취소 안내를 한 번 표시한다. 클라이언트 ID와 비밀값이 둘 다 비어 있으면 이메일 폼을 이용할 수 있다. Google 로그인 시작은 같은 접속 주소에서 10분에 20회까지 받는다. 서버의 대기 상태가 가득 차면 새 시작을 잠시 거절하고 이미 진행 중인 로그인은 계속 처리한다. 자동 테스트는 로컬 테스트 서버를 Google 대신 사용한다. 콘솔에 등록한 클라이언트로 실제 동의 화면과 콜백을 확인하려면 위 주소에서 Google 로그인을 한 번 진행한다.
+
+### Postgres에 원고 저장하기
+
+Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다.
+
+```sh
+npm run db:up
+WRITING_ROOM_AUTH=dev WRITING_ROOM_STORE=postgres WRITING_ROOM_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5432/writing_room' npm run server
+```
+
+예제 계정은 루프백에서만 쓰는 개발용이다. `.env.example`의 값을 셸 환경으로 내보내도 된다. 5432 포트를 이미 사용 중이면 `WRITING_ROOM_POSTGRES_PORT=25432 npm run db:up`처럼 Compose 포트를 바꾸고 DB URL에도 같은 포트를 넣는다.
+
+Postgres 인수 테스트는 테스트 DB URL을 지정해야 실행한다.
+
+```sh
+WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5432/writing_room_test' npm test
+```
+
+`npm run db:down`으로 컨테이너를 내리면 원고는 볼륨에 남는다. `npm run db:reset`은 볼륨과 로컬 원고를 지우고 개발용 DB를 다시 만든다.
+
 ## 편집하고 배치하기
 
 - 위쪽 메뉴 바의 **File → New Text File**로 Monaco 편집기를 연다. 에디터 툴바의 **Split Editor Right**는 같은 문서를 두 그룹에서 보여 준다. 한쪽에서 편집한 내용은 다른 쪽에도 반영된다.
@@ -30,13 +88,21 @@ npm run dev
 
 **Go to Symbol in Workspace**는 확장이 제공한 워크스페이스 기호를 검색한다. 키는 **Ctrl+T**(macOS에서는 **Cmd+T**)이다. 검색 화면은 입력이 `#`로 시작한 채 열리고, `#` 뒤에 기호 이름을 입력한다. 커맨드 팔레트에 `#`를 입력해서는 열리지 않는다. 브라우저 탭이 이 키를 가져가면 팔레트에서 **Go to Symbol in Workspace...**를 실행한다. 팔레트는 `>` 없이 커맨드만 보여 주는 화면으로 따로 열린다. 이 화면은 기호를 제공하는 확장이 활성화된 뒤에 결과를 낸다. 자세한 동작은 [언어 기능](extension-api-language-features.md#워크스페이스-기호-go-to-symbol-in-workspace)에 있다.
 
+## 작품 열기와 닫기
+
+- **Work → New Work...**에서 작품 제목을 입력한다. 열린 글의 저장 확인을 마치면 작품을 만들고 같은 브라우저 탭에서 연다. **Cancel**을 고르면 열린 글과 서버의 작품 목록이 그대로 남는다.
+- **Work → Open Work...**에서 작품을 고른다. Welcome의 **Works**에서도 최근에 수정한 작품 20개를 열 수 있다. **More...**는 전체 목록을 연다. 현재 작품에는 **(current)**가 붙는다.
+- **Work → Close Work**는 열린 글의 저장 여부를 확인한 뒤 Welcome의 **Works**에 초점을 둔다. 작품을 열기 전과 닫기 전의 확인에서 같은 글을 여러 편집기로 열고 있었다면 한 번만 묻는다.
+- 열린 작품은 탭 제목과 주소의 `?work=<uuid>`로 확인할 수 있다. 열린 문서와 레이아웃은 작품마다 따로 저장된다. Explorer의 연습 폴더와 사용자 설정은 같은 브라우저 프로필의 창이 공유한다.
+- Works에 서버 오류가 보이면 [API 서버 실행](#api-서버-실행)을 확인한다. 명시적인 브라우저 메모리 모드에서는 새로고침하면 임시 작품이 사라지므로 Works를 만들거나 열 때 서버 연결을 안내한다.
+
 ## 파일 다루기
 
 워크스페이스는 브라우저 저장소(IndexedDB)에 있는 폴더 하나(`vscode-vfs://writing-room/workspace`)다. 처음에는 비어 있다. **File → New File...**로 파일을 만들고 Explorer에서 폴더와 파일을 만들고 이름을 바꾸고 지운다. 파일을 올리고 내려받을 수도 있다. **Ctrl+S**로 저장하고 **File → Save As...**로 다른 이름으로 저장한다. 텍스트가 있는 제목 없는 탭과 고친 파일의 탭은 닫기 전에 **Save**, **Don't Save**, **Cancel**을 묻는다. 폴더 열기, 다중 루트, 로컬 디스크 연결은 없다. 같은 사이트 주소의 같은 브라우저 프로필에서만 파일이 보이며 브라우저가 사이트 데이터를 지우면 파일도 사라진다. 자세한 동작은 [파일 편집과 Explorer](files-and-explorer.md)에 있다.
 
 ## 마크다운 편집하기
 
-- Explorer에서 `.md`나 `.markdown` 파일을 열면 WYSIWYG 모드로 표시된다. 제목 툴바의 **Switch to Markdown Source** 또는 **Switch to WYSIWYG**, 팔레트의 **Markdown: Toggle Source Mode**, **Ctrl+Shift+M**(macOS는 **Cmd+Shift+M**)으로 같은 탭에서 모드를 바꾼다. 커서는 같은 블록 근처로 이동한다.
+- Explorer에서 `.md`나 `.markdown` 파일을 열면 WYSIWYG 모드로 표시된다. 이 편집기의 화면 이름은 **Manuscript Editor**(원고 편집기)이며 **View: Reopen Editor With...** 목록에 이 이름으로 보인다. 제목 툴바의 **Switch to Markdown Source** 또는 **Switch to WYSIWYG**, 팔레트의 **Markdown: Toggle Source Mode**, **Ctrl+Shift+M**(macOS는 **Cmd+Shift+M**)으로 같은 탭에서 모드를 바꾼다. 커서는 같은 블록 근처로 이동한다.
 - 새 탭을 원문 모드로 열려면 사용자 설정에 `"markdownEditor.defaultMode": "source"`를 추가한다. 기본값은 `wysiwyg`이고, `workbench.editorAssociations`에서 지정한 에디터가 새 탭에 우선한다. 열려 있는 탭은 새로고침 뒤에도 선택했던 모드와 저장하지 않은 초안을 복원한다.
 - 원문과 WYSIWYG는 파일 내용과 dirty 표시를 공유한다. WYSIWYG의 **Edit → Undo**와 **Edit → Redo**, **Ctrl+Z**, **Ctrl+Shift+Z**, **Ctrl+Y**(macOS에서는 **Cmd**)는 같은 이력에 적용된다. 500ms 안에 이어서 입력한 글자는 한 번에 되돌아가며, 서식 명령과 외부 편집은 각각 한 단계다.
 - 모드를 전환하면 전환 순간의 파일 내용이 새 이력의 시작점이 된다. 그 뒤에 한 첫 편집을 되돌리면 전환 순간의 내용으로 돌아온다. 원문 이력은 같은 파일의 Monaco 창이 공유한다.
@@ -69,7 +135,7 @@ npm run dev
   | --- | --- | --- | --- | --- | --- | --- | --- |
   | 12 pt | 24 pt | 18 pt | 14 pt | 12 pt | 10 pt | 9 pt | 16 pt |
 
-- 본문은 기본적으로 가운데에 배치되며 본문 바깥의 좌우 공간에는 빗금이 표시된다. 왼쪽 빈 공간을 클릭하면 해당 줄의 시작으로, 오른쪽을 클릭하면 해당 줄의 끝으로 커서가 이동한다. 본문 아래의 빈 공간을 클릭하면 커서가 문서 끝으로 이동한다. 툴바의 **Content Width (characters)** 칸에 20–400 사이의 글자 수를 입력하고 **Enter**를 누르거나 입력칸을 벗어나면 `markdownEditor.contentWidth`(기본값 `80`)에 저장되어 열려 있는 모든 Markdown 편집기에 적용된다. **Center Content**와 **Fill Editor Width**는 `markdownEditor.contentLayout`(`center` 또는 `fill`)을 변경하며, 전체 채우기에서는 폭 입력칸이 비활성화된다. 집중 모드는 이 두 설정 대신 `markdownEditor.focusMode.width`를 사용한다.
+- 본문은 기본적으로 가운데에 배치되며 본문 바깥의 좌우 공간에는 빗금이 표시된다. 왼쪽 빈 공간을 클릭하면 해당 줄의 시작으로, 오른쪽을 클릭하면 해당 줄의 끝으로 커서가 이동한다. 본문 아래의 빈 공간을 클릭하면 커서가 문서 끝으로 이동한다. 툴바의 **Content Width (characters)** 칸에 20–400 사이의 글자 수를 입력하고 **Enter**를 누르거나 입력칸을 벗어나면 `markdownEditor.contentWidth`(기본값 `80`)에 저장되어 열려 있는 모든 Manuscript Editor에 적용된다. **Center Content**와 **Fill Editor Width**는 `markdownEditor.contentLayout`(`center` 또는 `fill`)을 변경하며, 전체 채우기에서는 폭 입력칸이 비활성화된다. 집중 모드는 이 두 설정 대신 `markdownEditor.focusMode.width`를 사용한다.
 - 굵게는 **Ctrl+B**, 기울임은 **Ctrl+I**, 밑줄은 **Ctrl+U**, 취소선은
   **Ctrl+Shift+X**, 인라인 코드는 **Ctrl+E**, 링크 편집은 **Ctrl+K**다.
   macOS에서는 **Cmd**를 쓴다. 링크를 편집하면 입력창에 기존 URL이 채워진다.
@@ -139,7 +205,8 @@ npm run dev
 
 ### 분량과 집중 모드
 
-- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 언어에 관계없이 줄바꿈을 포함한 공백으로 나뉜 부분을 각각 한 단어로 세며, 글자 수는 Unicode 코드 포인트 단위로 센다.
+- 상태 표시줄은 전체 문서 또는 선택 범위의 단어 수와 공백 포함·제외 글자 수를 보여 준다. 두 모드에서 표시 텍스트를 기준으로 센다. 언어에 관계없이 줄바꿈을 포함한 공백으로 나뉜 부분을 각각 한 단어로 세며, 글자 수는 Unicode 확장 자소 단위로 센다. [글자 수 규칙](markdown-editor.md#글자-수)
+- WYSIWYG에서 `---`로 절을 나누고 **View → Appearance → Section Numbers**로 절 번호를 켤 수 있다. 각주가 있는 문서는 편집기 아래에 **Footnotes** 패널이 열린다. [절과 절 번호](markdown-editor.md#절-구분선과-절-번호) · [각주 패널](markdown-editor.md#각주-패널)
 - Explorer의 **Outline**은 제목 1–6을 계층으로 표시하고 현재 절을 강조한다. 제목을 선택하면 두 모드 모두 해당 위치로 이동한다.
 - WYSIWYG에서 **View → Appearance → Markdown Focus Mode** 또는 **Markdown: Toggle Focus Mode**를 실행하면 본문을 가운데 놓고 사이드바·패널·액티비티 바·상태 표시줄을 숨긴다. 커맨드를 다시 실행하거나 본문에서 **Esc**를 누르면 원래 레이아웃으로 돌아온다.
 - `markdownEditor.focusMode.width`의 기본값은 `72ch`다. `markdownEditor.focusMode.dimOthers`를 끄면 집중 모드에서도 모든 문단이 선명하다. `markdownEditor.typewriterScroll`을 켜면 WYSIWYG에서 타이핑하거나 키보드로 이동할 때 커서 줄을 세로 가운데에 둔다. 타자기 스크롤은 기본으로 꺼져 있다.
@@ -204,10 +271,10 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 ## 검증하기
 
 - `npm run typecheck`는 TypeScript를 확인하고, `npm test`는 Vitest 단위 테스트를 실행한다. 단위 테스트가 쓰는 jsdom에는 레이아웃이 없어 `getBoundingClientRect()`가 크기 0의 사각형을 돌려준다.
-- 처음 브라우저 테스트를 실행하기 전에 `npx playwright install chromium`으로 Chromium을 설치한다. `npm run test:e2e -- --workers=2`는 개발 서버에서 브라우저 스위트를 실행한다. `E2E_TARGET=preview npm run test:e2e -- --workers=2`는 새 프로덕션 빌드를 만든 뒤 같은 스위트를 실행한다. 앱과 원격 확장 픽스처 서버는 Playwright가 각각 시작한다. 프리뷰 대상은 타입 검사와 빌드를 먼저 하므로 앱 서버를 기다리는 제한이 300초다(`playwright.config.ts`). 부하가 큰 컴퓨터에서는 빌드가 1분을 넘겨 개발 서버용 60초 제한에 걸렸다.
+- 처음 브라우저 테스트를 실행하기 전에 `npx playwright install chromium`으로 Chromium을 설치한다. `npm run test:e2e -- --workers=2`는 개발 서버에서 브라우저 스위트를 실행한다. `E2E_TARGET=preview npm run test:e2e -- --workers=2`는 새 프로덕션 빌드를 만든 뒤 같은 스위트를 실행한다. Playwright가 앱, 메모리 API 서버, 원격 확장 픽스처 서버를 각각 시작한다. 프리뷰 대상은 타입 검사와 빌드를 먼저 하므로 앱 서버를 기다리는 제한이 300초다(`playwright.config.ts`). 부하가 큰 컴퓨터에서는 빌드가 1분을 넘겨 개발 서버용 60초 제한에 걸렸다.
 - 실제 확장(Open VSX의 Markdown 확장 셋과 바닥 후보 셋)으로 하는 테스트는 `node scripts/fetch-real-extensions.mjs`가 채우는 캐시 `test/fixtures/real-extensions/cache/`(git이 무시한다)를 쓴다. 스크립트는 `test/fixtures/real-extensions/pins.json`의 sha256과 Open VSX의 Ed25519 서명을 확인하고, 고정값과 다른 캐시 파일은 덮어쓰지 않고 실패한다(그 파일을 지우고 다시 돌린다). `--offline`은 네트워크 없이 캐시만 검사한다. 캐시가 없거나 맞지 않으면 브라우저 스위트는 사유를 출력하고 실제 확장 테스트만 건너뛴다. `E2E_REQUIRE_REAL_EXTENSIONS=1`이면 대신 실행이 실패한다.
 - `node scripts/probe-extension.mjs [<확장 id>...]`는 고정한 확장을 지금 확장 호스트에 올려, 로드·활성화·첫 문서 단계별로 읽은·부른·없는 API 멤버와 오류를 `test/fixtures/real-extensions/cache/probe-results/<id>.json`에 쓴다. 브라우저는 127.0.0.1 밖의 호스트를 풀지 못하게 띄운다.
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk, wr-88fi

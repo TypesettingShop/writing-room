@@ -1,12 +1,19 @@
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
 import type { Dimension } from '../../../../base/browser/dom.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import type { URI } from '../../../../base/common/uri.js';
+import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import type { ManuscriptWork } from '../../../../platform/manuscript/common/manuscript.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import type { IEditorFactoryRegistry, IEditorSerializer } from '../../../common/editor.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { IManuscriptService } from '../../../services/manuscript/common/manuscriptService.js';
+import { IWorkService } from '../../../services/work/common/work.js';
 import { EditorPane } from './editorPane.js';
+import { WelcomeAccount } from './welcomeAccount.js';
 import './media/welcomeEditor.css';
 
 /** The Welcome page. There is one: every Welcome input matches every other. */
@@ -30,16 +37,72 @@ export class WelcomeEditorInput extends EditorInput {
   }
 }
 
-/**
- * The pane of the Welcome page: a plain page, with no state of its own. VS Code's Getting Started
- * page lives in `contrib/welcomeGettingStarted`; this one is a small page beside the editor part.
- */
+/** Reuse the Welcome tab even when it is in another group. */
+export function openWelcome(groups: IEditorGroupsService, preserveFocus = false) {
+  for (const group of [groups.activeGroup, ...groups.groups]) {
+    const existing = group.editors.find(editor => editor instanceof WelcomeEditorInput);
+    if (existing) {
+      return group.openEditor(existing, { preserveFocus });
+    }
+  }
+  return groups.activeGroup.openEditor(new WelcomeEditorInput(), { preserveFocus });
+}
+
+export async function openWelcomeWorks(groups: IEditorGroupsService, googleCanceled = false): Promise<void> {
+  const pane = await openWelcome(groups);
+  if (pane instanceof WelcomeEditorPane) {
+    pane.focusWorks(googleCanceled);
+  }
+}
+
+export class WelcomePageContribution {
+  static readonly ID = 'workbench.contrib.welcomePage';
+
+  constructor(@IEditorGroupsService groups: IEditorGroupsService) {
+    if (window.location.hash === '#works') {
+      void this.openWorks(groups).catch(console.error);
+    } else if (!groups.hasStoredState) {
+      void openWelcome(groups, true).catch(console.error);
+    }
+  }
+
+  private async openWorks(groups: IEditorGroupsService): Promise<void> {
+    try {
+      const googleCanceled = new URLSearchParams(window.location.search).get('authError') === 'google';
+      await openWelcomeWorks(groups, googleCanceled);
+    } finally {
+      // Consume the deep link even when the Welcome did not open.
+      const url = new URL(window.location.href);
+      if (url.hash === '#works') {
+        url.hash = '';
+        const pairs = url.search.slice(1).split('&').filter(pair => new URLSearchParams(pair).get('authError') !== 'google');
+        url.search = pairs.join('&');
+        window.history.replaceState(window.history.state, '', url);
+      }
+    }
+  }
+}
+
+/** The Welcome page, including the works the current account can open. */
 export class WelcomeEditorPane extends EditorPane {
   static readonly ID = 'gettingStartedPage';
 
   private page!: HTMLElement;
+  private works!: HTMLElement;
+  private account!: WelcomeAccount;
+  private newWork!: HTMLButtonElement;
+  private worksStatus!: HTMLElement;
+  private worksList!: HTMLUListElement;
+  private readonly workButtons = this._register(new DisposableStore());
+  private renderedWorks: string | undefined;
+  private generation = 0;
+  private lastRefresh = 0;
 
-  constructor(@ICommandService private readonly commandService: ICommandService) {
+  constructor(
+    @ICommandService private readonly commandService: ICommandService,
+    @IManuscriptService private readonly manuscript: IManuscriptService,
+    @IWorkService private readonly work: IWorkService,
+  ) {
     super(WelcomeEditorPane.ID);
   }
 
@@ -53,6 +116,138 @@ export class WelcomeEditorPane extends EditorPane {
     this._register(addDisposableListener(newFile, 'click', () => {
       void this.commandService.executeCommand('workbench.action.files.newUntitledFile');
     }));
+
+    this.works = append(this.page, $('section', { 'aria-label': 'Works', tabindex: -1 }));
+    append(this.works, $('h2', null, 'Works'));
+    this.account = this._register(new WelcomeAccount(append(this.works, $('.welcome-works-account')), this.manuscript.auth));
+    this.newWork = append(this.works, $('button', { type: 'button' }, 'New Work...'));
+    this._register(addDisposableListener(this.newWork, 'click', () => {
+      void this.commandService.executeCommand('work.new');
+    }));
+    this.worksStatus = append(this.works, $('p', { role: 'status' }));
+    this.worksList = append(this.works, $('ul'));
+    this._register(this.manuscript.onDidChangeAuth(({ signedIn, reason }) => {
+      if (!this.input) {
+        return;
+      }
+      if (!signedIn) {
+        this.generation++;
+        this.showSignedOut();
+      } else if (this.account.visible || reason === 'account') {
+        this.hideAccount();
+        void this.refreshWorks();
+      }
+    }));
+    // A request that never settles must not stop later reads, so only the 30-second spacing limits them.
+    this._register(addDisposableListener(parent.ownerDocument.defaultView!, 'focus', () => {
+      if (this.input && Date.now() - this.lastRefresh >= 30_000) {
+        void this.refreshWorks();
+      }
+    }));
+  }
+
+  override async setInput(input: EditorInput, options: IEditorOptions | undefined): Promise<void> {
+    const wasVisible = this.input === input;
+    await super.setInput(input, options);
+    if (!wasVisible && this.input === input) {
+      if (this.manuscript.signedIn === false) {
+        this.showSignedOut();
+      }
+      void this.refreshWorks();
+    }
+  }
+
+  override clearInput(): void {
+    super.clearInput();
+    this.generation++;
+    if (this.account) {
+      this.account.hide();
+      this.newWork.hidden = false;
+    }
+  }
+
+  private async refreshWorks(): Promise<void> {
+    const generation = ++this.generation;
+    this.lastRefresh = Date.now();
+    // Keep the buttons until the answer arrives. The click that brings the window back fires `focus`
+    // first, and clearing the list then would drop that click.
+    if (!this.worksList.childElementCount && !this.account.visible) {
+      this.worksStatus.textContent = 'Loading Works...';
+    }
+
+    try {
+      const works = await this.manuscript.store.listWorks();
+      if (generation === this.generation) {
+        this.renderWorks(works);
+      }
+    } catch {
+      if (generation === this.generation) {
+        if (this.manuscript.signedIn === false) {
+          this.showSignedOut();
+        } else {
+          this.clearWorks();
+          this.worksStatus.textContent = 'The Works server is not available.';
+        }
+      }
+    }
+  }
+
+  private showSignedOut(): void {
+    this.clearWorks();
+    this.account.show();
+    this.newWork.hidden = this.account.visible;
+    this.worksStatus.textContent = 'Sign in to see your Works.';
+  }
+
+  private hideAccount(): void {
+    const restoreFocus = this.account.visible && this.works.contains(this.works.ownerDocument.activeElement);
+    this.account.hide();
+    this.newWork.hidden = false;
+    if (restoreFocus) {
+      this.focusWorks();
+    }
+  }
+
+  private clearWorks(): void {
+    this.renderedWorks = undefined;
+    this.workButtons.clear();
+    this.worksList.replaceChildren();
+  }
+
+  private renderWorks(works: ManuscriptWork[]): void {
+    this.hideAccount();
+    this.worksStatus.textContent = works.length ? '' : 'No Works yet.';
+    const recent = [...works].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+    const entries: [label: string, id?: string][] = recent.slice(0, 20).map(entry =>
+      [entry.title + (entry.id === this.work.current?.id ? ' (current)' : ''), entry.id]);
+    if (recent.length > 20) {
+      entries.push(['More...']);
+    }
+    // An unchanged list keeps its buttons, so a press in progress still ends in a click.
+    const rendered = JSON.stringify(entries);
+    if (rendered === this.renderedWorks) {
+      return;
+    }
+    this.clearWorks();
+    this.renderedWorks = rendered;
+    for (const [label, id] of entries) {
+      this.addWorkButton(label, id);
+    }
+  }
+
+  private addWorkButton(label: string, id?: string): void {
+    const button = append(append(this.worksList, $('li')), $('button', { type: 'button' }));
+    button.textContent = label;
+    this.workButtons.add(addDisposableListener(button, 'click', () => {
+      void this.commandService.executeCommand('work.open', id);
+    }));
+  }
+
+  focusWorks(googleCanceled = false): void {
+    this.works.focus();
+    if (googleCanceled) {
+      this.account.showGoogleCancellation();
+    }
   }
 
   override layout(dimension: Dimension): void {
@@ -65,6 +260,7 @@ export class WelcomeEditorPane extends EditorPane {
   }
 
   override dispose(): void {
+    this.clearInput();
     super.dispose();
     this.page?.remove();
   }

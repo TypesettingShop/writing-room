@@ -109,6 +109,68 @@
   background: var(--vscode-editor-background);
 }
 
+.markdown-footnotes {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: 30%;
+  min-height: 0;
+  border-top: 1px solid var(--vscode-editorWidget-border);
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-editorWidget-foreground);
+}
+
+.markdown-footnotes[hidden] {
+  display: none;
+}
+
+.markdown-footnotes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+}
+
+.markdown-footnotes ol {
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0 8px 4px 28px;
+}
+
+.markdown-footnotes button {
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.markdown-footnotes li button {
+  width: 100%;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.markdown-footnotes button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.markdown-footnotes button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.markdown-footnote-label {
+  margin-inline-end: 0.5em;
+}
+
+.markdown-footnote-status {
+  margin-inline-start: 0.5em;
+  color: var(--vscode-descriptionForeground);
+}
+
 .markdown-editor-surface .ProseMirror {
   --markdown-content-padding-inline: 2rem;
   --markdown-content-border-width: 1px;
@@ -138,6 +200,23 @@
 
 .markdown-editor-surface .ProseMirror > :first-child {
   margin-top: 0;
+}
+
+.markdown-section-numbers [data-markdown-section]::before {
+  content: attr(data-markdown-section);
+  vertical-align: super;
+  font-size: 0.6em;
+  line-height: 0;
+  opacity: 0.5;
+  margin-inline-end: 0.25em;
+  user-select: none;
+}
+
+.markdown-editor-surface .ProseMirror hr {
+  height: 0;
+  margin-block: 1em;
+  border: 0;
+  border-top: 1px dotted color-mix(in srgb, var(--vscode-descriptionForeground) 55%, transparent);
 }
 
 .markdown-editor-surface .ProseMirror img {
