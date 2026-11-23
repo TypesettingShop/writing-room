@@ -192,6 +192,14 @@
 }
 
 @media (forced-colors: active) {
+  .characters-row[aria-selected='true'],
+  .characters-tree:focus-visible .characters-row[aria-selected='true'] {
+    forced-color-adjust: none;
+    background-color: Highlight;
+    color: HighlightText;
+    --character-icon-forced-color: HighlightText;
+  }
+
   /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
   :is(.manuscript-twig, .characters-twig) {
     forced-color-adjust: none;
