@@ -48,10 +48,10 @@ test('a template change event updates the pane without replacing focused preedit
   const onDidChangeTemplate = new Emitter<string>();
   const characters = {
     onDidChangeTemplate: onDidChangeTemplate.event,
-    store: { getTemplate: async () => ({ fields, revision: 1 }) } as CharactersStore,
+    store: { getTemplate: async () => ({ fields, revision: 1 }) } as unknown as CharactersStore,
   } as ICharactersService;
   const input = new CharacterEditorInput('work', node, 1,
-    { onDidChangeTree: Event.None } as CharactersViewState, characters, {} as IDialogService,
+    { onDidChangeTree: Event.None } as unknown as CharactersViewState, characters, {} as IDialogService,
     {} as IFileDialogService, {} as INotificationService);
   const pane = new CharacterEditorPane(characters, {} as IKeybindingService);
   try {

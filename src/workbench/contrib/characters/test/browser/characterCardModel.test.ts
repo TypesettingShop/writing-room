@@ -3,7 +3,6 @@ import { DeferredPromise } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { characterLimits, CharacterStoreError, type CharacterEntry } from '../../../../../platform/characters/common/characters.js';
 import type { CharacterNodeChange, CharactersStore } from '../../../../../platform/characters/common/charactersStore.js';
-import type { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import type { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { CharacterCardModel, type CharacterCardSnapshot } from '../../browser/characterCardModel.js';
 
@@ -37,7 +36,7 @@ function setup() {
   const prompt = vi.fn(() => ({ result: Promise.resolve<number | undefined>(2), close }));
   const model = disposables.add(new CharacterCardModel('work', initial, 1, {
     updateNode: write,
-  } as unknown as CharactersStore, read, { prompt } as IDialogService, { error, warn: vi.fn() } as unknown as INotificationService));
+  } as unknown as CharactersStore, read, { _serviceBrand: undefined, prompt }, { error, warn: vi.fn() } as unknown as INotificationService));
   return {
     model, read, write, error, prompt,
     external(node: CharacterEntry | undefined) {
