@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { isManuscriptId } from '../../../manuscript/common/manuscript.js';
-import type { ManuscriptStore } from '../../../manuscript/common/manuscriptStore.js';
+import type { ManuscriptStore, NodeDestination } from '../../../manuscript/common/manuscriptStore.js';
 import { characterLimits } from '../../common/characters.js';
 import type { CharactersStore, CreateCharacterNode, UpdateCharacterNode } from '../../common/charactersStore.js';
 
@@ -158,6 +158,11 @@ export function charactersStoreContract(name: string, makeStores: () => Promise<
       await expect(create(2, { title: 'a\n' })).rejects.toMatchObject({ code: 'invalid' });
       await expect(create(2, { kind: 'folder', type: 'animal' })).rejects.toMatchObject({ code: 'invalid' });
       await expect(create(2, { kind: 'document' } as unknown as CreateCharacterNode)).rejects.toMatchObject({ code: 'invalid' });
+      // A missing or non-string ID is malformed input on both paths; only well-formed IDs report not_found.
+      await expect(create(2, { parentId: undefined } as unknown as CreateCharacterNode)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(create(2, { beforeId: 7 } as unknown as CreateCharacterNode)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.moveNodes(workId, [7] as unknown as string[], { parentId: null }, 2)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.moveNodes(workId, [character.id], {} as NodeDestination, 2)).rejects.toMatchObject({ code: 'invalid' });
       await expect(owner.updateNode(workId, folder.id, { values: {} }, 2)).rejects.toMatchObject({ code: 'invalid' });
       await expect(owner.updateNode(workId, folder.id, { type: 'male' }, 2)).rejects.toMatchObject({ code: 'invalid' });
       await expect(owner.updateNode(workId, character.id, { type: 'robot' } as unknown as UpdateCharacterNode, 2))

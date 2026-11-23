@@ -105,7 +105,7 @@ describe('characters API', () => {
   });
 
   it('reports an unavailable character repository after authenticating the request', async () => {
-    const withoutCharacters = await startTestApi({ repository, store: 'postgres', charactersRepository: undefined });
+    const withoutCharacters = await startTestApi({ repository, store: 'postgres' });
     try {
       const path = (await workPath()) + '/characters/tree';
       expect((await withoutCharacters.fetch(path)).status).toBe(401);

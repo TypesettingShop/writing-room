@@ -58,6 +58,10 @@ export abstract class OrderedTreeEditor<Node extends PositionedNode> {
     if (parentId === null) {
       return null;
     }
+    // A missing or non-string ID is a malformed request, not a missing resource.
+    if (typeof parentId !== 'string') {
+      throw this.error('invalid');
+    }
     const parent = isManuscriptId(parentId) ? this.nodes.get(parentId) : undefined;
     if (!parent) {
       throw this.error(this.missingDestination);
@@ -69,6 +73,9 @@ export abstract class OrderedTreeEditor<Node extends PositionedNode> {
     if (destination.beforeId === undefined) {
       siblings.push(...nodes);
       return;
+    }
+    if (typeof destination.beforeId !== 'string') {
+      throw this.error('invalid');
     }
     if (this.missingDestination === 'not_found' && !this.nodes.has(destination.beforeId)) {
       throw this.error('not_found');
@@ -111,7 +118,7 @@ export abstract class OrderedTreeEditor<Node extends PositionedNode> {
   }
 
   move(nodeIds: readonly string[], destination: NodeDestination, now: number): void {
-    if (!Array.isArray(nodeIds) || !nodeIds.length) {
+    if (!Array.isArray(nodeIds) || !nodeIds.length || !nodeIds.every(id => typeof id === 'string')) {
       throw this.error('invalid');
     }
     if (!nodeIds.every(isManuscriptId)) {

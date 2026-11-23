@@ -1,19 +1,12 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { InMemoryCharactersRepository } from '../../src/platform/characters/common/inMemoryCharactersStore.js';
-import { InMemoryManuscriptRepository } from '../../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import { contractOther, contractOwner } from '../../src/platform/manuscript/test/common/manuscriptStoreContract.js';
 import { createApiServer, type ApiOptions } from '../apiServer.js';
 
 export const testOrigin = 'http://127.0.0.1:5173';
 
 export async function startTestApi(options: Omit<ApiOptions, 'authenticate' | 'allowedOrigins'> & Partial<ApiOptions>) {
-  const { repository } = options;
-  const charactersRepository = repository instanceof InMemoryManuscriptRepository
-    ? new InMemoryCharactersRepository(userId => repository.workAccess(userId))
-    : undefined;
   const server: Server = createApiServer({
-    charactersRepository,
     allowedOrigins: [testOrigin],
     authenticate: request => {
       switch (request.headers['x-test-user']) {
