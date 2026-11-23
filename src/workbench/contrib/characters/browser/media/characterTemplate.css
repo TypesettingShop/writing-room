@@ -1,0 +1,70 @@
+.character-template {
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 24px clamp(16px, 5%, 48px);
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.character-template:focus {
+  outline: none;
+}
+
+.character-template h1 {
+  margin: 0;
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+.character-template-status,
+.character-template-field-details {
+  color: var(--vscode-descriptionForeground);
+}
+
+.character-template-problem {
+  color: var(--vscode-errorForeground);
+}
+
+.character-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.character-template-actions button {
+  padding: 5px 12px;
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  font: inherit;
+  cursor: pointer;
+}
+
+.character-template-actions button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.character-template-actions button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.character-template-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.character-template-fields {
+  max-width: 48rem;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.character-template-fields li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--vscode-editorWidget-border);
+  overflow-wrap: anywhere;
+}
