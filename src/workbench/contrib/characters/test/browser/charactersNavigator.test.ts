@@ -16,6 +16,7 @@ import { CharactersDragAndDropObserver } from '../../../../browser/dnd.js';
 import type { ICharactersService } from '../../../../services/characters/common/charactersService.js';
 import type { IWorkService } from '../../../../services/work/common/work.js';
 import '../../browser/characters.contribution.js';
+import { ICharacterOpener, type CharacterOpener } from '../../browser/characterOpener.js';
 import { CharactersNavigator } from '../../browser/charactersNavigator.js';
 import { CharactersViewState, ICharactersViewState } from '../../browser/charactersViewState.js';
 
@@ -53,13 +54,14 @@ function createNavigator(
     notifications as unknown as INotificationService, dialogs as unknown as IDialogService));
   const parent = document.body.appendChild(document.createElement('div'));
   disposables.add(toDisposable(() => parent.remove()));
+  const openCharacters = vi.fn();
   const instantiation = new InstantiationService(new ServiceCollection(
-    [INotificationService, notifications], [ICharactersViewState, state],
+    [INotificationService, notifications], [ICharactersViewState, state], [ICharacterOpener, { openCharacters }],
   ));
   disposables.add(new CharactersNavigator(parent, state, {} as IContextKeyService, {} as IMenuService,
-    {} as IContextMenuService, instantiation));
+    {} as IContextMenuService, instantiation, { openCharacters } as unknown as CharacterOpener));
   return {
-    state, getTree, updateNode, deleteNode, changes, notifications, dialogs, instantiation,
+    state, getTree, updateNode, deleteNode, changes, notifications, dialogs, instantiation, openCharacters,
     tree: parent.querySelector<HTMLElement>('[role="tree"]')!,
     row: () => parent.querySelector<HTMLElement>('[role="treeitem"]')!,
   };
@@ -181,4 +183,16 @@ test('counts only characters at every depth in a folder deletion prompt', async 
   await state.deleteSelected();
   expect(dialogs.prompt).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete "Cast" and 1 character in it?' }));
   expect(deleteNode).not.toHaveBeenCalled();
+});
+
+test('Open uses the navigator selection and ignores command arguments', async () => {
+  const { state, instantiation, openCharacters } = createNavigator();
+  const run = CommandsRegistry.getCommand('characters.open')!.handler;
+  await state.ensureLoaded();
+  await instantiation.invokeFunction(run, character.id);
+  expect(openCharacters).not.toHaveBeenCalled();
+
+  state.select(character.id);
+  await instantiation.invokeFunction(run, id(99));
+  expect(openCharacters).toHaveBeenCalledExactlyOnceWith([character.id]);
 });
