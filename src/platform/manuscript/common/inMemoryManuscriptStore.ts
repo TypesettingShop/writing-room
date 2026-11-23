@@ -5,6 +5,11 @@ import {
 import type { ManuscriptRepository, ManuscriptStore } from './manuscriptStore.js';
 import { ManuscriptTreeEditor } from './manuscriptTree.js';
 
+export interface InMemoryWorkAccess {
+  hasWork(workId: string): boolean;
+  touchWork(workId: string, timestamp: number): void;
+}
+
 interface WorkState {
   work: ManuscriptWork;
   revision: number;
@@ -22,6 +27,19 @@ export class InMemoryManuscriptRepository implements ManuscriptRepository {
 
   constructor(now: () => number = Date.now) {
     this.now = now;
+  }
+
+  workAccess(userId: string): InMemoryWorkAccess {
+    return {
+      hasWork: workId => this.users.get(userId)?.has(workId) ?? false,
+      touchWork: (workId, timestamp) => {
+        const state = this.users.get(userId)?.get(workId);
+        if (!state) {
+          throw new ManuscriptStoreError('not_found');
+        }
+        state.work.updatedAt = timestamp;
+      },
+    };
   }
 
   forUser(userId: string): ManuscriptStore {

@@ -1,5 +1,5 @@
 import { isRecord, utf8Size } from '../../manuscript/common/manuscript.js';
-import { CharacterStoreError } from './characters.js';
+import { characterLimits, CharacterStoreError } from './characters.js';
 
 export type CharacterFieldKind = 'text' | 'longText' | 'choice';
 
@@ -26,7 +26,7 @@ export const characterFieldLimits = {
   options: 100,
   option: 100,
   template: 64 * 1024,
-  values: 64 * 1024,
+  values: characterLimits.values,
 } as const;
 
 // PostgreSQL text and the UTF-8 wire format must preserve every accepted string.
