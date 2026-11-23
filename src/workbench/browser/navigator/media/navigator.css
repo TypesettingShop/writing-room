@@ -200,6 +200,11 @@
     --character-icon-forced-color: HighlightText;
   }
 
+  /* The guides below are forced to CanvasText, which need not contrast with Highlight. */
+  .characters-row[aria-selected='true'] .characters-twig {
+    color: HighlightText;
+  }
+
   /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
   :is(.manuscript-twig, .characters-twig) {
     forced-color-adjust: none;
