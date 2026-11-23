@@ -52,7 +52,8 @@ test('uses the whole tree revision and retries automatically when this card matc
   await expect(model.save('explicit')).resolves.toBe(true);
   expect(write.mock.calls.map(call => call[3])).toEqual([1, 2]);
   expect(prompt).not.toHaveBeenCalled();
-  expect(model.draft).toEqual({ title: 'Rin Updated', type: 'unknown', values: initial.values });
+  expect(write.mock.lastCall?.[2]).toEqual({ title: 'Rin Updated', type: 'unknown', values: initial.values });
+  expect(model.dirty).toBe(false);
 
   model.edit({ ...model.draft, type: 'female' });
   await expect(model.save('explicit')).resolves.toBe(true);
@@ -130,4 +131,45 @@ test('keeps the old baseline when remote changes arrive before the first preedit
   await expect(model.save('explicit')).resolves.toBe(false);
   expect(write.mock.lastCall?.[3]).toBe(1);
   expect(prompt).toHaveBeenCalledOnce();
+});
+
+test('keeps a trailing space typed into the name while the store saves the trimmed title', async () => {
+  const { model, read, write } = setup();
+  model.edit({ ...model.draft, title: 'Rin Kim ' });
+  await expect(model.save('auto')).resolves.toBe(true);
+  expect(write.mock.lastCall?.[2].title).toBe('Rin Kim');
+  model.acceptTree(await read());
+  expect(model.draft.title).toBe('Rin Kim ');
+  expect(model.dirty).toBe(false);
+  model.edit({ ...model.draft, title: 'Rin Kim S' });
+  expect(model.dirty).toBe(true);
+});
+
+test('Overwrite asks again when the same card changes elsewhere while the question is open', async () => {
+  const { model, write, external, prompt } = setup();
+  external({ ...initial, values: { goal: 'Remote' } });
+  prompt.mockImplementationOnce(() => {
+    external({ ...initial, values: { goal: 'Remote again' } });
+    return { result: Promise.resolve<number | undefined>(1), close: vi.fn() };
+  });
+  model.edit({ ...model.draft, values: { goal: 'Mine' } });
+  await expect(model.save('explicit')).resolves.toBe(false);
+  expect(prompt).toHaveBeenCalledTimes(2);
+  expect(write.mock.calls.map(call => call[3])).toEqual([1, 2]);
+  expect(model.dirty).toBe(true);
+});
+
+test('Overwrite retries without asking again when only another card changed during the question', async () => {
+  const { model, write, external, prompt } = setup();
+  const remote = { ...initial, values: { goal: 'Remote' } };
+  external(remote);
+  prompt.mockImplementationOnce(() => {
+    external({ ...remote, parentId: 'another folder' });
+    return { result: Promise.resolve<number | undefined>(1), close: vi.fn() };
+  });
+  model.edit({ ...model.draft, values: { goal: 'Mine' } });
+  await expect(model.save('explicit')).resolves.toBe(true);
+  expect(prompt).toHaveBeenCalledOnce();
+  expect(write.mock.calls.map(call => call[3])).toEqual([1, 2, 3]);
+  expect(model.dirty).toBe(false);
 });

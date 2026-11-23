@@ -28,6 +28,11 @@ function sameValues(a: CharacterCardValues, b: CharacterCardValues): boolean {
     Object.entries(a.values).every(([key, value]) => Object.hasOwn(b.values, key) && b.values[key] === value);
 }
 
+/** Compares drafts as the store saves them: it trims and NFC-normalizes the title. */
+function sameContent(a: CharacterCardValues, b: CharacterCardValues): boolean {
+  return sameValues({ ...a, title: a.title.trim().normalize('NFC') }, { ...b, title: b.title.trim().normalize('NFC') });
+}
+
 function cardValues(node: CharacterEntry): CharacterCardValues {
   return { title: node.title, type: node.type, values: node.values };
 }
@@ -68,7 +73,7 @@ export class CharacterCardModel extends Disposable {
   readonly id: string;
   get draft(): CharacterCardValues { return this.current; }
   get deleted(): boolean { return this._deleted; }
-  get dirty(): boolean { return !this.deleted && !sameValues(this.current, this.saved); }
+  get dirty(): boolean { return !this.deleted && !sameContent(this.current, this.saved); }
 
   beginComposition(): IDisposable {
     this.compositions++;
@@ -130,8 +135,12 @@ export class CharacterCardModel extends Disposable {
       // The composing field still displays the old baseline, even before its first input event.
       this.deferredSnapshot = snapshot;
     } else if (!this.dirty) {
-      this.current = this.saved = next;
+      this.saved = next;
       this.revision = revision;
+      // Keep the typed title, such as a trailing space, while it saves as the same title.
+      if (!sameContent(this.current, next)) {
+        this.current = next;
+      }
       this.changed.fire();
     }
     if (sameValues(this.saved, next)) {
@@ -216,7 +225,8 @@ export class CharacterCardModel extends Disposable {
         }
         this.revision = result.revision;
         this.saved = cardValues(result.node);
-        if (this.current === submitted) {
+        // The store trims the title. Replacing a focused name that ends in a space would drop it mid-typing.
+        if (this.current === submitted && !sameContent(submitted, this.saved)) {
           this.current = this.saved;
         }
         this.changed.fire();

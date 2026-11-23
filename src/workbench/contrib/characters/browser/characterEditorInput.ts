@@ -116,7 +116,7 @@ export class CharacterEditorInput extends EditorInput {
   }
 
   override get typeId(): string { return CharacterEditorInput.ID; }
-  override getName(): string { return this.model.draft.title || 'Untitled'; }
+  override getName(): string { return this.model.draft.title.trim() || 'Untitled'; }
   override getTabIcon() { return characterTypeIcon(this.model.draft.type); }
   override isReadonly(): boolean { return this.model.deleted; }
   override isDirty(): boolean { return this.model.dirty; }

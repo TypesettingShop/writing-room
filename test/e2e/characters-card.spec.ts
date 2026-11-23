@@ -192,8 +192,15 @@ test('shares a draft across groups and only asks to discard it when closing the 
   await expect(goal(page)).toBeVisible();
   await page.getByRole('toolbar').getByRole('button', { name: 'Split Editor Right' }).click();
   await expect(tab(page, 'Rin')).toHaveCount(2);
+  const patchRoute = '**' + work.characters + '/nodes/' + id;
+  let patches = 0;
+  page.on('request', request => {
+    if (request.method() === 'PATCH' && new URL(request.url()).pathname === work.characters + '/nodes/' + id) {
+      patches++;
+    }
+  });
   // Keep the draft dirty if an autosave starts while operating the tab or command palette.
-  await page.route('**' + work.characters + '/nodes/' + id, async route => {
+  await page.route(patchRoute, async route => {
     if (route.request().method() === 'PATCH') {
       await route.fulfill({ status: 503, json: { code: 'invalid' } });
     } else {
@@ -209,8 +216,15 @@ test('shares a draft across groups and only asks to discard it when closing the 
   await expect(goal(page)).toHaveValue('Shared draft');
 
   await page.getByRole('button', { name: 'Close Rin', exact: true }).click();
+  await expect(page.getByRole('option', { name: /^Don't Save/ })).toBeVisible();
+  // The question waits for a save in flight, so any later write comes from the question or the answer.
+  const asked = patches;
   await answerCloseQuestion(page, 'Rin', "Don't Save");
   await expect(tab(page, 'Rin')).toHaveCount(0);
+  // Let a stray idle save reach the server so it can fail the value check below.
+  await page.unroute(patchRoute);
+  await page.waitForTimeout(1500);
+  expect(patches).toBe(asked);
   await expect(page.getByRole('option', { name: /^Don't Save/ })).toHaveCount(0);
   expect((await work.tree()).nodes.find(node => node.id === id)?.values).toEqual({});
 });

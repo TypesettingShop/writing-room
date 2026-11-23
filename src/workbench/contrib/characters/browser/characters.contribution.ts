@@ -77,6 +77,7 @@ registerCharactersAction('collapseAll', 'Collapse All', {
   state.collapseAll();
 });
 
+// Open takes context order 4; order 6 is left for Open All in Folder.
 registerCharactersAction('open', 'Open', { f1: true, menu: context(4, ContextKeyExpr.equals(CHARACTERS_SELECTION_KIND, 'character')) }, async (state, accessor) => {
   const opener = accessor.get(ICharacterOpener);
   await state.ensureLoaded();
