@@ -1,4 +1,6 @@
 import type { Pool } from 'pg';
+import type { CharactersRepository } from '../src/platform/characters/common/charactersStore.js';
+import { InMemoryCharactersRepository } from '../src/platform/characters/common/inMemoryCharactersStore.js';
 import { InMemoryManuscriptRepository } from '../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import type { ManuscriptRepository } from '../src/platform/manuscript/common/manuscriptStore.js';
 import { createApiServer } from './apiServer.js';
@@ -15,6 +17,7 @@ async function main(): Promise<void> {
   let pool: Pool | undefined;
   try {
     let repository: ManuscriptRepository;
+    let charactersRepository: CharactersRepository | undefined;
     if (config.store === 'postgres' && config.databaseUrl) {
       pool = createPostgresPool(config.databaseUrl, config.databasePoolSize);
       pool.on('error', () => console.error('Unexpected failure on an idle PostgreSQL connection.'));
@@ -25,7 +28,9 @@ async function main(): Promise<void> {
       }
       repository = postgres;
     } else if (config.store === 'memory') {
-      repository = new InMemoryManuscriptRepository();
+      const memory = new InMemoryManuscriptRepository();
+      repository = memory;
+      charactersRepository = new InMemoryCharactersRepository(userId => memory.workAccess(userId));
     } else {
       throw new Error('The postgres store requires WRITING_ROOM_DATABASE_URL.');
     }
@@ -34,6 +39,7 @@ async function main(): Promise<void> {
     const server = createApiServer({
       ...config,
       repository,
+      charactersRepository,
       authenticate,
       accountAuth: { ...config, store: authStore },
     });
