@@ -35,6 +35,7 @@ interface NavigatorStateOptions<N extends NavigatorNode> {
   readonly isRevision: (value: unknown) => value is number;
   readonly normalizeTitle: (title: string) => string;
   readonly isConflict: (error: unknown) => boolean;
+  readonly deleteMessage?: (node: N, index: NavigatorIndex<N>) => string;
   readonly messages: {
     readonly loadFailed: string;
     readonly writeFailed: string;
@@ -320,7 +321,7 @@ export class NavigatorViewState<N extends NavigatorNode, S extends NavigatorStor
     const suffix = this.options.tree.types[node.kind].container ? ' and everything in it' : '';
     const { result } = this.dialogs.prompt({
       type: Severity.Warning,
-      message: `Delete "${label}"${suffix}?`,
+      message: this.options.deleteMessage?.(node, index) ?? `Delete "${label}"${suffix}?`,
       buttons: ['Cancel', 'Delete'],
       cancelButton: 0,
     });
@@ -337,7 +338,10 @@ export class NavigatorViewState<N extends NavigatorNode, S extends NavigatorStor
     return this.write((store, workId) => store.updateNode(workId, id, { title: this.normalizeTitle(title) }, revision));
   }
 
-  async write<T extends NavigatorTreeChange>(operation: (store: S, workId: string, revision: number) => Promise<T>): Promise<T | undefined> {
+  async write<T extends NavigatorTreeChange>(
+    operation: (store: S, workId: string, revision: number) => Promise<T>,
+    options?: { readonly refreshOnError?: boolean },
+  ): Promise<T | undefined> {
     if (!this.workId || this.revision === undefined || this.writePending || this.disposed) {
       return undefined;
     }
@@ -351,9 +355,12 @@ export class NavigatorViewState<N extends NavigatorNode, S extends NavigatorStor
       await this.refresh();
       return result;
     } catch (error) {
-      if (this.options.isConflict(error)) {
+      const conflict = this.options.isConflict(error);
+      if (conflict || options?.refreshOnError) {
         await this.read;
         await this.refresh();
+      }
+      if (conflict) {
         this.notifications.warn(this.message
           ? this.options.messages.conflictReloadFailed
           : this.options.messages.conflictReloaded);

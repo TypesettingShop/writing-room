@@ -263,3 +263,124 @@ test('clears a character drag released over a webview iframe', async ({ page, re
   await row(page, 'Rin').dragTo(row(page, 'Cast'), { targetPosition: { x: 95, y: 12 } });
   await expect(row(page, 'Rin')).toHaveAttribute('aria-level', '2');
 });
+
+const inlineName = (page: Page) => tree(page).getByRole('textbox', { name: 'Title', exact: true });
+const toolbar = (page: Page, name: string) =>
+  page.getByRole('region', { name: 'Navigator', exact: true }).locator('header').getByRole('button', { name, exact: true });
+const menuItem = (page: Page, name: string) => page.getByRole('menuitem', { name, exact: true });
+
+test('creates through the palette and toolbar and keeps Characters commands in work windows', async ({ page, request, baseURL }) => {
+  await page.goto('/');
+  await page.keyboard.press('F1');
+  await page.getByRole('combobox').fill('Characters New Character');
+  await expect(page.getByRole('option', { name: /Characters:/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  const work = await createWork(request, baseURL!);
+  await page.goto(work.url);
+  await expect(page.getByRole('tree', { name: 'Manuscript Navigator' })).toBeVisible();
+  await runCommand(page, 'Characters New Folder', /^Characters: New Folder$/);
+  await expect(inlineName(page)).toBeFocused();
+  await inlineName(page).fill('Cast');
+  await inlineName(page).press('Enter');
+  await expect(row(page, 'Cast')).toBeVisible();
+
+  await toolbar(page, 'New Character').click();
+  await expect(inlineName(page)).toBeFocused();
+  await inlineName(page).fill('Pip');
+  await inlineName(page).press('Enter');
+  await expect(row(page, 'Pip')).toHaveAttribute('aria-description', 'Unknown');
+  const { nodes } = await work.characterTree();
+  const cast = nodes.find(node => node.title === 'Cast');
+  expect(nodes.find(node => node.title === 'Pip')).toMatchObject({ parentId: cast?.id, type: 'unknown' });
+  await toolbar(page, 'Collapse All').click();
+  await expect(row(page, 'Pip')).toHaveCount(0);
+  await row(page, 'Cast').click({ button: 'right' });
+  await menuItem(page, 'Enter Folder').click();
+  await row(page, 'Pip').click({ button: 'right' });
+  await menuItem(page, 'Rename...').click();
+  await expect(inlineName(page)).toBeFocused();
+  await inlineName(page).fill('Renamed');
+  await inlineName(page).press('Enter');
+  await expect(row(page, 'Renamed')).toBeVisible();
+});
+
+test('checks the current type and changes every selected character, including with a folder selected', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await work.addCharacter('folder', 'Cast');
+  await work.addCharacter('character', 'Rin', null, 'unknown');
+  await work.addCharacter('character', 'Pip', null, 'male');
+  await work.addCharacter('character', 'Outside', null, 'animal');
+  await page.goto(work.url);
+  await activity(page, 'Characters').click();
+  const typeOption = (name: string) => page.getByRole('menuitemradio', { name, exact: true });
+
+  await row(page, 'Rin').click({ button: 'right' });
+  await menuItem(page, 'Set Type').click();
+  await expect(typeOption('Unknown')).toHaveAttribute('aria-checked', 'true');
+  await typeOption('Female').click();
+  await expect(row(page, 'Rin')).toHaveAttribute('aria-description', 'Female');
+  await page.reload();
+  await expect(row(page, 'Rin')).toHaveAttribute('aria-description', 'Female');
+
+  await row(page, 'Rin').click();
+  await row(page, 'Pip').click({ modifiers: ['ControlOrMeta'] });
+  await row(page, 'Cast').click({ modifiers: ['ControlOrMeta'] });
+  await row(page, 'Pip').click({ button: 'right' });
+  await menuItem(page, 'Set Type').click();
+  await expect(page.getByRole('menuitemradio', { checked: true })).toHaveCount(0);
+  await typeOption('Animal').click();
+  for (const name of ['Rin', 'Pip']) {
+    await expect(row(page, name)).toHaveAttribute('aria-description', 'Animal');
+  }
+  const { nodes, revision } = await work.characterTree();
+  expect(nodes.filter(node => node.kind === 'character').map(node => node.type)).toEqual(['animal', 'animal', 'animal']);
+  expect(revision).toBe(7);
+
+  await row(page, 'Pip').click({ button: 'right' });
+  await menuItem(page, 'Set Type').click();
+  await expect(typeOption('Animal')).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await row(page, 'Cast').click();
+  await row(page, 'Cast').click({ button: 'right' });
+  await menuItem(page, 'Enter Folder').click();
+  await expect(row(page, 'Parent Folder')).toBeVisible();
+});
+
+test('confirms recursive deletion, supports menu reordering, and keeps the navigator menus separate', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await work.addPart('Opening');
+  const cast = await work.addCharacter('folder', 'Cast');
+  const nested = await work.addCharacter('folder', 'Nested', cast);
+  await work.addCharacter('character', 'Rin', cast);
+  await work.addCharacter('character', 'Pip', nested);
+  const outside = await work.addCharacter('character', 'Outside');
+  await page.goto(work.url);
+  await activity(page, 'Characters').click();
+
+  await row(page, 'Outside').click({ button: 'right' });
+  await menuItem(page, 'Move Up').click();
+  const roots = async () => (await work.characterTree()).nodes.filter(node => node.parentId === null)
+    .sort((a, b) => a.position - b.position).map(node => node.id);
+  await expect.poll(roots).toEqual([outside, cast]);
+  await row(page, 'Cast').click();
+  await row(page, 'Cast').click({ button: 'right' });
+  await expect(menuItem(page, 'Set Type')).toHaveCount(0);
+  await expect(menuItem(page, 'Open All Documents')).toHaveCount(0);
+  await menuItem(page, 'Delete').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('Delete "Cast" and 2 characters in it?')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(row(page, 'Cast')).toBeVisible();
+  await tree(page).press('Delete');
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(row(page, 'Cast')).toHaveCount(0);
+  expect((await work.characterTree()).nodes.map(node => node.id)).toEqual([outside]);
+
+  await activity(page, 'Manuscript').click();
+  const part = page.getByRole('tree', { name: 'Manuscript Navigator' }).getByRole('treeitem', { name: '1부 - Opening' });
+  await part.click({ button: 'right' });
+  await expect(menuItem(page, 'Open All Documents')).toBeVisible();
+  await expect(menuItem(page, 'Set Type')).toHaveCount(0);
+});

@@ -1,10 +1,15 @@
-import { Action2, MenuId, registerAction2, type IAction2Options } from '../../../../platform/actions/common/actions.js';
+import { Action2, MenuId, MenuRegistry, registerAction2, type IAction2Options } from '../../../../platform/actions/common/actions.js';
+import { characterTypes } from '../../../../platform/characters/common/characters.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { moveAdjacent } from '../../../browser/navigator/navigatorDrag.js';
 import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../../common/views.js';
+import { IViewsService } from '../../../services/views/browser/viewsService.js';
 import { WorkOpenContext } from '../../../services/work/common/work.js';
-import { CHARACTERS_SELECTION_KIND, CharactersNavigator } from './charactersNavigator.js';
+import { characterTypeIcon } from './characterIcons.js';
+import {
+  CHARACTERS_HAS_SELECTED_CHARACTER, CHARACTERS_SELECTION_KIND, CHARACTERS_SELECTION_TYPE, CharactersNavigator,
+} from './charactersNavigator.js';
 import { ICharactersViewState, type CharactersViewState } from './charactersViewState.js';
 
 export const CHARACTERS_CONTAINER_ID = 'workbench.view.characters';
@@ -44,3 +49,65 @@ const context = (order: number, when = selected) => ({ id: MenuId.CharactersNavi
 
 registerCharactersAction('moveUp', 'Move Up', { f1: true, menu: context(60) }, state => moveAdjacent(state, -1));
 registerCharactersAction('moveDown', 'Move Down', { f1: true, menu: context(70) }, state => moveAdjacent(state, 1));
+
+const inNavigator = ContextKeyExpr.equals('view', CHARACTERS_NAVIGATOR_VIEW_ID);
+const toolbar = (order: number) => ({ id: MenuId.ViewTitle, group: 'navigation', order, when: inNavigator });
+const hasFolder = ContextKeyExpr.equals(CHARACTERS_SELECTION_KIND, 'folder');
+const hasCharacter = ContextKeyExpr.has(CHARACTERS_HAS_SELECTED_CHARACTER);
+
+for (const [kind, title, command, icon, order] of [
+  ['character', 'New Character', 'newCharacter', 'new-file', 10],
+  ['folder', 'New Folder', 'newFolder', 'new-folder', 20],
+] as const) {
+  registerCharactersAction(command, title, { f1: true, icon: { id: icon }, menu: toolbar(order) }, async (state, accessor) => {
+    if (await accessor.get(IViewsService).openView(CHARACTERS_NAVIGATOR_VIEW_ID)) {
+      await state.ensureLoaded();
+      await state.create(kind);
+    }
+  });
+}
+
+registerCharactersAction('refresh', 'Refresh', { f1: true, icon: { id: 'refresh' }, menu: toolbar(40) }, state => state.refresh());
+registerCharactersAction('collapseAll', 'Collapse All', {
+  f1: true, icon: { id: 'collapse-all' }, menu: toolbar(50),
+}, async state => {
+  await state.ensureLoaded();
+  state.collapseAll();
+});
+
+// Orders before 5 and at 6 are available for the card opening actions.
+registerCharactersAction('enterFolder', 'Enter Folder', { f1: true, menu: context(5, hasFolder) }, async state => {
+  await state.ensureLoaded();
+  const folder = state.singleSelection();
+  if (folder?.kind === 'folder') {
+    state.enter(folder.id);
+  }
+});
+registerCharactersAction('rename', 'Rename...', { f1: true, menu: context(30) }, async (state, accessor) => {
+  const views = accessor.get(IViewsService);
+  await state.ensureLoaded();
+  const node = state.singleSelection();
+  if (node && await views.openView(CHARACTERS_NAVIGATOR_VIEW_ID)) {
+    state.startRename(node.id);
+  }
+});
+registerCharactersAction('delete', 'Delete', { f1: true, menu: context(50) }, async state => {
+  await state.ensureLoaded();
+  await state.deleteSelected();
+});
+
+MenuRegistry.appendMenuItem(MenuId.CharactersNavigatorContext, {
+  submenu: MenuId.CharactersSetType, title: 'Set Type', group: 'navigation', order: 40, when: hasCharacter, select: true,
+});
+for (const [order, type] of characterTypes.entries()) {
+  const icon = characterTypeIcon(type);
+  registerCharactersAction('setType' + icon.label, icon.label, {
+    f1: true,
+    icon,
+    menu: { id: MenuId.CharactersSetType, group: 'navigation', order },
+    toggled: ContextKeyExpr.equals(CHARACTERS_SELECTION_TYPE, type),
+  }, async state => {
+    await state.ensureLoaded();
+    await state.setType(type);
+  });
+}

@@ -10,6 +10,8 @@ import { characterTypeIcon } from './characterIcons.js';
 import { ICharactersViewState, type CharactersViewState } from './charactersViewState.js';
 
 export const CHARACTERS_SELECTION_KIND = 'charactersSelectionKind';
+export const CHARACTERS_SELECTION_TYPE = 'charactersSelectionType';
+export const CHARACTERS_HAS_SELECTED_CHARACTER = 'charactersHasSelectedCharacter';
 
 export class CharactersNavigator extends NavigatorView<CharacterNode, CharactersStore> {
   constructor(
@@ -32,6 +34,13 @@ export class CharactersNavigator extends NavigatorView<CharacterNode, Characters
       titleReloaded: 'The character tree was reloaded. Press Enter to save your name again.',
       menuId: MenuId.CharactersNavigatorContext,
       selectionKindKey: CHARACTERS_SELECTION_KIND,
+      setMenuContext: context => {
+        const characters = state.selectedCharacters();
+        const firstType = characters[0]?.type;
+        const commonType = characters.every(character => character.type === firstType) ? firstType : undefined;
+        context.createKey(CHARACTERS_HAS_SELECTED_CHARACTER, characters.length > 0);
+        context.createKey(CHARACTERS_SELECTION_TYPE, commonType ?? '');
+      },
       drag: { observer: CharactersDragAndDropObserver.INSTANCE, dropDatasetKey: 'charactersDrop' },
     }, contextKeys, menus, contextMenus, instantiation);
   }
