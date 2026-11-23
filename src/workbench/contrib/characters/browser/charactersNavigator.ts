@@ -4,6 +4,7 @@ import type { CharactersStore } from '../../../../platform/characters/common/cha
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { CharactersDragAndDropObserver } from '../../../browser/dnd.js';
 import { NavigatorView } from '../../../browser/navigator/navigatorView.js';
 import { characterTypeIcon } from './characterIcons.js';
 import { ICharactersViewState, type CharactersViewState } from './charactersViewState.js';
@@ -31,6 +32,7 @@ export class CharactersNavigator extends NavigatorView<CharacterNode, Characters
       titleReloaded: 'The character tree was reloaded. Press Enter to save your name again.',
       menuId: MenuId.CharactersNavigatorContext,
       selectionKindKey: CHARACTERS_SELECTION_KIND,
+      drag: { observer: CharactersDragAndDropObserver.INSTANCE, dropDatasetKey: 'charactersDrop' },
     }, contextKeys, menus, contextMenus, instantiation);
   }
 }

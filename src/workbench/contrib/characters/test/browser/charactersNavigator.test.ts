@@ -11,6 +11,7 @@ import { InstantiationService } from '../../../../../platform/instantiation/comm
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
+import { CharactersDragAndDropObserver } from '../../../../browser/dnd.js';
 import type { ICharactersService } from '../../../../services/characters/common/charactersService.js';
 import type { IWorkService } from '../../../../services/work/common/work.js';
 import { CharactersNavigator } from '../../browser/charactersNavigator.js';
@@ -80,4 +81,31 @@ test('does not read the store without a work', async () => {
   const { state, getTree } = createNavigator({} as IWorkService);
   await state.ensureLoaded();
   expect(getTree).not.toHaveBeenCalled();
+});
+
+test('blocks drags during inline editing and clears a drag released outside the navigator', async () => {
+  const { state, row } = createNavigator();
+  await state.ensureLoaded();
+  const observer = CharactersDragAndDropObserver.INSTANCE;
+
+  const startDrag = () => {
+    const event = new MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { types: [], effectAllowed: 'none', setData() {} },
+    });
+    row().dispatchEvent(event);
+    return event;
+  };
+
+  state.startRename(character.id);
+  expect(startDrag().defaultPrevented).toBe(true);
+  expect(observer.isDragging).toBe(false);
+  state.cancelRename(state.editing!);
+
+  const iframe = document.body.appendChild(document.createElement('iframe'));
+  disposables.add(toDisposable(() => iframe.remove()));
+  expect(startDrag().defaultPrevented).toBe(false);
+  expect(observer.isDragging).toBe(true);
+  iframe.dispatchEvent(new Event('drop', { bubbles: true }));
+  await vi.waitFor(() => expect(observer.isDragging).toBe(false));
 });

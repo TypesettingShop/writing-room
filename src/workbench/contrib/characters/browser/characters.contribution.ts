@@ -1,8 +1,10 @@
-import { Action2, registerAction2, type IAction2Options } from '../../../../platform/actions/common/actions.js';
+import { Action2, MenuId, registerAction2, type IAction2Options } from '../../../../platform/actions/common/actions.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import type { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { moveAdjacent } from '../../../browser/navigator/navigatorDrag.js';
 import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../../common/views.js';
 import { WorkOpenContext } from '../../../services/work/common/work.js';
-import { CharactersNavigator } from './charactersNavigator.js';
+import { CHARACTERS_SELECTION_KIND, CharactersNavigator } from './charactersNavigator.js';
 import { ICharactersViewState, type CharactersViewState } from './charactersViewState.js';
 
 export const CHARACTERS_CONTAINER_ID = 'workbench.view.characters';
@@ -36,3 +38,9 @@ export function registerCharactersAction(
     }
   });
 }
+
+const selected = ContextKeyExpr.has(CHARACTERS_SELECTION_KIND);
+const context = (order: number, when = selected) => ({ id: MenuId.CharactersNavigatorContext, group: 'navigation', order, when });
+
+registerCharactersAction('moveUp', 'Move Up', { f1: true, menu: context(60) }, state => moveAdjacent(state, -1));
+registerCharactersAction('moveDown', 'Move Down', { f1: true, menu: context(70) }, state => moveAdjacent(state, 1));
