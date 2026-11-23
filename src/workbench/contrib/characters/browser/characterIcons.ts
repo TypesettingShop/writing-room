@@ -1,7 +1,6 @@
 import type { ThemeIcon } from '../../../../base/common/themables.js';
 
-export const characterTypes = ['male', 'female', 'unknown', 'animal'] as const;
-type CharacterType = typeof characterTypes[number];
+import type { CharacterType } from '../../../../platform/characters/common/characters.js';
 
 interface CharacterTypeIcon extends ThemeIcon {
   readonly label: string;

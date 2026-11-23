@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { renderIcon, renderLabelWithIcons } from '../../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { characterTypeIcon, characterTypes } from '../../browser/characterIcons.js';
+import { characterTypes } from '../../../../../platform/characters/common/characters.js';
+import { characterTypeIcon } from '../../browser/characterIcons.js';
 
 test('maps the four types to distinct registered ThemeIcons with accessible descriptions', () => {
   const icons = characterTypes.map(characterTypeIcon);

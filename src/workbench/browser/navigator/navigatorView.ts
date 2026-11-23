@@ -36,6 +36,7 @@ interface NavigatorViewOptions<N extends NavigatorNode> {
   readonly cssPrefix: string;
   readonly treeLabel: string;
   readonly rowIcon: (node: N, dir: boolean) => RowIcon;
+  readonly keyboardMultiSelect?: boolean;
   readonly emptyHint: string;
   readonly emptyActions: readonly (readonly [kind: N['kind'], title: string])[];
   readonly loadingMessage: string;
@@ -491,7 +492,11 @@ export class NavigatorView<N extends NavigatorNode, S extends NavigatorStore<N>>
     event.preventDefault();
     event.stopPropagation();
     if (next !== null) {
-      this.state.select(next);
+      if (this.options.keyboardMultiSelect && (event.ctrlKey || event.metaKey)) {
+        this.state.focus(next);
+      } else {
+        this.state.select(next);
+      }
       this.reveal(next);
       this.drawRows();
     }

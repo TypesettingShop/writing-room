@@ -183,9 +183,6 @@ export class NavigatorViewState<N extends NavigatorNode, S extends NavigatorStor
   }
 
   select(key: string, extend = false): void {
-    if (this.titleEdit?.id !== key) {
-      this.titleEdit = undefined;
-    }
     if (key === UP_KEY) {
       this.selectedIds.clear();
     } else if (!extend) {
@@ -194,6 +191,13 @@ export class NavigatorViewState<N extends NavigatorNode, S extends NavigatorStor
       this.selectedIds.delete(key);
     } else {
       this.selectedIds.add(key);
+    }
+    this.focus(key);
+  }
+
+  focus(key: string): void {
+    if (this.titleEdit?.id !== key) {
+      this.titleEdit = undefined;
     }
     this.currentCursor = key;
     this.saveLocation();
