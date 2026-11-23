@@ -181,6 +181,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - `CharactersStore`는 작품별 폴더와 등장인물 트리를 다룬다. 모든 트리 쓰기는 등장인물 리비전을 비교하며, 리비전이 바뀌면 작품의 수정 시각에도 반영한다. 인물별 필드값은 64 KiB, 작품의 비어 있지 않은 필드값 합계는 UTF-8 기준 16 MiB까지 허용한다.
 - 같은 오리진의 `/api/works/:workId/characters` 아래에서 `GET /tree`, `POST /nodes`, `POST /nodes/move`, `PATCH /nodes/:nodeId`, `DELETE /nodes/:nodeId`를 사용한다. 인증과 작품 소유권을 확인하며, 원고 요청과 창의 세션 상태를 공유한다.
 - `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 열면 현재 창에 작품과 등장인물을 임시로 저장한다. API 서버를 메모리 모드로 실행하면 서버가 작품과 등장인물을 함께 보관한다.
+- Postgres 모드에서 API 서버는 `characters` 테이블에 트리를 영속한다. `works.characters_revision`은 작품별 등장인물 리비전이며 원고는 별도의 `tree_revision`을 사용한다.
 
 #### Settings
 
