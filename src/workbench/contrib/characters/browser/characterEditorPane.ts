@@ -1,4 +1,4 @@
-import { MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -13,6 +13,7 @@ export class CharacterEditorPane extends EditorPane {
 
   private card!: HTMLElement;
   private readonly form = this._register(new MutableDisposable<CharacterCardForm>());
+  private readonly inputListeners = this._register(new DisposableStore());
   private templateRequest = 0;
 
   constructor(
@@ -35,20 +36,43 @@ export class CharacterEditorPane extends EditorPane {
   }
 
   override async setInput(input: EditorInput, options: IEditorOptions | undefined): Promise<void> {
-    this.form.clear();
+    this.clearInput();
     await super.setInput(input, options);
     if (this.input !== input || input.isDisposed() || !(input instanceof CharacterEditorInput)) {
       return;
     }
     this.card.scrollTop = 0;
-    const form = new CharacterCardForm(this.card, input.model, this.keybindings);
-    this.form.value = form;
-    void this.readTemplate(input.workId, form);
+    this.inputListeners.add(input.onDidChangeAvailability(() => this.showCard(input)));
+    this.showCard(input);
   }
 
   override clearInput(): void {
+    this.inputListeners.clear();
     this.form.clear();
+    this.card.replaceChildren();
     super.clearInput();
+  }
+
+  private showCard(input: CharacterEditorInput): void {
+    this.card.replaceChildren();
+    const model = input.model;
+    if (model) {
+      const form = new CharacterCardForm(this.card, model, this.keybindings);
+      this.form.value = form;
+      void this.readTemplate(input.workId, form);
+      return;
+    }
+    const document = this.card.ownerDocument;
+    const status = this.card.appendChild(document.createElement('p'));
+    status.className = 'character-card-status';
+    status.setAttribute('role', 'status');
+    status.textContent = input.availability === 'loading' ? 'Loading character…' : 'Could not load the character.';
+    if (input.availability === 'unavailable') {
+      const retry = this.card.appendChild(document.createElement('button'));
+      retry.type = 'button';
+      retry.textContent = 'Retry';
+      retry.addEventListener('click', () => { void input.resolve(); }, { once: true });
+    }
   }
 
   override layout(): void {}

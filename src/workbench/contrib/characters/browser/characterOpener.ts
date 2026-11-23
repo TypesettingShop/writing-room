@@ -58,8 +58,39 @@ export class CharacterOpener {
     if (id === undefined) {
       return undefined;
     }
+    const cached = this.inputs.get(id);
+    if (cached) {
+      return cached;
+    }
+    const hadTree = this.state.index !== undefined;
     await this.state.ensureLoaded();
-    return this.inputFor(id);
+    let input = this.inputFor(id);
+    // A resource can refer to a character created by another window since our last tree read.
+    if (!input && hadTree) {
+      await this.state.refresh();
+      input = this.inputFor(id);
+    }
+    return input;
+  }
+
+  restoreInput(resource: URI): CharacterEditorInput | undefined {
+    const id = characterId(resource, this.state.workId);
+    if (id === undefined) {
+      return undefined;
+    }
+    const known = this.inputFor(id);
+    if (known) {
+      return known;
+    }
+    const input = this.remember(this.instantiation.createInstance(CharacterEditorInput, resource.authority, id, undefined));
+    const loading = input.onDidChangeAvailability(() => {
+      if (input.availability === 'missing') {
+        void this.closeMissing(input);
+      }
+    });
+    input.onWillDispose(() => loading.dispose());
+    void input.resolve();
+    return input;
   }
 
   private inputFor(id: string): CharacterEditorInput | undefined {
@@ -72,10 +103,27 @@ export class CharacterOpener {
     if (node?.kind !== 'character' || !workId || revision === undefined) {
       return undefined;
     }
-    const input = this.instantiation.createInstance(CharacterEditorInput, workId, node, revision);
-    this.inputs.set(id, input);
-    input.onWillDispose(() => this.inputs.delete(id));
+    return this.remember(this.instantiation.createInstance(CharacterEditorInput, workId, id, { node, revision }));
+  }
+
+  private remember(input: CharacterEditorInput): CharacterEditorInput {
+    this.inputs.set(input.characterId, input);
+    input.onWillDispose(() => this.inputs.delete(input.characterId));
     return input;
+  }
+
+  private async closeMissing(input: CharacterEditorInput): Promise<void> {
+    for (const group of [...this.groups.groups]) {
+      if (group.contains(input)) {
+        await group.closeEditors([input]);
+        if (this.groups.getGroup(group.id) === group && group.isEmpty) {
+          this.groups.removeGroup(group, true);
+        }
+      }
+    }
+    if (!input.isDisposed()) {
+      input.dispose();
+    }
   }
 
   async openCharacters(nodeIds: readonly string[], options: OpenCharactersOptions = {}): Promise<void> {
@@ -121,11 +169,11 @@ export class CharacterOpener {
     }
     const deleted = new Set(nodeIds);
     for (const id of deleted) {
-      this.inputs.get(id)?.model.markDeleted();
+      this.inputs.get(id)?.model?.markDeleted();
     }
     for (const group of this.groups.groups) {
       const editors = group.editors.filter(editor => editor instanceof CharacterEditorInput &&
-        editor.workId === workId && deleted.has(editor.model.id));
+        editor.workId === workId && deleted.has(editor.characterId));
       if (editors.length) {
         void group.closeEditors(editors);
       }
