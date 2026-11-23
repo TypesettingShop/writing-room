@@ -6,6 +6,7 @@ import { IContextMenuService } from '../../../../platform/contextview/browser/co
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { CharactersDragAndDropObserver } from '../../../browser/dnd.js';
 import { NavigatorView } from '../../../browser/navigator/navigatorView.js';
+import { ICharacterOpener, type CharacterOpener } from './characterOpener.js';
 import { characterTypeIcon } from './characterIcons.js';
 import { ICharactersViewState, type CharactersViewState } from './charactersViewState.js';
 
@@ -21,12 +22,14 @@ export class CharactersNavigator extends NavigatorView<CharacterNode, Characters
     @IMenuService menus: IMenuService,
     @IContextMenuService contextMenus: IContextMenuService,
     @IInstantiationService instantiation: IInstantiationService,
+    @ICharacterOpener opener: CharacterOpener,
   ) {
     super(parent, state, {
       cssPrefix: 'characters',
       treeLabel: 'Characters Navigator',
       rowIcon: node => node.kind === 'folder' ? { id: 'folder' } : characterTypeIcon(node.type),
       keyboardMultiSelect: true,
+      activate: node => { void opener.openCharacters([node.id]); },
       emptyHint: 'This Work has no characters yet.',
       emptyActions: [['character', 'New Character'], ['folder', 'New Folder']],
       loadingMessage: 'Loading characters…',
