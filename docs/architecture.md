@@ -182,7 +182,7 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 같은 오리진의 `/api/works/:workId/characters` 아래에서 `GET /tree`, `POST /nodes`, `POST /nodes/move`, `PATCH /nodes/:nodeId`, `DELETE /nodes/:nodeId`를 사용한다. 인증과 작품 소유권을 확인하며, 원고 요청과 창의 세션 상태를 공유한다.
 - `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 열면 현재 창에 작품과 등장인물을 임시로 저장한다. API 서버를 메모리 모드로 실행하면 서버가 작품과 등장인물을 함께 보관한다.
 - Postgres 모드에서 API 서버는 `characters` 테이블에 트리를 영속한다. `works.characters_revision`은 작품별 등장인물 리비전이며 원고는 별도의 `tree_revision`을 사용한다.
-- `GET /template`은 작품의 필드 정의를 읽는다. 아직 저장한 템플릿이 없으면 기본 여덟 필드를 리비전 0으로 돌려준다. `PUT /template`은 `fields`와 `expectedRevision`을 받아 `character_templates`에 저장한다. 템플릿은 자체 리비전을 쓰며 인물에 저장된 값은 그대로 남는다.
+- `GET /template`은 작품의 필드 정의를 읽는다. 아직 저장한 템플릿이 없으면 기본 여덟 필드를 리비전 0으로 돌려준다. `PUT /template`은 `fields`와 `expectedRevision`을 받아 `character_templates`에 저장한다. 템플릿은 자체 리비전을 쓰며 인물에 저장된 값은 그대로 남는다. 성공한 `PUT`은 트리 쓰기처럼 작품의 수정 시각을 갱신하고, 충돌이나 검증 실패는 갱신하지 않는다.
 
 #### Settings
 

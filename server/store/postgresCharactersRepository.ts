@@ -96,11 +96,14 @@ class PostgresCharactersStore implements CharactersStore {
       const revision = rows.length ? Number(rows[0].revision) : 0;
       checkCharacterRevision(revision, expected);
       const fields = normalizeCharacterTemplate(input);
+      const now = new Date(this.now());
       await client.query(`
         INSERT INTO character_templates (work_id, revision, fields, updated_at) VALUES ($1, $2, $3, $4)
         ON CONFLICT (work_id) DO UPDATE
           SET revision = EXCLUDED.revision, fields = EXCLUDED.fields, updated_at = EXCLUDED.updated_at
-      `, [workId, revision + 1, JSON.stringify(fields), new Date(this.now())]);
+      `, [workId, revision + 1, JSON.stringify(fields), now]);
+      // A saved template is a work change, like a character tree write.
+      await client.query('UPDATE works SET updated_at = $2 WHERE id = $1', [workId, now]);
       return { revision: revision + 1, fields };
     });
   }

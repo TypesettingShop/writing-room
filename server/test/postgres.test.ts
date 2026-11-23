@@ -183,18 +183,26 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
       await expect(characterStore.getTree(id)).rejects.toMatchObject({ code: 'not_found' });
     });
 
-    it('persists a template only after PUT and cascades it on work deletion', async () => {
+    it('persists a template only after PUT, updates recent work and cascades it on work deletion', async () => {
       const works = repository.forUser(contractOwner);
-      const firstSession = characters.forUser(contractOwner);
+      let now = contractTime + 1;
+      const firstSession = new PostgresCharactersRepository(pool, () => now).forUser(contractOwner);
       const { id } = await works.createWork({ title: 'Template lifecycle' });
       expect(await firstSession.getTemplate(id)).toMatchObject({ revision: 0 });
       expect((await pool.query('SELECT work_id FROM character_templates WHERE work_id = $1', [id])).rows).toEqual([]);
+      expect((await works.getWork(id)).updatedAt).toBe(contractTime);
 
       const fields = [{ id: 'role', label: '역할', kind: 'choice', options: ['주연'] }];
       await firstSession.putTemplate(id, fields, 0);
       const fresh = new PostgresCharactersRepository(pool).forUser(contractOwner);
       expect(await fresh.getTemplate(id)).toEqual({ fields, revision: 1 });
-      expect((await works.getWork(id)).updatedAt).toBe(contractTime);
+      expect((await works.getWork(id)).updatedAt).toBe(contractTime + 1);
+      now++;
+      await expect(firstSession.putTemplate(id, [], 0)).rejects.toMatchObject({ code: 'conflict' });
+      await expect(firstSession.putTemplate(id, [{ id: 'x', kind: 'choice', label: 'X' }], 1)).rejects.toMatchObject({ code: 'invalid' });
+      expect((await works.getWork(id)).updatedAt).toBe(contractTime + 1);
+      expect((await works.getTree(id)).revision).toBe(0);
+      expect((await firstSession.getTree(id)).revision).toBe(0);
       await pool.query('DELETE FROM works WHERE id = $1', [id]);
       expect((await pool.query('SELECT work_id FROM character_templates WHERE work_id = $1', [id])).rows).toEqual([]);
     });

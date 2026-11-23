@@ -16,7 +16,7 @@ charactersStoreContract('in-memory characters', () => {
   };
 });
 
-it('updates recent works only when a character tree revision changes', async () => {
+it('updates recent works only when a character tree or template revision changes', async () => {
   let timestamp = 10;
   const now = () => timestamp;
   const manuscript = new InMemoryManuscriptRepository(now);
@@ -38,4 +38,14 @@ it('updates recent works only when a character tree revision changes', async () 
   await expect(characters.updateNode(first.id, node.id, { title: '\0' }, 1)).rejects.toMatchObject({ code: 'invalid' });
   expect((await works.getWork(first.id)).updatedAt).toBe(lastChange);
   expect(await works.getTree(first.id)).toEqual({ revision: 0, nodes: [] });
+
+  timestamp++;
+  await characters.putTemplate(second.id, [], 0);
+  const templateChange = timestamp;
+  expect((await works.listWorks()).map(work => work.id)).toEqual([second.id, first.id]);
+  timestamp++;
+  await expect(characters.putTemplate(second.id, [], 0)).rejects.toMatchObject({ code: 'conflict' });
+  await expect(characters.putTemplate(second.id, [{ id: 'x', kind: 'choice', label: 'X' }], 1)).rejects.toMatchObject({ code: 'invalid' });
+  expect((await works.getWork(second.id)).updatedAt).toBe(templateChange);
+  expect((await characters.getTree(second.id)).revision).toBe(0);
 });

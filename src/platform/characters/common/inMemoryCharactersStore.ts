@@ -23,6 +23,7 @@ export class InMemoryCharactersRepository implements CharactersRepository {
   forUser(userId: string): CharactersStore {
     const work = this.workAccess(userId);
     const works = this.works;
+    const clock = () => this.now();
     const requireWork = (workId: string): WorkState => {
       if (!work.hasWork(workId)) {
         throw new CharacterStoreError('not_found');
@@ -61,6 +62,8 @@ export class InMemoryCharactersRepository implements CharactersRepository {
         const revision = state.template?.revision ?? 0;
         checkCharacterRevision(revision, expected);
         const template = { revision: revision + 1, fields: normalizeCharacterTemplate(fields) };
+        // A saved template is a work change, like a character tree write.
+        work.touchWork(workId, clock());
         state.template = template;
         works.set(workId, state);
         return structuredClone(template);
