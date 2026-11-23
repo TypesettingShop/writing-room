@@ -1,6 +1,6 @@
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
-import { InMemoryManuscriptRepository } from '../../../../platform/manuscript/common/inMemoryManuscriptStore.js';
+import { InMemoryManuscriptRepository, type InMemoryWorkAccess } from '../../../../platform/manuscript/common/inMemoryManuscriptStore.js';
 import type { ManuscriptStore, TreeChange } from '../../../../platform/manuscript/common/manuscriptStore.js';
 import type {
   DeletedManuscriptDocuments, IManuscriptService, ManuscriptAuth, ManuscriptAuthChange, ManuscriptAvailability,
@@ -71,7 +71,7 @@ export class ManuscriptStatus extends Disposable {
 export class WindowManuscriptService implements IManuscriptService {
   declare readonly _serviceBrand: undefined;
   private readonly disposables = new DisposableStore();
-  private readonly status = this.disposables.add(new ManuscriptStatus());
+  readonly status = this.disposables.add(new ManuscriptStatus());
   private readonly changedTree = this.disposables.add(new Emitter<string>());
   private readonly deletedDocuments = this.disposables.add(new Emitter<DeletedManuscriptDocuments>());
   readonly onDidChangeAvailability = this.status.onDidChangeAvailability;
@@ -80,12 +80,15 @@ export class WindowManuscriptService implements IManuscriptService {
   readonly onDidDeleteDocuments = this.deletedDocuments.event;
   readonly store: ManuscriptStore;
   readonly usesMemory: boolean;
+  readonly memoryWorkAccess: InMemoryWorkAccess | undefined;
   readonly auth: ManuscriptAuth | undefined;
 
   constructor(search: string, configuredStore: string | undefined, createRemote: (status: ManuscriptStatus) => ManuscriptStore) {
     this.usesMemory = new URLSearchParams(search).get('store') === 'memory' || configuredStore === 'memory';
     this.auth = this.usesMemory ? undefined : new HttpManuscriptAuth(this.status);
-    const store = this.usesMemory ? new InMemoryManuscriptRepository().forUser('window') : createRemote(this.status);
+    const memory = this.usesMemory ? new InMemoryManuscriptRepository() : undefined;
+    this.memoryWorkAccess = memory?.workAccess('window');
+    const store = memory ? memory.forUser('window') : createRemote(this.status);
     this.store = {
       listWorks: () => store.listWorks(),
       createWork: input => store.createWork(input),

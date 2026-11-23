@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { CharactersStore } from '../../src/platform/characters/common/charactersStore.js';
 import { isManuscriptId, ManuscriptStoreError } from '../../src/platform/manuscript/common/manuscript.js';
 import type { ManuscriptStore } from '../../src/platform/manuscript/common/manuscriptStore.js';
 import { ApiError } from './errors.js';
@@ -10,6 +11,7 @@ export interface RouteContext {
   workId: string;
   nodeId: string;
   store: ManuscriptStore;
+  characters: CharactersStore;
 }
 
 export interface Route<Context = RouteContext> {
