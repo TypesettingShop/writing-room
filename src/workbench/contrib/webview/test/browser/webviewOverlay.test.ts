@@ -5,6 +5,7 @@ import type { IContextKeyService } from '../../../../../platform/contextkey/comm
 import type { IContextMenuService } from '../../../../../platform/contextview/browser/contextMenuService.js';
 import { ManuscriptDragAndDropObserver } from '../../../../browser/dnd.js';
 import type { IWorkbenchLayoutService } from '../../../../services/layout/browser/layoutService.js';
+import '../../../manuscript/browser/manuscriptOpener.js';
 import type { IWebviewService } from '../../browser/webview.js';
 import { WebviewOverlay } from '../../browser/webviewOverlay.js';
 

@@ -217,7 +217,7 @@ test('reorders with Alt+Arrow and refreshes after a stale drop without saving it
   await expect(tree(page).locator('[data-characters-drop]')).toHaveCount(0);
 });
 
-test('rejects both cross-navigator drags and ignores character drops in the editor area', async ({ page, request, baseURL }) => {
+test('rejects both cross-navigator drags and character drops on editor tabs', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
   await work.addPart('Opening');
   await work.addCharacter('folder', 'Cast');
@@ -231,7 +231,7 @@ test('rejects both cross-navigator drags and ignores character drops in the edit
   const editor = page.locator('[id="workbench.parts.editor"]');
   await expect(editor.getByRole('tab', { name: 'Welcome' })).toBeVisible();
   const alertsBefore = await page.getByRole('alert').allTextContents();
-  for (const [source, destination] of [[character, part], [part, character], [character, editor.locator('.editor-container')]]) {
+  for (const [source, destination] of [[character, part], [part, character], [character, editor.getByRole('tablist')]]) {
     await source.dragTo(destination, { targetPosition: { x: 95, y: 12 } });
     await expect(page.locator('[data-characters-drop], [data-manuscript-drop]')).toHaveCount(0);
   }
@@ -245,7 +245,7 @@ test('rejects both cross-navigator drags and ignores character drops in the edit
   await expect(row(page, 'Rin')).toHaveAttribute('aria-level', '2');
 });
 
-test('clears a character drag released over a webview iframe', async ({ page, request, baseURL }) => {
+test('opens a character dropped over a webview iframe and clears the drag', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
   await work.addCharacter('folder', 'Cast');
   await work.addCharacter('character', 'Rin');
@@ -257,7 +257,10 @@ test('clears a character drag released over a webview iframe', async ({ page, re
   await expect(frame).toBeVisible();
 
   await row(page, 'Rin').dragTo(frame);
-  await expect(page.getByRole('tab', { name: 'Fixture retained' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Rin', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-editor-drop-position]')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Fixture retained' }).click();
+  await expect(frame).toHaveCSS('pointer-events', 'auto');
   await expect(tree(page).locator('[data-characters-drop]')).toHaveCount(0);
   expect((await work.characterTree()).revision).toBe(2);
   await row(page, 'Rin').dragTo(row(page, 'Cast'), { targetPosition: { x: 95, y: 12 } });

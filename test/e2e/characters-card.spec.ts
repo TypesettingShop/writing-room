@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { CharacterTree } from '../../src/platform/characters/common/characters.js';
 import type { CreateCharacterNode } from '../../src/platform/characters/common/charactersStore.js';
 import { answerCloseQuestion, groups } from './files.helpers.js';
@@ -227,4 +227,64 @@ test('shares a draft across groups and only asks to discard it when closing the 
   expect(patches).toBe(asked);
   await expect(page.getByRole('option', { name: /^Don't Save/ })).toHaveCount(0);
   expect((await work.tree()).nodes.find(node => node.id === id)?.values).toEqual({});
+});
+
+
+async function dropInGroup(item: Locator, group: Locator, side: 'center' | 'right'): Promise<void> {
+  const body = group.locator('.editor-container');
+  const bounds = (await body.boundingBox())!;
+  await item.dragTo(body, { targetPosition: { x: bounds.width * (side === 'right' ? 0.97 : 0.5), y: bounds.height / 2 } });
+  await expect(group.page().locator('[data-editor-drop-position], [data-characters-drop]')).toHaveCount(0);
+}
+
+test('opens a character in the center, splits for a folder and caps the ordered drop at 50', async ({ page, request, baseURL }) => {
+  test.setTimeout(60_000);
+  const work = await createWork(request, baseURL!);
+  await work.add('Rin');
+  const folder = await work.add('Cast', 'folder');
+  for (let index = 1; index <= 51; index++) {
+    await work.add('Cast ' + index, 'character', folder);
+  }
+  await showCharacters(page, work.url);
+  const left = groups(page).first();
+  await dropInGroup(row(page, 'Rin'), left, 'center');
+  await expect(left.getByRole('tab', { name: 'Rin', exact: true })).toBeVisible();
+
+  await dropInGroup(row(page, 'Cast'), left, 'right');
+  await expect(groups(page)).toHaveCount(2);
+  const right = groups(page).last();
+  await expect(right.locator('.tab-name')).toHaveText(Array.from({ length: 50 }, (_, index) => 'Cast ' + (index + 1)));
+  expect((await right.boundingBox())!.x).toBeGreaterThan((await left.boundingBox())!.x);
+  await expect(right.getByRole('tab', { name: 'Cast 1', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('Opened 50 of 51 characters.')).toBeVisible();
+
+  await dropInGroup(row(page, 'Rin'), right, 'right');
+  await expect(tab(page, 'Rin')).toHaveCount(1);
+  await expect(tab(page, 'Rin')).toHaveAttribute('aria-selected', 'true');
+  await expect(groups(page)).toHaveCount(2);
+});
+
+test('opens nested folder cards from the menu, then opens a multi-selection in tree order', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const folder = await work.add('Cast', 'folder');
+  const nested = await work.add('Nested', 'folder', folder);
+  await work.add('Rin', 'character', nested);
+  await work.add('Kai', 'character', nested);
+  await work.add('Pip', 'character', folder);
+  await work.add('First');
+  await work.add('Second');
+  await showCharacters(page, work.url);
+
+  await row(page, 'First').click({ button: 'right' });
+  await expect(menu(page, 'Open All in Folder')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await row(page, 'Cast').click({ button: 'right' });
+  await menu(page, 'Open All in Folder').click();
+  const group = groups(page).first();
+  await expect(group.locator('.tab-name')).toHaveText(['Welcome', 'Rin', 'Kai', 'Pip']);
+
+  await row(page, 'Second').click();
+  await row(page, 'First').click({ modifiers: ['ControlOrMeta'] });
+  await dropInGroup(row(page, 'Second'), group, 'center');
+  await expect(group.locator('.tab-name')).toHaveText(['Welcome', 'Rin', 'Kai', 'Pip', 'First', 'Second']);
 });

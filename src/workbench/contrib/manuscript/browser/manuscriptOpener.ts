@@ -1,6 +1,8 @@
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { ManuscriptDragAndDropObserver } from '../../../browser/dnd.js';
+import { registerNavigatorDropProvider } from '../../../browser/parts/editor/editorAreaDrops.js';
 import { IEditorGroupsService, type IEditorGroup, type IEditorOpenOptions } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { manuscriptDocumentUri } from '../../../services/manuscript/browser/manuscriptFileSystemProvider.js';
@@ -72,3 +74,10 @@ export class ManuscriptOpener {
 }
 
 registerSingleton(IManuscriptOpener, ManuscriptOpener);
+
+registerNavigatorDropProvider({
+  observer: ManuscriptDragAndDropObserver.INSTANCE,
+  isForWork: (accessor, workId) => accessor.get(IManuscriptOpener).isForWork(workId),
+  hasItems: (accessor, ids) => accessor.get(IManuscriptOpener).hasDocuments(ids),
+  open: (accessor, ids, group) => accessor.get(IManuscriptOpener).openDocuments(ids, { group }),
+});
