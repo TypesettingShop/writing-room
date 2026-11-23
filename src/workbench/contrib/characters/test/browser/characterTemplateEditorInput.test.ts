@@ -194,6 +194,31 @@ test('shares a pending save and keeps edits made while it was in flight', async 
   expect(putTemplate).toHaveBeenLastCalledWith(workId, fields('Second'), 1);
 });
 
+test('keeps edits made during a save when the follow-up read fails and the read is retried', async () => {
+  const { input, getTemplate, putTemplate } = setup();
+  const resume = new DeferredPromise<void>();
+  const put = putTemplate.getMockImplementation()!;
+  putTemplate.mockImplementationOnce(async (...args) => {
+    await resume.p;
+    return put(...args);
+  });
+  await input.resolve();
+  input.setFields(fields('First'));
+  const saving = input.save();
+  await vi.waitFor(() => expect(putTemplate).toHaveBeenCalledTimes(1));
+  input.setFields(fields('Second'));
+  getTemplate.mockRejectedValueOnce(new Error('Offline'));
+  await resume.complete();
+  await saving;
+  await vi.waitFor(() => expect(input.hasReadError).toBe(true));
+  expect(input.hasConflict).toBe(false);
+
+  await input.retry();
+  expect(input.hasReadError).toBe(false);
+  expect(input.isDirty()).toBe(true);
+  expect(input.fields).toEqual(fields('Second'));
+});
+
 test('uses shared validation and leaves invalid edits open', async () => {
   const { input, error, putTemplate } = setup();
   await input.resolve();

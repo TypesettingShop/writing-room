@@ -143,6 +143,13 @@ export class CharacterTemplateEditorInput extends EditorInput {
     }
   }
 
+  /** Reads the saved template again after a failed read. Unlike reload, keeps the draft. */
+  async retry(): Promise<void> {
+    if (!this.writing) {
+      await this.read();
+    }
+  }
+
   async reload(): Promise<void> {
     const draft = this.draft;
     if (!this.writing && await this.read() && this.hasCurrentRevision()

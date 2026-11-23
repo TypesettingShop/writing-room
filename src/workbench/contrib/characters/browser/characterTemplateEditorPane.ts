@@ -34,7 +34,8 @@ export class CharacterTemplateEditorPane extends EditorPane {
     this.reload = append(actions, $('button', { type: 'button', hidden: true }));
     this.overwrite = append(actions, $('button', { type: 'button', hidden: true }, 'Overwrite Saved Template'));
     this.content = append(this.page, $('div', { class: 'character-template-content' }));
-    this.bindRecoveryAction(this.reload, input => input.reload());
+    // Retry after a failed read keeps the draft. Only the conflict choice discards it.
+    this.bindRecoveryAction(this.reload, input => input.hasConflict ? input.reload() : input.retry());
     this.bindRecoveryAction(this.overwrite, input => input.overwrite());
   }
 
