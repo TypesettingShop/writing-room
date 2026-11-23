@@ -309,6 +309,42 @@ describe('dropping on a group body', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  test('a refused navigator drop ends its drag at once, before the window\'s deferred end', () => {
+    placeGroup(right);
+    const observer = new NavigatorDragAndDropObserver('application/x-test-navigator');
+    const open = vi.fn(async () => {});
+    disposables.add(registerNavigatorDropProvider({ observer, isForWork: () => true, hasItems: () => false, open }));
+    const source = bodyOf(left);
+    const data = transfer();
+    observer.startDrag(dispatch(source, 'dragstart', data), source, { workId: 'work', nodeIds: ['empty'] });
+    dispatch(bodyOf(right), 'drop', data, { clientX: 500, clientY: 285 });
+    expect(observer.isDragging).toBe(false);
+
+    const strip = transfer();
+    observer.startDrag(dispatch(source, 'dragstart', strip), source, { workId: 'work', nodeIds: ['empty'] });
+    dispatch(right.titleContainer, 'drop', strip);
+    expect(observer.isDragging).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  test('an edge drop whose provider opens nothing in the new split removes that split', async () => {
+    placeGroup(right);
+    const observer = new NavigatorDragAndDropObserver('application/x-test-navigator');
+    const open = vi.fn(async () => {});
+    disposables.add(registerNavigatorDropProvider({ observer, isForWork: () => true, hasItems: () => true, open }));
+    const source = bodyOf(left);
+    const data = transfer();
+    const point = { clientX: 995, clientY: 285 };
+    observer.startDrag(dispatch(source, 'dragstart', data), source, { workId: 'work', nodeIds: ['open elsewhere'] });
+    dispatch(bodyOf(right), 'dragenter', data, point);
+    expect(overlay()?.getAttribute('data-editor-drop-position')).toBe('right');
+    dispatch(overlay()!, 'drop', data, point);
+    expect(open).toHaveBeenCalledOnce();
+    expect(part.count).toBe(3);
+    await vi.waitFor(() => expect(part.count).toBe(2));
+    expect(part.groups).toEqual(expect.arrayContaining([left, right]));
+  });
+
   test('a tab dropped in the centre of another group moves there, active, in the active group', () => {
     placeGroup(right);
     const data = transfer();

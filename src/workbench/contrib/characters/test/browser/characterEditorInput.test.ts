@@ -144,3 +144,25 @@ test('disposes a loading card after a successful tree read confirms it is missin
   expect(input.isDisposed()).toBe(true);
   expect(serializer.serialize(input)).toBeUndefined();
 });
+
+test('refreshes once per open of a resource still missing after the refresh, and never for an unloaded tree', async () => {
+  const { opener, state } = setup([]);
+  await expect(opener.resolveInput(characterUri(workId, nodeId))).resolves.toBeUndefined();
+  expect(state.refresh).toHaveBeenCalledOnce();
+
+  const unloaded = setup(undefined);
+  await expect(unloaded.opener.resolveInput(characterUri(workId, nodeId))).resolves.toBeUndefined();
+  expect(unloaded.state.ensureLoaded).toHaveBeenCalledOnce();
+  expect(unloaded.state.refresh).not.toHaveBeenCalled();
+});
+
+test('does not take a stale tree without the character as a deletion while the last read failed', async () => {
+  const { instantiation, state } = setup([]);
+  state.error = 'The server is unavailable.';
+  const input = serializer.deserialize(instantiation, serialized)!;
+  await expect(input.resolve()).resolves.toBeNull();
+  expect(input.availability).toBe('unavailable');
+  expect(input.isDisposed()).toBe(false);
+  expect(serializer.serialize(input)).toBe(serialized);
+  input.dispose();
+});
