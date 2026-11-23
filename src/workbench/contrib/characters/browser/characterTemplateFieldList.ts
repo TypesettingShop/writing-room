@@ -5,6 +5,7 @@ import {
   type CharacterFieldDefinition, type CharacterFieldKind,
 } from '../../../../platform/characters/common/characterFields.js';
 import { getDefaultCharacterTemplate } from '../../../../platform/characters/common/defaultCharacterTemplate.js';
+import type { CharactersStore } from '../../../../platform/characters/common/charactersStore.js';
 import { IDialogService, Severity, type IPromptHandle } from '../../../../platform/dialogs/common/dialogs.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -23,6 +24,17 @@ export function newTemplateFieldId(used: ReadonlySet<string>, generate: () => st
   return id;
 }
 
+export async function readFieldValueCount(
+  store: Pick<CharactersStore, 'getTree'>, workId: string, fieldId: string,
+): Promise<number | undefined> {
+  try {
+    const { nodes } = await store.getTree(workId);
+    return nodes.filter(node => node.kind === 'character' && !!node.values[fieldId]).length;
+  } catch {
+    return undefined;
+  }
+}
+
 function move<T>(items: readonly T[], from: number, to: number): T[] {
   const result = [...items];
   const [item] = result.splice(from, 1);
@@ -34,7 +46,9 @@ function setMessage(element: HTMLElement, message: string): void {
   if (element.textContent !== message) {
     element.textContent = message;
   }
-  element.hidden = !message;
+  if (element.hidden !== !message) {
+    element.hidden = !message;
+  }
 }
 
 interface DropTarget {
@@ -62,6 +76,7 @@ export class CharacterTemplateFieldList extends Disposable {
   private composing = 0;
   private disposed = false;
   private adding = false;
+  private checkingDelete = false;
   private prompt: IPromptHandle | undefined;
   private drag: FieldDrag | undefined;
   private marker: DropTarget | undefined;
@@ -254,10 +269,22 @@ export class CharacterTemplateFieldList extends Disposable {
   }
 
   private async removeField(id: string): Promise<void> {
-    const field = this.input.fields?.find(field => field.id === id);
-    if (!field || !await this.confirm(`Delete "${field.label || 'Untitled Field'}"?`,
-      'Character values are kept and come back if a field with the same ID is restored.', 'Delete Field')) {
+    if (this.checkingDelete || this.prompt || this.composing) {
       return;
+    }
+    this.checkingDelete = true;
+    try {
+      const count = await readFieldValueCount(this.characters.store, this.input.workId, id);
+      const field = this.input.fields?.find(field => field.id === id);
+      const affected = count === undefined ? 'The number of characters with a value could not be checked.'
+        : count === 1 ? '1 character has a value in this field.'
+        : `${count} characters have a value in this field.`;
+      if (!field || !await this.confirm(`Delete "${field.label || 'Untitled Field'}"?`,
+        `${affected} Values are kept and come back if a field with the same ID is restored.`, 'Delete Field')) {
+        return;
+      }
+    } finally {
+      this.checkingDelete = false;
     }
     const fields = this.input.fields ?? [];
     const index = fields.findIndex(field => field.id === id);
@@ -402,6 +429,7 @@ class TemplateFieldRow extends Disposable {
   private readonly up: HTMLButtonElement;
   private readonly down: HTMLButtonElement;
   private readonly error: HTMLParagraphElement;
+  private shownField: CharacterFieldDefinition | undefined;
 
   constructor(id: string, private readonly keybindings: IKeybindingService, private readonly events: RowEvents) {
     super();
@@ -463,13 +491,24 @@ class TemplateFieldRow extends Disposable {
   }
 
   update(field: CharacterFieldDefinition, index: number, count: number, error: string): void {
-    this.element.setAttribute('aria-label', field.label || 'Untitled Field');
     const active = this.element.ownerDocument.activeElement;
-    this.up.disabled = index === 0;
-    this.down.disabled = index === count - 1;
+    const first = index === 0;
+    const last = index === count - 1;
+    if (this.up.disabled !== first) {
+      this.up.disabled = first;
+    }
+    if (this.down.disabled !== last) {
+      this.down.disabled = last;
+    }
     if ((this.up.disabled && active === this.up) || (this.down.disabled && active === this.down)) {
       this.element.focus({ preventScroll: true });
     }
+    setMessage(this.error, error);
+    if (this.shownField === field) {
+      return;
+    }
+    this.shownField = field;
+    this.element.setAttribute('aria-label', field.label || 'Untitled Field');
     this.label.setValue(field.label);
     const unknown = !kinds.has(field.kind);
     const kindLabel = unknown ? `Unknown Kind (${field.kind})` : kinds.get(field.kind)!;
@@ -483,7 +522,6 @@ class TemplateFieldRow extends Disposable {
     this.placeholder.setValue(field.placeholder ?? '');
     this.optionGroup.hidden = field.kind !== 'choice';
     this.updateOptions(field.kind === 'choice' ? field.options ?? [] : []);
-    setMessage(this.error, error);
   }
 
   private field(parent: HTMLElement, kind: CharacterFieldKind, label: string, change: (value: string) => void): FieldInput {

@@ -84,7 +84,8 @@ export class CharacterTemplateEditorInput extends EditorInput {
       return;
     }
     const wasDirty = this.isDirty();
-    this.draft = structuredClone([...fields]);
+    const current = new Set(this.draft);
+    this.draft = fields.map(field => current.has(field) ? field : structuredClone(field));
     this.fireChange(wasDirty);
   }
 

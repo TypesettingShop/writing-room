@@ -89,10 +89,13 @@ export class CharacterTemplateEditorPane extends EditorPane {
   }
 
   private render(input: CharacterTemplateEditorInput): void {
-    this.status.textContent = input.isSaving ? 'Saving…'
+    const status = input.isSaving ? 'Saving…'
       : input.isDirty() ? 'Unsaved changes'
       : input.fields ? 'Saved'
       : input.hasReadError ? '' : 'Loading fields…';
+    if (this.status.textContent !== status) {
+      this.status.textContent = status;
+    }
     const message = input.hasConflict
       ? input.hasReadError
         ? 'The field template changed. The saved version could not be loaded. Your draft is still open.'

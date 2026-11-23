@@ -5,9 +5,9 @@ import { normalizeCharacterValues, type CharacterValues } from '../../../../plat
 import {
   CharacterStoreError, normalizeCharacterTitle, type CharacterEntry, type CharacterType,
 } from '../../../../platform/characters/common/characters.js';
-import type { CharactersStore } from '../../../../platform/characters/common/charactersStore.js';
 import { Severity, type IDialogService, type IPromptHandle } from '../../../../platform/dialogs/common/dialogs.js';
 import type { INotificationService } from '../../../../platform/notification/common/notification.js';
+import type { WindowCharactersStore } from '../../../services/characters/common/charactersService.js';
 
 export interface CharacterCardValues {
   readonly title: string;
@@ -59,7 +59,7 @@ export class CharacterCardModel extends Disposable {
     private readonly workId: string,
     node: CharacterEntry,
     revision: number,
-    private readonly characters: CharactersStore,
+    private readonly characters: Pick<WindowCharactersStore, 'updateNode' | 'checkTemplateChanges'>,
     private readonly readTree: (minimumRevision?: number) => Promise<CharacterCardSnapshot | undefined>,
     private readonly dialogs: IDialogService,
     private readonly notifications: INotificationService,
@@ -174,11 +174,15 @@ export class CharacterCardModel extends Disposable {
     if (this.deleted || this.disposed || this.discardInProgress) {
       return false;
     }
-    if (!this.dirty) {
-      return true;
-    }
-    if (reason === 'auto' && (this.composition || this.autoPaused)) {
+    const dirty = this.dirty;
+    if (dirty && reason === 'auto' && (this.composition || this.autoPaused)) {
       return false;
+    }
+    if (dirty || reason === 'explicit') {
+      void this.characters.checkTemplateChanges(this.workId);
+    }
+    if (!dirty) {
+      return true;
     }
     this.autoSave.cancel();
     const draftAtStart = this.current;

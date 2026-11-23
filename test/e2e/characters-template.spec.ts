@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import type { CharacterValues } from '../../src/platform/characters/common/characterFields.js';
 import type { CharacterTree } from '../../src/platform/characters/common/characters.js';
 import type { CharacterTemplateSnapshot } from '../../src/platform/characters/common/charactersStore.js';
 import { getDefaultCharacterTemplate } from '../../src/platform/characters/common/defaultCharacterTemplate.js';
@@ -38,6 +39,12 @@ async function createWork(request: APIRequestContext, baseURL: string) {
       });
       expect(response.status()).toBe(201);
       return (await response.json()).node.id;
+    },
+    async setValues(id: string, values: CharacterValues): Promise<void> {
+      const response = await request.patch(api + '/nodes/' + id, {
+        headers, data: { values, expectedRevision: (await tree()).revision },
+      });
+      expect(response.ok()).toBe(true);
     },
   };
 }
@@ -204,6 +211,90 @@ test('saves native Hangul composition without replacing the focused label or mov
   await expect(label).toHaveValue('한국');
   await page.keyboard.press('ControlOrMeta+s');
   await expect.poll(async () => (await work.template()).fields[1].label).toBe('한국');
+});
+
+test('keeps removed values through card saves and restores them with the default template', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const rin = await work.add('Rin');
+  const kai = await work.add('Kai');
+  await work.setValues(rin, { appearance: 'White coat', role: '조연' });
+  await work.setValues(kai, { appearance: 'Blue scarf' });
+  const savedValues = async () => (await work.tree()).nodes.find(node => node.id === rin)?.values;
+
+  await openCardAndTemplate(page, work.url, 'Rin');
+  const template = templatePane(page);
+  const appearance = card(page).getByRole('textbox', { name: '외형', exact: true });
+  const goal = card(page).getByRole('textbox', { name: '목표와 욕구', exact: true });
+  const appearanceRow = template.locator('[data-template-field="appearance"]');
+  const roleRow = template.locator('[data-template-field="role"]');
+  await expect(appearance).toHaveValue('White coat');
+  const dialog = page.getByRole('dialog');
+  const removeAppearance = appearanceRow.getByRole('button', { name: 'Delete Field' });
+  await page.route(`**${work.api}/tree`, route => route.fulfill({ status: 503 }), { times: 1 });
+  await removeAppearance.click();
+  await expect(dialog.getByText(/The number of characters with a value could not be checked/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await removeAppearance.click();
+  await expect(dialog.getByText(/2 characters have a value in this field/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Delete Field', exact: true }).click();
+  await roleRow.press('ControlOrMeta+s');
+  await expect(appearance).toHaveCount(0);
+
+  await goal.fill('Find a friend');
+  await goal.press('ControlOrMeta+s');
+  await expect.poll(savedValues).toEqual({ appearance: 'White coat', role: '조연', goal: 'Find a friend' });
+
+  await roleRow.getByRole('button', { name: 'Delete Option' }).nth(1).click();
+  await roleRow.press('ControlOrMeta+s');
+  const warning = card(page).getByRole('status', { name: 'Invalid saved value for 역할' });
+  const original = card(page).getByRole('textbox', { name: 'Original value for 역할' });
+  await expect(warning).toBeVisible();
+  await expect(original).toHaveValue('조연');
+  await expect(original).not.toBeEditable();
+  await goal.fill('Bring a letter');
+  await goal.press('ControlOrMeta+s');
+  await expect.poll(savedValues).toEqual({ appearance: 'White coat', role: '조연', goal: 'Bring a letter' });
+
+  const choice = card(page).getByRole('combobox', { name: '역할', exact: true });
+  await choice.selectOption('주연');
+  await choice.press('ControlOrMeta+s');
+  await expect(warning).toBeHidden();
+  await expect.poll(savedValues).toEqual({ appearance: 'White coat', role: '주연', goal: 'Bring a letter' });
+
+  await template.getByRole('button', { name: 'Reset to Default Template' }).click();
+  await dialog.getByRole('button', { name: 'Reset to Default Template', exact: true }).click();
+  await appearanceRow.press('ControlOrMeta+s');
+  await expect(appearance).toHaveValue('White coat');
+  await expect(choice).toHaveValue('주연');
+});
+
+test('refreshes an open card after its next save when another window changes the template', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const id = await work.add('Rin');
+  await work.setValues(id, { goal: 'Original value' });
+  await page.goto(work.url);
+  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await page.getByRole('treeitem', { name: 'Rin', exact: true }).dblclick();
+  const goal = card(page).getByRole('textbox', { name: '목표와 욕구', exact: true });
+  await expect(goal).toHaveValue('Original value');
+
+  const other = await page.context().newPage();
+  try {
+    await other.goto(work.url);
+    await templateCommand(other);
+    const goalLabel = templatePane(other).locator('[data-template-field="goal"]').getByRole('textbox', { name: 'Label', exact: true });
+    await goalLabel.fill('New goal label');
+    await goalLabel.press('ControlOrMeta+s');
+    await expect.poll(async () => (await work.template()).fields[0].label).toBe('New goal label');
+    await expect(goal).toHaveValue('Original value');
+
+    const revision = (await work.tree()).revision;
+    await goal.press('ControlOrMeta+s');
+    await expect(card(page).getByRole('textbox', { name: 'New goal label', exact: true })).toHaveValue('Original value');
+    expect((await work.tree()).revision).toBe(revision);
+  } finally {
+    await other.close();
+  }
 });
 
 test('hides the field template command in a window without a work', async ({ page }) => {
