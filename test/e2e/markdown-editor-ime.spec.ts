@@ -286,7 +286,7 @@ for (const action of [
         document.documentElement.dataset.testQuickInputAtCompositionEnd =
           String(document.querySelector('.wr-quick-input-box') !== null);
         document.documentElement.dataset.testContextMenuAtCompositionEnd =
-          String(document.querySelector('.wr-menu[aria-label="Markdown editor"]') !== null);
+          String(document.querySelector('.wr-menu[aria-label="Manuscript Editor"]') !== null);
       }, { once: true });
     });
     const cdp = await page.context().newCDPSession(page);
@@ -325,7 +325,7 @@ for (const action of [
           return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         });
         await page.mouse.click(point.x, point.y, { button: 'right' });
-        const menu = page.getByRole('menu', { name: 'Markdown editor' });
+        const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
         await expect(menu).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');
         await expect(page.locator('html')).toHaveAttribute('data-test-context-menu-at-composition-end', 'false');
@@ -339,7 +339,7 @@ for (const action of [
       }
       case 'context menu key': {
         await page.keyboard.press('Shift+F10');
-        const menu = page.getByRole('menu', { name: 'Markdown editor' });
+        const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
         await expect(menu.getByRole('menuitem', { name: 'Undo' })).toBeFocused();
         await expect(menu.getByRole('group')).toHaveCount(0);
         await expect(page.locator('html')).toHaveAttribute('data-test-composition-end', '요');

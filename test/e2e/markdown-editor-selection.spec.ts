@@ -37,7 +37,7 @@ for (const { name, last, selector, expected, contextMenu } of cases) {
       button: contextMenu ? 'right' : 'left',
     });
     if (contextMenu) {
-      const menu = page.getByRole('menu', { name: 'Markdown editor' });
+      const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
       await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
       await page.keyboard.press('Escape');
     }
@@ -80,7 +80,7 @@ for (const [side, block, selector, button, final] of [
     const bounds = await box(atom);
     await page.mouse.click(side === 'left' ? paper.x - 12 : paper.x + paper.width + 12, bounds.y + bounds.height / 2, { button });
     if (button === 'right') {
-      const menu = page.getByRole('menu', { name: 'Markdown editor' });
+      const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
       await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
       await page.keyboard.press('Escape');
     }
@@ -426,7 +426,7 @@ test('right-clicking below a read-only rule leaves a collapsed selection', async
   expect((await box(atom)).y).toBe(bounds.y);
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height + 24, { button: 'right' });
 
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
   await expect(atom).not.toHaveClass(/ProseMirror-selectednode/);
   await expect.poll(() => editor.evaluate(element => element.ownerDocument.getSelection()?.isCollapsed)).toBe(true);
@@ -484,7 +484,7 @@ test('selects and copies read-only Markdown with the mouse without moving the ty
   const range = '3\n\nLine';
   await expect.poll(selection).toBe(range);
   await page.mouse.click(end.x - 3, end.y, { button: 'right' });
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const copy = menu.getByRole('menuitem', { name: 'Copy', exact: true });
   await expect(copy).toBeEnabled();
   for (const name of ['Cut', 'Paste', 'Paste as Plain Text']) {

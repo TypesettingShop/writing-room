@@ -998,7 +998,7 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
   const group = await openMarkdown(page, name, 'Alpha **beta** {.right}');
   const editor = richEditor(group);
   const toolbar = group.getByRole('toolbar', { name: 'Markdown formatting' });
-  const toolbox = page.getByRole('menu', { name: 'Markdown editor' });
+  const toolbox = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const beta = editor.locator('strong', { hasText: 'beta' });
   await beta.click({ timeout: 20_000 });
   await page.keyboard.press('End');
@@ -1085,7 +1085,7 @@ test('opens the Markdown selection toolbox at the selection and shares the toolb
 test('shows basic editing commands at the Markdown caret and shares editor history', async ({ appPage: page }) => {
   const group = await openMarkdown(page, 'edit-menu.md', 'First paragraph\n\nSecond paragraph');
   const editor = richEditor(group);
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const item = (name: string) => menu.getByRole('menuitem', { name, exact: true });
   const first = editor.getByText('First paragraph', { exact: true });
   await first.click({ button: 'right', timeout: 20_000 });
@@ -1144,7 +1144,7 @@ test('moves the Markdown caret and opens basic editing commands outside a select
   });
   await outside.click({ position: point, button: 'right' });
   await expect(editor).toHaveAttribute('data-context-prevented', 'true');
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
   await expect(menu.getByRole('group')).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -1189,7 +1189,7 @@ test('lets the browser handle Shift+right-click outside a Markdown selection', a
   });
   await outside.click({ button: 'right', modifiers: ['Shift'], position: { x: 16, y: 8 } });
   await expect(page.locator('html')).toHaveAttribute('data-native-menu-allowed', 'true');
-  await expect(page.getByRole('menu', { name: 'Markdown editor' })).toHaveCount(0);
+  await expect(page.getByRole('menu')).toHaveCount(0);
 });
 
 test('allows Copy and Select All in the read-only Markdown context menu', async ({ appPage: page }) => {
@@ -1210,7 +1210,7 @@ test('allows Copy and Select All in the read-only Markdown context menu', async 
   });
   await page.mouse.click(point.x, point.y, { button: 'right' });
   await expect(text).toHaveAttribute('data-context-prevented', 'true');
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   for (const name of ['Undo', 'Redo', 'Cut', 'Paste', 'Paste as Plain Text']) {
     await expect(menu.getByRole('menuitem', { name, exact: true })).toBeDisabled();
   }
@@ -1262,7 +1262,7 @@ test('keeps the read-only Markdown context menu open with typewriter scrolling e
   });
   expect(scrollTop).toBe(12);
   await line.click({ button: 'right', position: { x: 18, y: 8 } });
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   await expect(menu.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
   const caret = await line.evaluate(async element => {
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -1278,7 +1278,7 @@ test('cuts, copies and pastes through the Markdown selection toolbox and sanitiz
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const group = await openMarkdown(page, 'toolbox-clipboard.md', 'First [**word**]{.underline}\n\nReplace this');
   const editor = richEditor(group);
-  const toolbox = page.getByRole('menu', { name: 'Markdown editor' });
+  const toolbox = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const word = editor.locator('u strong');
   const selectWord = async () => {
     await word.click({ timeout: 20_000 });
@@ -1351,7 +1351,7 @@ for (const item of ['Paste', 'Paste as Plain Text']) {
     await page.keyboard.press('Home');
     await page.keyboard.press('Shift+End');
     await page.keyboard.press('Shift+F10');
-    await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: item, exact: true }).click();
+    await page.getByRole('menu', { name: 'Manuscript Editor', exact: true }).getByRole('menuitem', { name: item, exact: true }).click();
     await expect(page.getByText('Could not paste using the clipboard. Try the keyboard shortcut.', { exact: true })).toBeVisible();
     await expect(editor).toHaveText('Keep this selection');
     await expect.poll(() => editor.evaluate(() => document.getSelection()?.toString())).toBe('Keep this selection');
@@ -1363,7 +1363,7 @@ test('pastes only literal unformatted clipboard text from the Markdown context m
   const name = 'plain-text-paste.md';
   const group = await openMarkdown(page, name, '**Before Replace After**\n\nSecond');
   const editor = richEditor(group);
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const plain = menu.getByRole('menuitem', { name: 'Paste as Plain Text' });
   const writeClipboard = (text: string, includePlain = true) => page.evaluate(async ({ text, includePlain }) => {
     await navigator.clipboard.write([new ClipboardItem({
@@ -1432,7 +1432,7 @@ test('pastes a copied WYSIWYG fragment as visible text with block boundaries', a
 
   const destination = await openMarkdown(page, 'paste-formatted-fragment.md', '');
   const target = richEditor(destination);
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const paste = async (name: string) => {
     await page.keyboard.press('Shift+F10');
     await menu.getByRole('menuitem', { name, exact: true }).click();
@@ -1492,7 +1492,7 @@ test('discards a clipboard read if the original Markdown caret moves while it is
     });
   });
   await page.keyboard.press('Shift+F10');
-  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
+  await page.getByRole('menu', { name: 'Manuscript Editor', exact: true }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-test-clipboard-pending', 'true');
   await expect(editor).toBeFocused();
   await paragraph.click({ position: { x: 1, y: 5 } });
@@ -1756,7 +1756,7 @@ test('right-click selects a Markdown image for Copy and Cut', async ({ appPage: 
   const editor = richEditor(group);
   const image = editor.getByRole('img', { name: 'Pixel' });
   const selectedImage = editor.locator('.markdown-image.ProseMirror-selectednode');
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const copy = menu.getByRole('menuitem', { name: 'Copy', exact: true });
   const cut = menu.getByRole('menuitem', { name: 'Cut', exact: true });
   await expect(image).toHaveAttribute('src', /^blob:/, { timeout: 20_000 });
@@ -1790,7 +1790,7 @@ test('copies the WYSIWYG selection as Markdown or rendered HTML', async ({ appPa
   ].join('\n\n');
   const group = await openMarkdown(page, 'copy-in-formats.md', source);
   const editor = richEditor(group);
-  const menu = page.getByRole('menu', { name: 'Markdown editor' });
+  const menu = page.getByRole('menu', { name: 'Manuscript Editor', exact: true });
   const copyMenuItem = (name: string) => menu.getByRole('menuitem', { name, exact: true });
   const bold = editor.locator('strong');
   await expect(bold).toHaveText('굵게', { timeout: 20_000 });
@@ -1862,7 +1862,7 @@ test('keeps the last successful Markdown copy when a clipboard write fails', asy
     await editor.focus({ timeout: 20_000 });
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press('Shift+F10');
-    const copy = page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Copy as Markdown' });
+    const copy = page.getByRole('menu', { name: 'Manuscript Editor', exact: true }).getByRole('menuitem', { name: 'Copy as Markdown' });
     await expect(copy).toBeEnabled();
     await copy.click();
   };
@@ -1891,13 +1891,13 @@ test('pastes a Markdown copy as visible text into a code block from the menu', a
   await expect(editor.locator('strong')).toHaveText('굵게', { timeout: 20_000 });
   await editor.locator('strong').dblclick();
   await page.keyboard.press('Shift+F10');
-  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Copy as Markdown' }).click();
+  await page.getByRole('menu', { name: 'Manuscript Editor', exact: true }).getByRole('menuitem', { name: 'Copy as Markdown' }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('**굵게**');
 
   await editor.locator('pre').click();
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+F10');
-  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
+  await page.getByRole('menu', { name: 'Manuscript Editor', exact: true }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
   await expect(editor.locator('pre')).toHaveText('x굵게');
 });
 
@@ -1952,7 +1952,7 @@ test('pastes the visible text of a copy from the menu without resolving it again
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Shift+F10');
-  await page.getByRole('menu', { name: 'Markdown editor' }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
+  await page.getByRole('menu', { name: 'Manuscript Editor', exact: true }).getByRole('menuitem', { name: 'Paste as Plain Text' }).click();
   await expect(editor.locator('p')).toHaveText(['**굵게**', '**굵게**']);
 });
 

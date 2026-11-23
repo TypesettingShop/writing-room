@@ -132,7 +132,7 @@
 
 ### 이름의 내력
 
-2026-11-22에 사람이 "이렇게 계속 부를 수는 없다"고 하여 Manuscript Editor(원고 편집기)로 정했다. VS Code의 내장 확장도 Markdown Editor(`vscode.markdown.editor`)를 등록하므로 같은 이름이 둘이어서 헷갈렸다. 바뀐 것은 화면에 보이는 이름뿐이다. 저장되는 id(에디터 입력의 `typeId`, `markdownEditor.*` 설정 키), 커맨드 category `Markdown`, 본문 textbox의 접근 이름 `Markdown editor`는 그대로다. 두 모드는 같은 `TextFileEditorModel`을 쓴다. [아키텍처](architecture.md#markdown-editor)
+2026-11-22에 사람이 "이렇게 계속 부를 수는 없다"고 하여 Manuscript Editor(원고 편집기)로 정했다. VS Code의 내장 확장도 Markdown Editor(`vscode.markdown.editor`)를 등록하므로 같은 이름이 둘이어서 헷갈렸다. `markdownEditor.typewriterScroll`, `markdownEditor.fontSize`, `markdownEditor.fontFamily`의 설정 설명에 **Manuscript Editor**라는 이름을 쓴다. 본문 컨텍스트 메뉴의 접근 이름은 `Manuscript Editor`이고, 본문 textbox의 접근 이름은 `Markdown editor`다. 에디터 입력의 `typeId`, `markdownEditor.*` 설정 키, 커맨드 category `Markdown`은 기존 이름을 쓴다. 두 모드는 같은 `TextFileEditorModel`을 쓴다. [아키텍처](architecture.md#markdown-editor)
 
 ## 원고 저장과 로그인
 
