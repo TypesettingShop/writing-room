@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { CharactersRepository } from '../src/platform/characters/common/charactersStore.js';
 import { ManuscriptStoreError } from '../src/platform/manuscript/common/manuscript.js';
 import type { ManuscriptRepository } from '../src/platform/manuscript/common/manuscriptStore.js';
 import { createAuthRoutes, type AuthOptions } from './auth/authRoutes.js';
@@ -7,8 +8,10 @@ import { sessionUser } from './auth/session.js';
 import type { ApiConfig } from './config.js';
 import { ApiError, sendError, sendJson } from './http/errors.js';
 import { matchRoute, splitTarget } from './http/router.js';
+import { characterRoutes } from './routes/characters.js';
 import { workRoutes } from './routes/works.js';
 
+const storageRoutes = [...workRoutes, ...characterRoutes];
 const mutationMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const loopbackHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -23,6 +26,7 @@ function isAllowedHost(host: string | undefined, allowedHosts: ReadonlySet<strin
 
 export interface ApiOptions {
   repository: ManuscriptRepository;
+  charactersRepository?: CharactersRepository;
   authenticate?: Authenticate;
   accountAuth?: AuthOptions;
   store: ApiConfig['store'];
@@ -67,15 +71,23 @@ export function createApiServer(options: ApiOptions) {
         return;
       }
 
-      const { handler, workId, nodeId } = matchRoute(workRoutes, path, method, response);
+      const { handler, workId, nodeId } = matchRoute(storageRoutes, path, method, response);
       checkOrigin(request, method);
       const user = accountAuth && await sessionUser(accountAuth.store, request, new Date(now()));
       const userId = user?.id ?? await options.authenticate?.(request);
       if (!userId) {
         throw new ManuscriptStoreError('unauthorized');
       }
-      const store = options.repository.forUser(userId);
-      await handler({ request, response, store, workId, nodeId, query });
+      await handler({
+        request, response, workId, nodeId, query,
+        get store() { return options.repository.forUser(userId); },
+        get characters() {
+          if (!options.charactersRepository) {
+            throw new ApiError(503, 'unavailable', 'Character storage is unavailable.');
+          }
+          return options.charactersRepository.forUser(userId);
+        },
+      });
     } catch (error) {
       if (response.destroyed) {
         return;

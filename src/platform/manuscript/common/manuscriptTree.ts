@@ -5,15 +5,19 @@ import {
 import type { CreateNode, NodeDestination, UpdateNode } from './manuscriptStore.js';
 
 type ParentId = string | null;
+type PositionedNode = Pick<ManuscriptNode, 'id' | 'parentId' | 'position' | 'updatedAt'> & { kind: string };
+type TreeErrorCode = 'not_found' | 'invalid' | 'limit';
 
 /** Shared structural mutations. Stores hold the work revision lock while applying these changes. */
-export class ManuscriptTreeEditor {
-  private readonly nodes: ReadonlyMap<string, ManuscriptNode>;
-  private readonly siblings = new Map<ParentId, ManuscriptNode[]>();
-  readonly changed = new Map<string, ManuscriptNode>();
+export abstract class OrderedTreeEditor<Node extends PositionedNode> {
+  protected abstract canParent(kind: Node['kind'], parentKind: Node['kind'] | null): boolean;
+  protected readonly missingDestination: 'invalid' | 'not_found' = 'invalid';
+  protected readonly nodes: ReadonlyMap<string, Node>;
+  private readonly siblings = new Map<ParentId, Node[]>();
+  readonly changed = new Map<string, Node>();
   readonly deleted = new Set<string>();
 
-  constructor(nodes: ReadonlyMap<string, ManuscriptNode>) {
+  constructor(nodes: ReadonlyMap<string, Node>) {
     this.nodes = nodes;
     for (const node of nodes.values()) {
       const siblings = this.siblings.get(node.parentId);
@@ -28,45 +32,62 @@ export class ManuscriptTreeEditor {
     }
   }
 
-  private node(id: string): ManuscriptNode {
+  protected node(id: string): Node {
     const node = this.nodes.get(id);
     if (!node) {
-      throw new ManuscriptStoreError('not_found');
+      throw this.error('not_found');
     }
     return node;
   }
 
-  private children(parentId: ParentId): readonly ManuscriptNode[] {
+  private children(parentId: ParentId): readonly Node[] {
     return this.siblings.get(parentId) ?? [];
   }
 
-  private parentKind(parentId: ParentId): ManuscriptNodeKind | null {
+  protected error(code: TreeErrorCode): Error {
+    return new ManuscriptStoreError(code);
+  }
+
+  protected validateParent(kind: Node['kind'], parentId: ParentId): void {
+    if (!this.canParent(kind, this.parentKind(parentId))) {
+      throw this.error('invalid');
+    }
+  }
+
+  private parentKind(parentId: ParentId): Node['kind'] | null {
     if (parentId === null) {
       return null;
     }
-    if (!isManuscriptId(parentId)) {
-      throw new ManuscriptStoreError('invalid');
+    // A missing or non-string ID is a malformed request, not a missing resource.
+    if (typeof parentId !== 'string') {
+      throw this.error('invalid');
     }
-    const parent = this.nodes.get(parentId);
+    const parent = isManuscriptId(parentId) ? this.nodes.get(parentId) : undefined;
     if (!parent) {
-      throw new ManuscriptStoreError('invalid');
+      throw this.error(this.missingDestination);
     }
     return parent.kind;
   }
 
-  private place(destination: NodeDestination, siblings: ManuscriptNode[], nodes: ManuscriptNode[]): void {
+  private place(destination: NodeDestination, siblings: Node[], nodes: Node[]): void {
     if (destination.beforeId === undefined) {
       siblings.push(...nodes);
       return;
     }
+    if (typeof destination.beforeId !== 'string') {
+      throw this.error('invalid');
+    }
+    if (this.missingDestination === 'not_found' && !this.nodes.has(destination.beforeId)) {
+      throw this.error('not_found');
+    }
     const index = siblings.findIndex(node => node.id === destination.beforeId);
     if (index === -1) {
-      throw new ManuscriptStoreError('invalid');
+      throw this.error('invalid');
     }
     siblings.splice(index, 0, ...nodes);
   }
 
-  private renumber(parentId: ParentId, siblings: readonly ManuscriptNode[], now: number): void {
+  private renumber(parentId: ParentId, siblings: readonly Node[], now: number): void {
     siblings.forEach((node, position) => {
       if (node.parentId !== parentId || node.position !== position || !this.nodes.has(node.id)) {
         this.changed.set(node.id, { ...node, parentId, position, updatedAt: now });
@@ -74,22 +95,113 @@ export class ManuscriptTreeEditor {
     });
   }
 
+  protected insert(node: Node, destination: NodeDestination, now: number): Node {
+    const siblings = [...this.children(node.parentId)];
+    this.place(destination, siblings, [node]);
+    this.renumber(node.parentId, siblings, now);
+    return this.changed.get(node.id)!;
+  }
+
+  /** Preorder traversal supplies the current tree order for a multi-node selection. */
+  orderedNodes(parentId: ParentId = null): Node[] {
+    const result: Node[] = [];
+    const pending = [...this.children(parentId)].reverse();
+    while (pending.length) {
+      const node = pending.pop()!;
+      result.push(node);
+      const children = this.children(node.id);
+      for (let index = children.length - 1; index >= 0; index--) {
+        pending.push(children[index]);
+      }
+    }
+    return result;
+  }
+
+  move(nodeIds: readonly string[], destination: NodeDestination, now: number): void {
+    if (!Array.isArray(nodeIds) || !nodeIds.length || !nodeIds.every(id => typeof id === 'string')) {
+      throw this.error('invalid');
+    }
+    if (!nodeIds.every(isManuscriptId)) {
+      throw this.error(this.missingDestination);
+    }
+    const selected = new Set(nodeIds);
+    for (const id of selected) {
+      this.node(id);
+    }
+    const { parentId, beforeId } = destination;
+    const parentKind = this.parentKind(parentId);
+    for (let ancestor = parentId; ancestor !== null; ancestor = this.node(ancestor).parentId) {
+      if (selected.has(ancestor)) {
+        throw this.error('invalid');
+      }
+    }
+    const moved = this.orderedNodes().filter(node => {
+      if (!selected.has(node.id)) {
+        return false;
+      }
+      for (let ancestor = node.parentId; ancestor !== null; ancestor = this.node(ancestor).parentId) {
+        if (selected.has(ancestor)) {
+          return false;
+        }
+      }
+      return true;
+    });
+    if (moved.some(node => !this.canParent(node.kind, parentKind))) {
+      throw this.error('invalid');
+    }
+
+    const movingIds = new Set(moved.map(node => node.id));
+    const destinationSiblings = this.children(parentId);
+    const remaining = destinationSiblings.filter(node => !movingIds.has(node.id));
+    // A selected anchor keeps its original insertion slot among the remaining siblings.
+    if (beforeId !== undefined && movingIds.has(beforeId)) {
+      const anchor = this.node(beforeId);
+      if (anchor.parentId !== parentId) {
+        throw this.error('invalid');
+      }
+      const next = destinationSiblings.find(node => node.position > anchor.position && !movingIds.has(node.id));
+      destination = { parentId, beforeId: next?.id };
+    }
+    this.place(destination, remaining, moved);
+    this.renumber(parentId, remaining, now);
+    for (const source of new Set(moved.map(node => node.parentId))) {
+      if (source !== parentId) {
+        this.renumber(source, this.children(source).filter(node => !movingIds.has(node.id)), now);
+      }
+    }
+  }
+
+  protected removeSubtree(nodeId: string, now: number): Node[] {
+    const root = this.node(nodeId);
+    const removed = [root, ...this.orderedNodes(nodeId)];
+    for (const node of removed) {
+      this.deleted.add(node.id);
+    }
+    this.renumber(root.parentId, this.children(root.parentId).filter(node => node.id !== nodeId), now);
+    return removed;
+  }
+}
+
+/** Manuscript validation and data on top of the shared tree operations. */
+export class ManuscriptTreeEditor extends OrderedTreeEditor<ManuscriptNode> {
+  protected canParent(kind: ManuscriptNodeKind, parentKind: ManuscriptNodeKind | null): boolean {
+    return manuscriptNodeTypes[kind].allowedParents.includes(parentKind);
+  }
+
   create(input: CreateNode, id: string, now: number): ManuscriptNode {
     if (this.nodes.size >= manuscriptLimits.nodes) {
       throw new ManuscriptStoreError('limit');
     }
     const { parentId, kind } = input;
-    if (!isManuscriptNodeKind(kind) || !manuscriptNodeTypes[kind].allowedParents.includes(this.parentKind(parentId))) {
+    if (!isManuscriptNodeKind(kind)) {
       throw new ManuscriptStoreError('invalid');
     }
+    this.validateParent(kind, parentId);
     const node: ManuscriptNode = {
       id, parentId, kind, title: normalizeManuscriptTitle(input.title, true), position: 0,
       metadata: {}, createdAt: now, updatedAt: now,
     };
-    const siblings = [...this.children(parentId)];
-    this.place(input, siblings, [node]);
-    this.renumber(parentId, siblings, now);
-    return this.changed.get(id)!;
+    return this.insert(node, input, now);
   }
 
   update(nodeId: string, input: UpdateNode, now: number): ManuscriptNode {
@@ -128,82 +240,7 @@ export class ManuscriptTreeEditor {
     }
   }
 
-  /** Preorder traversal supplies the current tree order for a multi-node selection. */
-  orderedNodes(parentId: ParentId = null): ManuscriptNode[] {
-    const result: ManuscriptNode[] = [];
-    const pending = [...this.children(parentId)].reverse();
-    while (pending.length) {
-      const node = pending.pop()!;
-      result.push(node);
-      const children = this.children(node.id);
-      for (let index = children.length - 1; index >= 0; index--) {
-        pending.push(children[index]);
-      }
-    }
-    return result;
-  }
-
-  move(nodeIds: readonly string[], destination: NodeDestination, now: number): void {
-    if (!Array.isArray(nodeIds) || !nodeIds.length || !nodeIds.every(isManuscriptId)) {
-      throw new ManuscriptStoreError('invalid');
-    }
-    const selected = new Set(nodeIds);
-    for (const id of selected) {
-      this.node(id);
-    }
-    const { parentId, beforeId } = destination;
-    const parentKind = this.parentKind(parentId);
-    for (let ancestor = parentId; ancestor !== null; ancestor = this.node(ancestor).parentId) {
-      if (selected.has(ancestor)) {
-        throw new ManuscriptStoreError('invalid');
-      }
-    }
-    const moved = this.orderedNodes().filter(node => {
-      if (!selected.has(node.id)) {
-        return false;
-      }
-      for (let ancestor = node.parentId; ancestor !== null; ancestor = this.node(ancestor).parentId) {
-        if (selected.has(ancestor)) {
-          return false;
-        }
-      }
-      return true;
-    });
-    if (moved.some(node => !manuscriptNodeTypes[node.kind].allowedParents.includes(parentKind))) {
-      throw new ManuscriptStoreError('invalid');
-    }
-
-    const movingIds = new Set(moved.map(node => node.id));
-    const destinationSiblings = this.children(parentId);
-    const remaining = destinationSiblings.filter(node => !movingIds.has(node.id));
-    // A selected anchor keeps its original insertion slot among the remaining siblings.
-    if (beforeId !== undefined && movingIds.has(beforeId)) {
-      const anchor = this.node(beforeId);
-      if (anchor.parentId !== parentId) {
-        throw new ManuscriptStoreError('invalid');
-      }
-      const next = destinationSiblings.find(node => node.position > anchor.position && !movingIds.has(node.id));
-      destination = { parentId, beforeId: next?.id };
-    }
-    this.place(destination, remaining, moved);
-    this.renumber(parentId, remaining, now);
-    for (const source of new Set(moved.map(node => node.parentId))) {
-      if (source !== parentId) {
-        this.renumber(source, this.children(source).filter(node => !movingIds.has(node.id)), now);
-      }
-    }
-  }
-
   delete(nodeId: string, now: number): string[] {
-    const root = this.node(nodeId);
-    const documentIds: string[] = [];
-    for (const node of [root, ...this.orderedNodes(nodeId)]) {
-      this.deleted.add(node.id);
-      if (node.kind === 'document') {
-        documentIds.push(node.id);
-      }
-    }
-    this.renumber(root.parentId, this.children(root.parentId).filter(node => node.id !== nodeId), now);
-    return documentIds;
+    return this.removeSubtree(nodeId, now).filter(node => node.kind === 'document').map(node => node.id);
   }
 }
