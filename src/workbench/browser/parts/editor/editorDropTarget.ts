@@ -1,12 +1,13 @@
 import { $, addDisposableListener, append, DragAndDropObserver } from '../../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
-import type { ManuscriptOpener } from '../../../contrib/manuscript/browser/manuscriptOpener.js';
-import { DraggedEditorGroupIdentifier, EditorDragAndDropObserver, ManuscriptDragAndDropObserver } from '../../dnd.js';
-import type { DraggedEditorItem, DraggedManuscriptItems } from '../../dnd.js';
+import type { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { DraggedEditorGroupIdentifier, EditorDragAndDropObserver } from '../../dnd.js';
+import type { DraggedEditorItem } from '../../dnd.js';
 import { GroupDirection } from '../../../services/editor/common/editorGroupsService.js';
 import { mergeDroppedGroup } from './editor.js';
 import type { IEditorGroupsView, IEditorGroupView } from './editor.js';
+import { onDidEndNavigatorDrag, readNavigatorDrop, type NavigatorEditorDrop } from './editorAreaDrops.js';
 import './media/editordroptarget.css';
 
 /**
@@ -56,22 +57,19 @@ export function isDropIntoGroupOffered(groupsView: IEditorGroupsView, group: IEd
   return source !== group || source.count > 1;
 }
 
-type EditorAreaDrag = DraggedEditorItem | DraggedManuscriptItems;
-type GetManuscriptOpener = () => ManuscriptOpener;
+type EditorAreaDrag = DraggedEditorItem | NavigatorEditorDrop;
 
-function readDrag(event: DragEvent, element: HTMLElement, getManuscriptOpener: GetManuscriptOpener): EditorAreaDrag | undefined {
-  const manuscript = ManuscriptDragAndDropObserver.INSTANCE.getDraggedItems(event, element);
-  if (manuscript && getManuscriptOpener().isForWork(manuscript.workId)) {
-    return manuscript;
-  }
-  return EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, element);
+function readDrag(event: DragEvent, element: HTMLElement, instantiation: IInstantiationService): EditorAreaDrag | undefined {
+  return instantiation.invokeFunction(accessor => readNavigatorDrop(event, element, accessor))
+    ?? EditorDragAndDropObserver.INSTANCE.getDraggedItem(event, element);
 }
 
-/** Whether `item` may be dropped onto the body of `group`; a manuscript drag only when it would open a document. */
+/** Whether the drop would change the group or open an item from a navigator. */
 function isBodyDropOffered(
-  groupsView: IEditorGroupsView, group: IEditorGroupView, item: EditorAreaDrag, getManuscriptOpener: GetManuscriptOpener,
+  groupsView: IEditorGroupsView, group: IEditorGroupView, item: EditorAreaDrag, instantiation: IInstantiationService,
 ): boolean {
-  return 'workId' in item ? getManuscriptOpener().hasDocuments(item.nodeIds) : isDropIntoGroupOffered(groupsView, group, item);
+  return 'kind' in item ? instantiation.invokeFunction(accessor => item.provider.hasItems(accessor, item.items.nodeIds))
+    : isDropIntoGroupOffered(groupsView, group, item);
 }
 
 const positions: Record<GroupDirection | 'center', { readonly name: string; readonly top: string; readonly left: string; readonly width: string; readonly height: string }> = {
@@ -83,7 +81,7 @@ const positions: Record<GroupDirection | 'center', { readonly name: string; read
 };
 
 /**
- * The overlay over one group's body while an editor, group or manuscript is dragged over it. It sits above the
+ * The overlay over one group's body while an editor, group or navigator item is dragged over it. It sits above the
  * editor content and takes the drag events itself, so the Monaco editor below never sees the drag
  * as a text drop. Its indicator covers the half a new group would take, or the whole body.
  */
@@ -96,7 +94,7 @@ export class DropOverlay extends Disposable {
     private readonly groupsView: IEditorGroupsView,
     readonly groupView: IEditorGroupView,
     private readonly onDidLeave: () => void,
-    private readonly getManuscriptOpener: GetManuscriptOpener,
+    private readonly instantiation: IInstantiationService,
   ) {
     super();
     this.element = $('.editor-group-overlay');
@@ -117,8 +115,8 @@ export class DropOverlay extends Disposable {
   }
 
   private onDragOver(event: DragEvent): void {
-    const item = readDrag(event, this.element, this.getManuscriptOpener);
-    if (item && isBodyDropOffered(this.groupsView, this.groupView, item, this.getManuscriptOpener)) {
+    const item = readDrag(event, this.element, this.instantiation);
+    if (item && isBodyDropOffered(this.groupsView, this.groupView, item, this.instantiation)) {
       this.update(event, item);
     } else {
       this.onDidLeave();
@@ -127,16 +125,16 @@ export class DropOverlay extends Disposable {
 
   /** Ends the drag and carries out the drop of `event` on this group's body, where it is offered. */
   drop(event: DragEvent): void {
-    const item = readDrag(event, this.element, this.getManuscriptOpener);
-    const offered = !!item && isBodyDropOffered(this.groupsView, this.groupView, item, this.getManuscriptOpener);
+    const item = readDrag(event, this.element, this.instantiation);
+    const offered = !!item && isBodyDropOffered(this.groupsView, this.groupView, item, this.instantiation);
     if (offered) {
       this.update(event, item);
     }
     const splitDirection = this.splitDirection;
     event.preventDefault();
     // Whatever the drop does, the drag is over: no payload or overlay outlives it.
-    if (item && 'workId' in item) {
-      ManuscriptDragAndDropObserver.INSTANCE.endDrag();
+    if (item && 'kind' in item) {
+      item.provider.observer.endDrag();
     } else {
       EditorDragAndDropObserver.INSTANCE.endDrag();
     }
@@ -144,10 +142,15 @@ export class DropOverlay extends Disposable {
     if (!item || !offered) {
       return;
     }
-    if ('workId' in item) {
-      // Offered only with a document to open, so a split never leaves an empty group behind.
+    if ('kind' in item) {
       const group = splitDirection === undefined ? this.groupView : this.groupsView.addGroup(this.groupView, splitDirection);
-      void this.getManuscriptOpener().openDocuments(item.nodeIds, { group });
+      void this.instantiation.invokeFunction(accessor => item.provider.open(accessor, item.items.nodeIds, group))
+        .catch(console.error).finally(() => {
+          // Existing tabs can satisfy a drop without opening anything in the new split.
+          if (group !== this.groupView && !group.disposed && group.isEmpty) {
+            this.groupsView.removeGroup(group, true);
+          }
+        });
     } else {
       handleDrop(this.groupsView, this.groupView, item, splitDirection);
     }
@@ -157,7 +160,7 @@ export class DropOverlay extends Disposable {
   update(event: DragEvent, item: EditorAreaDrag): void {
     event.preventDefault();
     if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'workId' in item ? 'copy' : 'move';
+      event.dataTransfer.dropEffect = 'kind' in item ? 'copy' : 'move';
     }
     // Relative to the body, below the tab strip, as the grid sizes it.
     const bounds = this.groupView.element.getBoundingClientRect();
@@ -218,7 +221,7 @@ function handleDrop(groupsView: IEditorGroupsView, target: IEditorGroupView, ite
 
 /**
  * The editor part's drop target. Over a group body it shows a `DropOverlay` for editor, group
- * and manuscript drags; every other drag (files, text, view containers) finds nothing to drop
+ * and registered navigator drags; every other drag (files, text, view containers) finds nothing to drop
  * on there, and Monaco never sees any drag. The tab strips handle their own drops.
  */
 export class EditorDropTarget extends Disposable {
@@ -228,7 +231,7 @@ export class EditorDropTarget extends Disposable {
   constructor(
     private readonly container: HTMLElement,
     private readonly groupsView: IEditorGroupsView,
-    private readonly getManuscriptOpener: GetManuscriptOpener,
+    private readonly instantiation: IInstantiationService,
   ) {
     super();
     // Capture: the decision is made before the editor content below can take the event.
@@ -236,7 +239,7 @@ export class EditorDropTarget extends Disposable {
       this._register(addDisposableListener(container, type, (event: DragEvent) => this.onDragEvent(event), true));
     }
     this._register(EditorDragAndDropObserver.INSTANCE.onDidEndDrag(() => this.disposeOverlay()));
-    this._register(ManuscriptDragAndDropObserver.INSTANCE.onDidEndDrag(() => this.disposeOverlay()));
+    this._register(onDidEndNavigatorDrag(() => this.disposeOverlay()));
   }
 
   private onDragEvent(event: DragEvent): void {
@@ -244,7 +247,7 @@ export class EditorDropTarget extends Disposable {
     if (this.overlay?.contains(target)) {
       return;
     }
-    const item = readDrag(event, this.container, this.getManuscriptOpener);
+    const item = readDrag(event, this.container, this.instantiation);
     const group = this.groupsView.groups.find(candidate => candidate.element.contains(target));
     if (!group || group.titleContainer.contains(target)) {
       // The pointer is off every body. An overlay it left before ever reaching it (the overlay
@@ -253,8 +256,11 @@ export class EditorDropTarget extends Disposable {
         this.disposeOverlay();
       }
       // A tab strip offers its own drop for our drags; anything else is refused anywhere in the part.
-      if (!item || 'workId' in item) {
+      if (!item || 'kind' in item) {
         this.refuse(event);
+        if (item && event.type === 'drop') {
+          item.provider.observer.endDrag();
+        }
       }
       return;
     }
@@ -267,7 +273,7 @@ export class EditorDropTarget extends Disposable {
       }
       return;
     }
-    if (item && isBodyDropOffered(this.groupsView, group, item, this.getManuscriptOpener)) {
+    if (item && isBodyDropOffered(this.groupsView, group, item, this.instantiation)) {
       // The first event over the body puts the overlay in place; the ones after reach the overlay,
       // but a drop can still come here if the browser has not moved its target onto the overlay yet.
       if (this.overlay?.groupView !== group) {
@@ -284,6 +290,9 @@ export class EditorDropTarget extends Disposable {
       this.disposeOverlay();
     }
     this.refuse(event);
+    if (item && 'kind' in item && event.type === 'drop') {
+      item.provider.observer.endDrag();
+    }
   }
 
   /** Accepts the event so the browser does nothing with it (no navigation to a dropped file), and drops nothing. */
@@ -302,7 +311,7 @@ export class EditorDropTarget extends Disposable {
       if (this.overlay === overlay) {
         this.disposeOverlay();
       }
-    }, this.getManuscriptOpener);
+    }, this.instantiation);
     this.overlayStore.add(overlay);
     this.overlayStore.add(group.onWillDispose(() => this.disposeOverlay()));
   }
@@ -315,7 +324,7 @@ export class EditorDropTarget extends Disposable {
 
 /** Sets up the part's drop target; the part disposes it with itself. */
 export function createEditorDropTarget(
-  container: HTMLElement, groupsView: IEditorGroupsView, getManuscriptOpener: GetManuscriptOpener,
+  container: HTMLElement, groupsView: IEditorGroupsView, instantiation: IInstantiationService,
 ): IDisposable {
-  return new EditorDropTarget(container, groupsView, getManuscriptOpener);
+  return new EditorDropTarget(container, groupsView, instantiation);
 }

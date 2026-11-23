@@ -196,3 +196,16 @@ test('Open uses the navigator selection and ignores command arguments', async ()
   await instantiation.invokeFunction(run, id(99));
   expect(openCharacters).toHaveBeenCalledExactlyOnceWith([character.id]);
 });
+
+test('Open All in Folder opens only the selected folder and ignores command arguments', async () => {
+  const { state, instantiation, openCharacters } = createNavigator(undefined, [character, { ...folder, position: 1 }]);
+  const run = CommandsRegistry.getCommand('characters.openAllInFolder')!.handler;
+  await state.ensureLoaded();
+  state.select(character.id);
+  await instantiation.invokeFunction(run, folder.id);
+  expect(openCharacters).not.toHaveBeenCalled();
+
+  state.select(folder.id);
+  await instantiation.invokeFunction(run, character.id);
+  expect(openCharacters).toHaveBeenCalledExactlyOnceWith([folder.id]);
+});

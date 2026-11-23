@@ -77,7 +77,6 @@ registerCharactersAction('collapseAll', 'Collapse All', {
   state.collapseAll();
 });
 
-// Open takes context order 4; order 6 is left for Open All in Folder.
 registerCharactersAction('open', 'Open', { f1: true, menu: context(4, ContextKeyExpr.equals(CHARACTERS_SELECTION_KIND, 'character')) }, async (state, accessor) => {
   const opener = accessor.get(ICharacterOpener);
   await state.ensureLoaded();
@@ -91,6 +90,14 @@ registerCharactersAction('enterFolder', 'Enter Folder', { f1: true, menu: contex
   const folder = state.singleSelection();
   if (folder?.kind === 'folder') {
     state.enter(folder.id);
+  }
+});
+registerCharactersAction('openAllInFolder', 'Open All in Folder', { f1: true, menu: context(6, hasFolder) }, async (state, accessor) => {
+  const opener = accessor.get(ICharacterOpener);
+  await state.ensureLoaded();
+  const folder = state.singleSelection();
+  if (folder?.kind === 'folder') {
+    await opener.openCharacters([folder.id]);
   }
 });
 registerCharactersAction('rename', 'Rename...', { f1: true, menu: context(30) }, async (state, accessor) => {
