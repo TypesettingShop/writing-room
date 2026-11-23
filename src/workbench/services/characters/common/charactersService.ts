@@ -9,8 +9,13 @@ export interface DeletedCharacters {
   readonly nodeIds: readonly string[];
 }
 
+export interface WindowCharactersStore extends CharactersStore {
+  /** Checks on a card's next save and broadcasts a newer template to this window. */
+  checkTemplateChanges(workId: string): Promise<void>;
+}
+
 export interface ICharactersService extends BrandedService {
-  readonly store: CharactersStore;
+  readonly store: WindowCharactersStore;
   readonly usesMemory: boolean;
   readonly onDidChangeTree: Event<string>;
   readonly onDidChangeTemplate: Event<string>;

@@ -7,6 +7,7 @@ import type { IKeybindingService } from '../../../../platform/keybinding/common/
 import type { CharacterCardModel } from './characterCardModel.js';
 import { characterTypeIcon } from './characterIcons.js';
 import { FieldInput } from './fieldInputs.js';
+import './media/characterCardValue.css';
 
 function isSupported(kind: string): kind is CharacterFieldKind {
   return kind === 'text' || kind === 'longText' || kind === 'choice';
@@ -31,9 +32,88 @@ interface CardSection {
   readonly body: HTMLDivElement;
 }
 
-interface CardField {
-  readonly definition: CharacterFieldDefinition;
-  readonly input: FieldInput;
+class CardField extends Disposable {
+  readonly element: HTMLDivElement;
+  private readonly previous: HTMLDivElement;
+  private readonly warning: HTMLParagraphElement;
+  private readonly original: HTMLTextAreaElement;
+  private readonly replace: HTMLButtonElement;
+  private definition: CharacterFieldDefinition;
+  private invalidValue: string | undefined;
+  private replacing = false;
+
+  constructor(private readonly input: FieldInput, definition: CharacterFieldDefinition) {
+    super();
+    this._register(input);
+    this.definition = definition;
+    const document = input.element.ownerDocument;
+    this.element = document.createElement('div');
+    this.element.className = 'character-card-field';
+    const previous = this.previous = document.createElement('div');
+    previous.className = 'character-field character-card-preserved-value';
+    this.warning = previous.appendChild(document.createElement('p'));
+    this.warning.className = 'character-card-invalid-warning';
+    this.warning.setAttribute('role', 'status');
+    this.original = previous.appendChild(document.createElement('textarea'));
+    this.original.rows = 2;
+    this.original.readOnly = true;
+    this.replace = previous.appendChild(document.createElement('button'));
+    this.replace.type = 'button';
+    this.replace.className = 'character-card-replace-value';
+    this.replace.textContent = 'Replace Value';
+    this.element.append(input.element);
+    this._register(addDisposableListener(this.replace, 'click', () => {
+      this.replacing = true;
+      this.render(this.invalidValue, false);
+      input.control.focus();
+    }));
+    this.update(definition);
+  }
+
+  get kind(): CharacterFieldKind { return this.input.kind; }
+
+  update(definition: CharacterFieldDefinition): void {
+    this.definition = definition;
+    this.input.update(definition);
+    this.warning.setAttribute('aria-label', `Invalid saved value for ${definition.label}`);
+    this.warning.textContent = `The original value for ${definition.label} does not match the current field.`;
+    this.original.setAttribute('aria-label', `Original value for ${definition.label}`);
+    this.replace.setAttribute('aria-label', `Replace value for ${definition.label}`);
+  }
+
+  render(value: string | undefined, deleted: boolean): void {
+    const invalid = !!value && !checkFieldValue(this.definition, value);
+    if (!invalid || value !== this.invalidValue) {
+      this.replacing = false;
+      if (invalid) {
+        this.original.value = value!;
+      }
+    }
+    this.invalidValue = invalid ? value : undefined;
+    if (invalid && this.previous.parentElement !== this.element) {
+      this.element.prepend(this.previous);
+    } else if (!invalid) {
+      this.previous.remove();
+    }
+    this.replace.hidden = !invalid || deleted || this.kind !== 'text' || this.replacing;
+    this.input.element.hidden = invalid && (deleted || (this.kind === 'text' && !this.replacing));
+    if (!this.input.element.hidden) {
+      this.input.setValue(this.replacing ? '' : value ?? '', deleted);
+      // Keep the current invalid choice visible as a prompt. Only valid options can replace it.
+      if (invalid && this.input.control instanceof HTMLSelectElement) {
+        const obsolete = this.input.control.selectedOptions.item(0);
+        if (obsolete?.value === value) {
+          obsolete.disabled = true;
+          obsolete.textContent = 'Choose a replacement';
+        }
+      }
+    }
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.element.remove();
+  }
 }
 
 export class CharacterCardForm extends Disposable {
@@ -161,21 +241,23 @@ export class CharacterCardForm extends Disposable {
         sections.set(key, group);
         previousSection = heading;
       }
-      let input = this.fields.get(id)?.input;
-      if (!input || input.kind !== kind) {
-        input?.dispose();
-        input = this.makeInput(kind, value => {
+      let field = this.fields.get(id);
+      if (!field || field.kind !== kind) {
+        field?.dispose();
+        const input = this.makeInput(kind, value => {
           this.model.edit({ ...this.model.draft, values: { ...this.model.draft.values, [id]: value } });
         });
+        field = new CardField(input, definition);
+      } else {
+        field.update(definition);
       }
-      input.update(definition);
-      fields.set(id, { input, definition });
-      group.controls.push(input.element);
+      fields.set(id, field);
+      group.controls.push(field.element);
     }
 
     for (const [id, field] of this.fields) {
       if (!fields.has(id)) {
-        field.input.dispose();
+        field.dispose();
       }
     }
     placeChildren(this.body, [...sections.values()].map(({ section }) => section.element));
@@ -221,18 +303,15 @@ export class CharacterCardForm extends Disposable {
       this.status.textContent = message;
       this.status.hidden = !message;
     }
-    for (const [id, { definition, input }] of this.fields) {
-      const value = draft.values[id];
-      // Preserve obsolete values even when the current template no longer accepts them.
-      const invalid = value !== undefined && value !== '' && !checkFieldValue(definition, value);
-      input.setValue(value ?? '', deleted || (invalid && input.kind === 'text'));
+    for (const [id, field] of this.fields) {
+      field.render(draft.values[id], deleted);
     }
   }
 
   override dispose(): void {
     this.disposed = true;
-    for (const { input } of this.fields.values()) {
-      input.dispose();
+    for (const field of this.fields.values()) {
+      field.dispose();
     }
     super.dispose();
     this.card.replaceChildren();

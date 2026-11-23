@@ -101,3 +101,55 @@ it('emits template changes locally and keeps the character tree event independen
     manuscript.dispose();
   }
 });
+
+it('announces a new revision at the next check and retries after an unavailable read', async () => {
+  const manuscript = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status));
+  const workId = crypto.randomUUID();
+  let revision = 0;
+  const fetcher = vi.fn(async () => Response.json({ fields: [], revision }));
+  const service = new WindowCharactersService(manuscript, status => new HttpCharactersStore(status, fetcher));
+  try {
+    const changed = vi.fn((id: string) => service.store.getTemplate(id));
+    service.onDidChangeTemplate(changed);
+    await service.store.getTemplate(workId);
+    await service.store.checkTemplateChanges(workId);
+    expect(changed).not.toHaveBeenCalled();
+
+    revision = 1;
+    await service.store.getTemplate(workId);
+    expect(changed).not.toHaveBeenCalled();
+    fetcher.mockRejectedValueOnce(new Error('Unavailable'));
+    await service.store.checkTemplateChanges(workId);
+    expect(changed).not.toHaveBeenCalled();
+    await service.store.checkTemplateChanges(workId);
+    expect(await changed.mock.results[0].value).toMatchObject({ revision: 1 });
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    await service.store.checkTemplateChanges(workId);
+    expect(changed).toHaveBeenCalledExactlyOnceWith(workId);
+  } finally {
+    service.dispose();
+    manuscript.dispose();
+  }
+});
+
+it('does not show an older template when overlapping reads complete out of order', async () => {
+  const manuscript = new WindowManuscriptService('', undefined, status => new HttpManuscriptStore(status));
+  const workId = crypto.randomUUID();
+  let finishPrevious!: (response: Response) => void;
+  const previous = new Promise<Response>(resolve => { finishPrevious = resolve; });
+  const fetcher = vi.fn(async () => Response.json({ fields: [], revision: 1 })).mockReturnValueOnce(previous);
+  const service = new WindowCharactersService(manuscript, status => new HttpCharactersStore(status, fetcher));
+  try {
+    const earlierRead = service.store.getTemplate(workId);
+    await expect(service.store.getTemplate(workId)).resolves.toMatchObject({ revision: 1 });
+    finishPrevious(Response.json({ fields: [], revision: 0 }));
+    await expect(earlierRead).resolves.toMatchObject({ revision: 1 });
+    const changed = vi.fn();
+    service.onDidChangeTemplate(changed);
+    await service.store.checkTemplateChanges(workId);
+    expect(changed).not.toHaveBeenCalled();
+  } finally {
+    service.dispose();
+    manuscript.dispose();
+  }
+});

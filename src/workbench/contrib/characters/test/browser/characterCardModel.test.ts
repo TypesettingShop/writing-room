@@ -32,18 +32,34 @@ function setup() {
     return { node, revision: snapshot.revision };
   });
   const error = vi.fn();
+  const checkTemplateChanges = vi.fn(async (_workId: string) => {});
   const close = vi.fn();
   const prompt = vi.fn(() => ({ result: Promise.resolve<number | undefined>(2), close }));
   const model = disposables.add(new CharacterCardModel('work', initial, 1, {
-    updateNode: write,
-  } as unknown as CharactersStore, read, { _serviceBrand: undefined, prompt }, { error, warn: vi.fn() } as unknown as INotificationService));
+    updateNode: write, checkTemplateChanges,
+  }, read, { _serviceBrand: undefined, prompt }, { error, warn: vi.fn() } as unknown as INotificationService));
   return {
-    model, read, write, error, prompt,
+    model, read, write, error, prompt, checkTemplateChanges,
     external(node: CharacterEntry | undefined) {
       snapshot = { node, revision: snapshot.revision + 1 };
     },
   };
 }
+
+test('checks for a new template on an explicit clean save and on a dirty auto save', async () => {
+  const { model, write, checkTemplateChanges } = setup();
+  await expect(model.save('auto')).resolves.toBe(true);
+  expect(checkTemplateChanges).not.toHaveBeenCalled();
+  await expect(model.save('explicit')).resolves.toBe(true);
+  expect(checkTemplateChanges).toHaveBeenCalledExactlyOnceWith('work');
+  expect(write).not.toHaveBeenCalled();
+  checkTemplateChanges.mockClear();
+
+  model.edit({ ...model.draft, title: 'Updated' });
+  await expect(model.save('auto')).resolves.toBe(true);
+  expect(checkTemplateChanges).toHaveBeenCalledExactlyOnceWith('work');
+  expect(write).toHaveBeenCalledTimes(1);
+});
 
 test('uses the whole tree revision and retries automatically when this card matches its baseline', async () => {
   const { model, write, external, prompt } = setup();
