@@ -16,8 +16,11 @@
   font-weight: 600;
 }
 
-.character-template-status,
-.character-template-field-details {
+.character-template [hidden] {
+  display: none;
+}
+
+.character-template-status {
   color: var(--vscode-descriptionForeground);
 }
 
@@ -54,17 +57,70 @@
   cursor: default;
 }
 
-.character-template-fields {
+.character-template-content {
   max-width: 48rem;
+  margin-block-start: 16px;
+}
+
+.character-template-fields {
   margin: 16px 0 0;
   padding: 0;
   list-style: none;
 }
 
 .character-template-fields li {
+  position: relative;
   display: grid;
-  gap: 4px;
-  padding: 10px 0;
+  gap: 12px;
+  padding-block: 12px;
   border-bottom: 1px solid var(--vscode-editorWidget-border);
   overflow-wrap: anywhere;
+}
+
+.character-template-fields li:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.character-template-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 12px;
+}
+
+.character-template-option-group,
+.character-template-options {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.character-template-option {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.character-template-actions button.character-template-drag {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.character-template-fields [data-template-drop]::after {
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  background: var(--vscode-focusBorder);
+  pointer-events: none;
+  content: '';
+}
+
+.character-template-fields [data-template-drop="before"]::after {
+  top: 0;
+}
+
+.character-template-fields [data-template-drop="after"]::after {
+  bottom: 0;
 }

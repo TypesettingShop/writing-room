@@ -42,64 +42,90 @@ function isFieldRecord(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && Object.prototype.toString.call(value) === '[object Object]';
 }
 
-function normalizeFieldText(value: unknown, limit: number, required = false): string {
+export class CharacterTemplateValidationError extends CharacterStoreError {
+  constructor(
+    readonly detail: string,
+    readonly fieldIndex?: number,
+    code: 'invalid' | 'too_large' = 'invalid',
+  ) {
+    super(code);
+  }
+}
+
+function normalizeFieldText(value: unknown, limit: number, name: string, index: number, required = false): string {
   if (typeof value !== 'string' || invalidText.test(value)) {
-    throw new CharacterStoreError('invalid');
+    throw new CharacterTemplateValidationError(`${name} must be valid text.`, index);
   }
   const text = value.trim().normalize('NFC');
-  if ((required && !text) || [...text].length > limit) {
-    throw new CharacterStoreError('invalid');
+  if (required && !text) {
+    throw new CharacterTemplateValidationError(`${name} cannot be empty.`, index);
+  }
+  if ([...text].length > limit) {
+    throw new CharacterTemplateValidationError(`${name} cannot exceed ${limit} characters.`, index);
   }
   return text;
 }
 
-function normalizeOptions(value: unknown): string[] {
-  if (!Array.isArray(value) || !value.length || value.length > characterFieldLimits.options) {
-    throw new CharacterStoreError('invalid');
+function normalizeOptions(value: unknown, index: number): string[] {
+  if (!Array.isArray(value) || !value.length) {
+    throw new CharacterTemplateValidationError('Add at least one option.', index);
   }
-  const options = Array.from(value, option => normalizeFieldText(option, characterFieldLimits.option, true));
+  if (value.length > characterFieldLimits.options) {
+    throw new CharacterTemplateValidationError(`A field can have at most ${characterFieldLimits.options} options.`, index);
+  }
+  const options = Array.from(value, (option, position) =>
+    normalizeFieldText(option, characterFieldLimits.option, `Option ${position + 1}`, index, true));
   if (new Set(options).size !== options.length) {
-    throw new CharacterStoreError('invalid');
+    throw new CharacterTemplateValidationError('Options must be unique.', index);
   }
   return options;
 }
 
-function normalizeField(value: unknown): CharacterFieldDefinition {
-  if (!isFieldRecord(value) || !isCharacterFieldId(value.id) ||
-    typeof value.kind !== 'string' || !value.kind.trim() ||
+function normalizeField(value: unknown, index: number): CharacterFieldDefinition {
+  if (!isFieldRecord(value) || !isCharacterFieldId(value.id)) {
+    throw new CharacterTemplateValidationError('The field ID is invalid.', index);
+  }
+  if (typeof value.kind !== 'string' || !value.kind.trim() ||
     value.kind.length > characterFieldLimits.kind || invalidText.test(value.kind)) {
-    throw new CharacterStoreError('invalid');
+    throw new CharacterTemplateValidationError('The field kind is invalid.', index);
   }
   const field: CharacterFieldDefinition = {
     id: value.id,
-    label: normalizeFieldText(value.label, characterFieldLimits.label, true),
+    label: normalizeFieldText(value.label, characterFieldLimits.label, 'Label', index, true),
     kind: value.kind,
   };
   if (value.section !== undefined) {
-    field.section = normalizeFieldText(value.section, characterFieldLimits.section);
+    field.section = normalizeFieldText(value.section, characterFieldLimits.section, 'Section', index);
   }
   if (value.placeholder !== undefined) {
-    field.placeholder = normalizeFieldText(value.placeholder, characterFieldLimits.placeholder);
+    field.placeholder = normalizeFieldText(value.placeholder, characterFieldLimits.placeholder, 'Placeholder', index);
   }
   if (value.kind === 'choice' || value.options !== undefined) {
     if (value.kind === 'text' || value.kind === 'longText') {
-      throw new CharacterStoreError('invalid');
+      throw new CharacterTemplateValidationError('This field kind does not support options.', index);
     }
-    field.options = normalizeOptions(value.options);
+    field.options = normalizeOptions(value.options, index);
   }
   return field;
 }
 
 export function normalizeCharacterTemplate(value: unknown): CharacterTemplate {
-  if (!Array.isArray(value) || value.length > characterFieldLimits.fields) {
-    throw new CharacterStoreError('invalid');
+  if (!Array.isArray(value)) {
+    throw new CharacterTemplateValidationError('The template must be a list of fields.');
+  }
+  if (value.length > characterFieldLimits.fields) {
+    throw new CharacterTemplateValidationError(`A template can have at most ${characterFieldLimits.fields} fields.`);
   }
   const template = Array.from(value, normalizeField);
-  if (new Set(template.map(field => field.id)).size !== template.length) {
-    throw new CharacterStoreError('invalid');
+  const ids = new Set<string>();
+  for (const [index, field] of template.entries()) {
+    if (ids.has(field.id)) {
+      throw new CharacterTemplateValidationError('Field IDs must be unique.', index);
+    }
+    ids.add(field.id);
   }
   if (utf8Size(JSON.stringify(template)) > characterFieldLimits.template) {
-    throw new CharacterStoreError('too_large');
+    throw new CharacterTemplateValidationError('The field template is too large.', undefined, 'too_large');
   }
   return template;
 }

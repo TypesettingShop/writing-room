@@ -1,7 +1,7 @@
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import {
-  normalizeCharacterTemplate, type CharacterFieldDefinition, type CharacterTemplate,
+  CharacterTemplateValidationError, normalizeCharacterTemplate, type CharacterFieldDefinition, type CharacterTemplate,
 } from '../../../../platform/characters/common/characterFields.js';
 import { CharacterStoreError } from '../../../../platform/characters/common/characters.js';
 import type { CharacterTemplateSnapshot } from '../../../../platform/characters/common/charactersStore.js';
@@ -214,8 +214,9 @@ export class CharacterTemplateEditorInput extends EditorInput {
         this.refreshAfterWrite = false;
         await this.read(true);
       } else {
-        const detail = error instanceof Error ? ` ${error.message}` : '';
-        this.notifications.error(`Could not save the field template.${detail}`);
+        const detail = error instanceof CharacterTemplateValidationError ? error.detail
+          : error instanceof Error ? error.message : '';
+        this.notifications.error(detail ? `Could not save the field template. ${detail}` : 'Could not save the field template.');
       }
       return undefined;
     }

@@ -1,25 +1,27 @@
 import { $, addDisposableListener, append, type Dimension } from '../../../../base/browser/dom.js';
-import { DisposableStore } from '../../../../base/common/lifecycle.js';
-import type { CharacterFieldDefinition } from '../../../../platform/characters/common/characterFields.js';
+import { DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { CharacterTemplateEditorInput } from './characterTemplateEditorInput.js';
+import { CharacterTemplateFieldList } from './characterTemplateFieldList.js';
+import './media/characterCard.css';
 import './media/characterTemplate.css';
 
 export class CharacterTemplateEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.characterTemplatePane';
 
   private readonly inputListeners = this._register(new DisposableStore());
+  private readonly fieldList = this._register(new MutableDisposable<CharacterTemplateFieldList>());
   private page!: HTMLElement;
   private status!: HTMLElement;
   private problem!: HTMLElement;
   private reload!: HTMLButtonElement;
   private overwrite!: HTMLButtonElement;
-  private list!: HTMLUListElement;
-  private renderedFields: readonly CharacterFieldDefinition[] | undefined;
+  private content!: HTMLDivElement;
 
-  constructor() {
+  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {
     super(CharacterTemplateEditorPane.ID);
   }
 
@@ -31,16 +33,22 @@ export class CharacterTemplateEditorPane extends EditorPane {
     const actions = append(this.page, $('.character-template-actions'));
     this.reload = append(actions, $('button', { type: 'button', hidden: true }));
     this.overwrite = append(actions, $('button', { type: 'button', hidden: true }, 'Overwrite Saved Template'));
-    this.list = append(this.page, $('ul', { class: 'character-template-fields', 'aria-label': 'Template fields' }));
+    this.content = append(this.page, $('div', { class: 'character-template-content' }));
     this.bindRecoveryAction(this.reload, input => input.reload());
     this.bindRecoveryAction(this.overwrite, input => input.overwrite());
   }
 
   override async setInput(input: EditorInput, options: IEditorOptions | undefined): Promise<void> {
+    if (this.input !== input) {
+      this.inputListeners.clear();
+      this.fieldList.clear();
+    }
     const setting = super.setInput(input, options);
-    this.inputListeners.clear();
     if (input instanceof CharacterTemplateEditorInput) {
-      this.inputListeners.add(input.onDidChangeState(() => this.render(input)));
+      if (!this.fieldList.value) {
+        this.inputListeners.add(input.onDidChangeState(() => this.render(input)));
+        this.fieldList.value = this.instantiation.createInstance(CharacterTemplateFieldList, this.content, input);
+      }
       this.render(input);
       await input.resolve();
     }
@@ -49,11 +57,10 @@ export class CharacterTemplateEditorPane extends EditorPane {
 
   override clearInput(): void {
     this.inputListeners.clear();
+    this.fieldList.clear();
     super.clearInput();
     this.status.textContent = '';
     this.problem.hidden = this.reload.hidden = this.overwrite.hidden = true;
-    this.renderedFields = undefined;
-    this.list.replaceChildren();
   }
 
   override layout(dimension: Dimension): void {
@@ -100,20 +107,5 @@ export class CharacterTemplateEditorPane extends EditorPane {
     this.reload.textContent = input.hasConflict ? 'Discard Draft and Reload' : 'Retry';
     this.overwrite.hidden = !input.hasConflict || input.hasReadError;
     this.overwrite.disabled = !input.canOverwrite;
-    if (this.renderedFields !== input.fields) {
-      this.renderedFields = input.fields;
-      this.renderFields(input.fields ?? []);
-    }
-  }
-
-  private renderFields(fields: readonly CharacterFieldDefinition[]): void {
-    this.list.replaceChildren();
-    for (const field of fields) {
-      const row = append(this.list, $('li'));
-      append(row, $('strong', null, field.label));
-      const kind = field.kind === 'longText' ? 'Long Text' : field.kind === 'text' ? 'Text'
-        : field.kind === 'choice' ? 'Choice' : field.kind;
-      append(row, $('span.character-template-field-details', null, field.section ? `${field.section} · ${kind}` : kind));
-    }
   }
 }
