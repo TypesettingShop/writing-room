@@ -10,6 +10,7 @@ const editorMime = 'application/x-writing-room-editor';
 /** The marker type of a drag of extension tree items. */
 export const treeMime = 'application/x-writing-room-tree';
 const manuscriptMime = 'application/x-writing-room-manuscript';
+const charactersMime = 'application/x-writing-room-characters';
 
 /**
  * Native drops leave the payload available through the target's synchronous handling.
@@ -293,23 +294,21 @@ export class TreeDragAndDropObserver {
   }
 }
 
-export interface DraggedManuscriptItems {
+export interface DraggedNavigatorItems {
   readonly workId: string;
   readonly nodeIds: readonly string[];
 }
 
 /** The marker is the only native payload. Work and node ids stay in the source document. */
-export class ManuscriptDragAndDropObserver {
-  static readonly INSTANCE = new ManuscriptDragAndDropObserver();
-
+export class NavigatorDragAndDropObserver {
   private readonly session = new DisposableStore();
   private readonly dragEnded = new Emitter<void>();
   readonly onDidEndDrag = this.dragEnded.event;
-  private active: { readonly source: HTMLElement; readonly item: DraggedManuscriptItems } | undefined;
+  private active: { readonly source: HTMLElement; readonly item: DraggedNavigatorItems } | undefined;
 
-  private constructor() {}
+  constructor(private readonly mime: string) {}
 
-  startDrag(event: DragEvent, source: HTMLElement, item: DraggedManuscriptItems): void {
+  startDrag(event: DragEvent, source: HTMLElement, item: DraggedNavigatorItems): void {
     const transfer = event.dataTransfer;
     if (!transfer || event.defaultPrevented || !item.nodeIds.length) {
       return;
@@ -317,12 +316,12 @@ export class ManuscriptDragAndDropObserver {
     this.endDrag();
     this.active = { source, item: { workId: item.workId, nodeIds: [...item.nodeIds] } };
     transfer.effectAllowed = 'copyMove';
-    transfer.setData(manuscriptMime, '1');
+    transfer.setData(this.mime, '1');
     trackDragSession(this.session, source, () => this.endDrag());
   }
 
-  getDraggedItems(event: DragEvent, element: HTMLElement): DraggedManuscriptItems | undefined {
-    if (this.active?.source.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(manuscriptMime)) {
+  getDraggedItems(event: DragEvent, element: HTMLElement): DraggedNavigatorItems | undefined {
+    if (this.active?.source.ownerDocument === element.ownerDocument && event.dataTransfer?.types.includes(this.mime)) {
       return this.active.item;
     }
     return undefined;
@@ -345,13 +344,27 @@ export class ManuscriptDragAndDropObserver {
   }
 }
 
+export type DraggedManuscriptItems = DraggedNavigatorItems;
+
+export class ManuscriptDragAndDropObserver extends NavigatorDragAndDropObserver {
+  static readonly INSTANCE = new ManuscriptDragAndDropObserver();
+
+  private constructor() { super(manuscriptMime); }
+}
+
+export class CharactersDragAndDropObserver extends NavigatorDragAndDropObserver {
+  static readonly INSTANCE = new CharactersDragAndDropObserver();
+
+  private constructor() { super(charactersMime); }
+}
+
 /**
  * Whether the drag is one of the workbench's own that a tree view must not take: an editor, an editor
- * group, a view container or a manuscript row.
+ * group, a view container or a core navigator row.
  */
 export function isWorkbenchDrag(event: DragEvent): boolean {
   const types = event.dataTransfer?.types ?? [];
-  return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime)
+  return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime) || types.includes(charactersMime)
     || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging
-    || ManuscriptDragAndDropObserver.INSTANCE.isDragging;
+    || ManuscriptDragAndDropObserver.INSTANCE.isDragging || CharactersDragAndDropObserver.INSTANCE.isDragging;
 }

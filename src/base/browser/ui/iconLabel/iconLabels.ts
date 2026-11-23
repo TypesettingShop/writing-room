@@ -2,7 +2,9 @@ import codiconNames from 'virtual:codicon-names';
 import { ThemeIcon } from '../../../common/themables.js';
 import './iconLabels.css';
 
-const knownIcons = new Set([...codiconNames, 'underline']);
+const knownIcons = new Set([
+  ...codiconNames, 'underline', 'character-male', 'character-female', 'character-unknown', 'character-animal',
+]);
 const iconInLabel = new RegExp('(\\\\)?\\$\\((' + ThemeIcon.iconIdExpression + ')\\)', 'g');
 
 export function renderIcon(icon: ThemeIcon): HTMLSpanElement | undefined {
