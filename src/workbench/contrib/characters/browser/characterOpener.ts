@@ -1,5 +1,5 @@
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IEditorGroupsService, type IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import type { URI } from '../../../../base/common/uri.js';
@@ -22,6 +22,7 @@ export class CharacterOpener {
     @ICharactersViewState private readonly state: CharactersViewState,
     @IEditorGroupsService private readonly groups: IEditorGroupsService,
     @INotificationService private readonly notifications: INotificationService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {}
 
   async resolveInput(resource: URI): Promise<CharacterEditorInput | undefined> {
@@ -38,11 +39,12 @@ export class CharacterOpener {
     if (existing) {
       return existing;
     }
-    const node = this.state.index?.nodes.get(id);
-    if (node?.kind !== 'character' || !this.state.workId) {
+    const { index, revision, workId } = this.state;
+    const node = index?.nodes.get(id);
+    if (node?.kind !== 'character' || !workId || revision === undefined) {
       return undefined;
     }
-    const input = new CharacterEditorInput(this.state.workId, node, this.state);
+    const input = this.instantiation.createInstance(CharacterEditorInput, workId, node, revision);
     this.inputs.set(id, input);
     input.onWillDispose(() => this.inputs.delete(id));
     return input;
@@ -72,11 +74,11 @@ export class CharacterOpener {
     }
     const deleted = new Set(nodeIds);
     for (const id of deleted) {
-      this.inputs.get(id)?.markDeleted();
+      this.inputs.get(id)?.model.markDeleted();
     }
     for (const group of this.groups.groups) {
       const editors = group.editors.filter(editor => editor instanceof CharacterEditorInput &&
-        editor.workId === workId && deleted.has(editor.character.id));
+        editor.workId === workId && deleted.has(editor.model.id));
       if (editors.length) {
         void group.closeEditors(editors);
       }
