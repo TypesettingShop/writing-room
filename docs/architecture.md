@@ -176,6 +176,12 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - 브라우저는 같은 오리진의 `/api`로 요청한다. 서버 오류는 작품과 편집기 저장 경로에 전달한다. `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 명시적으로 선택하면 창 안에 임시로 저장하고 상태 표시줄에 새로고침 시 사라진다는 경고를 표시한다.
 - 원고 편집기는 `manuscript://<workId>/<nodeId>.md`를 텍스트 파일로 연다. 파일 제공자는 탭을 복원하기 전에 등록되고 창이 연 작품의 URI만 받는다. 작업 영역 ID는 작품별 탭과 초안 복원 범위를 정한다. 편집기 저장과 dirty 상태는 기존 텍스트 파일 경로를 사용한다. 다른 창의 저장은 다음 쓰기에서 etag 충돌로 확인한다. 작품 구조 변경은 작품 트리 API가 담당한다.
 
+#### 등장인물 저장소
+
+- `CharactersStore`는 작품별 폴더와 등장인물 트리를 다룬다. 모든 트리 쓰기는 등장인물 리비전을 비교하며, 리비전이 바뀌면 작품의 수정 시각에도 반영한다. 인물별 필드값은 64 KiB, 작품의 비어 있지 않은 필드값 합계는 UTF-8 기준 16 MiB까지 허용한다.
+- 같은 오리진의 `/api/works/:workId/characters` 아래에서 `GET /tree`, `POST /nodes`, `POST /nodes/move`, `PATCH /nodes/:nodeId`, `DELETE /nodes/:nodeId`를 사용한다. 인증과 작품 소유권을 확인하며, 원고 요청과 창의 세션 상태를 공유한다.
+- `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 열면 현재 창에 작품과 등장인물을 임시로 저장한다. API 서버를 메모리 모드로 실행하면 서버가 작품과 등장인물을 함께 보관한다.
+
 #### Settings
 
 - **File → Preferences → Open User Settings (JSON)** 또는 F1의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. Monaco에서 키 자동 완성과 스키마 진단을 제공한다. Ctrl+S(macOS에서는 Cmd+S)로 저장하면 열린 Monaco 편집기에 적용한다 (wr-cla6.dnq). [VS Code 설정 열기 커맨드](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts)
@@ -220,4 +226,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej, wr-th5n, wr-1pn9
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej, wr-th5n, wr-1pn9, wr-df7m
