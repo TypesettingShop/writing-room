@@ -70,7 +70,7 @@ configurationRegistry.registerConfiguration({
     [MARKDOWN_EDITOR_TYPEWRITER]: {
       type: 'boolean',
       default: false,
-      description: 'Centers the caret line vertically as you write in the visual Markdown editor.',
+      description: 'Centers the caret line vertically as you write in the Manuscript Editor.',
     },
     [MARKDOWN_EDITOR_DEFAULT_MODE]: {
       type: 'string',
@@ -82,7 +82,7 @@ configurationRegistry.registerConfiguration({
       type: 'integer',
       enum: markdownFontSizes,
       default: defaultMarkdownFonts.size,
-      description: 'Default body size in points in the visual Markdown editor. Headings scale with this size.',
+      description: 'Default body size in points in the Manuscript Editor. Headings scale with this size.',
     },
     [MARKDOWN_EDITOR_FONT_FAMILY]: {
       type: ['string', 'object'],
@@ -93,7 +93,7 @@ configurationRegistry.registerConfiguration({
         serif: { type: 'string', description: 'CSS font-family list for the legacy font-serif class.' },
         sans: { type: 'string', description: 'CSS font-family list for the legacy font-sans class.' },
       },
-      description: 'Default body font in the visual Markdown editor. Choose '
+      description: 'Default body font in the Manuscript Editor. Choose '
         + markdownFontFamilies.map(({ value }) => value).join(', ')
         + '. A legacy object sets the font-serif and font-sans class stacks and uses Noto Sans KR for body text.',
     },

@@ -125,7 +125,7 @@ export function showMarkdownContextMenu(
     return operation === 'copy' ? [item, ...markdownCopyCommands.map(({ id, label }) => action(id, label, selected))] : [item];
   });
   return contextMenu.showContextMenu({
-    label: 'Markdown editor',
+    label: 'Manuscript Editor',
     horizontalGroup: markdownSelectionFormattingGroup,
     getAnchor: () => anchor,
     getActions: () => [
