@@ -6,6 +6,8 @@ import { moveAdjacent } from '../../../browser/navigator/navigatorDrag.js';
 import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/browser/viewsService.js';
 import { WorkOpenContext } from '../../../services/work/common/work.js';
+import './characterEditor.contribution.js';
+import { ICharacterOpener } from './characterOpener.js';
 import { characterTypeIcon } from './characterIcons.js';
 import {
   CHARACTERS_HAS_SELECTED_CHARACTER, CHARACTERS_SELECTION_KIND, CHARACTERS_SELECTION_TYPE, CharactersNavigator,
@@ -75,7 +77,15 @@ registerCharactersAction('collapseAll', 'Collapse All', {
   state.collapseAll();
 });
 
-// Orders before 5 and at 6 are available for the card opening actions.
+// Open takes context order 4; order 6 is left for Open All in Folder.
+registerCharactersAction('open', 'Open', { f1: true, menu: context(4, ContextKeyExpr.equals(CHARACTERS_SELECTION_KIND, 'character')) }, async (state, accessor) => {
+  const opener = accessor.get(ICharacterOpener);
+  await state.ensureLoaded();
+  const node = state.singleSelection();
+  if (node?.kind === 'character') {
+    await opener.openCharacters([node.id]);
+  }
+});
 registerCharactersAction('enterFolder', 'Enter Folder', { f1: true, menu: context(5, hasFolder) }, async state => {
   await state.ensureLoaded();
   const folder = state.singleSelection();
