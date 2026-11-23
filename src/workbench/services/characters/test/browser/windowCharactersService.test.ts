@@ -75,3 +75,29 @@ it('shares the manuscript session and ignores a late success from before sign-ou
     manuscript.dispose();
   }
 });
+
+it('emits template changes locally and keeps the character tree event independent', async () => {
+  const manuscript = new WindowManuscriptService('', 'memory', status => new HttpManuscriptStore(status));
+  const service = new WindowCharactersService(manuscript);
+  try {
+    const { id } = await manuscript.store.createWork({ title: 'Work' });
+    const templateChanged = vi.fn();
+    const treeChanged = vi.fn();
+    service.onDidChangeTemplate(templateChanged);
+    service.onDidChangeTree(treeChanged);
+
+    expect(await service.store.getTemplate(id)).toMatchObject({ revision: 0 });
+    expect(templateChanged).not.toHaveBeenCalled();
+    expect(await service.store.putTemplate(id, [{ id: 'role', label: '  Role  ', kind: 'text' }], 0))
+      .toEqual({ revision: 1, fields: [{ id: 'role', label: 'Role', kind: 'text' }] });
+    await expect(service.store.putTemplate(id, [], 0)).rejects.toMatchObject({ code: 'conflict', currentRevision: 1 });
+    expect(templateChanged.mock.calls).toEqual([[id]]);
+    expect(treeChanged).not.toHaveBeenCalled();
+    await service.store.createNode(id, { kind: 'character', parentId: null, title: '' }, 0);
+    expect(treeChanged.mock.calls).toEqual([[id]]);
+    expect(templateChanged.mock.calls).toEqual([[id]]);
+  } finally {
+    service.dispose();
+    manuscript.dispose();
+  }
+});

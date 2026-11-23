@@ -104,16 +104,21 @@ describe('characters API', () => {
     expect(await (await api.fetch(work + '/tree', { headers })).json()).toEqual({ revision: 0, nodes: [] });
   });
 
-  it('reports an unavailable character repository after authenticating the request', async () => {
-    const withoutCharacters = await startTestApi({ repository, store: 'postgres' });
-    try {
-      const path = (await workPath()) + '/characters/tree';
-      expect((await withoutCharacters.fetch(path)).status).toBe(401);
-      const response = await withoutCharacters.fetch(path, { headers });
-      expect(response.status).toBe(503);
-      expect(await response.json()).toMatchObject({ error: { code: 'unavailable' } });
-    } finally {
-      await withoutCharacters.close();
+  it('requires Origin, authentication and the revisioned JSON body on PUT template', async () => {
+    const path = (await workPath()) + '/characters/template';
+    const input = JSON.stringify({ fields: [], expectedRevision: 0 });
+    expect((await api.fetch(path)).status).toBe(401);
+    expect((await api.fetch(path, { method: 'PUT', body: input, headers: { 'X-Test-User': 'owner' } })).status).toBe(403);
+    expect((await api.fetch(path, {
+      method: 'PUT', body: input, headers: { Origin: testOrigin, 'Content-Type': 'application/json' },
+    })).status).toBe(401);
+    for (const body of [{}, { fields: [] }, { expectedRevision: 0 }, { fields: {}, expectedRevision: 0 }]) {
+      const response = await api.fetch(path, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: 'invalid' } });
     }
+    const saved = await api.fetch(path, { method: 'PUT', headers: jsonHeaders, body: input });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ fields: [], revision: 1 });
   });
 });

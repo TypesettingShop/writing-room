@@ -54,7 +54,7 @@ API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 �
 
 ### Postgres에 원고 저장하기
 
-Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다.
+Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다. 등장인물 트리는 같은 데이터베이스의 `characters` 테이블에 저장한다.
 
 ```sh
 npm run db:up
@@ -69,7 +69,7 @@ Postgres 인수 테스트는 테스트 DB URL을 지정해야 실행한다.
 WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5432/writing_room_test' npm test
 ```
 
-`npm run db:down`으로 컨테이너를 내리면 원고는 볼륨에 남는다. `npm run db:reset`은 볼륨과 로컬 원고를 지우고 개발용 DB를 다시 만든다.
+`npm run db:down`으로 컨테이너를 내리면 원고와 등장인물은 볼륨에 남는다. `npm run db:reset`은 볼륨과 로컬 원고 및 등장인물을 지우고 개발용 DB를 다시 만든다.
 
 ## 편집하고 배치하기
 
@@ -277,4 +277,4 @@ v0.2.0은 탭 편집, 도킹, 설정 JSON, 브라우저 저장소의 파일, 웹
 - 포워딩 주소에서의 Webview는 자동 테스트가 포워딩 주소를 흉내 내는 프록시로 확인하고(`test/e2e/webview-forwarded.spec.ts`, 미리보기는 `test/e2e/real-markdown-preview.spec.ts`), 실제 coder 포워딩 주소에서의 수동 확인은 담당자가 2026-11-20에 마쳤다([포워딩 주소에서 실행하기](#포워딩-주소에서-실행하기)).
 - `npm run test:e2e -- test/e2e/acceptance.spec.ts`는 도킹, 설정, 확장 설치 및 새로고침을 한 번에 확인하는 인수 시나리오만 실행한다. `moai wiki ls`로 위키 페이지와 링크를 확인할 수 있다.
 
-Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk, wr-88fi
+Decided in: wr-cla6, wr-jbmd, wr-ndsy, wr-hbrm, wr-h2sa, wr-di8f, wr-y5ob, wr-ht6k, wr-mwsu, wr-nvz4, wr-1xlk, wr-hya9, wr-2iyf, wr-rwsn, wr-cbej, wr-th5n, wr-ph6c, wr-sspk, wr-88fi, wr-df7m

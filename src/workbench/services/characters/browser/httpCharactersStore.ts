@@ -1,6 +1,7 @@
+import type { CharacterTemplate } from '../../../../platform/characters/common/characterFields.js';
 import { CharacterStoreError, isCharacterStoreErrorCode, type CharacterTree } from '../../../../platform/characters/common/characters.js';
 import type {
-  CharacterNodeChange, CharacterNodeDeletion, CharactersStore, CreateCharacterNode, UpdateCharacterNode,
+  CharacterNodeChange, CharacterNodeDeletion, CharacterTemplateSnapshot, CharactersStore, CreateCharacterNode, UpdateCharacterNode,
 } from '../../../../platform/characters/common/charactersStore.js';
 import { isManuscriptId, ManuscriptStoreError } from '../../../../platform/manuscript/common/manuscript.js';
 import type { NodeDestination, TreeChange } from '../../../../platform/manuscript/common/manuscriptStore.js';
@@ -24,6 +25,14 @@ export class HttpCharactersStore implements CharactersStore {
   constructor(status: ManuscriptStatus, fetcher?: ManuscriptFetch) {
     this.client = new WorkApiClient(status, fetcher, (code, currentRevision) =>
       isCharacterStoreErrorCode(code) ? new CharacterStoreError(code, currentRevision) : new ManuscriptStoreError(code, currentRevision));
+  }
+
+  async getTemplate(workId: string): Promise<CharacterTemplateSnapshot> {
+    return this.client.json(workPath(workId) + '/template');
+  }
+
+  async putTemplate(workId: string, fields: CharacterTemplate, expectedRevision: number): Promise<CharacterTemplateSnapshot> {
+    return this.client.json(workPath(workId) + '/template', 'PUT', { fields, expectedRevision });
   }
 
   async getTree(workId: string): Promise<CharacterTree> {
