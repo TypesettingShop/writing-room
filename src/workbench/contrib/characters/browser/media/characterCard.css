@@ -1,0 +1,121 @@
+.character-card {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  outline: none;
+  padding: 24px clamp(14px, 5%, 40px);
+  color: var(--vscode-editor-foreground);
+}
+
+.character-card > * {
+  max-inline-size: 48rem;
+  margin-inline: auto;
+}
+
+.character-card-header {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-end: 16px;
+}
+
+.character-card-header .character-field {
+  flex: 1 1 12rem;
+}
+
+.character-card .character-card-name {
+  font-size: 1.25em;
+  font-weight: 600;
+}
+
+.character-card-types {
+  display: flex;
+  gap: 4px;
+}
+
+.character-card-types button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 32px;
+  padding: 0;
+  color: inherit;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+}
+
+.character-card-types button[aria-pressed='true'] {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.character-card-types button:disabled:not([aria-pressed='true']) {
+  opacity: 0.5;
+}
+
+.character-card-status {
+  color: var(--vscode-descriptionForeground);
+}
+
+.character-card-section {
+  margin-block: 20px;
+}
+
+.character-card-section h2 {
+  font-size: 1.05em;
+  margin: 0 0 12px;
+  padding-block-end: 7px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.character-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.character-card-section .character-field + .character-field {
+  margin-block-start: 12px;
+}
+
+.character-field label {
+  font-weight: 600;
+}
+
+.character-field-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  overflow: hidden;
+}
+
+.character-field :is(input, textarea, select) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.character-field textarea {
+  min-height: 3.5em;
+  field-sizing: content;
+  resize: vertical;
+}
+
+.character-field :is(input, textarea)::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.character-field :focus-visible,
+.character-card-types button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}

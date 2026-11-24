@@ -103,12 +103,12 @@
 | 용어 | 화면에서의 위치와 뜻 | 우리 코드 | 자세히 |
 | --- | --- | --- | --- |
 | Manuscript (원고) | 작품 창의 Activity Bar에서 책 아이콘으로 여는 View Container. Navigator와 Properties가 들어 있다. | `workbench/contrib/manuscript/browser/manuscript.contribution.ts`, `MANUSCRIPT_CONTAINER_ID` | [원고 탐색창](manuscript.md) |
-| Navigator (탐색창) | Manuscript에서 부·장·문서를 보고 선택하는 뷰. | `workbench/contrib/manuscript/browser/navigatorView.ts`, `NavigatorView` | [원고 탐색창](manuscript.md) |
+| Navigator (탐색창) | Manuscript에서 부·장·문서를 보고 선택하는 뷰. Characters의 Navigator와 공용 트리 뷰를 함께 쓴다. | `workbench/contrib/manuscript/browser/navigatorView.ts`, `NavigatorView` 및 공용 `workbench/browser/navigator/navigatorView.ts`, `NavigatorView` | [원고 탐색창](manuscript.md) |
 | Properties (메타데이터창) | Navigator에서 고른 항목의 제목과 메타데이터를 보여 주는 뷰. | `workbench/contrib/manuscript/browser/propertiesView.ts`, `PropertiesView` | [Properties에서 제목 고치기](manuscript.md#properties에서-제목-고치기) |
 | Part (부) | 원고 최상위에서 장과 문서를 담는 폴더. | `platform/manuscript/common/manuscript.ts`, `manuscriptNodeTypes.part` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
 | Chapter (장) | 원고 최상위나 부 안에서 문서를 담는 폴더. | `platform/manuscript/common/manuscript.ts`, `manuscriptNodeTypes.chapter` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
 | Document (문서) | Navigator에서 에디터 탭으로 여는 마크다운 원고 항목. | `platform/manuscript/common/manuscript.ts`, `manuscriptNodeTypes.document` | [문서 열기](manuscript.md#문서-열기) |
-| 현재 폴더와 `..` | Navigator가 목록의 기준으로 삼는 폴더와 상위 폴더로 돌아가는 맨 위 행. | `workbench/contrib/manuscript/common/manuscriptTree.ts`, `UP_KEY` 및 `workbench/contrib/manuscript/browser/manuscriptViewState.ts`, `ManuscriptViewState` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
+| 현재 폴더와 `..` | Navigator가 목록의 기준으로 삼는 폴더와 상위 폴더로 돌아가는 맨 위 행. | `workbench/common/navigator/navigatorTree.ts`, `UP_KEY` 및 `workbench/browser/navigator/navigatorViewState.ts`, `NavigatorViewState` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
 | 번호 라벨 | Navigator와 Properties에서 부·장의 순서를 나타내는 `1부`, `1장` 같은 표시. 같은 부모 아래에서 종류별로 1부터 세며 문서에는 번호를 붙이지 않는다. | `workbench/contrib/manuscript/common/manuscriptTree.ts`, `buildIndex` | [원고 구조 만들기](manuscript.md#원고-구조-만들기) |
 | Open All Documents | Navigator 폴더의 문맥 메뉴에서 하위 문서를 여는 명령. | `workbench/contrib/manuscript/browser/manuscript.contribution.ts` 및 `workbench/contrib/manuscript/browser/manuscriptOpener.ts`, `ManuscriptOpener` | [문서 열기](manuscript.md#문서-열기) |
 

@@ -15,3 +15,53 @@
   font-size: 14px;
   text-decoration: underline;
 }
+
+.codicon-character-male {
+  --character-icon-mask: url('./media/character-male.svg');
+}
+
+.codicon-character-female {
+  --character-icon-mask: url('./media/character-female.svg');
+}
+
+.codicon-character-unknown {
+  --character-icon-mask: url('./media/character-unknown.svg');
+}
+
+.codicon-character-animal {
+  --character-icon-mask: url('./media/character-animal.svg');
+}
+
+.codicon-characters-group {
+  --character-icon-mask: url('./media/characters-group.svg');
+}
+
+.codicon-characters-group-add {
+  --character-icon-mask: url('./media/characters-group-add.svg');
+}
+
+.codicon-character-add {
+  --character-icon-mask: url('./media/character-add.svg');
+}
+
+.codicon:is(
+  .codicon-character-male, .codicon-character-female, .codicon-character-unknown, .codicon-character-animal,
+  .codicon-characters-group, .codicon-characters-group-add, .codicon-character-add
+)::before {
+  content: '';
+  display: block;
+  inline-size: 1em;
+  block-size: 1em;
+  background-color: currentColor;
+  mask: var(--character-icon-mask) center / contain no-repeat;
+}
+
+@media (forced-colors: active) {
+  .codicon:is(
+    .codicon-character-male, .codicon-character-female, .codicon-character-unknown, .codicon-character-animal,
+    .codicon-characters-group, .codicon-characters-group-add, .codicon-character-add
+  )::before {
+    forced-color-adjust: none;
+    background-color: var(--character-icon-forced-color, CanvasText);
+  }
+}

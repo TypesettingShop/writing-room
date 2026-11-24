@@ -1,11 +1,11 @@
 import {
   documentEtag, documentSize, isManuscriptId, isManuscriptRevision, isManuscriptStoreErrorCode, isRecord, manuscriptLimits,
-  ManuscriptStoreError, type DocumentStat, type ManuscriptDocument, type ManuscriptTree, type ManuscriptWork,
+  ManuscriptStoreError, type ManuscriptStoreErrorCode, type DocumentStat, type ManuscriptDocument, type ManuscriptTree, type ManuscriptWork,
 } from '../../../../platform/manuscript/common/manuscript.js';
 import type {
   CreateNode, ManuscriptStore, NodeChange, NodeDeletion, NodeDestination, TreeChange, UpdateNode,
 } from '../../../../platform/manuscript/common/manuscriptStore.js';
-import { ManuscriptStatus } from './windowManuscriptService.js';
+import type { ManuscriptStatus } from './windowManuscriptService.js';
 
 export type ManuscriptFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
@@ -50,12 +50,10 @@ function readStatHeaders(headers: Headers): DocumentStat {
 }
 
 export class HttpManuscriptStore implements ManuscriptStore {
-  private readonly fetcher: ManuscriptFetch;
-  private readonly status: ManuscriptStatus;
+  private readonly client: WorkApiClient;
 
-  constructor(status: ManuscriptStatus, fetcher: ManuscriptFetch = (path, init) => globalThis.fetch(path, init)) {
-    this.status = status;
-    this.fetcher = fetcher;
+  constructor(private readonly status: ManuscriptStatus, fetcher?: ManuscriptFetch) {
+    this.client = new WorkApiClient(status, fetcher);
   }
 
   get onDidChangeAuth() {
@@ -63,44 +61,44 @@ export class HttpManuscriptStore implements ManuscriptStore {
   }
 
   async listWorks(): Promise<ManuscriptWork[]> {
-    return (await this.json<{ works: ManuscriptWork[] }>(worksPath)).works;
+    return (await this.client.json<{ works: ManuscriptWork[] }>(worksPath)).works;
   }
 
   async createWork(input: { title: string }): Promise<ManuscriptWork> {
-    return (await this.json<{ work: ManuscriptWork }>(worksPath, 'POST', input)).work;
+    return (await this.client.json<{ work: ManuscriptWork }>(worksPath, 'POST', input)).work;
   }
 
   async getWork(workId: string): Promise<ManuscriptWork> {
-    return (await this.json<{ work: ManuscriptWork }>(worksPath + idSegment(workId))).work;
+    return (await this.client.json<{ work: ManuscriptWork }>(worksPath + idSegment(workId))).work;
   }
 
   async getTree(workId: string): Promise<ManuscriptTree> {
-    return this.json(worksPath + idSegment(workId) + '/tree');
+    return this.client.json(worksPath + idSegment(workId) + '/tree');
   }
 
   async createNode(workId: string, input: CreateNode, expectedRevision: number): Promise<NodeChange> {
-    return this.json(worksPath + idSegment(workId) + '/nodes', 'POST', { ...input, expectedRevision });
+    return this.client.json(worksPath + idSegment(workId) + '/nodes', 'POST', { ...input, expectedRevision });
   }
 
   async updateNode(workId: string, nodeId: string, input: UpdateNode, expectedRevision: number): Promise<NodeChange> {
-    return this.json(worksPath + idSegment(workId) + '/nodes' + idSegment(nodeId), 'PATCH', { ...input, expectedRevision });
+    return this.client.json(worksPath + idSegment(workId) + '/nodes' + idSegment(nodeId), 'PATCH', { ...input, expectedRevision });
   }
 
   async moveNodes(workId: string, nodeIds: readonly string[], destination: NodeDestination, expectedRevision: number): Promise<TreeChange> {
-    return this.json(worksPath + idSegment(workId) + '/nodes/move', 'POST', { ...destination, nodeIds, expectedRevision });
+    return this.client.json(worksPath + idSegment(workId) + '/nodes/move', 'POST', { ...destination, nodeIds, expectedRevision });
   }
 
   async deleteNode(workId: string, nodeId: string, expectedRevision: number): Promise<NodeDeletion> {
     const path = worksPath + idSegment(workId) + '/nodes' + idSegment(nodeId);
-    return this.json(path + '?' + new URLSearchParams({ expectedRevision: String(expectedRevision) }), 'DELETE');
+    return this.client.json(path + '?' + new URLSearchParams({ expectedRevision: String(expectedRevision) }), 'DELETE');
   }
 
   async statDocument(workId: string, nodeId: string): Promise<DocumentStat> {
-    return this.request(documentPath(workId, nodeId), { method: 'HEAD' }, response => readStatHeaders(response.headers));
+    return this.client.request(documentPath(workId, nodeId), { method: 'HEAD' }, response => readStatHeaders(response.headers));
   }
 
   async readDocument(workId: string, nodeId: string): Promise<ManuscriptDocument> {
-    return this.request(documentPath(workId, nodeId), { method: 'GET' }, async response => {
+    return this.client.request(documentPath(workId, nodeId), { method: 'GET' }, async response => {
       const stat = readStatHeaders(response.headers);
       const bytes = await response.arrayBuffer();
       if (bytes.byteLength !== stat.size) {
@@ -117,7 +115,7 @@ export class HttpManuscriptStore implements ManuscriptStore {
     if (expectedEtag !== undefined) {
       headers.set('If-Match', '"' + expectedEtag + '"');
     }
-    return this.request(path, { method: 'PUT', headers, body: content }, async response => {
+    return this.client.request(path, { method: 'PUT', headers, body: content }, async response => {
       const result: unknown = await response.json();
       if (!isRecord(result)) {
         throw new Error('Invalid document stat.');
@@ -125,15 +123,25 @@ export class HttpManuscriptStore implements ManuscriptStore {
       return readStat(result.mtime, result.size);
     });
   }
+}
 
-  private async json<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+/** Same-origin requests for work storage share the window's account and reachability state. */
+export class WorkApiClient {
+  constructor(
+    private readonly status: ManuscriptStatus,
+    private readonly fetcher: ManuscriptFetch = (path, init) => globalThis.fetch(path, init),
+    private readonly storeError: (code: ManuscriptStoreErrorCode, currentRevision?: number) => ManuscriptStoreError =
+      (code, currentRevision) => new ManuscriptStoreError(code, currentRevision),
+  ) {}
+
+  async json<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
     const init = body === undefined ? { method } : {
       method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     };
     return this.request(path, init, async response => await response.json() as T);
   }
 
-  private async request<T>(path: string, init: RequestInit, decode: (response: Response) => T | Promise<T>): Promise<T> {
+  async request<T>(path: string, init: RequestInit, decode: (response: Response) => T | Promise<T>): Promise<T> {
     const revision = this.status.revision;
     let response: Response;
     try {
@@ -154,11 +162,11 @@ export class HttpManuscriptStore implements ManuscriptStore {
     }
     if (response.status === 401) {
       this.status.report('signedOut', revision);
-      throw new ManuscriptStoreError('unauthorized');
+      throw this.storeError('unauthorized');
     }
     if (init.method === 'HEAD' && response.status === 404) {
       this.status.report('ready', revision);
-      throw new ManuscriptStoreError('not_found');
+      throw this.storeError('not_found');
     }
     if (init.method === 'HEAD' && response.status === 403) {
       this.status.report('unavailable', revision);
@@ -173,7 +181,7 @@ export class HttpManuscriptStore implements ManuscriptStore {
       if (isManuscriptStoreErrorCode(code) && (currentRevision === undefined || isManuscriptRevision(currentRevision)) &&
         (code !== 'conflict' || currentRevision !== undefined)) {
         this.status.report('ready', revision);
-        throw new ManuscriptStoreError(code, currentRevision);
+        throw this.storeError(code, currentRevision);
       }
       if (code === 'forbidden_host') {
         this.status.report('unavailable', revision);

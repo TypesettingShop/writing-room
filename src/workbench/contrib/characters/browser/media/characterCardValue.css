@@ -1,0 +1,26 @@
+.character-card .character-card-field + .character-card-field {
+  margin-block-start: 12px;
+}
+
+.character-card-preserved-value {
+  margin-block-end: 8px;
+}
+
+.character-card-field [hidden] {
+  display: none;
+}
+
+.character-card-invalid-warning {
+  color: var(--vscode-notificationsWarningIcon-foreground);
+  margin: 0;
+}
+
+.character-card-replace-value {
+  justify-self: start;
+  padding: 5px 12px;
+  border: 1px solid var(--vscode-contrastBorder);
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  font: inherit;
+  cursor: pointer;
+}

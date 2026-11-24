@@ -1,4 +1,6 @@
 import type { Pool } from 'pg';
+import type { CharactersRepository } from '../src/platform/characters/common/charactersStore.js';
+import { InMemoryCharactersRepository } from '../src/platform/characters/common/inMemoryCharactersStore.js';
 import { InMemoryManuscriptRepository } from '../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import type { ManuscriptRepository } from '../src/platform/manuscript/common/manuscriptStore.js';
 import { createApiServer } from './apiServer.js';
@@ -7,6 +9,7 @@ import { devAuthenticate, devUserId } from './auth/devAuth.js';
 import { PostgresAuthStore } from './auth/postgresAuthStore.js';
 import { readApiConfig } from './config.js';
 import { migrate } from './store/migrate.js';
+import { PostgresCharactersRepository } from './store/postgresCharactersRepository.js';
 import { createPostgresPool, PostgresManuscriptRepository } from './store/postgresManuscriptRepository.js';
 
 async function main(): Promise<void> {
@@ -15,6 +18,7 @@ async function main(): Promise<void> {
   let pool: Pool | undefined;
   try {
     let repository: ManuscriptRepository;
+    let charactersRepository: CharactersRepository;
     if (config.store === 'postgres' && config.databaseUrl) {
       pool = createPostgresPool(config.databaseUrl, config.databasePoolSize);
       pool.on('error', () => console.error('Unexpected failure on an idle PostgreSQL connection.'));
@@ -24,8 +28,11 @@ async function main(): Promise<void> {
         await postgres.ensureDevUser(devUserId);
       }
       repository = postgres;
+      charactersRepository = new PostgresCharactersRepository(pool);
     } else if (config.store === 'memory') {
-      repository = new InMemoryManuscriptRepository();
+      const memory = new InMemoryManuscriptRepository();
+      repository = memory;
+      charactersRepository = new InMemoryCharactersRepository(userId => memory.workAccess(userId));
     } else {
       throw new Error('The postgres store requires WRITING_ROOM_DATABASE_URL.');
     }
@@ -34,6 +41,7 @@ async function main(): Promise<void> {
     const server = createApiServer({
       ...config,
       repository,
+      charactersRepository,
       authenticate,
       accountAuth: { ...config, store: authStore },
     });
