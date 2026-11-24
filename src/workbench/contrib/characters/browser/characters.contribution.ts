@@ -19,7 +19,7 @@ export const CHARACTERS_NAVIGATOR_VIEW_ID = 'workbench.view.characters.navigator
 
 const workOpen = WorkOpenContext.isEqualTo(true);
 const container = viewContainersRegistry.registerViewContainer({
-  id: CHARACTERS_CONTAINER_ID, title: 'Characters', icon: '$(person)', when: workOpen,
+  id: CHARACTERS_CONTAINER_ID, title: 'Characters', icon: '$(characters-group)', when: workOpen,
 }, ViewContainerLocation.Sidebar);
 viewsRegistry.registerViews([{
   id: CHARACTERS_NAVIGATOR_VIEW_ID,
@@ -58,8 +58,8 @@ const hasFolder = ContextKeyExpr.equals(CHARACTERS_SELECTION_KIND, 'folder');
 const hasCharacter = ContextKeyExpr.has(CHARACTERS_HAS_SELECTED_CHARACTER);
 
 for (const [kind, title, command, icon, order] of [
-  ['character', 'New Character', 'newCharacter', 'new-file', 10],
-  ['folder', 'New Folder', 'newFolder', 'new-folder', 20],
+  ['character', 'New Character', 'newCharacter', 'character-add', 10],
+  ['folder', 'New Folder', 'newFolder', 'characters-group-add', 20],
 ] as const) {
   registerCharactersAction(command, title, { f1: true, icon: { id: icon }, menu: toolbar(order) }, async (state, accessor) => {
     if (await accessor.get(IViewsService).openView(CHARACTERS_NAVIGATOR_VIEW_ID)) {

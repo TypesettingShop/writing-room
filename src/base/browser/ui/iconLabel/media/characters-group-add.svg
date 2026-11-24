@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <defs>
+    <mask id="behind-front">
+      <rect width="16" height="16" fill="white"/>
+      <circle cx="8" cy="6" r="2.25" stroke="black" stroke-width="2.5"/>
+      <path d="M3.5 14v-1a4.5 4 0 0 1 9 0v1Z" stroke="black" stroke-width="2.5" stroke-linejoin="round"/>
+    </mask>
+    <mask id="behind-add">
+      <rect width="16" height="16" fill="white"/>
+      <circle cx="12.5" cy="12.5" r="4.5" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#behind-add)">
+    <g transform="translate(0 -1)" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <g mask="url(#behind-front)">
+        <circle cx="4" cy="4" r="2"/>
+        <circle cx="12" cy="4" r="2"/>
+        <path d="M1 11v-1a3 3 0 0 1 6 0v1ZM9 11v-1a3 3 0 0 1 6 0v1Z"/>
+      </g>
+      <circle cx="8" cy="6" r="2.25"/>
+      <path d="M3.5 14v-1a4.5 4 0 0 1 9 0v1Z"/>
+    </g>
+  </g>
+  <path fill="currentColor" fill-rule="evenodd" d="M16 12.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0ZM12 10h1v2h2v1h-2v2h-1v-2h-2v-1h2Z"/>
+</svg>

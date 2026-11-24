@@ -56,6 +56,12 @@ test('opens Characters in a work and remembers its location independently of Man
   await manuscript.getByRole('treeitem', { name: '1부 - Opening' }).dblclick();
   await expect(manuscript.getByRole('treeitem', { name: 'Parent Folder' })).toBeVisible();
 
+  await expect(activity(page, 'Manuscript').locator('.codicon-book')).toBeVisible();
+  const charactersIcon = activity(page, 'Characters').locator('.codicon-characters-group');
+  await expect(charactersIcon).toBeVisible();
+  await expect(charactersIcon).toHaveCSS('font-size', '24px');
+  await expect(charactersIcon).toHaveCSS('--character-icon-mask', /^url\(/);
+
   await activity(page, 'Characters').click();
   await expect(page.getByRole('region', { name: 'Navigator', exact: true })).toHaveCount(1);
   await row(page, 'Cast').dblclick();
@@ -92,6 +98,17 @@ test('opens Characters in a work and remembers its location independently of Man
   await expect(manuscript.getByRole('treeitem', { name: '1부 - Opening' })).toHaveCount(0);
 });
 
+/** Runs `check` in the light, dark and high contrast themes, then under forced colors. */
+async function acrossThemes(page: Page, check: () => Promise<void>) {
+  for (const [theme, kind] of [['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'], ['Fixture Contrast', 'hc-black']]) {
+    await chooseTheme(page, theme);
+    await expect.poll(() => kindClass(page)).toBe(kind);
+    await check();
+  }
+  await page.emulateMedia({ forcedColors: 'active', colorScheme: 'light' });
+  await check();
+}
+
 test('renders type masks in light, dark, high contrast and forced colors', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
   for (const type of characterTypes) {
@@ -120,13 +137,7 @@ test('renders type masks in light, dark, high contrast and forced colors', async
     }
   }
 
-  for (const [theme, kind] of [['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'], ['Fixture Contrast', 'hc-black']]) {
-    await chooseTheme(page, theme);
-    await expect.poll(() => kindClass(page)).toBe(kind);
-    await expectPainted();
-  }
-  await page.emulateMedia({ forcedColors: 'active', colorScheme: 'light' });
-  await expectPainted();
+  await acrossThemes(page, expectPainted);
 });
 
 test('moves selected rows in tree order and commits the destination displayed by the insertion line', async ({ page, request, baseURL }) => {
@@ -271,6 +282,40 @@ const inlineName = (page: Page) => tree(page).getByRole('textbox', { name: 'Titl
 const toolbar = (page: Page, name: string) =>
   page.getByRole('region', { name: 'Navigator', exact: true }).locator('header').getByRole('button', { name, exact: true });
 const menuItem = (page: Page, name: string) => page.getByRole('menuitem', { name, exact: true });
+
+test('paints the Characters activity and add icons across themes', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await openWithThemingFixtures(page, ['color-theme/']);
+  await page.goto(work.url);
+  for (const [name, icon] of [['New Part', 'new-folder'], ['New Chapter', 'folder'], ['New Document', 'new-file']]) {
+    await expect(toolbar(page, name).locator('.codicon-' + icon)).toBeVisible();
+  }
+
+  await activity(page, 'Characters').click();
+  const icons = [
+    activity(page, 'Characters').locator('.codicon-characters-group'),
+    toolbar(page, 'New Character').locator('.codicon-character-add'),
+    toolbar(page, 'New Folder').locator('.codicon-characters-group-add'),
+  ];
+
+  async function expectPainted() {
+    for (const icon of icons) {
+      await expect(icon).toBeVisible();
+      const { width, height } = (await icon.boundingBox())!;
+      const columns = Math.floor(width);
+      const points = Array.from({ length: columns * Math.floor(height) }, (_, offset) => ({
+        x: offset % columns,
+        y: Math.floor(offset / columns),
+      }));
+      const pixels = await screenshotColors(page, await icon.screenshot({ scale: 'css' }), points);
+      const background = pixels[0];
+      expect(pixels.filter(pixel => pixel !== background).length).toBeGreaterThan(12);
+      expect(pixels.filter(pixel => pixel === background).length).toBeGreaterThan(12);
+    }
+  }
+
+  await acrossThemes(page, expectPainted);
+});
 
 test('creates through the palette and toolbar and keeps Characters commands in work windows', async ({ page, request, baseURL }) => {
   await page.goto('/');
