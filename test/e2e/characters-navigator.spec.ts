@@ -56,6 +56,12 @@ test('opens Characters in a work and remembers its location independently of Man
   await manuscript.getByRole('treeitem', { name: '1부 - Opening' }).dblclick();
   await expect(manuscript.getByRole('treeitem', { name: 'Parent Folder' })).toBeVisible();
 
+  await expect(activity(page, 'Manuscript').locator('.codicon-book')).toBeVisible();
+  const charactersIcon = activity(page, 'Characters').locator('.codicon-characters-group');
+  await expect(charactersIcon).toBeVisible();
+  await expect(charactersIcon).toHaveCSS('font-size', '24px');
+  await expect(charactersIcon).toHaveCSS('--character-icon-mask', /^url\(/);
+
   await activity(page, 'Characters').click();
   await expect(page.getByRole('region', { name: 'Navigator', exact: true })).toHaveCount(1);
   await row(page, 'Cast').dblclick();

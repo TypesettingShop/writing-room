@@ -4,6 +4,7 @@ import './iconLabels.css';
 
 const knownIcons = new Set([
   ...codiconNames, 'underline', 'character-male', 'character-female', 'character-unknown', 'character-animal',
+  'characters-group',
 ]);
 const iconInLabel = new RegExp('(\\\\)?\\$\\((' + ThemeIcon.iconIdExpression + ')\\)', 'g');
 

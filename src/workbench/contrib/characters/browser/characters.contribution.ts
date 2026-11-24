@@ -19,7 +19,7 @@ export const CHARACTERS_NAVIGATOR_VIEW_ID = 'workbench.view.characters.navigator
 
 const workOpen = WorkOpenContext.isEqualTo(true);
 const container = viewContainersRegistry.registerViewContainer({
-  id: CHARACTERS_CONTAINER_ID, title: 'Characters', icon: '$(person)', when: workOpen,
+  id: CHARACTERS_CONTAINER_ID, title: 'Characters', icon: '$(characters-group)', when: workOpen,
 }, ViewContainerLocation.Sidebar);
 viewsRegistry.registerViews([{
   id: CHARACTERS_NAVIGATOR_VIEW_ID,
