@@ -98,6 +98,17 @@ test('opens Characters in a work and remembers its location independently of Man
   await expect(manuscript.getByRole('treeitem', { name: '1부 - Opening' })).toHaveCount(0);
 });
 
+/** Runs `check` in the light, dark and high contrast themes, then under forced colors. */
+async function acrossThemes(page: Page, check: () => Promise<void>) {
+  for (const [theme, kind] of [['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'], ['Fixture Contrast', 'hc-black']]) {
+    await chooseTheme(page, theme);
+    await expect.poll(() => kindClass(page)).toBe(kind);
+    await check();
+  }
+  await page.emulateMedia({ forcedColors: 'active', colorScheme: 'light' });
+  await check();
+}
+
 test('renders type masks in light, dark, high contrast and forced colors', async ({ page, request, baseURL }) => {
   const work = await createWork(request, baseURL!);
   for (const type of characterTypes) {
@@ -126,13 +137,7 @@ test('renders type masks in light, dark, high contrast and forced colors', async
     }
   }
 
-  for (const [theme, kind] of [['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'], ['Fixture Contrast', 'hc-black']]) {
-    await chooseTheme(page, theme);
-    await expect.poll(() => kindClass(page)).toBe(kind);
-    await expectPainted();
-  }
-  await page.emulateMedia({ forcedColors: 'active', colorScheme: 'light' });
-  await expectPainted();
+  await acrossThemes(page, expectPainted);
 });
 
 test('moves selected rows in tree order and commits the destination displayed by the insertion line', async ({ page, request, baseURL }) => {
@@ -309,13 +314,7 @@ test('paints the Characters activity and add icons across themes', async ({ page
     }
   }
 
-  for (const [theme, kind] of [['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'], ['Fixture Contrast', 'hc-black']]) {
-    await chooseTheme(page, theme);
-    await expect.poll(() => kindClass(page)).toBe(kind);
-    await expectPainted();
-  }
-  await page.emulateMedia({ forcedColors: 'active', colorScheme: 'light' });
-  await expectPainted();
+  await acrossThemes(page, expectPainted);
 });
 
 test('creates through the palette and toolbar and keeps Characters commands in work windows', async ({ page, request, baseURL }) => {
