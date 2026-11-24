@@ -278,6 +278,46 @@ const toolbar = (page: Page, name: string) =>
   page.getByRole('region', { name: 'Navigator', exact: true }).locator('header').getByRole('button', { name, exact: true });
 const menuItem = (page: Page, name: string) => page.getByRole('menuitem', { name, exact: true });
 
+test('paints the Characters activity and add icons across themes', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await openWithThemingFixtures(page, ['color-theme/']);
+  await page.goto(work.url);
+  for (const [name, icon] of [['New Part', 'new-folder'], ['New Chapter', 'folder'], ['New Document', 'new-file']]) {
+    await expect(toolbar(page, name).locator('.codicon-' + icon)).toBeVisible();
+  }
+
+  await activity(page, 'Characters').click();
+  const icons = [
+    activity(page, 'Characters').locator('.codicon-characters-group'),
+    toolbar(page, 'New Character').locator('.codicon-character-add'),
+    toolbar(page, 'New Folder').locator('.codicon-characters-group-add'),
+  ];
+
+  async function expectPainted() {
+    for (const icon of icons) {
+      await expect(icon).toBeVisible();
+      const { width, height } = (await icon.boundingBox())!;
+      const columns = Math.floor(width);
+      const points = Array.from({ length: columns * Math.floor(height) }, (_, offset) => ({
+        x: offset % columns,
+        y: Math.floor(offset / columns),
+      }));
+      const pixels = await screenshotColors(page, await icon.screenshot({ scale: 'css' }), points);
+      const background = pixels[0];
+      expect(pixels.filter(pixel => pixel !== background).length).toBeGreaterThan(12);
+      expect(pixels.filter(pixel => pixel === background).length).toBeGreaterThan(12);
+    }
+  }
+
+  for (const [theme, kind] of [['Writing Room Light', 'vs'], ['Writing Room Dark', 'vs-dark'], ['Fixture Contrast', 'hc-black']]) {
+    await chooseTheme(page, theme);
+    await expect.poll(() => kindClass(page)).toBe(kind);
+    await expectPainted();
+  }
+  await page.emulateMedia({ forcedColors: 'active', colorScheme: 'light' });
+  await expectPainted();
+});
+
 test('creates through the palette and toolbar and keeps Characters commands in work windows', async ({ page, request, baseURL }) => {
   await page.goto('/');
   await page.keyboard.press('F1');
