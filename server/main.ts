@@ -3,6 +3,8 @@ import type { CharactersRepository } from '../src/platform/characters/common/cha
 import { InMemoryCharactersRepository } from '../src/platform/characters/common/inMemoryCharactersStore.js';
 import { InMemoryManuscriptRepository } from '../src/platform/manuscript/common/inMemoryManuscriptStore.js';
 import type { ManuscriptRepository } from '../src/platform/manuscript/common/manuscriptStore.js';
+import { InMemoryWorldRepository } from '../src/platform/world/common/inMemoryWorldStore.js';
+import type { WorldRepository } from '../src/platform/world/common/worldStore.js';
 import { createApiServer } from './apiServer.js';
 import { MemoryAuthStore } from './auth/authStore.js';
 import { devAuthenticate, devUserId } from './auth/devAuth.js';
@@ -19,6 +21,7 @@ async function main(): Promise<void> {
   try {
     let repository: ManuscriptRepository;
     let charactersRepository: CharactersRepository;
+    let worldRepository: WorldRepository | undefined;
     if (config.store === 'postgres' && config.databaseUrl) {
       pool = createPostgresPool(config.databaseUrl, config.databasePoolSize);
       pool.on('error', () => console.error('Unexpected failure on an idle PostgreSQL connection.'));
@@ -33,6 +36,7 @@ async function main(): Promise<void> {
       const memory = new InMemoryManuscriptRepository();
       repository = memory;
       charactersRepository = new InMemoryCharactersRepository(userId => memory.workAccess(userId));
+      worldRepository = new InMemoryWorldRepository(userId => memory.workAccess(userId));
     } else {
       throw new Error('The postgres store requires WRITING_ROOM_DATABASE_URL.');
     }
@@ -42,6 +46,7 @@ async function main(): Promise<void> {
       ...config,
       repository,
       charactersRepository,
+      worldRepository,
       authenticate,
       accountAuth: { ...config, store: authStore },
     });

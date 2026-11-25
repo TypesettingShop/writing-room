@@ -184,6 +184,14 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 - Postgres 모드에서 API 서버는 `characters` 테이블에 트리를 영속한다. `works.characters_revision`은 작품별 등장인물 리비전이며 원고는 별도의 `tree_revision`을 사용한다.
 - `GET /template`은 작품의 필드 정의를 읽는다. 아직 저장한 템플릿이 없으면 기본 여덟 필드를 리비전 0으로 돌려준다. `PUT /template`은 `fields`와 `expectedRevision`을 받아 `character_templates`에 저장한다. 템플릿은 자체 리비전을 쓰며 인물에 저장된 값은 그대로 남는다. 성공한 `PUT`은 트리 쓰기처럼 작품의 수정 시각을 갱신하고, 충돌이나 검증 실패는 갱신하지 않는다.
 
+#### 세계관 저장소
+
+- `WorldStore`는 작품별 분류와 항목, 루트 달력 노드를 다룬다. 분류와 항목은 각각 필드 정의와 값을 가지며, 필드를 바꾸거나 항목을 옮겨도 저장된 값은 유지된다. 트리가 비어 있으면 일곱 장르 프리셋 중 하나를 한 번에 적용할 수 있다. 프리셋으로 만든 달력 노드는 루트에서 이름과 위치를 바꿀 수 있다.
+- 같은 오리진의 `/api/works/:workId/world` 아래에서 `GET /tree`, `POST /preset`, `POST /nodes`, `POST /nodes/move`, `PATCH /nodes/:nodeId`, `DELETE /nodes/:nodeId`, `GET /calendar`, `PUT /calendar`를 사용한다. 원고와 인증, 작품 소유권 검증, 창의 세션 상태를 공유한다. 트리와 달력은 각자의 `expectedRevision`을 비교한다. 리비전이 바뀐 쓰기는 작품 수정 시각에도 반영된다.
+- 한 작품에 노드는 최대 10,000개이며 제목은 200자까지 쓸 수 있다. 분류별 필드 정의와 항목별 값은 각각 64 KiB, 작품 전체의 합계는 UTF-8 기준 16 MiB까지 허용한다. 달력 정의의 한도는 별도로 64 KiB다.
+- 달력 JSON 버전 1에는 순서대로 배열한 연호와 월, 하루의 시간 수가 들어간다. 날짜는 연호 ID와 해를 필수로 두고 월 ID, 일, 시각을 차례로 덧붙인다. 사건의 시점은 날짜, 다른 사건의 직전·같은 때·직후, 미정으로 기록한다. 현재 달력에서 사라진 연호나 월도 기록에는 남는다. 기본 그레고리력은 윤년 규칙을 지원하기 전까지 매년 2월 29일을 허용한다.
+- `?store=memory` 또는 `VITE_WRITING_ROOM_STORE=memory`로 열면 세계관이 현재 창의 임시 작품 저장소를 사용한다. API 서버의 메모리 모드에서는 서버가 작품과 세계관을 함께 보관한다.
+
 #### Settings
 
 - **File → Preferences → Open User Settings (JSON)** 또는 F1의 **Preferences: Open User Settings (JSON)**으로 `settings.json`을 연다. Monaco에서 키 자동 완성과 스키마 진단을 제공한다. Ctrl+S(macOS에서는 Cmd+S)로 저장하면 열린 Monaco 편집기에 적용한다 (wr-cla6.dnq). [VS Code 설정 열기 커맨드](https://github.com/microsoft/vscode/blob/41004e061e582855eb1e99b6a6e5d52994f661be/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts)
@@ -228,4 +236,4 @@ VS Code와 달라진 점은 영역별 하위 섹션에 한 줄 목록으로 기�
 
 - 원격 매니페스트, 진입 파일, 아이콘 요청은 같은 CORS 정책과 스트리밍 읽기 경로를 사용한다 — 읽는 중에 각각 256 KiB, 5 MiB, 256 KiB에서 멈춰 원격 응답의 메모리 사용을 제한한다 (wr-cla6.ayw).
 
-Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej, wr-th5n, wr-1pn9, wr-df7m
+Decided in: wr-e8v6, wr-pip6, wr-hze8, wr-ggyb, wr-k5og, wr-cla6, wr-jbmd, wr-ndsy, wr-h2sa, wr-cbej, wr-th5n, wr-1pn9, wr-df7m, wr-7bxh
