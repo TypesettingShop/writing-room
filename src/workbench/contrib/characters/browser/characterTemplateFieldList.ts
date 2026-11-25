@@ -11,7 +11,7 @@ import { IKeybindingService } from '../../../../platform/keybinding/common/keybi
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { ICharactersService } from '../../../services/characters/common/charactersService.js';
 import type { CharacterTemplateEditorInput } from './characterTemplateEditorInput.js';
-import { FieldInput } from './fieldInputs.js';
+import { FieldInput } from '../../../browser/fieldCard/fieldInputs.js';
 
 const kinds = new Map([['text', 'Text'], ['longText', 'Long Text'], ['choice', 'Choice']]);
 
