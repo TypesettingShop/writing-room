@@ -1,0 +1,40 @@
+.world-item-card {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  outline: none;
+  padding: 20px clamp(14px, 5%, 40px);
+  color: var(--vscode-editor-foreground);
+}
+
+.world-item-card > * {
+  max-inline-size: 48rem;
+  margin-inline: auto;
+}
+
+.world-card-path {
+  margin-block: 0 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.world-item-card section {
+  margin-block: 18px;
+}
+
+.world-item-card h2 {
+  font-size: 1.05em;
+  margin-block: 0 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding-block-end: 6px;
+}
+
+.world-card-field + .world-card-field {
+  margin-block-start: 12px;
+}
+
+.world-card-warning {
+  color: var(--vscode-notificationsWarningIcon-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-block: 0 4px;
+}
