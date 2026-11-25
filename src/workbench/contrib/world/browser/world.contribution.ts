@@ -7,7 +7,7 @@ import { ViewContainerLocation, viewContainersRegistry, viewsRegistry } from '..
 import { IViewsService } from '../../../services/views/browser/viewsService.js';
 import { WorkOpenContext } from '../../../services/work/common/work.js';
 import { WORLD_SELECTION_KIND, WorldCanCreateItem, WorldNavigator } from './worldNavigator.js';
-import { openWorldItem } from './worldOpener.js';
+import { IWorldOpener, openWorldItem } from './worldOpener.js';
 import { IWorldViewState, type WorldViewState } from './worldViewState.js';
 
 export const WORLD_CONTAINER_ID = 'workbench.view.world';
@@ -107,3 +107,12 @@ registerWorldAction('delete', 'Delete', {
 }, state => state.deleteSelected());
 registerWorldAction('moveUp', 'Move Up', { f1: true, menu: context(60) }, state => moveAdjacent(state, -1));
 registerWorldAction('moveDown', 'Move Down', { f1: true, menu: context(70) }, state => moveAdjacent(state, 1));
+
+registerWorldAction('openAllInCategory', 'Open All in Category', {
+  f1: true, menu: context(6, categorySelected),
+}, (state, accessor) => {
+  const node = state.singleSelection();
+  if (node?.kind === 'category') {
+    return accessor.get(IWorldOpener).openItems([node.id]);
+  }
+});

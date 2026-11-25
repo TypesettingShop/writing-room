@@ -2,16 +2,20 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorExtensions, EditorPaneDescriptor, type IEditorPaneRegistry } from '../../../browser/editor.js';
 import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import type { IEditorFactoryRegistry } from '../../../common/editor.js';
 import { ErrorEditorInput } from '../../../common/editor/errorEditorInput.js';
 import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
 import { IWorldService } from '../../../services/world/common/worldService.js';
 import { WorldItemEditorInput, worldItemScheme } from './worldItemEditorInput.js';
 import { WorldItemEditorPane } from './worldItemEditorPane.js';
+import { WorldItemEditorSerializer } from './worldItemEditorSerializer.js';
 import { IWorldOpener, type WorldOpener } from './worldOpener.js';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)!.registerEditorPane(
   EditorPaneDescriptor.create(WorldItemEditorPane, WorldItemEditorPane.ID, 'Item Card'), [WorldItemEditorInput.ID],
 );
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)!
+  .registerEditorSerializer(WorldItemEditorInput.ID, WorldItemEditorSerializer);
 
 class WorldItemEditorContribution extends Disposable {
   constructor(
