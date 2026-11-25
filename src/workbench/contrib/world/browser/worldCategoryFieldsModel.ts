@@ -12,17 +12,34 @@ export interface WorldCategoryDraft {
   readonly fields: readonly CharacterFieldDefinition[];
 }
 
-export function worldCategoryProblem(fields: readonly CharacterFieldDefinition[]): FieldCardProblem | undefined {
+function templateError(fields: readonly CharacterFieldDefinition[]): CharacterTemplateValidationError | undefined {
   try {
     normalizeCharacterTemplate(fields);
     return undefined;
   } catch (error) {
-    if (!(error instanceof CharacterTemplateValidationError)) {
-      throw error;
+    if (error instanceof CharacterTemplateValidationError) {
+      return error;
     }
-    const index = error.fieldIndex ?? characterFieldLimits.fields;
-    return { fieldId: fields[index]?.id ?? '', message: error.detail === 'Label cannot be empty.' ? 'Enter a label.' : error.detail };
+    throw error;
   }
+}
+
+export function worldCategoryProblems(fields: readonly CharacterFieldDefinition[]): readonly FieldCardProblem[] {
+  const error = templateError(fields);
+  if (!error) {
+    return [];
+  }
+  if (error.fieldIndex === undefined) {
+    return [{ fieldId: fields[characterFieldLimits.fields]?.id ?? '', message: error.detail }];
+  }
+  const problems: FieldCardProblem[] = [];
+  for (const field of fields) {
+    const issue = templateError([field]);
+    if (issue) {
+      problems.push({ fieldId: field.id, message: issue.detail === 'Label cannot be empty.' ? 'Enter a label.' : issue.detail });
+    }
+  }
+  return problems.length ? problems : [{ fieldId: fields[error.fieldIndex]?.id ?? '', message: error.detail }];
 }
 
 function sameFields(a: WorldCategoryDraft, b: WorldCategoryDraft): boolean {
@@ -64,10 +81,7 @@ export class WorldCategoryFieldsModel extends FieldCardModel<WorldCategoryDraft>
       sameSaved: sameFields,
       sameContent,
       normalize: value => ({ fields: normalizeCharacterTemplate(value.fields) }),
-      validate: ({ fields }) => {
-        const issue = worldCategoryProblem(fields);
-        return issue ? [issue] : [];
-      },
+      validate: ({ fields }) => worldCategoryProblems(fields),
       label,
     }, dialogs, notifications);
   }

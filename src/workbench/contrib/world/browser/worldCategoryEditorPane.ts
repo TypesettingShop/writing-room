@@ -8,7 +8,7 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { IWorldService } from '../../../services/world/common/worldService.js';
 import { CharacterTemplateFieldList } from '../../characters/browser/characterTemplateFieldList.js';
 import { WorldCategoryEditorInput } from './worldCategoryEditorInput.js';
-import { worldCategoryProblem, type WorldCategoryFieldsModel } from './worldCategoryFieldsModel.js';
+import { worldCategoryProblems, type WorldCategoryFieldsModel } from './worldCategoryFieldsModel.js';
 
 export class WorldCategoryEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.worldCategoryFields';
@@ -82,12 +82,11 @@ export class WorldCategoryEditorPane extends EditorPane {
         return affected + ' Values stay saved. There is no command to restore this field.';
       },
       validation: () => {
-        const problem = input.fields && worldCategoryProblem(input.fields);
-        if (!problem) {
-          return undefined;
-        }
-        const index = input.fields?.findIndex(field => field.id === problem.fieldId) ?? -1;
-        return { fieldIndex: index >= 0 ? index : undefined, detail: problem.message };
+        const fields = input.fields;
+        return fields ? worldCategoryProblems(fields).map(problem => {
+          const index = fields.findIndex(field => field.id === problem.fieldId);
+          return { fieldIndex: index >= 0 ? index : undefined, detail: problem.message };
+        }) : [];
       },
     });
     this.listeners.add(input.onDidChangeState(() => this.render(input)));
@@ -106,7 +105,7 @@ export class WorldCategoryEditorPane extends EditorPane {
   override focus(): void { this.page.focus({ preventScroll: true }); }
 
   private focusProblem(input: WorldCategoryEditorInput): void {
-    const first = input.fields && worldCategoryProblem(input.fields);
+    const first = input.fields && worldCategoryProblems(input.fields)[0];
     if (first) {
       this.list.value?.focusProblem(first.fieldId, first.message === 'Add at least one option.');
     }
@@ -123,8 +122,8 @@ export class WorldCategoryEditorPane extends EditorPane {
       : input.readFailed ? 'Could not load the category fields.'
       : model ? model.dirty ? 'Unsaved changes' : 'Saved' : 'Loading fields…';
     this.retry.hidden = !input.readFailed || input.missing;
-    const invalid = !!input.fields && !!worldCategoryProblem(input.fields);
-    this.problems.hidden = !invalid;
-    this.problems.textContent = invalid ? 'Not saved: 1 problem' : '';
+    const count = input.fields ? worldCategoryProblems(input.fields).length : 0;
+    this.problems.hidden = count === 0;
+    this.problems.textContent = count ? `Not saved: ${count} ${count === 1 ? 'problem' : 'problems'}` : '';
   }
 }

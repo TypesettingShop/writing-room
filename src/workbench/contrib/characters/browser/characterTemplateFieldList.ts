@@ -79,7 +79,7 @@ export interface TemplateFieldListHost {
   readonly addedLabel: string;
   readonly addError: string;
   readonly deleteDetail: (count: number | undefined) => string;
-  readonly validation?: () => { fieldIndex?: number; detail: string } | undefined;
+  readonly validation?: () => readonly { fieldIndex?: number; detail: string }[];
 }
 
 export class CharacterTemplateFieldList extends Disposable {
@@ -154,7 +154,7 @@ export class CharacterTemplateFieldList extends Disposable {
       return;
     }
     this.renderedFields = fields;
-    let validation: { fieldIndex?: number; detail: string } | undefined;
+    let validation: readonly { fieldIndex?: number; detail: string }[] = [];
     if (this.host.validation) {
       validation = this.host.validation();
     } else if (fields) {
@@ -164,10 +164,10 @@ export class CharacterTemplateFieldList extends Disposable {
         if (!(error instanceof CharacterTemplateValidationError)) {
           throw error;
         }
-        validation = error;
+        validation = [error];
       }
     }
-    setMessage(this.summary, validation?.fieldIndex === undefined ? validation?.detail ?? '' : '');
+    setMessage(this.summary, validation.find(problem => problem.fieldIndex === undefined)?.detail ?? '');
     const visibleFields = fields ?? [];
     const remaining = new Set(visibleFields.map(field => field.id));
     const active = this.parent.ownerDocument.activeElement;
@@ -188,7 +188,7 @@ export class CharacterTemplateFieldList extends Disposable {
         row = this.createRow(field.id);
         this.rows.set(field.id, row);
       }
-      row.update(field, index, visibleFields.length, validation?.fieldIndex === index ? validation.detail : '');
+      row.update(field, index, visibleFields.length, validation.find(problem => problem.fieldIndex === index)?.detail ?? '');
       if (row.element === next) {
         next = next.nextElementSibling;
       } else if (this.list.isConnected && row.element.isConnected && this.list.moveBefore) {
