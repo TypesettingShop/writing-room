@@ -188,3 +188,28 @@ test('creates sibling items with the keyboard and protects the calendar from del
   await expect(row(page, '항구들')).toHaveCount(0);
   await expect(row(page, '달력')).toBeVisible();
 });
+
+test('virtualizes a 10,000-row World tree when moving to its last row', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  const count = 10_000;
+  await page.route('**' + work.api + '/world/tree', route => route.fulfill({
+    json: {
+      revision: 1,
+      nodes: Array.from({ length: count }, (_, position) => ({
+        id: '00000000-0000-0000-0000-' + position.toString(16).padStart(12, '0'),
+        parentId: null, kind: 'category', title: '분류 ' + (position + 1), position,
+        fields: [], createdAt: 1, updatedAt: 1,
+      })),
+    },
+  }));
+  await page.goto(work.url);
+  await activity(page, 'World').click();
+  await expect(row(page, '분류 1')).toBeVisible();
+  const viewportRows = await tree(page).evaluate(element => Math.ceil(element.clientHeight / 24));
+  await tree(page).press('End');
+  const last = row(page, '분류 ' + count);
+  await expect(last).toBeVisible();
+  await expect(tree(page)).toHaveAttribute('aria-activedescendant', (await last.getAttribute('id'))!);
+  expect(await tree(page).getByRole('treeitem').count()).toBeLessThanOrEqual(viewportRows + 17);
+  await expect(row(page, '분류 1')).toHaveCount(0);
+});
