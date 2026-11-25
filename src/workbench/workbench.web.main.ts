@@ -2,6 +2,7 @@
 import './platformServices.contribution.js';
 import './services/manuscript/browser/manuscript.contribution.js';
 import './services/characters/browser/characters.contribution.js';
+import './services/world/browser/world.contribution.js';
 
 // Workbench parts and editor contributions
 import './browser/workbench.contribution.js';
