@@ -73,6 +73,7 @@ export class CharacterCardModel extends FieldCardModel<CharacterCardValues> {
         values: normalizeCharacterValues(value.values),
       }),
       label: value => value.title,
+      conflictDetail: 'Reload to discard your edits and read the saved card. Overwrite replaces the other changes with your edits.',
       beforeSave: () => { void characters.checkTemplateChanges(workId); },
     }, dialogs, notifications, {
       saveError: 'Could not save the character card.',

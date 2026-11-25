@@ -103,6 +103,7 @@ export class WorldCategoryFieldsModel extends FieldCardModel<WorldCategoryDraft>
       normalize: value => ({ fields: normalizeCharacterTemplate(value.fields) }),
       validate: ({ fields }) => worldCategoryProblems(fields),
       label,
+      conflictDetail: 'Reload to discard your edits and read the saved category fields. Overwrite replaces the other changes with your edits.',
     }, dialogs, notifications);
   }
 }

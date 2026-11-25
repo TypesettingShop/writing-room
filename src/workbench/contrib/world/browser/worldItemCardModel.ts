@@ -42,6 +42,7 @@ export class WorldItemCardModel extends FieldCardModel<WorldItemDraft> {
       sameContent: (a, b) => a.title.trim().normalize('NFC') === b.title.trim().normalize('NFC') && sameValues(a, b),
       normalize: value => ({ title: normalizeWorldTitle(value.title), values: normalizeCharacterValues(value.values) }),
       label: value => value.title,
+      conflictDetail: 'Reload to discard your edits and read the saved item. Overwrite replaces the other changes with your edits.',
     }, dialogs, notifications, {
       saveError: 'Could not save the item.',
       repeatedConflict: 'The world changed again while saving. Save the item to retry.',
