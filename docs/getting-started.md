@@ -54,7 +54,7 @@ API가 바로 앞의 신뢰할 수 있는 프록시를 통해서만 요청을 �
 
 ### Postgres에 원고 저장하기
 
-Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다. 등장인물 트리는 같은 데이터베이스의 `characters` 테이블에 저장한다.
+Docker Compose로 개발용 Postgres 17을 띄운다. 첫 실행에서 `writing_room` 데이터베이스와 테스트용 `writing_room_test` 데이터베이스를 만들고, API 서버가 시작하면서 스키마를 적용한다. 등장인물 트리는 같은 데이터베이스의 `characters` 테이블에 저장한다. 세계관 트리와 달력은 각각 `world_nodes`와 `world_calendars`에 저장한다.
 
 ```sh
 npm run db:up
