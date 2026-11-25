@@ -24,3 +24,13 @@ test('recognizes font aliases and consecutive icons', () => {
   expect(renderLabelWithIcons('$(plus)$(loading~spin)').map(part => typeof part === 'string' ? part : part.className))
     .toEqual(['codicon codicon-plus', 'codicon codicon-loading codicon-modifier-spin']);
 });
+
+test.each([
+  'world', 'world-category', 'world-category-add', 'world-item', 'world-item-add', 'world-calendar',
+  'character-male', 'character-female', 'character-unknown', 'character-animal',
+  'characters-group', 'characters-group-add', 'character-add',
+])('renders %s as an accessible-name-neutral icon', id => {
+  const icon = renderIcon({ id });
+  expect(icon?.className).toBe('codicon codicon-' + id);
+  expect(icon?.getAttribute('aria-hidden')).toBe('true');
+});

@@ -44,9 +44,35 @@
   --character-icon-mask: url('./media/character-add.svg');
 }
 
+.codicon-world {
+  --character-icon-mask: url('./media/world.svg');
+}
+
+.codicon-world-category {
+  --character-icon-mask: url('./media/world-category.svg');
+}
+
+.codicon-world-category-add {
+  --character-icon-mask: url('./media/world-category-add.svg');
+}
+
+.codicon-world-item {
+  --character-icon-mask: url('./media/world-item.svg');
+}
+
+.codicon-world-item-add {
+  --character-icon-mask: url('./media/world-item-add.svg');
+}
+
+.codicon-world-calendar {
+  --character-icon-mask: url('./media/world-calendar.svg');
+}
+
 .codicon:is(
   .codicon-character-male, .codicon-character-female, .codicon-character-unknown, .codicon-character-animal,
-  .codicon-characters-group, .codicon-characters-group-add, .codicon-character-add
+  .codicon-characters-group, .codicon-characters-group-add, .codicon-character-add,
+  .codicon-world, .codicon-world-category, .codicon-world-category-add,
+  .codicon-world-item, .codicon-world-item-add, .codicon-world-calendar
 )::before {
   content: '';
   display: block;
@@ -59,7 +85,9 @@
 @media (forced-colors: active) {
   .codicon:is(
     .codicon-character-male, .codicon-character-female, .codicon-character-unknown, .codicon-character-animal,
-    .codicon-characters-group, .codicon-characters-group-add, .codicon-character-add
+    .codicon-characters-group, .codicon-characters-group-add, .codicon-character-add,
+    .codicon-world, .codicon-world-category, .codicon-world-category-add,
+    .codicon-world-item, .codicon-world-item-add, .codicon-world-calendar
   )::before {
     forced-color-adjust: none;
     background-color: var(--character-icon-forced-color, CanvasText);
