@@ -5,6 +5,7 @@ import {
   normalizeWorldTitle, worldLimits, worldNodeTypes, WorldStoreError,
   type WorldNode, type WorldNodeKind, type WorldStoreErrorCode,
 } from './world.js';
+import { buildWorldPresetNodes } from './worldPresets.js';
 import type { CreateWorldNode, UpdateWorldNode } from './worldStore.js';
 
 // Each normalized payload is replaced as a whole and stays private to the store.
@@ -56,6 +57,17 @@ export class WorldTreeEditor extends OrderedTreeEditor<WorldNode> {
 
   protected override error(code: WorldStoreErrorCode): WorldStoreError {
     return new WorldStoreError(code);
+  }
+
+  applyPreset(presetId: string, makeId: () => string, now: number): WorldNode[] {
+    if (this.nodes.size !== 0) {
+      throw new WorldStoreError('invalid');
+    }
+    const nodes = buildWorldPresetNodes(presetId, makeId, now);
+    for (const node of nodes) {
+      this.changed.set(node.id, node);
+    }
+    return nodes;
   }
 
   create(input: CreateWorldNode, id: string, now: number): WorldNode {

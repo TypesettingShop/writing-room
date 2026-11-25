@@ -64,6 +64,11 @@ export class InMemoryWorldRepository implements WorldRepository {
         const { revision, nodes } = requireWork(workId);
         return { revision, nodes: structuredClone(new WorldTreeEditor(nodes).orderedNodes()) };
       },
+      async applyPreset(workId, presetId, expected) {
+        return mutate(workId, expected, (tree, now) => ({
+          nodes: structuredClone(tree.applyPreset(presetId, () => globalThis.crypto.randomUUID(), now)),
+        }));
+      },
       async createNode(workId, input, expected) {
         return mutate(workId, expected, (tree, now) => ({
           node: structuredClone(tree.create(input, globalThis.crypto.randomUUID(), now)),

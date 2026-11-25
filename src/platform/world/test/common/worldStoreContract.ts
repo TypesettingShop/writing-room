@@ -227,6 +227,44 @@ export function worldStoreContract(name: string, makeStores: () => ContractStore
       expect((await owner.updateNode(workId, emptyNodeId, { values: fullWorldValue }, removed.revision)).revision).toBe(revision + 2);
     }, 30_000);
 
+    it('applies a preset once, creates one protected calendar node and leaves the calendar revision independent', async () => {
+      const before = await stores.ownerWorks.getWork(workId);
+      stores.advanceClock();
+      await expect(owner.applyPreset(workId, 'constructor', 0)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.applyPreset(workId, 'fantasy', 1)).rejects.toMatchObject({ code: 'conflict', currentRevision: 0 });
+      await expect(stores.other.applyPreset(workId, 'fantasy', 0)).rejects.toMatchObject({ code: 'not_found' });
+      expect(await stores.ownerWorks.getWork(workId)).toEqual(before);
+      const operations = await Promise.allSettled([owner.applyPreset(workId, 'fantasy', 0), owner.applyPreset(workId, 'fantasy', 0)]);
+      expect(operations.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+      expect(operations.find(result => result.status === 'rejected')).toMatchObject({
+        reason: { code: 'conflict', currentRevision: 1 },
+      });
+      const applied = operations.find(result => result.status === 'fulfilled')!.value;
+      expect(applied.revision).toBe(1);
+      expect(await owner.getTree(workId)).toEqual(applied);
+      expect((await stores.ownerWorks.getWork(workId)).updatedAt).toBeGreaterThan(before.updatedAt);
+      expect(await owner.getCalendar(workId)).toEqual({ revision: 0, calendar: getGregorianCalendar() });
+      const calendarNodes = applied.nodes.filter(node => node.kind === 'calendar');
+      expect(calendarNodes).toHaveLength(1);
+      const { id } = calendarNodes[0];
+      await expect(owner.applyPreset(workId, 'blank', 1)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.deleteNode(workId, id, 1)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.moveNodes(workId, [id], { parentId: applied.nodes[0].id }, 1)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.updateNode(workId, id, { fields: [] }, 1)).rejects.toMatchObject({ code: 'invalid' });
+      await expect(owner.updateNode(workId, id, { values: {} }, 1)).rejects.toMatchObject({ code: 'invalid' });
+      expect((await owner.updateNode(workId, id, { title: '달력 이름' }, 1)).node.title).toBe('달력 이름');
+      expect(await owner.moveNodes(workId, [id], { parentId: null, beforeId: applied.nodes[0].id }, 2)).toEqual({ revision: 3 });
+      expect((await owner.getTree(workId)).nodes[0].id).toBe(id);
+      expect(await owner.getCalendar(workId)).toEqual({ revision: 0, calendar: getGregorianCalendar() });
+    });
+
+    it('preserves a saved calendar when initializing an empty world from a preset', async () => {
+      const calendar = { ...getGregorianCalendar(), hoursPerDay: 30 };
+      await owner.putCalendar(workId, calendar, 0);
+      expect((await owner.applyPreset(workId, 'blank', 0)).revision).toBe(1);
+      expect(await owner.getCalendar(workId)).toEqual({ revision: 1, calendar });
+    });
+
     it('rejects the 10,001st node', async () => {
       const revision = await (stores.seedFullWork?.(workId) ?? fillWorldTree(owner, workId));
       await expect(create(revision)).rejects.toMatchObject({ code: 'limit' });
