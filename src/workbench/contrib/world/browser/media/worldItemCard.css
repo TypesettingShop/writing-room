@@ -38,3 +38,18 @@
   overflow-wrap: anywhere;
   margin-block: 0 4px;
 }
+
+.world-card-field [hidden] {
+  display: none;
+}
+
+.world-card-original {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  font: inherit;
+  resize: vertical;
+}

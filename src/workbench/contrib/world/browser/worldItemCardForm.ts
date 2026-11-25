@@ -12,7 +12,12 @@ interface Row {
   readonly element: HTMLElement;
   readonly input: FieldInput;
   readonly warning: HTMLElement;
+  readonly original: HTMLTextAreaElement;
+  readonly replace: HTMLButtonElement;
+  readonly replaceListener: IDisposable;
   definition: CharacterFieldDefinition;
+  invalidValue?: string;
+  replacing: boolean;
 }
 
 interface Section {
@@ -143,6 +148,7 @@ export class WorldItemCardForm extends Disposable {
       let row = this.rows.get(id);
       if (row?.input.kind !== kind) {
         if (row) {
+          row.replaceListener.dispose();
           row.input.dispose();
           row.element.remove();
         }
@@ -155,17 +161,34 @@ export class WorldItemCardForm extends Disposable {
           const current = this.model.draft;
           this.model.edit({ ...current, values: { ...current.values, [id]: value } });
         });
+        const original = element.appendChild(document.createElement('textarea'));
+        original.className = 'world-card-original';
+        original.readOnly = true;
+        const replace = element.appendChild(document.createElement('button'));
+        replace.type = 'button';
+        replace.textContent = 'Replace Value';
         element.append(input.element);
-        row = { element, warning, input, definition };
+        const newRow: Row = {
+          element, warning, original, replace, input, definition, replacing: false,
+          replaceListener: addDisposableListener(replace, 'click', () => {
+            newRow.replacing = true;
+            this.renderValues();
+            input.control.focus();
+          }),
+        };
+        row = newRow;
         this.rows.set(id, row);
       }
       row.definition = definition;
+      row.original.setAttribute('aria-label', 'Original value for ' + definition.label);
+      row.replace.setAttribute('aria-label', 'Replace value for ' + definition.label);
       row.input.update(definition);
       seen.add(id);
       group.rows.push(row.element);
     }
     for (const [id, row] of this.rows) {
       if (!seen.has(id)) {
+        row.replaceListener.dispose();
         row.input.dispose();
         row.element.remove();
         this.rows.delete(id);
@@ -205,7 +228,11 @@ export class WorldItemCardForm extends Disposable {
     this.status.textContent = deleted ? 'Item deleted' : '';
     this.empty.hidden = deleted || this.rows.size !== 0;
     this.editCategory.hidden = !CommandsRegistry.getCommand('world.editCategoryFields');
-    for (const [id, { definition, input, warning }] of this.rows) {
+    for (const [id, row] of this.rows) {
+      const { definition, input, warning, original, replace } = row;
+      if (input.composing) {
+        continue;
+      }
       const value = draft.values[id] ?? '';
       const invalid = !!value && !checkFieldValue(definition, value);
       const message = invalid ? 'The original value does not match this field: ' + value : '';
@@ -213,7 +240,17 @@ export class WorldItemCardForm extends Disposable {
         warning.textContent = message;
       }
       warning.hidden = !invalid;
-      input.setValue(invalid && definition.kind === 'text' ? '' : value, deleted);
+      const invalidText = invalid && definition.kind === 'text';
+      const invalidValue = invalidText ? value : undefined;
+      if (row.invalidValue !== invalidValue) {
+        row.replacing = false;
+        row.invalidValue = invalidValue;
+        original.value = invalidValue ?? '';
+      }
+      original.hidden = !invalidText;
+      replace.hidden = !invalidText || row.replacing || deleted;
+      input.element.hidden = invalidText && (!row.replacing || deleted);
+      input.setValue(invalidText ? '' : value, deleted);
       if (invalid && input.control instanceof HTMLSelectElement) {
         const option = input.control.selectedOptions.item(0);
         if (option?.value === value) {
@@ -226,6 +263,7 @@ export class WorldItemCardForm extends Disposable {
   override dispose(): void {
     this.disposed = true;
     for (const row of this.rows.values()) {
+      row.replaceListener.dispose();
       row.input.dispose();
     }
     super.dispose();

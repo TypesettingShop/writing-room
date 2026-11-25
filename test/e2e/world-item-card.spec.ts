@@ -242,3 +242,21 @@ test('closes the item card and the category fields tab when the navigator delete
   await expect(page.getByRole('tab', { name: '장소 Fields', exact: true })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: '항구', exact: true })).toHaveCount(0);
 });
+
+test('keeps an invalid saved text value read-only until Replace Value is chosen', async ({ page, request, baseURL }) => {
+  const work = await worldWithItem(request, baseURL!);
+  await work.patchItem({ values: { location: '첫 줄\n둘째 줄', hidden: '보존' } });
+  await openItem(page, work.url);
+  const original = card(page).getByRole('textbox', { name: 'Original value for 위치' });
+  await expect(original).toHaveValue('첫 줄\n둘째 줄');
+  await expect(original).not.toBeEditable();
+  await expect(location(page)).toHaveCount(0);
+  await card(page).getByRole('button', { name: 'Replace value for 위치' }).click();
+  await expect(location(page)).toBeFocused();
+  await expect(location(page)).toHaveValue('');
+  expect((await work.item())?.values.location).toBe('첫 줄\n둘째 줄');
+  await location(page).fill('새 위치');
+  await location(page).press('ControlOrMeta+s');
+  await expect.poll(async () => (await work.item())?.values).toMatchObject({ location: '새 위치', hidden: '보존' });
+  await expect(original).toHaveCount(0);
+});
