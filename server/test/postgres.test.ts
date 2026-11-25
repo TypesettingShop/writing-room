@@ -8,16 +8,24 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   contractOther, contractOwner, contractTime, manuscriptStoreContract,
 } from '../../src/platform/manuscript/test/common/manuscriptStoreContract.js';
+import { getGregorianCalendar } from '../../src/platform/world/common/calendar.js';
+import { worldLimits } from '../../src/platform/world/common/world.js';
+import { fullWorldValue, worldStoreContract } from '../../src/platform/world/test/common/worldStoreContract.js';
 import { migrate } from '../store/migrate.js';
 import { PostgresCharactersRepository } from '../store/postgresCharactersRepository.js';
 import { createPostgresPool, PostgresManuscriptRepository } from '../store/postgresManuscriptRepository.js';
+import { PostgresWorldRepository } from '../store/postgresWorldRepository.js';
 import { startTestApi } from './apiFixture.js';
 import { httpCharactersStore } from './httpCharactersStore.js';
 import migration0001 from '../store/migrations/0001_manuscript.sql?raw';
 import migration0002 from '../store/migrations/0002_auth.sql?raw';
 import migration0003 from '../store/migrations/0003_oauth.sql?raw';
 import migration0004 from '../store/migrations/0004_auth_user_updated_at.sql?raw';
+import migration0005 from '../store/migrations/0005_characters.sql?raw';
+import migration0006 from '../store/migrations/0006_character_templates.sql?raw';
+import migration0007 from '../store/migrations/0007_world.sql?raw';
 import { httpContractStore } from './httpContractStore.js';
+import { httpWorldStore } from './httpWorldStore.js';
 
 const databaseUrl = process.env.WRITING_ROOM_TEST_DATABASE_URL;
 if (!databaseUrl) {
@@ -223,7 +231,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
 
         await Promise.all([migrate(oldPool), migrate(oldPool)]);
         expect((await oldPool.query('SELECT version FROM schema_migrations ORDER BY version')).rows)
-          .toEqual([1, 2, 3, 4, 5, 6].map(version => ({ version: '000' + version })));
+          .toEqual([1, 2, 3, 4, 5, 6, 7].map(version => ({ version: '000' + version })));
         const characterStore = new PostgresCharactersRepository(oldPool).forUser(contractOwner);
         expect(await characterStore.getTree(id)).toEqual({ revision: 0, nodes: [] });
         expect(await characterStore.getTemplate(id)).toMatchObject({ revision: 0 });
@@ -231,6 +239,200 @@ describe.skipIf(!databaseUrl)('PostgreSQL manuscript storage', () => {
         await characterStore.createNode(id, { kind: 'character', title: 'New character', parentId: null }, 0);
         expect((await works.getTree(id)).revision).toBe(1);
         expect((await works.readDocument(id, node.id)).content).toBe('Existing manuscript');
+      } finally {
+        await oldPool.end();
+        await admin.query('DROP SCHEMA ' + oldSchema + ' CASCADE');
+      }
+    }, 25_000);
+  });
+
+  describe('world storage', () => {
+    let clock = contractTime;
+    let worlds: PostgresWorldRepository;
+
+    beforeAll(() => {
+      worlds = new PostgresWorldRepository(pool, () => clock);
+    });
+
+    async function seedFullWorld(workId: string): Promise<number> {
+      await pool.query(`
+        INSERT INTO world_nodes (work_id, kind, position, fields, data_bytes)
+        SELECT $1, 'category', position, '[]'::jsonb, 2 FROM generate_series(0, $2::integer - 1) AS position
+      `, [workId, worldLimits.nodes]);
+      return 0;
+    }
+
+    async function seedValuesBudget(workId: string) {
+      const { rows: [category] } = await pool.query<{ id: string }>(`
+        INSERT INTO world_nodes (work_id, kind, position, fields, data_bytes)
+        VALUES ($1, 'category', 0, '[]', 2) RETURNING id
+      `, [workId]);
+      const count = worldLimits.workData / worldLimits.values - 1;
+      const { rows: [full] } = await pool.query<{ id: string }>(`
+        INSERT INTO world_nodes (work_id, parent_id, kind, position, field_values, data_bytes)
+        SELECT $1, $2, 'item', position, $4, $5 FROM generate_series(0, $3::integer - 1) AS position
+        RETURNING id
+      `, [workId, category.id, count, fullWorldValue, worldLimits.values]);
+      const { rows: [empty] } = await pool.query<{ id: string }>(`
+        INSERT INTO world_nodes (work_id, parent_id, kind, position, field_values, data_bytes)
+        VALUES ($1, $2, 'item', $3, '{}', 2), ($1, $2, 'item', $3 + 1, $4, $5)
+        RETURNING id
+      `, [workId, category.id, count, { note: fullWorldValue.note.slice(4) }, worldLimits.values - 4]);
+      return { revision: 0, categoryId: category.id, emptyNodeId: empty.id, fullNodeId: full.id };
+    }
+
+    function contractClock() {
+      clock = contractTime;
+      return {
+        advanceClock: () => { clock += 10; },
+        seedFullWork: seedFullWorld,
+        seedValuesBudget,
+      };
+    }
+
+    worldStoreContract('repository contract', () => ({
+      ...contractClock(),
+      owner: worlds.forUser(contractOwner),
+      other: worlds.forUser(contractOther),
+      ownerWorks: repository.forUser(contractOwner),
+      otherWorks: repository.forUser(contractOther),
+    }));
+
+    describe('HTTP contract against PostgreSQL', () => {
+      let api: Awaited<ReturnType<typeof startTestApi>>;
+      beforeAll(async () => {
+        api = await startTestApi({ store: 'postgres', repository, worldRepository: worlds });
+      });
+      afterAll(async () => api.close());
+      worldStoreContract('HTTP', () => ({
+        ...contractClock(),
+        owner: httpWorldStore(api.fetch, 'owner'),
+        other: httpWorldStore(api.fetch, 'other'),
+        ownerWorks: httpContractStore(api.fetch, 'owner'),
+        otherWorks: httpContractStore(api.fetch, 'other'),
+      }));
+    });
+
+    it('persists fields, values, revisions and work timestamps across API restarts', async () => {
+      let now = contractTime;
+      const first = await startTestApi({
+        store: 'postgres', repository, worldRepository: new PostgresWorldRepository(pool, () => now),
+      });
+      const fields = [{ id: 'note', label: '기록 🌏', kind: 'longText' }];
+      const values = { note: '연대기\n“인용”', legacy: '  값  ' };
+      const definition = { ...getGregorianCalendar(), hoursPerDay: 30 };
+      let workId: string;
+      let categoryId: string;
+      let itemId: string;
+      try {
+        const works = httpContractStore(first.fetch, 'owner');
+        const world = httpWorldStore(first.fetch, 'owner');
+        workId = (await works.createWork({ title: 'World lifecycle' })).id;
+        expect((await world.getCalendar(workId)).revision).toBe(0);
+        expect((await pool.query('SELECT revision FROM world_calendars WHERE work_id = $1', [workId])).rows).toEqual([]);
+        now++;
+        const preset = await world.applyPreset(workId, 'blank', 0);
+        categoryId = preset.nodes[0].id;
+        await world.updateNode(workId, categoryId, { fields }, 1);
+        itemId = (await world.createNode(workId, { kind: 'item', parentId: categoryId, title: 'Item' }, 2)).node.id;
+        await world.updateNode(workId, itemId, { values }, 3);
+        now++;
+        await world.putCalendar(workId, { ...definition, hoursPerDay: 25 }, 0);
+        now++;
+        await world.putCalendar(workId, definition, 1);
+      } finally {
+        await first.close();
+      }
+
+      const reopenedPool = createPostgresPool(databaseUrl!, 3, '-c search_path=' + schema);
+      try {
+        const reopened = await startTestApi({
+          store: 'postgres', repository: new PostgresManuscriptRepository(reopenedPool),
+          worldRepository: new PostgresWorldRepository(reopenedPool),
+        });
+        try {
+          const works = httpContractStore(reopened.fetch, 'owner');
+          const world = httpWorldStore(reopened.fetch, 'owner');
+          expect(await works.getWork(workId)).toMatchObject({ updatedAt: now });
+          expect(await works.getTree(workId)).toEqual({ revision: 0, nodes: [] });
+          expect(await world.getTree(workId)).toMatchObject({
+            revision: 4,
+            nodes: [
+              expect.objectContaining({ id: categoryId, fields }),
+              expect.objectContaining({ id: itemId, values, parentId: categoryId }),
+              expect.objectContaining({ kind: 'category' }),
+              expect.objectContaining({ kind: 'category' }),
+              expect.objectContaining({ kind: 'calendar' }),
+            ],
+          });
+          expect(await world.getCalendar(workId)).toEqual({ revision: 2, calendar: definition });
+          const { rows: sizes } = await reopenedPool.query<{ id: string; data_bytes: number }>(
+            'SELECT id, data_bytes FROM world_nodes WHERE work_id = $1',
+            [workId],
+          );
+          expect(sizes).toEqual(expect.arrayContaining([
+            { id: categoryId, data_bytes: Buffer.byteLength(JSON.stringify(fields)) },
+            { id: itemId, data_bytes: Buffer.byteLength(JSON.stringify(values)) },
+          ]));
+          expect(await world.deleteNode(workId, categoryId, 4)).toEqual({ revision: 5, deletedNodeIds: [categoryId, itemId] });
+          expect((await reopenedPool.query('SELECT id FROM world_nodes WHERE id = ANY($1::uuid[])', [[categoryId, itemId]])).rows)
+            .toEqual([]);
+        } finally {
+          await reopened.close();
+        }
+      } finally {
+        await reopenedPool.end();
+      }
+      await pool.query('DELETE FROM works WHERE id = $1', [workId]);
+      expect((await pool.query('SELECT id FROM world_nodes WHERE work_id = $1', [workId])).rows).toEqual([]);
+      expect((await pool.query('SELECT revision FROM world_calendars WHERE work_id = $1', [workId])).rows).toEqual([]);
+    });
+
+    it('enforces node payload types, root calendar uniqueness and same-work parents in SQL', async () => {
+      const works = repository.forUser(contractOwner);
+      const { id } = await works.createWork({ title: 'World constraints' });
+      const { id: foreignId } = await works.createWork({ title: 'Other world' });
+      const world = worlds.forUser(contractOwner);
+      const preset = await world.applyPreset(id, 'blank', 0);
+      const category = preset.nodes[0];
+      await expect(pool.query(
+        "INSERT INTO world_nodes (work_id, kind, position) VALUES ($1, 'calendar', 4)", [id],
+      )).rejects.toMatchObject({ code: '23505', constraint: 'world_nodes_one_calendar_per_work' });
+      await expect(pool.query(
+        "UPDATE world_nodes SET field_values = '{}' WHERE work_id = $1 AND id = $2", [id, category.id],
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(pool.query(
+        "UPDATE world_nodes SET fields = NULL WHERE work_id = $1 AND id = $2", [id, category.id],
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(pool.query(
+        "INSERT INTO world_nodes (work_id, parent_id, kind, position, field_values, data_bytes) VALUES ($1, $2, 'item', 0, '{}', 2)",
+        [foreignId, category.id],
+      )).rejects.toMatchObject({ code: '23503' });
+    });
+
+    it('upgrades 0006 with existing works and checks the 0007 checksum', async () => {
+      const oldSchema = 'test_' + randomUUID().replaceAll('-', '');
+      await admin.query('CREATE SCHEMA ' + oldSchema);
+      const oldPool = createPostgresPool(databaseUrl!, 4, '-c search_path=' + oldSchema);
+      try {
+        await migrate(oldPool, [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006]
+          .map((sql, index) => ({ version: '000' + (index + 1), sql })));
+        const oldRepository = new PostgresManuscriptRepository(oldPool, () => contractTime);
+        await oldRepository.ensureDevUser(contractOwner);
+        const works = oldRepository.forUser(contractOwner);
+        const original = await works.createWork({ title: 'Before world storage' });
+        const characters = new PostgresCharactersRepository(oldPool, () => contractTime + 1).forUser(contractOwner);
+        const originalCharacters = await characters.createNode(original.id, { kind: 'character', parentId: null, title: 'Existing' }, 0);
+        const workBeforeUpgrade = await works.getWork(original.id);
+
+        await migrate(oldPool);
+        const world = new PostgresWorldRepository(oldPool).forUser(contractOwner);
+        expect(await world.getTree(original.id)).toEqual({ revision: 0, nodes: [] });
+        expect(await world.getCalendar(original.id)).toEqual({ revision: 0, calendar: getGregorianCalendar() });
+        expect(await works.getWork(original.id)).toEqual(workBeforeUpgrade);
+        expect(await characters.getTree(original.id)).toEqual({ revision: 1, nodes: [originalCharacters.node] });
+        await expect(migrate(oldPool, [{ version: '0007', sql: migration0007 + '\n-- Edited migration' }]))
+          .rejects.toThrow('Checksum changed for migration 0007');
       } finally {
         await oldPool.end();
         await admin.query('DROP SCHEMA ' + oldSchema + ' CASCADE');

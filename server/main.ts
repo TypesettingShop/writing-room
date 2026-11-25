@@ -13,6 +13,7 @@ import { readApiConfig } from './config.js';
 import { migrate } from './store/migrate.js';
 import { PostgresCharactersRepository } from './store/postgresCharactersRepository.js';
 import { createPostgresPool, PostgresManuscriptRepository } from './store/postgresManuscriptRepository.js';
+import { PostgresWorldRepository } from './store/postgresWorldRepository.js';
 
 async function main(): Promise<void> {
   const config = readApiConfig(process.env);
@@ -21,7 +22,7 @@ async function main(): Promise<void> {
   try {
     let repository: ManuscriptRepository;
     let charactersRepository: CharactersRepository;
-    let worldRepository: WorldRepository | undefined;
+    let worldRepository: WorldRepository;
     if (config.store === 'postgres' && config.databaseUrl) {
       pool = createPostgresPool(config.databaseUrl, config.databasePoolSize);
       pool.on('error', () => console.error('Unexpected failure on an idle PostgreSQL connection.'));
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
       }
       repository = postgres;
       charactersRepository = new PostgresCharactersRepository(pool);
+      worldRepository = new PostgresWorldRepository(pool);
     } else if (config.store === 'memory') {
       const memory = new InMemoryManuscriptRepository();
       repository = memory;
