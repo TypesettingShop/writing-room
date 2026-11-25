@@ -141,3 +141,50 @@ test('World, Manuscript and Characters reject one another’s drags', async ({ p
     expect((await response.json()).revision).toBe(1);
   }
 });
+
+test('creates sibling items with the keyboard and protects the calendar from deletion', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await page.goto(work.url);
+  await activity(page, 'World').click();
+  await page.getByRole('button', { name: /^빈 세계/ }).click();
+  await expect(row(page, '달력')).toBeVisible();
+  const toolbar = (name: string) => page.locator('.view-pane-header').getByRole('button', { name, exact: true });
+  await expect(toolbar('New Category').locator('.codicon-world-category-add')).toBeVisible();
+  await expect(toolbar('New Item').locator('.codicon-world-item-add')).toBeVisible();
+  await expect(toolbar('New Item')).toBeDisabled();
+  await runCommand(page, 'World New Item', /^World: New Item$/);
+  await expect(page.getByText('Select a category first.', { exact: true })).toBeVisible();
+
+  const edit = page.locator('.world-inline-editor input');
+  await runCommand(page, 'World New Category', /^World: New Category$/);
+  await expect(edit).toBeFocused();
+  await edit.fill('항구들');
+  await edit.press('Enter');
+  await expect(row(page, '항구들')).toBeVisible();
+  await expect(toolbar('New Item')).toBeEnabled();
+
+  for (const name of ['푸른 항구', '붉은 항구']) {
+    await runCommand(page, 'World New Item', /^World: New Item$/);
+    await expect(edit).toBeFocused();
+    await edit.fill(name);
+    await edit.press('Enter');
+    await expect(row(page, name)).toHaveAttribute('aria-level', '2');
+  }
+  await tree(page).press('Alt+ArrowUp');
+  await expect(tree(page).getByRole('treeitem', { name: /항구$/ })).toHaveText([/붉은 항구/, /푸른 항구/]);
+
+  await row(page, '달력').click();
+  await tree(page).press('Delete');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await tree(page).press('Shift+F10');
+  await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await row(page, '항구들').click();
+  await tree(page).press('Delete');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('Delete "항구들" and 2 items in it?')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).press('Enter');
+  await expect(row(page, '항구들')).toHaveCount(0);
+  await expect(row(page, '달력')).toBeVisible();
+});

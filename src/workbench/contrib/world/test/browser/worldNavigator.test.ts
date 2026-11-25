@@ -4,7 +4,7 @@ import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import type { IMenuService } from '../../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, type ICommandService } from '../../../../../platform/commands/common/commands.js';
-import type { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
+import { ContextKeyService } from '../../../../../platform/contextkey/browser/contextKeyService.js';
 import type { IContextMenuService } from '../../../../../platform/contextview/browser/contextMenuService.js';
 import type { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { InstantiationService } from '../../../../../platform/instantiation/common/instantiationService.js';
@@ -38,7 +38,7 @@ function setup(snapshot: WorldTree = { nodes: [], revision: 0 }) {
   const parent = document.body.appendChild(document.createElement('div'));
   disposables.add(toDisposable(() => parent.remove()));
   const commands = { executeCommand: vi.fn(async () => {}) };
-  disposables.add(new WorldNavigator(parent, state, {} as IContextKeyService, {} as IMenuService,
+  disposables.add(new WorldNavigator(parent, state, disposables.add(new ContextKeyService()), {} as IMenuService,
     {} as IContextMenuService, new InstantiationService(new ServiceCollection([INotificationService, notifications])), commands as unknown as ICommandService,
     notifications as unknown as INotificationService));
   return {

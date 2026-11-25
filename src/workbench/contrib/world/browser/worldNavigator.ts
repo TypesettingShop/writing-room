@@ -1,6 +1,7 @@
 import { IMenuService, MenuId } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
-import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { toDisposable } from '../../../../base/common/lifecycle.js';
+import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -13,6 +14,7 @@ import { renderWorldPresetPicker } from './worldPresetPicker.js';
 import { IWorldViewState, type WorldViewState } from './worldViewState.js';
 
 export const WORLD_SELECTION_KIND = 'worldSelectionKind';
+export const WorldCanCreateItem = new RawContextKey<boolean>('worldCanCreateItem', false);
 
 export class WorldNavigator extends NavigatorView<WorldNode, WorldStore> {
   constructor(
@@ -47,5 +49,11 @@ export class WorldNavigator extends NavigatorView<WorldNode, WorldStore> {
       selectionKindKey: WORLD_SELECTION_KIND,
       drag: { observer: WorldDragAndDropObserver.INSTANCE, dropDatasetKey: 'worldDrop' },
     }, contextKeys, menus, contextMenus, instantiation);
+
+    const canCreateItem = WorldCanCreateItem.bindTo(contextKeys.getScopedContextKeyService(parent));
+    const updateCanCreateItem = () => canCreateItem.set(!state.busy && state.creationParent('item') !== undefined);
+    this._register(state.onDidChange(updateCanCreateItem));
+    this._register(toDisposable(() => canCreateItem.reset()));
+    updateCanCreateItem();
   }
 }
