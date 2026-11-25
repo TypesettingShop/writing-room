@@ -80,7 +80,7 @@ export function orderTimeline(items: readonly TimedItem[], calendar: Calendar): 
     }
   }
 
-  // Populate each child list and the undated roots in creation order with one shared sort.
+  // One shared sort puts each child list, the needsReview and undated roots and the broken scan in creation order.
   const byCreation = [...byId.values()].sort(compareCreation);
   const dated: DatedRoot[] = [];
   const needsReview: TimedItem[] = [];
@@ -111,7 +111,12 @@ export function orderTimeline(items: readonly TimedItem[], calendar: Calendar): 
   const ordered: OrderedEntry[] = [];
   const rooted = new Set<string>();
 
-  function appendBlock(root: TimedItem, group: Exclude<TimelineGroup, 'broken'>, rootDate?: CalendarDate): void {
+  function appendBlock(root: TimedItem, group: Exclude<TimelineGroup, 'broken'>, date?: CalendarDate): void {
+    // Copy the root date once for the block so consumers cannot modify the input through the result.
+    const rootDate = date && { ...date };
+    if (rootDate?.time) {
+      rootDate.time = { ...rootDate.time };
+    }
     const stack: StackEntry[] = [{ item: root, expanded: false }];
     function pushChildren(children: readonly TimedItem[]): void {
       for (let i = children.length - 1; i >= 0; i--) {

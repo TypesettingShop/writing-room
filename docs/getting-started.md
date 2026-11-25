@@ -69,7 +69,7 @@ Postgres 인수 테스트는 테스트 DB URL을 지정해야 실행한다.
 WRITING_ROOM_TEST_DATABASE_URL='postgres://writing_room:writing_room@127.0.0.1:5432/writing_room_test' npm test
 ```
 
-`npm run db:down`으로 컨테이너를 내리면 원고와 등장인물은 볼륨에 남는다. `npm run db:reset`은 볼륨과 로컬 원고 및 등장인물을 지우고 개발용 DB를 다시 만든다.
+`npm run db:down`으로 컨테이너를 내리면 원고, 등장인물, 세계관은 볼륨에 남는다. `npm run db:reset`은 볼륨과 로컬 원고, 등장인물, 세계관을 지우고 개발용 DB를 다시 만든다.
 
 ## 편집하고 배치하기
 

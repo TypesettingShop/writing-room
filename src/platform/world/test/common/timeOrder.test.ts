@@ -24,14 +24,18 @@ function ids(items: readonly TimedItem[], calendar: Calendar = gregorian): strin
 }
 
 describe('calendar date order', () => {
-  it('orders descending years and the BC/AD boundary', () => {
+  it('orders descending years, months within a descending year and the BC/AD boundary', () => {
     const items = [
       dated('early-ad', 1, { era: 'ad', year: 1 }),
       dated('bc-1', 2, { era: 'bc', year: 1, month: 'dec', day: 31, time: { hour: 23, minute: 59 } }),
       dated('bc-100', 3, { era: 'bc', year: 100 }),
       dated('bc-10', 4, { era: 'bc', year: 10 }),
+      // Only the year runs backwards: months, days and the partial-date start stay in calendar order.
+      dated('bc-50-apr', 5, { era: 'bc', year: 50, month: 'apr', day: 1 }),
+      dated('bc-50-mar', 6, { era: 'bc', year: 50, month: 'mar' }),
+      dated('bc-50', 7, { era: 'bc', year: 50 }),
     ];
-    expect(ids(items)).toEqual(['bc-100', 'bc-10', 'bc-1', 'early-ad']);
+    expect(ids(items)).toEqual(['bc-100', 'bc-50', 'bc-50-mar', 'bc-50-apr', 'bc-10', 'bc-1', 'early-ad']);
     expect(calendarDateKey(gregorian, { era: 'bc', year: 100 })).toEqual([0, -100, -1, 0, -1]);
     expect(compareCalendarDates(gregorian, { era: 'bc', year: 1 }, { era: 'ad', year: 1 })).toBeLessThan(0);
     expect(compareCalendarDates(gregorian, { era: 'bc', year: 0 }, { era: 'ad', year: 1 })).toBeUndefined();
@@ -60,9 +64,11 @@ describe('calendar date order', () => {
       dated('day-only', 6, { ...end, month: 'short', day: 1 }),
       dated('month-only', 7, { ...end, month: 'short' }),
       dated('year-only', 8, end),
+      // Created first, so a missing time read as 00:00 would tie and put this before the day-only date.
+      dated('midnight', 0, { ...end, month: 'short', day: 1, time: { hour: 0, minute: 0 } }),
     ];
     expect(ids(items, calendar)).toEqual([
-      'year-only', 'month-only', 'day-only', 'same-day-nine',
+      'year-only', 'month-only', 'day-only', 'midnight', 'same-day-nine',
       'short-month-end', 'long-month-end', 'last-month', 'next-era',
     ]);
     expect(calendarDateKey(calendar, { ...end, month: 'short', day: 1, time: { hour: 9, minute: 15 } }))
@@ -113,6 +119,17 @@ describe('timeline order', () => {
     ]);
   });
 
+  it('keeps edits to the output root date and time separate from the input', () => {
+    const input = { ...rootDate, time: { hour: 9, minute: 15 } };
+    const items = [dated('root', 1, input), relative('child', 2, 'after', 'root')];
+    const result = orderTimeline(items, gregorian);
+    expect(result[1].rootDate).toEqual(input);
+    result[1].rootDate!.year = 2030;
+    result[1].rootDate!.time!.minute = 45;
+    expect(input).toEqual({ ...rootDate, time: { hour: 9, minute: 15 } });
+    expect(orderTimeline(items, gregorian)[0].rootDate).toEqual(input);
+  });
+
   it('emits before, anchor, same-time and after blocks with ties resolved within each list', () => {
     const items = [
       dated('root', 0, rootDate),
@@ -150,6 +167,21 @@ describe('timeline order', () => {
     ]);
     expect(result.slice(1).every(entry => entry.group === 'broken' && !entry.relative && entry.rootId === undefined))
       .toBe(true);
+  });
+
+  it('orders review and undated roots by creation time and then ID, not by stored date or ID alone', () => {
+    const items = [
+      dated('review-a', 3, { era: 'ad', year: 1, month: 'gone' }),
+      dated('review-z', 1, { era: 'ad', year: 9, month: 'gone' }),
+      dated('review-m', 3, { era: 'gone', year: 5 }),
+      unset('undated-a', 6),
+      unset('undated-z', 4),
+      unset('undated-B', 6),
+    ];
+    expect(orderTimeline(items, gregorian).map(({ id, group }) => [id, group])).toEqual([
+      ['review-z', 'needsReview'], ['review-a', 'needsReview'], ['review-m', 'needsReview'],
+      ['undated-z', 'undated'], ['undated-B', 'undated'], ['undated-a', 'undated'],
+    ]);
   });
 
   it('keeps the first record for duplicate IDs', () => {
