@@ -170,6 +170,7 @@ export class CalendarModel extends Disposable {
       },
       normalize: normalizeCalendar,
       label: () => 'Calendar',
+      conflictDetail: 'Reload to discard your edits and read the saved calendar. Overwrite replaces the other changes with your edits.',
       validate: draft => {
         try {
           normalizeCalendar(draft);

@@ -213,3 +213,17 @@ test('virtualizes a 10,000-row World tree when moving to its last row', async ({
   expect(await tree(page).getByRole('treeitem').count()).toBeLessThanOrEqual(viewportRows + 17);
   await expect(row(page, '분류 1')).toHaveCount(0);
 });
+
+test('opens the calendar editor from the World row and reuses the open tab', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await page.goto(work.url);
+  await activity(page, 'World').click();
+  await page.getByRole('button', { name: /^빈 세계/ }).click();
+  await row(page, '달력').dblclick();
+  const calendar = page.getByRole('tab', { name: 'Calendar', exact: true });
+  await expect(calendar).toHaveAttribute('aria-selected', 'true');
+  await row(page, '달력').click();
+  await tree(page).press('Enter');
+  await expect(calendar).toHaveCount(1);
+  await expect(calendar).toHaveAttribute('aria-selected', 'true');
+});
