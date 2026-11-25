@@ -1,5 +1,5 @@
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
-import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IDialogService, Severity } from '../../../../platform/dialogs/common/dialogs.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { getGregorianCalendar, type Calendar, type CalendarEra, type CalendarMonth } from '../../../../platform/world/common/calendar.js';
@@ -24,6 +24,7 @@ type Row = CalendarEra | CalendarMonth;
 const gregorian = getGregorianCalendar();
 
 export class CalendarLists extends Disposable {
+  private readonly presetPrompt = this._register(new MutableDisposable());
   private readonly subscriptions = this._register(new DisposableStore());
   private readonly eras: CalendarRows<CalendarEra>;
   private readonly months: CalendarRows<CalendarMonth>;
@@ -86,18 +87,21 @@ export class CalendarLists extends Disposable {
 
   private async useGregorian(): Promise<void> {
     const { card, saved } = this.model;
-    if (!card || this.model.composing) {
+    if (!card || this.model.composing || this.presetPrompt.value) {
       return;
     }
     const draft = card.draft;
     if (JSON.stringify(saved) !== JSON.stringify(gregorian) || card.dirty) {
-      const prompt = this._register(this.dialogs.prompt({
+      const prompt = this.dialogs.prompt({
         type: Severity.Warning,
         message: 'Replace this calendar draft with the Gregorian calendar?',
         buttons: ['Use Gregorian Calendar', 'Cancel'],
         cancelButton: 1,
-      }));
-      if (await prompt.result !== 0 || card.draft !== draft || this.model.composing) {
+      });
+      this.presetPrompt.value = toDisposable(() => prompt.close());
+      const choice = await prompt.result;
+      this.presetPrompt.clear();
+      if (choice !== 0 || card.draft !== draft || this.model.composing) {
         return;
       }
     }
@@ -162,7 +166,7 @@ class CalendarRows<T extends Row> extends Disposable {
       }
     }
     const focused = this.list.ownerDocument.activeElement;
-    let next: HTMLLIElement | null = null;
+    let next: HTMLElement | null = null;
     for (let index = rows.length - 1; index >= 0; index--) {
       const row = rows[index];
       const node = this.nodes.get(row.id) ?? this.createRow(row.id);
