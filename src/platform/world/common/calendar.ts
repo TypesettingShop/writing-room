@@ -43,7 +43,7 @@ export class CalendarValidationError extends WorldStoreError {
 }
 
 export function hasOnlyKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return value !== null && Object.prototype.toString.call(value) === '[object Object]' &&
+  return typeof value === 'object' && value !== null && Object.prototype.toString.call(value) === '[object Object]' &&
     Object.keys(value).every(key => keys.includes(key));
 }
 

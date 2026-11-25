@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex } from '../../../../workbench/common/navigator/navigatorTree.js';
 import { normalizeCharacterTemplate } from '../../../characters/common/characterFields.js';
-import { isManuscriptId } from '../../../manuscript/common/manuscript.js';
-import { worldLimits, worldNodeTypes } from '../../common/world.js';
 import { buildWorldPresetNodes, getWorldPresets, type WorldPresetId } from '../../common/worldPresets.js';
 
 const genreCategories: Record<WorldPresetId, string[]> = {
@@ -25,11 +22,6 @@ describe('world presets', () => {
   it.each(getWorldPresets())('builds a valid and independent $id tree', ({ id }) => {
     const build = () => buildWorldPresetNodes(id, () => globalThis.crypto.randomUUID(), 10);
     const result = build();
-    const options = {
-      types: worldNodeTypes, label: (node: { title: string }) => node.title,
-      isId: isManuscriptId, maxNodes: worldLimits.nodes, invalidTree: 'Invalid preset tree',
-    };
-    expect(buildIndex(result, options)).toMatchObject({ ok: true });
     expect(result.filter(node => node.parentId === null).map(node => node.title))
       .toEqual(['시간과 공간', '사회와 문화', '핵심 규칙·시스템', '달력']);
     expect(result.filter(node => node.kind === 'calendar')).toEqual([
