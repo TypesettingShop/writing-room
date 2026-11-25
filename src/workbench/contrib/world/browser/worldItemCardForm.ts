@@ -6,6 +6,7 @@ import type { IKeybindingService } from '../../../../platform/keybinding/common/
 import { FieldInput } from '../../../browser/fieldCard/fieldInputs.js';
 import type { WorldItemCardModel } from './worldItemCardModel.js';
 import type { WorldItemEditorInput } from './worldItemEditorInput.js';
+import type { WorldViewState } from './worldViewState.js';
 
 interface Row {
   readonly element: HTMLElement;
@@ -51,6 +52,7 @@ export class WorldItemCardForm extends Disposable {
     private readonly model: WorldItemCardModel,
     private readonly keybindings: IKeybindingService,
     commands: ICommandService,
+    state: WorldViewState,
   ) {
     super();
     const document = root.ownerDocument;
@@ -68,7 +70,8 @@ export class WorldItemCardForm extends Disposable {
     this.editCategory.type = 'button';
     this.editCategory.textContent = 'Edit Category Fields';
     this._register(addDisposableListener(this.editCategory, 'click', () => {
-      void commands.executeCommand('world.editItemCategoryFields');
+      state.reveal(editor.itemId);
+      void commands.executeCommand('world.editCategoryFields');
     }));
     this._register(model.onDidChange(() => this.renderValues()));
     this._register(editor.onDidChangePresentation(() => this.renderFields()));
@@ -201,7 +204,7 @@ export class WorldItemCardForm extends Disposable {
     this.status.hidden = !deleted;
     this.status.textContent = deleted ? 'Item deleted' : '';
     this.empty.hidden = deleted || this.rows.size !== 0;
-    this.editCategory.hidden = !CommandsRegistry.getCommand('world.editItemCategoryFields');
+    this.editCategory.hidden = !CommandsRegistry.getCommand('world.editCategoryFields');
     for (const [id, { definition, input, warning }] of this.rows) {
       const value = draft.values[id] ?? '';
       const invalid = !!value && !checkFieldValue(definition, value);

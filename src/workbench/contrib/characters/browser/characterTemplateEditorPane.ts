@@ -1,11 +1,13 @@
 import { $, addDisposableListener, append, type Dimension } from '../../../../base/browser/dom.js';
 import { DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import { getDefaultCharacterTemplate } from '../../../../platform/characters/common/defaultCharacterTemplate.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { CharacterTemplateEditorInput } from './characterTemplateEditorInput.js';
-import { CharacterTemplateFieldList } from './characterTemplateFieldList.js';
+import { ICharactersService } from '../../../services/characters/common/charactersService.js';
+import { CharacterTemplateFieldList, readFieldValueCount } from './characterTemplateFieldList.js';
 import './media/characterCard.css';
 import './media/characterTemplate.css';
 
@@ -21,7 +23,10 @@ export class CharacterTemplateEditorPane extends EditorPane {
   private overwrite!: HTMLButtonElement;
   private content!: HTMLDivElement;
 
-  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {
+  constructor(
+    @IInstantiationService private readonly instantiation: IInstantiationService,
+    @ICharactersService private readonly characters: ICharactersService,
+  ) {
     super(CharacterTemplateEditorPane.ID);
   }
 
@@ -48,7 +53,22 @@ export class CharacterTemplateEditorPane extends EditorPane {
     if (input instanceof CharacterTemplateEditorInput) {
       if (!this.fieldList.value) {
         this.inputListeners.add(input.onDidChangeState(() => this.render(input)));
-        this.fieldList.value = this.instantiation.createInstance(CharacterTemplateFieldList, this.content, input);
+        this.fieldList.value = this.instantiation.createInstance(CharacterTemplateFieldList, this.content, input, {
+          reservedIds: async () => {
+            const { nodes } = await this.characters.store.getTree(input.workId);
+            return new Set(nodes.flatMap(node => node.kind === 'character' ? Object.keys(node.values) : []));
+          },
+          countValues: id => readFieldValueCount(this.characters.store, input.workId, id),
+          defaultFields: getDefaultCharacterTemplate,
+          addedLabel: 'New Field',
+          addError: 'Could not read the characters to add a field. Try again.',
+          deleteDetail: count => {
+            const affected = count === undefined ? 'The number of characters with a value could not be checked.'
+              : count === 1 ? '1 character has a value in this field.'
+              : `${count} characters have a value in this field.`;
+            return affected + ' Values are kept and come back if a field with the same ID is restored.';
+          },
+        });
       }
       this.render(input);
       await input.resolve();

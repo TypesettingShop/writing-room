@@ -6,5 +6,6 @@ import '../contrib/characters/browser/characters.contribution.js';
 import '../contrib/characters/browser/characterTemplate.contribution.js';
 import '../contrib/world/browser/world.contribution.js';
 import '../contrib/world/browser/worldItemEditor.contribution.js';
+import '../contrib/world/browser/worldCategory.contribution.js';
 import '../services/views/browser/viewsService.js';
 import '../services/views/browser/viewDescriptorService.js';

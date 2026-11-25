@@ -8,6 +8,7 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { WorldItemCardForm } from './worldItemCardForm.js';
 import { WorldItemEditorInput } from './worldItemEditorInput.js';
 import './media/worldItemCard.css';
+import { IWorldViewState, type WorldViewState } from './worldViewState.js';
 
 export class WorldItemEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.worldItem';
@@ -19,6 +20,7 @@ export class WorldItemEditorPane extends EditorPane {
   constructor(
     @IKeybindingService private readonly keybindings: IKeybindingService,
     @ICommandService private readonly commands: ICommandService,
+    @IWorldViewState private readonly state: WorldViewState,
   ) {
     super(WorldItemEditorPane.ID);
   }
@@ -57,7 +59,7 @@ export class WorldItemEditorPane extends EditorPane {
     this.retry.clear();
     this.card.replaceChildren();
     if (input.model) {
-      this.form.value = new WorldItemCardForm(this.card, input, input.model, this.keybindings, this.commands);
+      this.form.value = new WorldItemCardForm(this.card, input, input.model, this.keybindings, this.commands, this.state);
       return;
     }
     const document = this.card.ownerDocument;

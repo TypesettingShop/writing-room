@@ -1,5 +1,6 @@
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import type { Event } from '../../../../base/common/event.js';
+import { Disposable, type IDisposable } from '../../../../base/common/lifecycle.js';
 import {
   CharacterTemplateValidationError, isCharacterFieldId, normalizeCharacterTemplate,
   type CharacterFieldDefinition, type CharacterFieldKind,
@@ -9,8 +10,6 @@ import type { CharactersStore } from '../../../../platform/characters/common/cha
 import { IDialogService, Severity, type IPromptHandle } from '../../../../platform/dialogs/common/dialogs.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { ICharactersService } from '../../../services/characters/common/charactersService.js';
-import type { CharacterTemplateEditorInput } from './characterTemplateEditorInput.js';
 import { FieldInput } from '../../../browser/fieldCard/fieldInputs.js';
 
 const kinds = new Map([['text', 'Text'], ['longText', 'Long Text'], ['choice', 'Choice']]);
@@ -66,10 +65,27 @@ interface FieldDrag {
   y: number;
 }
 
+export interface TemplateFieldListInput {
+  readonly fields: readonly CharacterFieldDefinition[] | undefined;
+  readonly onDidChangeState: Event<void>;
+  setFields(fields: readonly CharacterFieldDefinition[]): void;
+  beginComposition?(): IDisposable | undefined;
+}
+
+export interface TemplateFieldListHost {
+  readonly reservedIds: () => Promise<ReadonlySet<string>>;
+  readonly countValues: (fieldId: string) => Promise<number | undefined>;
+  readonly defaultFields?: () => CharacterFieldDefinition[];
+  readonly addedLabel: string;
+  readonly addError: string;
+  readonly deleteDetail: (count: number | undefined) => string;
+  readonly validation?: () => { fieldIndex?: number; detail: string } | undefined;
+}
+
 export class CharacterTemplateFieldList extends Disposable {
   private readonly commands: HTMLDivElement;
   private readonly addButton: HTMLButtonElement;
-  private readonly resetButton: HTMLButtonElement;
+  private readonly resetButton: HTMLButtonElement | undefined;
   private readonly summary: HTMLParagraphElement;
   private readonly list: HTMLUListElement;
   private readonly rows = new Map<string, TemplateFieldRow>();
@@ -85,16 +101,18 @@ export class CharacterTemplateFieldList extends Disposable {
 
   constructor(
     private readonly parent: HTMLElement,
-    private readonly input: CharacterTemplateEditorInput,
+    private readonly input: TemplateFieldListInput,
+    private readonly host: TemplateFieldListHost,
     @IKeybindingService private readonly keybindings: IKeybindingService,
     @IDialogService private readonly dialogs: IDialogService,
-    @ICharactersService private readonly characters: ICharactersService,
     @INotificationService private readonly notifications: INotificationService,
   ) {
     super();
     this.commands = append(parent, $('div', { class: 'character-template-actions' }));
     this.addButton = this.button(this.commands, 'Add Field', () => void this.addField());
-    this.resetButton = this.button(this.commands, 'Reset to Default Template', () => void this.reset());
+    if (host.defaultFields) {
+      this.resetButton = this.button(this.commands, 'Reset to Default Template', () => void this.reset());
+    }
     this.summary = append(parent, $('p', { class: 'character-template-problem', role: 'status', hidden: true }));
     this.list = append(parent, $('ul', { class: 'character-template-fields', 'aria-label': 'Template fields' }));
 
@@ -129,13 +147,17 @@ export class CharacterTemplateFieldList extends Disposable {
     const fields = this.input.fields;
     this.commands.hidden = this.list.hidden = fields === undefined;
     this.addButton.disabled = this.composing > 0 || this.adding;
-    this.resetButton.disabled = this.composing > 0;
-    if (this.composing || fields === this.renderedFields) {
+    if (this.resetButton) {
+      this.resetButton.disabled = this.composing > 0;
+    }
+    if (this.composing || (!this.host.validation && fields === this.renderedFields)) {
       return;
     }
     this.renderedFields = fields;
-    let validation: CharacterTemplateValidationError | undefined;
-    if (fields) {
+    let validation: { fieldIndex?: number; detail: string } | undefined;
+    if (this.host.validation) {
+      validation = this.host.validation();
+    } else if (fields) {
       try {
         normalizeCharacterTemplate(fields);
       } catch (error) {
@@ -180,7 +202,17 @@ export class CharacterTemplateFieldList extends Disposable {
     }
   }
 
+  focusProblem(fieldId: string, addOption: boolean): void {
+    const row = this.rows.get(fieldId);
+    if (row) {
+      row.focusProblem(addOption);
+    } else {
+      this.addButton.focus();
+    }
+  }
+
   private createRow(id: string): TemplateFieldRow {
+    let composition: IDisposable | undefined;
     return new TemplateFieldRow(id, this.keybindings, {
       edit: change => {
         const fields = this.input.fields;
@@ -195,11 +227,14 @@ export class CharacterTemplateFieldList extends Disposable {
       remove: () => void this.removeField(id),
       compositionStart: () => {
         this.composing++;
+        composition = this.input.beginComposition?.();
         this.endDrag();
         this.render();
       },
       compositionEnd: () => {
         this.composing--;
+        composition?.dispose();
+        composition = undefined;
         this.render();
       },
       dragStart: (event, handle) => {
@@ -220,25 +255,18 @@ export class CharacterTemplateFieldList extends Disposable {
     this.adding = true;
     this.render();
     try {
-      const tree = await this.characters.store.getTree(this.input.workId);
+      const reserved = await this.host.reservedIds();
       const fields = this.input.fields;
       if (this.disposed || this.composing || !fields) {
         return;
       }
-      const used = new Set(fields.map(field => field.id));
-      for (const node of tree.nodes) {
-        if (node.kind === 'character') {
-          for (const id of Object.keys(node.values)) {
-            used.add(id);
-          }
-        }
-      }
+      const used = new Set([...reserved, ...fields.map(field => field.id)]);
       const id = newTemplateFieldId(used);
-      this.input.setFields([...fields, { id, label: 'New Field', kind: 'text' }]);
+      this.input.setFields([...fields, { id, label: this.host.addedLabel, kind: 'text' }]);
       this.rows.get(id)?.focusLabel();
     } catch {
       if (!this.disposed) {
-        this.notifications.error('Could not read the characters to add a field. Try again.');
+        this.notifications.error(this.host.addError);
       }
     } finally {
       this.adding = false;
@@ -261,10 +289,10 @@ export class CharacterTemplateFieldList extends Disposable {
   }
 
   private async reset(): Promise<void> {
-    if (await this.confirm('Reset to Default Template?',
+    if (this.host.defaultFields && await this.confirm('Reset to Default Template?',
       'This replaces your template with the default fields. Saved values for those fields will be visible again after you save.',
       'Reset to Default Template')) {
-      this.input.setFields(getDefaultCharacterTemplate());
+      this.input.setFields(this.host.defaultFields());
     }
   }
 
@@ -274,13 +302,10 @@ export class CharacterTemplateFieldList extends Disposable {
     }
     this.checkingDelete = true;
     try {
-      const count = await readFieldValueCount(this.characters.store, this.input.workId, id);
+      const count = await this.host.countValues(id);
       const field = this.input.fields?.find(field => field.id === id);
-      const affected = count === undefined ? 'The number of characters with a value could not be checked.'
-        : count === 1 ? '1 character has a value in this field.'
-        : `${count} characters have a value in this field.`;
       if (!field || !await this.confirm(`Delete "${field.label || 'Untitled Field'}"?`,
-        `${affected} Values are kept and come back if a field with the same ID is restored.`, 'Delete Field')) {
+        this.host.deleteDetail(count), 'Delete Field')) {
         return;
       }
     } finally {
@@ -424,6 +449,7 @@ class TemplateFieldRow extends Disposable {
   private readonly section: FieldInput;
   private readonly placeholder: FieldInput;
   private readonly optionGroup: HTMLDivElement;
+  private readonly addOption: HTMLButtonElement;
   private readonly options: HTMLDivElement;
   private readonly optionRows: TemplateOptionRow[] = [];
   private readonly up: HTMLButtonElement;
@@ -476,7 +502,7 @@ class TemplateFieldRow extends Disposable {
     this.optionGroup = append(this.element, $('div', { class: 'character-template-option-group', role: 'group', 'aria-label': 'Options' }));
     this.options = append(this.optionGroup, $('div', { class: 'character-template-options' }));
     const optionActions = append(this.optionGroup, $('div', { class: 'character-template-actions' }));
-    this.button(optionActions, 'Add Option', () => {
+    this.addOption = this.button(optionActions, 'Add Option', () => {
       events.edit(field => ({ ...field, options: [...field.options ?? [], ''] }));
       this.optionRows.at(-1)?.input.control.focus();
     });
@@ -488,6 +514,14 @@ class TemplateFieldRow extends Disposable {
   focusLabel(): void {
     this.label.control.focus();
     (this.label.control as HTMLInputElement).select();
+  }
+
+  focusProblem(addOption: boolean): void {
+    if (addOption) {
+      this.addOption.focus();
+    } else {
+      this.focusLabel();
+    }
   }
 
   update(field: CharacterFieldDefinition, index: number, count: number, error: string): void {
