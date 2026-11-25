@@ -1031,3 +1031,65 @@
 {"ts":"2026-11-24T18:14:43Z","id":"wr-0c1g","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Next: No remaining epic work. Merge bc95d5f is on milestone/wr-1hez for the v0.5.0 release."}
 {"ts":"2026-11-24T18:14:43Z","id":"wr-0c1g","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"report: wr-0c1g\n- Merged into milestone/wr-1hez with bc95d5f11cb77a1b557788e1f4b2f081ba763d8b. The Characters activity bar shows three overlapping busts and the Navigator creation buttons show one or three busts with matching small + badges.\n- Closed wr-r4ai, wr-egzt and wr-0c1g.qbe. Removed the epic worktree and branch.\n- Review fixes in 7932f84 corrected the guide and shared the browser theme setup. The person settled finding 3 by retaining the small badges. Findings 4 and 5 are review notes. No backlog, reclaimed members, sibling-owned files or ongoing work.\n- Wiki pages: docs/characters.md and docs/lessons/check-guide-icon-descriptions.md. No changelog file.\n- Final checks: typecheck passed, Vitest 2561 passed and 50 skipped, Characters Navigator Chromium 10 passed, git diff --check passed. The milestone merge tree matches the tested epic tree."}
 {"ts":"2026-11-24T18:14:53Z","id":"wr-0c1g","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"Report-checked: bc95d5f11cb77a1b557788e1f4b2f081ba763d8b"}
+{"ts":"2026-11-25T02:22:52Z","id":"wr-t9um","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"v0.6.0"}
+{"ts":"2026-11-25T02:22:52Z","id":"wr-kkwy","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"v0.7.0"}
+{"ts":"2026-11-25T02:22:52Z","id":"wr-wrw4","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"v0.8.0"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"세계관 저장소와 달력 모델"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh.1by","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"달력·날짜·시점 모델과 검증기"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh.6lp","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"세계관 트리 저장 계약과 인메모리 저장소"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh.xoo","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"장르 프리셋 일곱 가지와 프리셋 적용"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh.jhf","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"세계관 HTTP 경로와 창 쪽 서비스"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh.y1f","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"world_nodes 마이그레이션과 Postgres 저장소"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-7bxh.hz8","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"시간순 정렬: 연호·월 길이·상대 시점"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"세계관 탐색창과 항목 카드"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.w1v","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"카드 자동 저장 공통부를 인물 카드에서 떼어 내기"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.l0b","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"세계관 전용 아이콘 여섯 종"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.pf2","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"World 뷰 컨테이너와 탐색창, 프리셋 고르기"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.3k6","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"세계관 탐색창 메뉴와 드래그 재정렬"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.jlr","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"항목 카드 편집기 탭과 자동 저장"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.cra","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"분류 필드 편집 탭과 자동 저장"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-e0e4.ys5","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"항목 카드 끌어 놓아 열기와 탭 복원"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-vt6d","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"달력 편집기와 날짜 입력"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-vt6d.v7k","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"달력 편집기 탭: 열기·자동 저장·충돌·복원"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-vt6d.fly","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"연호·월 목록 편집과 그레고리력 프리셋"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-vt6d.qx8","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"날짜 입력 부품과 날짜 표기"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-87v0","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"타임라인 저장소와 API"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-87v0.wy3","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"사건 저장 계약과 인메모리 저장소"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-87v0.n60","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"사건 HTTP 경로와 창 쪽 서비스"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-87v0.wvv","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"timeline_events 마이그레이션과 Postgres 저장소"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-87v0.12s","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"인물 삭제 차단(in_use)과 사건 참여 일괄 삭제 API"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"하단 패널 Timeline"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o.sho","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"Timeline 패널 탭과 시간순 사건 목록"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o.izi","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"사건 추가·편집·삭제와 자동 저장"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o.uvb","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"사건 시점 입력: 날짜와 직후·직전·같은 때"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o.m0v","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관련 인물과 인물별 필터·트랙"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o.10v","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"원고 문서 연결과 열기"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-gc4o.c00","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"달력 편집의 사건 영향 수 확인"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-l1of","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"인물 삭제 보호와 delete 입력 확인"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-l1of.nsh","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"입력 확인 대화상자: delete를 쳐야 실행"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-l1of.80c","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"참조된 인물 삭제 흐름: 차단 안내와 일괄 삭제"}
+{"ts":"2026-11-25T02:22:58Z","id":"wr-l1of.ib9","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"Remove from All Events 커맨드"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-sa2y","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관계 저장소와 API"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-sa2y.wn5","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관계·기록 저장 계약과 인메모리 저장소"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-sa2y.ryl","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관계 HTTP 경로와 창 쪽 서비스"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-sa2y.nl1","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"character_relations 마이그레이션과 Postgres 저장소"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-sa2y.fdr","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"참조 보호 확장: 인물 삭제와 사건 삭제"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-llme","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관계 히스토리 탭과 카드 관계 섹션"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-llme.2n7","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관계 히스토리 탭: 기록 추가·편집·삭제"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-llme.mlv","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"관계 점수 추이 그래프"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-llme.0tl","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"인물 카드의 Relations 섹션"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-dg95","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"타임라인 관계 변화와 삭제 흐름 확장"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-dg95.syb","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"Timeline에 관계 점수 변화 표시"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-dg95.a9z","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"사건 상세에 연결된 관계 기록"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-dg95.wv6","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"인물 삭제 흐름에 관계 포함"}
+{"ts":"2026-11-25T02:22:59Z","id":"wr-dg95.570","kind":"create","by":"RavenKyu","by_email":"hong18s@gmail.com","title":"사건 삭제 흐름에 관계 기록 포함"}
+{"ts":"2026-11-25T02:23:30Z","id":"wr-7bxh","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-e0e4","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-vt6d","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-87v0","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-gc4o","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-l1of","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-sa2y","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:31Z","id":"wr-llme","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:32Z","id":"wr-dg95","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"model: anthropic/claude-opus-5-5 (high — plan: interview and detailed plan)"}
+{"ts":"2026-11-25T02:23:39Z","id":"wr-jnyv","kind":"note","by":"RavenKyu","by_email":"hong18s@gmail.com","text":"2026-11-25 범위 축소: 인물 참조와 관계 기록은 v0.8.0(wr-wrw4) 에픽 wr-sa2y·wr-llme가 한쪽 방향 관계로 맡는다(characterRef 필드 종류 대신). 여기 남는 것은 그 관계를 그림으로 그리는 관계도뿐이다. 사람이 이번에 요청하지 않아 백로그에 둔다."}
