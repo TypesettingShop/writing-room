@@ -11,6 +11,7 @@ const editorMime = 'application/x-writing-room-editor';
 export const treeMime = 'application/x-writing-room-tree';
 const manuscriptMime = 'application/x-writing-room-manuscript';
 const charactersMime = 'application/x-writing-room-characters';
+const worldMime = 'application/x-writing-room-world';
 
 /**
  * Native drops leave the payload available through the target's synchronous handling.
@@ -358,13 +359,20 @@ export class CharactersDragAndDropObserver extends NavigatorDragAndDropObserver 
   private constructor() { super(charactersMime); }
 }
 
+export class WorldDragAndDropObserver extends NavigatorDragAndDropObserver {
+  static readonly INSTANCE = new WorldDragAndDropObserver();
+
+  private constructor() { super(worldMime); }
+}
+
 /**
  * Whether the drag is one of the workbench's own that a tree view must not take: an editor, an editor
  * group, a view container or a core navigator row.
  */
 export function isWorkbenchDrag(event: DragEvent): boolean {
   const types = event.dataTransfer?.types ?? [];
-  return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime) || types.includes(charactersMime)
+  return types.includes(editorMime) || types.includes(compositeMime) || types.includes(manuscriptMime) || types.includes(charactersMime) || types.includes(worldMime)
     || EditorDragAndDropObserver.INSTANCE.isDragging || CompositeDragAndDropObserver.INSTANCE.isDragging
-    || ManuscriptDragAndDropObserver.INSTANCE.isDragging || CharactersDragAndDropObserver.INSTANCE.isDragging;
+    || ManuscriptDragAndDropObserver.INSTANCE.isDragging || CharactersDragAndDropObserver.INSTANCE.isDragging
+    || WorldDragAndDropObserver.INSTANCE.isDragging;
 }

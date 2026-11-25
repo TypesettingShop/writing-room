@@ -6,7 +6,7 @@ import { characterTypes, type CharacterType } from '../../../../platform/charact
 import type { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import type { CharacterCardModel } from './characterCardModel.js';
 import { characterTypeIcon } from './characterIcons.js';
-import { FieldInput } from './fieldInputs.js';
+import { FieldInput } from '../../../browser/fieldCard/fieldInputs.js';
 import './media/characterCardValue.css';
 
 function isSupported(kind: string): kind is CharacterFieldKind {

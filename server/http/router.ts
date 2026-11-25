@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { CharactersStore } from '../../src/platform/characters/common/charactersStore.js';
 import { isManuscriptId, ManuscriptStoreError } from '../../src/platform/manuscript/common/manuscript.js';
 import type { ManuscriptStore } from '../../src/platform/manuscript/common/manuscriptStore.js';
+import type { WorldStore } from '../../src/platform/world/common/worldStore.js';
 import { ApiError } from './errors.js';
 
 export interface RouteContext {
@@ -12,6 +13,7 @@ export interface RouteContext {
   nodeId: string;
   store: ManuscriptStore;
   characters: CharactersStore;
+  world: WorldStore;
 }
 
 export interface Route<Context = RouteContext> {

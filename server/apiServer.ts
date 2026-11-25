@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { CharactersRepository } from '../src/platform/characters/common/charactersStore.js';
 import { ManuscriptStoreError } from '../src/platform/manuscript/common/manuscript.js';
 import type { ManuscriptRepository } from '../src/platform/manuscript/common/manuscriptStore.js';
+import type { WorldRepository } from '../src/platform/world/common/worldStore.js';
 import { createAuthRoutes, type AuthOptions } from './auth/authRoutes.js';
 import type { Authenticate } from './auth/devAuth.js';
 import { sessionUser } from './auth/session.js';
@@ -10,6 +11,7 @@ import { ApiError, sendError, sendJson } from './http/errors.js';
 import { matchRoute, splitTarget } from './http/router.js';
 import { characterRoutes } from './routes/characters.js';
 import { workRoutes } from './routes/works.js';
+import { worldRoutes } from './routes/world.js';
 
 const mutationMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const loopbackHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -26,6 +28,7 @@ function isAllowedHost(host: string | undefined, allowedHosts: ReadonlySet<strin
 export interface ApiOptions {
   repository: ManuscriptRepository;
   charactersRepository?: CharactersRepository;
+  worldRepository?: WorldRepository;
   authenticate?: Authenticate;
   accountAuth?: AuthOptions;
   store: ApiConfig['store'];
@@ -38,7 +41,12 @@ export function createApiServer(options: ApiOptions) {
   const allowedHosts = new Set(options.allowedOrigins.map(origin => new URL(origin).host));
   const accountAuth = options.accountAuth;
   const charactersRepository = options.charactersRepository;
-  const storageRoutes = charactersRepository ? [...workRoutes, ...characterRoutes] : workRoutes;
+  const worldRepository = options.worldRepository;
+  const storageRoutes = [
+    ...workRoutes,
+    ...(charactersRepository ? characterRoutes : []),
+    ...(worldRepository ? worldRoutes : []),
+  ];
   const authRoutes = accountAuth ? createAuthRoutes(accountAuth) : [];
   const now = accountAuth?.now ?? Date.now;
 
@@ -87,6 +95,12 @@ export function createApiServer(options: ApiOptions) {
             throw new ManuscriptStoreError('not_found');
           }
           return charactersRepository.forUser(userId);
+        },
+        get world() {
+          if (!worldRepository) {
+            throw new ManuscriptStoreError('not_found');
+          }
+          return worldRepository.forUser(userId);
         },
       });
     } catch (error) {

@@ -1,8 +1,9 @@
-import { Disposable } from '../../../../base/common/lifecycle.js';
-import { addDisposableListener } from '../../../../base/browser/dom.js';
-import type { CharacterFieldKind } from '../../../../platform/characters/common/characterFields.js';
-import type { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
-import { SAVE_FILE_COMMAND_ID } from '../../files/browser/fileCommands.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
+import { addDisposableListener } from '../../../base/browser/dom.js';
+import type { IKeybindingService } from '../../../platform/keybinding/common/keybinding.js';
+import { SAVE_FILE_COMMAND_ID } from '../../contrib/files/browser/fileCommands.js';
+
+export type FieldInputKind = 'text' | 'longText' | 'choice';
 
 export interface FieldInputOptions {
   readonly label: string;
@@ -31,9 +32,10 @@ export class FieldInput extends Disposable {
 
   constructor(
     document: Document,
-    readonly kind: CharacterFieldKind,
+    readonly kind: FieldInputKind,
     private readonly events: FieldInputEvents,
     keybindings?: IKeybindingService,
+    { saveCommandId = SAVE_FILE_COMMAND_ID }: { readonly saveCommandId?: string } = {},
   ) {
     super();
     this.element = document.createElement('div');
@@ -77,7 +79,7 @@ export class FieldInput extends Disposable {
         if ((event.isComposing || event.keyCode === 229) && (event.ctrlKey || event.metaKey) && !event.defaultPrevented) {
           // Synchronize the native preedit before the workbench's Save command reads the draft.
           change();
-          keybindings?.dispatchDuringComposition?.(event, [SAVE_FILE_COMMAND_ID]);
+          keybindings?.dispatchDuringComposition?.(event, [saveCommandId]);
         }
       }));
     }

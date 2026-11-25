@@ -90,6 +90,7 @@ export class MenuId {
   static readonly ExplorerContext = new MenuId('ExplorerContext');
   static readonly ManuscriptNavigatorContext = new MenuId('ManuscriptNavigatorContext');
   static readonly CharactersNavigatorContext = new MenuId('CharactersNavigatorContext');
+  static readonly WorldNavigatorContext = new MenuId('WorldNavigatorContext');
   static readonly CharactersSetType = new MenuId('CharactersSetType');
   static readonly WebviewContext = new MenuId('WebviewContext');
   static readonly ViewTitle = new MenuId('ViewTitle');
