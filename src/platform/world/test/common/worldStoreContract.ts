@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CharacterTemplate } from '../../../characters/common/characterFields.js';
-import type { ManuscriptStore } from '../../../manuscript/common/manuscriptStore.js';
+import type { ManuscriptStore, NodeDestination } from '../../../manuscript/common/manuscriptStore.js';
 import { getGregorianCalendar, type Calendar } from '../../common/calendar.js';
 import { worldLimits } from '../../common/world.js';
 import type { CreateWorldNode, WorldStore } from '../../common/worldStore.js';
@@ -134,7 +134,18 @@ export function worldStoreContract(name: string, makeStores: () => ContractStore
       }, 2)).rejects.toMatchObject(invalid);
       await expect(owner.updateNode(workId, item.id, { values: { note: fullWorldValue.note + '가' } }, 2))
         .rejects.toMatchObject({ code: 'too_large' });
+      await expect(create(2, { fields: [] } as unknown as Partial<CreateWorldNode>)).rejects.toMatchObject(invalid);
+      await expect(create(2, { kind: 'item', parentId: category.id, values: {} } as unknown as Partial<CreateWorldNode>))
+        .rejects.toMatchObject(invalid);
+      // A missing or non-string ID is malformed input on every path; only well-formed IDs report not_found.
+      await expect(create(2, { parentId: undefined })).rejects.toMatchObject(invalid);
+      await expect(create(2, { beforeId: 7 } as unknown as Partial<CreateWorldNode>)).rejects.toMatchObject(invalid);
+      await expect(owner.moveNodes(workId, [7] as unknown as string[], { parentId: null }, 2)).rejects.toMatchObject(invalid);
+      await expect(owner.moveNodes(workId, [category.id], {} as NodeDestination, 2)).rejects.toMatchObject(invalid);
       expect((await owner.getTree(workId)).revision).toBe(2);
+      // An undefined key is absent, as after the HTTP store's JSON round trip.
+      const explicit = { fields: undefined, values: undefined } as unknown as Partial<CreateWorldNode>;
+      expect((await create(2, explicit)).revision).toBe(3);
     });
 
     it('checks expected revisions and serializes concurrent changes independently for tree and calendar', async () => {
@@ -213,6 +224,20 @@ export function worldStoreContract(name: string, makeStores: () => ContractStore
       await expect(owner.putCalendar(workId, calendar, 0)).rejects.toMatchObject({ code: 'conflict' });
       await expect(owner.putCalendar(workId, { ...calendar, hoursPerDay: 0 }, 1)).rejects.toMatchObject({ code: 'invalid' });
       expect((await stores.ownerWorks.getWork(workId)).updatedAt).toBe(calendarTime);
+      let touched = calendarTime;
+      for (const write of [
+        () => owner.updateNode(workId, node.id, { title: 'Renamed' }, 1),
+        () => create(2),
+        () => owner.moveNodes(workId, [node.id], { parentId: null }, 3),
+        () => owner.deleteNode(workId, node.id, 4),
+      ]) {
+        stores.advanceClock();
+        await write();
+        const time = (await stores.ownerWorks.getWork(workId)).updatedAt;
+        expect(time).toBeGreaterThan(touched);
+        touched = time;
+      }
+      expect((await owner.getTree(workId)).revision).toBe(5);
       expect(await stores.ownerWorks.getTree(workId)).toEqual({ revision: 0, nodes: [] });
     });
 

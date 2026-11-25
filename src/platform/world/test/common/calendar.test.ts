@@ -32,7 +32,8 @@ describe('normalizeCalendar', () => {
   it.each([
     { id: '__proto__' }, { id: 'jan' }, { id: 'x'.repeat(65) }, { id: 'a b' },
     { name: '' }, { name: 'x'.repeat(101) }, { name: '\nx' }, { name: '\u0000' },
-    { name: '\uD800' }, { days: 0 }, { days: 1001 }, { days: 1.5 }, { unknown: true },
+    { name: '\uD800' }, { name: 'a\tb' }, { name: 'a\u000bb' }, { name: 'a\u0085b' },
+    { days: 0 }, { days: 1001 }, { days: 1.5 }, { unknown: true },
   ])('reports an invalid month row %j', patch => {
     const calendar = getGregorianCalendar();
     calendar.months[1] = { ...calendar.months[1], ...patch };
@@ -44,11 +45,14 @@ describe('normalizeCalendar', () => {
     const calendar = getGregorianCalendar();
     for (const era of [
       { ...calendar.eras[0], startYear: 1 }, { ...calendar.eras[1], startYear: 3, endYear: 2 },
-      { ...calendar.eras[1], id: 'bc' },
+      { ...calendar.eras[1], id: 'bc' }, { ...calendar.eras[1], unknown: true },
     ]) {
       expect(() => normalizeCalendar({ ...calendar, eras: [calendar.eras[0], era] }))
         .toThrow(expect.objectContaining({ code: 'invalid', row: 'era', index: 1 }));
     }
+    // An undefined key is absent, as after the HTTP store's JSON round trip.
+    const cleared = { ...calendar.eras[0], startYear: undefined, endYear: undefined };
+    expect(normalizeCalendar({ ...calendar, eras: [cleared, calendar.eras[1]] }).eras[0]).toStrictEqual(calendar.eras[0]);
   });
 
   it('enforces the UTF-8 budget even with individually valid rows', () => {

@@ -23,12 +23,14 @@ describe('time points', () => {
     { day: 1 }, { month: 'jan', time: { hour: 0, minute: 0 } }, { year: 1.5 }, { year: 1e10 },
     { month: 'jan', day: 1, time: { hour: 0, minute: 60 } },
     { month: 'jan', day: 1, time: { hour: 100, minute: 0 } },
+    { extra: 1 }, { month: 'jan', day: 1, time: { hour: 0, minute: 0, second: 0 } },
   ])('rejects malformed dates %j', patch => {
     expect(() => normalizeCalendarDate({ ...date, ...patch })).toThrow(expect.objectContaining({ code: 'invalid' }));
   });
 
   it.each([
     { kind: 'unknown' }, { kind: 'after', anchor: 'not-a-uuid' }, { kind: 'date', date, anchor },
+    { kind: 'unset', anchor }, { kind: 'at', anchor, note: '' },
   ])('rejects malformed points %j', input => {
     expect(() => normalizeTimePoint(input)).toThrow(expect.objectContaining({ code: 'invalid' }));
   });
@@ -38,6 +40,12 @@ describe('time points', () => {
     calendar.hoursPerDay = 20;
     calendar.eras[1] = { id: 'ad', name: '한정 연호', countsDown: false, startYear: 2, endYear: 2024 };
     expect(checkCalendarDate(calendar, { ...date, month: 'feb', day: 29 })).toEqual({ ok: true });
+    for (const valid of [
+      { era: 'bc', year: 1 }, { era: 'ad', year: 2 }, { era: 'ad', year: 2024 },
+      { ...date, month: 'apr', day: 30, time: { hour: 19, minute: 59 } },
+    ]) {
+      expect(checkCalendarDate(calendar, valid)).toEqual({ ok: true });
+    }
     for (const invalid of [
       { era: 'bc', year: 0 }, { era: 'bc', year: -1 }, { era: 'ad', year: 0 }, { era: 'ad', year: 1 },
       { era: 'ad', year: 2025 },

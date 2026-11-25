@@ -75,7 +75,8 @@ export class WorldTreeEditor extends OrderedTreeEditor<WorldNode> {
       throw new WorldStoreError('limit');
     }
     const { kind, parentId } = input;
-    if ((kind !== 'category' && kind !== 'item') || 'fields' in input || 'values' in input) {
+    if ((kind !== 'category' && kind !== 'item') || ('fields' in input && input.fields !== undefined) ||
+      ('values' in input && input.values !== undefined)) {
       throw new WorldStoreError('invalid');
     }
     this.validateParent(kind, parentId);

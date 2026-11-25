@@ -12,6 +12,20 @@ const genreCategories: Record<WorldPresetId, string[]> = {
   blank: [],
 };
 
+const systems = ['mechanism', 'limits', 'cost', 'access'];
+const factions = ['goal', 'members', 'base', 'stance'];
+// [parent, field IDs] by category title. Unlisted subcategories copy the core rule fields.
+const categoryShape: Record<string, [string | null, string[]]> = {
+  '시간과 공간': [null, ['period', 'stage', 'geography', 'climate']],
+  '사회와 문화': [null, ['politics', 'hierarchy', 'economy', 'living', 'beliefs']],
+  '핵심 규칙·시스템': [null, systems],
+  장소: ['시간과 공간', ['location', 'scenery', 'residents', 'story-role']],
+  세력: ['사회와 문화', factions],
+  문파: ['사회와 문화', factions],
+  종족: ['사회와 문화', ['traits', 'habitat', 'ties']],
+  '무공 체계': ['핵심 규칙·시스템', ['inner-outer', 'stages', 'training', 'cost']],
+};
+
 describe('world presets', () => {
   it('offers seven documented presets', () => {
     const list = getWorldPresets();
@@ -37,6 +51,13 @@ describe('world presets', () => {
     if (id === 'blank') {
       expect(result.flatMap(node => node.fields ?? [])).toEqual([]);
     } else {
+      const titles = new Map(result.map(node => [node.id, node.title]));
+      for (const node of result.filter(node => node.kind === 'category')) {
+        const [parent, ids] = categoryShape[node.title] ?? ['핵심 규칙·시스템', systems];
+        const expected = id === 'historical' && node.title === '시간과 공간' ? [...ids, 'sources'] : ids;
+        expect([node.title, node.parentId && titles.get(node.parentId), node.fields!.map(field => field.id)])
+          .toEqual([node.title, parent, expected]);
+      }
       expect(result[0].fields!.find(field => field.id === 'period')?.options).toEqual(['현대', '미래', '과거', '가상 차원']);
       expect(result[0].fields!.some(field => field.id === 'sources')).toBe(id === 'historical');
     }

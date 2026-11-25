@@ -1,4 +1,4 @@
-import type { CharacterStoreErrorCode } from '../../characters/common/characters.js';
+import { characterLimits, type CharacterStoreErrorCode } from '../../characters/common/characters.js';
 import type { CharacterTemplate, CharacterValues } from '../../characters/common/characterFields.js';
 import {
   isManuscriptRevision, manuscriptLimits, ManuscriptStoreError, normalizeManuscriptTitle,
@@ -55,7 +55,8 @@ export interface WorldTree {
 export const worldLimits = {
   nodes: manuscriptLimits.nodes,
   title: manuscriptLimits.title,
-  values: 64 * 1024,
+  // normalizeCharacterValues enforces this per-item limit.
+  values: characterLimits.values,
   workData: manuscriptLimits.workMetadata,
 } as const;
 

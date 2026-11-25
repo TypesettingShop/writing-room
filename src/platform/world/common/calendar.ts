@@ -51,8 +51,11 @@ export function integerInRange(value: unknown, min: number, max: number): value 
   return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 }
 
+// Names follow the title rule: one line without control characters (VT, FF and NEL also break lines).
+const invalidName = /[\x00-\x1f\x7f-\x9f\u2028\u2029\uD800-\uDFFF]/u;
+
 function normalizeName(value: unknown, row: 'era' | 'month', index: number): string {
-  if (typeof value !== 'string' || /[\x00\uD800-\uDFFF\r\n\u2028\u2029]/u.test(value)) {
+  if (typeof value !== 'string' || invalidName.test(value)) {
     throw new CalendarValidationError('The name must be valid single-line text.', row, index);
   }
   const name = value.trim().normalize('NFC');
@@ -70,7 +73,8 @@ function normalizeEra(value: unknown, index: number): CalendarEra {
   const { id, countsDown, endYear } = value;
   const name = normalizeName(value.name, 'era', index);
   if (countsDown) {
-    if (Object.hasOwn(value, 'startYear') || Object.hasOwn(value, 'endYear')) {
+    // An undefined key is absent, as it is after the JSON round trip of the HTTP store.
+    if (value.startYear !== undefined || endYear !== undefined) {
       throw new CalendarValidationError('A descending era has no start or end year.', 'era', index);
     }
     return { id, name, countsDown };
