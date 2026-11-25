@@ -61,7 +61,7 @@ async function worldWithItem(request: APIRequestContext, baseURL: string) {
 const card = (page: Page) => page.getByRole('region', { name: 'Item card' });
 const name = (page: Page) => card(page).getByRole('textbox', { name: 'Name' });
 const notes = (page: Page) => card(page).getByRole('textbox', { name: '풍경' });
-const location = (page: Page) => card(page).getByRole('textbox', { name: '위치' });
+const location = (page: Page) => card(page).getByRole('textbox', { name: '위치', exact: true });
 
 async function openItem(page: Page, url: string) {
   await page.goto(url);
