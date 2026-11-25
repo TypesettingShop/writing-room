@@ -7,6 +7,7 @@ import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { WorldItemCardForm } from './worldItemCardForm.js';
 import { WorldItemEditorInput } from './worldItemEditorInput.js';
+import '../../characters/browser/media/characterCard.css';
 import './media/worldItemCard.css';
 import { IWorldViewState, type WorldViewState } from './worldViewState.js';
 

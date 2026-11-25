@@ -1,4 +1,4 @@
-import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, type Dimension } from '../../../../base/browser/dom.js';
 import { DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import type { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -8,7 +8,9 @@ import type { EditorInput } from '../../../common/editor/editorInput.js';
 import { IWorldService } from '../../../services/world/common/worldService.js';
 import { CharacterTemplateFieldList } from '../../characters/browser/characterTemplateFieldList.js';
 import { WorldCategoryEditorInput } from './worldCategoryEditorInput.js';
-import { worldCategoryProblems, type WorldCategoryFieldsModel } from './worldCategoryFieldsModel.js';
+import { worldCategoryOptionProblem, worldCategoryProblems, type WorldCategoryFieldsModel } from './worldCategoryFieldsModel.js';
+import '../../characters/browser/media/characterCard.css';
+import '../../characters/browser/media/characterTemplate.css';
 
 export class WorldCategoryEditorPane extends EditorPane {
   static readonly ID = 'workbench.editors.worldCategoryFields';
@@ -101,13 +103,20 @@ export class WorldCategoryEditorPane extends EditorPane {
     super.clearInput();
   }
 
-  override layout(): void {}
+  // The page scrolls inside the editor. Without a size it grows past the group, which clips it.
+  override layout(dimension: Dimension): void {
+    this.page.style.width = `${dimension.width}px`;
+    this.page.style.height = `${dimension.height}px`;
+  }
+
   override focus(): void { this.page.focus({ preventScroll: true }); }
 
   private focusProblem(input: WorldCategoryEditorInput): void {
-    const first = input.fields && worldCategoryProblems(input.fields)[0];
+    const fields = input.fields;
+    const first = fields && worldCategoryProblems(fields)[0];
     if (first) {
-      this.list.value?.focusProblem(first.fieldId, first.message === 'Add at least one option.');
+      const field = fields.find(candidate => candidate.id === first.fieldId);
+      this.list.value?.focusProblem(first.fieldId, field && worldCategoryOptionProblem(field));
     }
   }
 

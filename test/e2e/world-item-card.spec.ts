@@ -223,3 +223,22 @@ test('shares the draft across split tabs and offers one discard when the last co
   await expect(close).toHaveCount(0);
   expect((await work.item())?.values).toEqual(saved?.values);
 });
+
+test('closes the item card and the category fields tab when the navigator deletes their category', async ({ page, request, baseURL }) => {
+  const work = await worldWithItem(request, baseURL!);
+  await openItem(page, work.url);
+  await worldRow(page, 'Parent Folder').click();
+  await worldRow(page, '장소').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Edit Category Fields' }).click();
+  await expect(page.getByRole('tab', { name: '장소 Fields', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '항구', exact: true })).toBeVisible();
+
+  await worldRow(page, '장소').click();
+  await page.getByRole('tree', { name: 'World Navigator' }).press('Delete');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('Delete "장소" and 1 item in it?')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(worldRow(page, '장소')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '장소 Fields', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '항구', exact: true })).toHaveCount(0);
+});

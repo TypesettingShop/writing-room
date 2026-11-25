@@ -1,5 +1,5 @@
 import { IMenuService, MenuId } from '../../../../platform/actions/common/actions.js';
-import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextMenuService.js';
@@ -9,7 +9,7 @@ import type { WorldNode } from '../../../../platform/world/common/world.js';
 import type { WorldStore } from '../../../../platform/world/common/worldStore.js';
 import { WorldDragAndDropObserver } from '../../../browser/dnd.js';
 import { NavigatorView } from '../../../browser/navigator/navigatorView.js';
-import { openWorldItem } from './worldOpener.js';
+import { openWorldCalendar, openWorldItem } from './worldOpener.js';
 import { renderWorldPresetPicker } from './worldPresetPicker.js';
 import { IWorldViewState, type WorldViewState } from './worldViewState.js';
 
@@ -35,10 +35,8 @@ export class WorldNavigator extends NavigatorView<WorldNode, WorldStore> {
       activate: node => {
         if (node.kind === 'item') {
           void instantiation.invokeFunction(openWorldItem, node.id);
-        } else if (node.kind === 'calendar' && CommandsRegistry.getCommand('world.editCalendar')) {
-          void commands.executeCommand('world.editCalendar').catch(error => {
-            notifications.error(error instanceof Error ? error.message : 'Could not open the calendar.');
-          });
+        } else if (node.kind === 'calendar') {
+          void openWorldCalendar(commands, notifications);
         }
       },
       renderEmpty: parent => renderWorldPresetPicker(parent, state),

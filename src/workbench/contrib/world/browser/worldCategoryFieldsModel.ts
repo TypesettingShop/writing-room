@@ -42,6 +42,26 @@ export function worldCategoryProblems(fields: readonly CharacterFieldDefinition[
   return problems.length ? problems : [{ fieldId: fields[error.fieldIndex]?.id ?? '', message: error.detail }];
 }
 
+/**
+ * Where a choice field's options keep it from saving, found with the same validator: the first option it rejects,
+ * `'add'` when the field has none, or undefined when the problem lies outside the options.
+ */
+export function worldCategoryOptionProblem(field: CharacterFieldDefinition): number | 'add' | undefined {
+  if (field.kind !== 'choice' || templateError([{ ...field, options: ['-'] }])) {
+    return undefined;
+  }
+  const options = field.options ?? [];
+  if (!options.length) {
+    return 'add';
+  }
+  for (let end = 1; end <= options.length; end++) {
+    if (templateError([{ ...field, options: options.slice(0, end) }])) {
+      return end - 1;
+    }
+  }
+  return undefined;
+}
+
 function sameFields(a: WorldCategoryDraft, b: WorldCategoryDraft): boolean {
   return JSON.stringify(a.fields) === JSON.stringify(b.fields);
 }

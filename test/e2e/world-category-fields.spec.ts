@@ -28,6 +28,9 @@ test('holds incomplete fields, saves valid fields automatically and refreshes op
   await card.getByRole('button', { name: 'Edit Category Fields' }).click();
   const pane = page.getByRole('region', { name: 'Category fields' });
   await expect(pane.getByRole('button', { name: 'Reset to Default Template' })).toHaveCount(0);
+  // The page takes the editor's size and scrolls there. A page sized by its content runs past the clipped group.
+  await expect.poll(() => pane.evaluate(element => element.clientHeight === element.closest('.editor-instance')!.clientHeight))
+    .toBe(true);
   await pane.getByRole('button', { name: 'Add Field' }).click();
   const row = pane.locator('[data-template-field]');
   const label = row.getByRole('textbox', { name: 'Label', exact: true });
@@ -48,7 +51,10 @@ test('holds incomplete fields, saves valid fields automatically and refreshes op
   const add = row.getByRole('button', { name: 'Add Option' });
   await expect(add).toBeFocused();
   await add.click();
-  await row.getByRole('textbox', { name: 'Option 1' }).fill('무역항');
+  const option = row.getByRole('textbox', { name: 'Option 1' });
+  await label.press('ControlOrMeta+s');
+  await expect(option).toBeFocused();
+  await option.fill('무역항');
   await expect.poll(async () => (await state()).nodes.find((node: { id: string }) => node.id === category.id).fields[0]?.options)
     .toEqual(['무역항']);
 

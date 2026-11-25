@@ -3,7 +3,7 @@ import type { IDialogService } from '../../../../../platform/dialogs/common/dial
 import type { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { WorldStoreError, type WorldCategory } from '../../../../../platform/world/common/world.js';
 import type { WorldStore } from '../../../../../platform/world/common/worldStore.js';
-import { WorldCategoryFieldsModel } from '../../browser/worldCategoryFieldsModel.js';
+import { worldCategoryOptionProblem, WorldCategoryFieldsModel } from '../../browser/worldCategoryFieldsModel.js';
 
 const node: WorldCategory = {
   id: 'category', parentId: null, kind: 'category', title: '장소', position: 0, createdAt: 0, updatedAt: 0,
@@ -38,4 +38,14 @@ test('holds invalid fields and retries on unrelated revisions without replacing 
   } finally {
     model.dispose();
   }
+});
+
+test('points a save block at the option the validator rejects', () => {
+  const choice = { id: 'port', label: '항구 유형', kind: 'choice' };
+  expect(worldCategoryOptionProblem({ ...choice, options: [] })).toBe('add');
+  expect(worldCategoryOptionProblem({ ...choice, options: ['무역항', ' '] })).toBe(1);
+  expect(worldCategoryOptionProblem({ ...choice, options: ['무역항', '어항', '무역항 '] })).toBe(2);
+  expect(worldCategoryOptionProblem({ ...choice, label: '', options: [''] })).toBeUndefined();
+  expect(worldCategoryOptionProblem({ ...choice, options: ['무역항'] })).toBeUndefined();
+  expect(worldCategoryOptionProblem({ id: 'name', label: '', kind: 'text' })).toBeUndefined();
 });

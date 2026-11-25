@@ -13,6 +13,23 @@ import { IWorldViewState, type WorldViewState } from './worldViewState.js';
 const maxItems = 50;
 const calendarCommand = 'world.editCalendar';
 
+/** The calendar editor registers its command. Until then neither a row nor a drop opens a calendar. */
+export function canOpenWorldCalendar(): boolean {
+  return !!CommandsRegistry.getCommand(calendarCommand);
+}
+
+/** Runs the calendar command by its id; this module does not import the calendar editor. */
+export async function openWorldCalendar(commands: ICommandService, notifications: INotificationService): Promise<void> {
+  if (!canOpenWorldCalendar()) {
+    return;
+  }
+  try {
+    await commands.executeCommand(calendarCommand);
+  } catch (error) {
+    notifications.error(error instanceof Error ? error.message : 'Could not open the calendar.');
+  }
+}
+
 export const IWorldOpener = createDecorator<WorldOpener>('worldOpener');
 
 export class WorldOpener {
@@ -126,7 +143,7 @@ export class WorldOpener {
     }
     for (const id of nodeIds) {
       const node = index.nodes.get(id);
-      if (node?.kind === 'item' || node?.kind === 'calendar' && CommandsRegistry.getCommand(calendarCommand)) {
+      if (node?.kind === 'item' || node?.kind === 'calendar' && canOpenWorldCalendar()) {
         selected.add(id);
       } else if (node?.kind === 'category') {
         for (const child of preorder(id, index)) {
@@ -148,17 +165,10 @@ export class WorldOpener {
   }
 
   async openCalendar(group?: IEditorGroup): Promise<void> {
-    if (!CommandsRegistry.getCommand(calendarCommand)) {
-      return;
+    if (group && canOpenWorldCalendar() && this.groups.getGroup(group.id) === group) {
+      this.groups.activateGroup(group);
     }
-    try {
-      if (group && this.groups.getGroup(group.id) === group) {
-        this.groups.activateGroup(group);
-      }
-      await this.commands.executeCommand(calendarCommand);
-    } catch (error) {
-      this.notifications.error(error instanceof Error ? error.message : 'Could not open the calendar.');
-    }
+    await openWorldCalendar(this.commands, this.notifications);
   }
 
   async openItems(nodeIds: readonly string[], targetGroup?: IEditorGroup): Promise<void> {

@@ -22,7 +22,8 @@ test('rejects oversized UTF-8 values before a write and preserves hidden fields 
   const model = new WorldItemCardModel(workId, node, 1, { updateNode }, async () => undefined,
     {} as IDialogService, { error } as unknown as INotificationService);
   try {
-    model.edit({ ...model.draft, values: { ...model.draft.values, notes: '한'.repeat(characterLimits.values) } });
+    // A third of the limit in characters is over it in UTF-8 bytes, so a character count would let it through.
+    model.edit({ ...model.draft, values: { ...model.draft.values, notes: '한'.repeat(Math.ceil(characterLimits.values / 3)) } });
     expect(await model.save('explicit')).toBe(false);
     expect(error).toHaveBeenCalledOnce();
     expect(updateNode).not.toHaveBeenCalled();

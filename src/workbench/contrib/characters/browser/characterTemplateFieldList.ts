@@ -202,10 +202,10 @@ export class CharacterTemplateFieldList extends Disposable {
     }
   }
 
-  focusProblem(fieldId: string, addOption: boolean): void {
+  focusProblem(fieldId: string, option?: number | 'add'): void {
     const row = this.rows.get(fieldId);
     if (row) {
-      row.focusProblem(addOption);
+      row.focusProblem(option);
     } else {
       this.addButton.focus();
     }
@@ -516,9 +516,11 @@ class TemplateFieldRow extends Disposable {
     (this.label.control as HTMLInputElement).select();
   }
 
-  focusProblem(addOption: boolean): void {
-    if (addOption) {
-      this.addOption.focus();
+  /** Focuses the option at that index, or Add Option for `'add'`. Any other problem starts at the label. */
+  focusProblem(option?: number | 'add'): void {
+    const control = option === 'add' ? this.addOption : option === undefined ? undefined : this.optionRows[option]?.input.control;
+    if (control) {
+      control.focus();
     } else {
       this.focusLabel();
     }
