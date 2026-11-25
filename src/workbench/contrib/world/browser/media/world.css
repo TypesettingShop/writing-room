@@ -19,7 +19,7 @@
   text-align: start;
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
-  border: 1px solid var(--vscode-button-border, transparent);
+  border: 1px solid var(--vscode-contrastBorder);
   cursor: pointer;
 }
 
