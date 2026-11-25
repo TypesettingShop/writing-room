@@ -1,31 +1,31 @@
-.view-pane-body:is(.manuscript-navigator, .characters-navigator) {
+.view-pane-body:is(.manuscript-navigator, .characters-navigator, .world-navigator) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-:is(.manuscript-location, .characters-location),
-:is(.manuscript-notice, .characters-notice),
-:is(.manuscript-empty, .characters-empty) {
+:is(.manuscript-location, .characters-location, .world-location),
+:is(.manuscript-notice, .characters-notice, .world-notice),
+:is(.manuscript-empty, .characters-empty, .world-empty) {
   padding: 5px 10px;
   color: var(--vscode-descriptionForeground);
 }
 
-:is(.manuscript-location, .characters-location) {
+:is(.manuscript-location, .characters-location, .world-location) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-:is(.manuscript-empty, .characters-empty) p {
+:is(.manuscript-empty, .characters-empty, .world-empty) p {
   margin: 0 0 6px;
 }
 
-:is(.manuscript-empty, .characters-empty) button {
+:is(.manuscript-empty, .characters-empty, .world-empty) button {
   margin: 0 4px 4px 0;
 }
 
-:is(.manuscript-tree, .characters-tree) {
+:is(.manuscript-tree, .characters-tree, .world-tree) {
   position: relative;
   flex: 1;
   min-height: 0;
@@ -33,11 +33,11 @@
   outline-offset: -1px;
 }
 
-:is(.manuscript-rows, .characters-rows) {
+:is(.manuscript-rows, .characters-rows, .world-rows) {
   position: relative;
 }
 
-:is(.manuscript-row, .characters-row) {
+:is(.manuscript-row, .characters-row, .world-row) {
   --navigator-indent: 16px;
   --navigator-row-gap: 4px;
   height: 24px;
@@ -52,36 +52,36 @@
   user-select: none;
 }
 
-:is(.manuscript-row, .characters-row):hover {
+:is(.manuscript-row, .characters-row, .world-row):hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-:is(.manuscript-row, .characters-row)[aria-selected="true"] {
+:is(.manuscript-row, .characters-row, .world-row)[aria-selected="true"] {
   background: var(--vscode-list-inactiveSelectionBackground);
   color: var(--vscode-list-inactiveSelectionForeground);
 }
 
-:is(.manuscript-tree, .characters-tree):focus-visible :is(.manuscript-row, .characters-row)[aria-selected="true"] {
+:is(.manuscript-tree, .characters-tree, .world-tree):focus-visible :is(.manuscript-row, .characters-row, .world-row)[aria-selected="true"] {
   background: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground);
 }
 
-:is(.manuscript-tree, .characters-tree):focus-visible :is(.manuscript-cursor, .characters-cursor) {
+:is(.manuscript-tree, .characters-tree, .world-tree):focus-visible :is(.manuscript-cursor, .characters-cursor, .world-cursor) {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
 }
 
-:is(.manuscript-label, .characters-label) {
+:is(.manuscript-label, .characters-label, .world-label) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-:is(.manuscript-toggle, .characters-toggle),
-:is(.manuscript-toggle-spacer, .characters-toggle-spacer) {
+:is(.manuscript-toggle, .characters-toggle, .world-toggle),
+:is(.manuscript-toggle-spacer, .characters-toggle-spacer, .world-toggle-spacer) {
   flex: 0 0 var(--navigator-indent);
 }
 
-:is(.manuscript-toggle, .characters-toggle) {
+:is(.manuscript-toggle, .characters-toggle, .world-toggle) {
   color: inherit;
   border: 0;
   background: transparent;
@@ -89,11 +89,11 @@
   padding: 0;
 }
 
-:is(.manuscript-toggle, .characters-toggle):hover {
+:is(.manuscript-toggle, .characters-toggle, .world-toggle):hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-:is(.manuscript-twig, .characters-twig) {
+:is(.manuscript-twig, .characters-twig, .world-twig) {
   /* Start the guides at the same inset as the top-level toggle. */
   position: relative;
   inset-inline-start: var(--navigator-row-gap);
@@ -106,52 +106,52 @@
   white-space: pre;
 }
 
-:is(.manuscript-twig, .characters-twig) span {
+:is(.manuscript-twig, .characters-twig, .world-twig) span {
   position: relative;
   width: var(--navigator-indent);
   font-size: 0;
 }
 
-:is(.manuscript-twig-pipe, .characters-twig-pipe)::before,
-:is(.manuscript-twig-tee, .characters-twig-tee)::before,
-:is(.manuscript-twig-end, .characters-twig-end)::before,
-:is(.manuscript-twig-tee, .characters-twig-tee)::after,
-:is(.manuscript-twig-end, .characters-twig-end)::after {
+:is(.manuscript-twig-pipe, .characters-twig-pipe, .world-twig-pipe)::before,
+:is(.manuscript-twig-tee, .characters-twig-tee, .world-twig-tee)::before,
+:is(.manuscript-twig-end, .characters-twig-end, .world-twig-end)::before,
+:is(.manuscript-twig-tee, .characters-twig-tee, .world-twig-tee)::after,
+:is(.manuscript-twig-end, .characters-twig-end, .world-twig-end)::after {
   content: '';
   position: absolute;
   inset-inline-start: calc(50% - 0.5px);
   background: currentColor;
 }
 
-:is(.manuscript-twig-pipe, .characters-twig-pipe)::before,
-:is(.manuscript-twig-tee, .characters-twig-tee)::before,
-:is(.manuscript-twig-end, .characters-twig-end)::before {
+:is(.manuscript-twig-pipe, .characters-twig-pipe, .world-twig-pipe)::before,
+:is(.manuscript-twig-tee, .characters-twig-tee, .world-twig-tee)::before,
+:is(.manuscript-twig-end, .characters-twig-end, .world-twig-end)::before {
   width: 1px;
   inset-block: 0;
 }
 
-:is(.manuscript-twig-end, .characters-twig-end)::before {
+:is(.manuscript-twig-end, .characters-twig-end, .world-twig-end)::before {
   inset-block-end: 50%;
 }
 
-:is(.manuscript-twig-tee, .characters-twig-tee)::after,
-:is(.manuscript-twig-end, .characters-twig-end)::after {
+:is(.manuscript-twig-tee, .characters-twig-tee, .world-twig-tee)::after,
+:is(.manuscript-twig-end, .characters-twig-end, .world-twig-end)::after {
   height: 1px;
   top: 50%;
   inset-inline-end: var(--navigator-row-gap);
 }
 
-:is(.manuscript-row, .characters-row):has(> :is(.manuscript-toggle-spacer, .characters-toggle-spacer)) :is(.manuscript-twig, .characters-twig) > :last-child::after {
+:is(.manuscript-row, .characters-row, .world-row):has(> :is(.manuscript-toggle-spacer, .characters-toggle-spacer, .world-toggle-spacer)) :is(.manuscript-twig, .characters-twig, .world-twig) > :last-child::after {
   inset-inline-end: calc(0px - var(--navigator-indent) - var(--navigator-row-gap));
 }
 
-:is(.manuscript-inline-editor, .characters-inline-editor) {
+:is(.manuscript-inline-editor, .characters-inline-editor, .world-inline-editor) {
   position: absolute;
   z-index: 1;
   inset-inline: 8px;
 }
 
-:is(.manuscript-inline-editor, .characters-inline-editor) input {
+:is(.manuscript-inline-editor, .characters-inline-editor, .world-inline-editor) input {
   box-sizing: border-box;
   width: 100%;
   height: 24px;
@@ -161,14 +161,14 @@
   border: 1px solid var(--vscode-focusBorder);
 }
 
-:is(.manuscript-inline-error, .characters-inline-error) {
+:is(.manuscript-inline-error, .characters-inline-error, .world-inline-error) {
   padding: 4px;
   background: var(--vscode-inputValidation-errorBackground, var(--vscode-input-background));
   color: var(--vscode-input-foreground);
 }
 
-:is(.manuscript-row, .characters-row):is([data-manuscript-drop='before'], [data-manuscript-drop='after'],
-    [data-characters-drop='before'], [data-characters-drop='after'])::after {
+:is(.manuscript-row, .characters-row, .world-row):is([data-manuscript-drop='before'], [data-manuscript-drop='after'],
+    [data-characters-drop='before'], [data-world-drop='before'], [data-characters-drop='after'], [data-world-drop='after'])::after {
   content: '';
   position: absolute;
   /* The insertion line crosses the guides above their vertical strokes. */
@@ -178,22 +178,22 @@
   pointer-events: none;
 }
 
-:is(.manuscript-row, .characters-row):is([data-manuscript-drop='before'], [data-characters-drop='before'])::after {
+:is(.manuscript-row, .characters-row, .world-row):is([data-manuscript-drop='before'], [data-characters-drop='before'], [data-world-drop='before'])::after {
   inset-block-start: 0;
 }
 
-:is(.manuscript-row, .characters-row):is([data-manuscript-drop='after'], [data-characters-drop='after'])::after {
+:is(.manuscript-row, .characters-row, .world-row):is([data-manuscript-drop='after'], [data-characters-drop='after'], [data-world-drop='after'])::after {
   inset-block-end: 0;
 }
 
-:is(.manuscript-row, .characters-row):is([data-manuscript-drop='into'], [data-characters-drop='into']),
-:is(.manuscript-drop-end, .characters-drop-end) {
+:is(.manuscript-row, .characters-row, .world-row):is([data-manuscript-drop='into'], [data-characters-drop='into'], [data-world-drop='into']),
+:is(.manuscript-drop-end, .characters-drop-end, .world-drop-end) {
   background: var(--vscode-list-dropBackground);
 }
 
 @media (forced-colors: active) {
-  .characters-row[aria-selected='true'],
-  .characters-tree:focus-visible .characters-row[aria-selected='true'] {
+  :is(.characters-row, .world-row)[aria-selected='true'],
+  :is(.characters-tree, .world-tree):focus-visible :is(.characters-row, .world-row)[aria-selected='true'] {
     forced-color-adjust: none;
     background-color: Highlight;
     color: HighlightText;
@@ -201,18 +201,18 @@
   }
 
   /* The guides below are forced to CanvasText, which need not contrast with Highlight. */
-  .characters-row[aria-selected='true'] .characters-twig {
+  :is(.characters-row, .world-row)[aria-selected='true'] :is(.characters-twig, .world-twig) {
     color: HighlightText;
   }
 
   /* Forced colors paint backgrounds with Canvas, which would erase the guides drawn as backgrounds. */
-  :is(.manuscript-twig, .characters-twig) {
+  :is(.manuscript-twig, .characters-twig, .world-twig) {
     forced-color-adjust: none;
     color: CanvasText;
   }
 
-  :is(.manuscript-row, .characters-row):is([data-manuscript-drop='before'], [data-manuscript-drop='after'],
-    [data-characters-drop='before'], [data-characters-drop='after'])::after {
+  :is(.manuscript-row, .characters-row, .world-row):is([data-manuscript-drop='before'], [data-manuscript-drop='after'],
+    [data-characters-drop='before'], [data-world-drop='before'], [data-characters-drop='after'], [data-world-drop='after'])::after {
     border-color: CanvasText;
   }
 }

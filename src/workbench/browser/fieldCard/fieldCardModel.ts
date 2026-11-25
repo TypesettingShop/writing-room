@@ -36,6 +36,7 @@ export interface FieldCardAdapter<T> {
   sameContent(a: T, b: T): boolean;
   normalize(value: T): T;
   label(value: T): string;
+  readonly conflictDetail?: string;
   beforeSave?(): void;
   validate?(value: T): readonly FieldCardProblem[];
   review?(value: T, saved: T): Promise<FieldCardHold | undefined>;
@@ -260,9 +261,10 @@ export class FieldCardModel<T extends object> extends Disposable {
       ? block.state.problems
       : this.adapter.validate?.(draft);
     const invalid = !!validationProblems?.length;
-    const buttons = invalid
+    const mustKeepEditing = invalid || block?.state.kind === 'reviewError';
+    const buttons = mustKeepEditing
       ? ['Keep Editing', 'Discard']
-      : [block ? 'Apply and Close' : 'Save and Close', 'Discard', 'Cancel'];
+      : [block?.state.kind === 'confirmation' ? 'Apply and Close' : 'Save and Close', 'Discard', 'Cancel'];
     const prompt = this.closePrompt = this.dialogs.prompt({
       type: Severity.Warning,
       message: `Close "${this.adapter.label(draft) || 'Untitled'}" with unsaved changes?`,
@@ -270,7 +272,7 @@ export class FieldCardModel<T extends object> extends Disposable {
         : block?.state.kind === 'confirmation' ? block.state.hold.message
         : block?.state.kind === 'reviewError' ? block.state.message : undefined,
       buttons,
-      cancelButton: invalid ? 0 : 2,
+      cancelButton: mustKeepEditing ? 0 : 2,
     });
     const choice = await prompt.result;
     this.closePrompt = undefined;
@@ -285,8 +287,8 @@ export class FieldCardModel<T extends object> extends Disposable {
       await this.discardDraft();
       return !this.dirty;
     }
-    if (choice === 0 && !invalid) {
-      const saved = await (block ? this.applyChange() : this.save('explicit'));
+    if (choice === 0 && !mustKeepEditing) {
+      const saved = await (block?.state.kind === 'confirmation' ? this.applyChange() : this.save('explicit'));
       return saved && !this.dirty;
     }
     return false;
@@ -479,7 +481,8 @@ export class FieldCardModel<T extends object> extends Disposable {
           const prompt = this.conflictPrompt = this.dialogs.prompt({
             type: Severity.Warning,
             message: `"${this.adapter.label(this.saved) || 'Untitled'}" changed elsewhere.`,
-            detail: 'Reload to discard your edits and read the saved card. Overwrite replaces the other changes with your edits.',
+            detail: this.adapter.conflictDetail ??
+              'Reload to discard your edits and read the saved version. Overwrite replaces the other changes with your edits.',
             buttons: ['Reload', 'Overwrite', 'Cancel'],
             cancelButton: 2,
           });

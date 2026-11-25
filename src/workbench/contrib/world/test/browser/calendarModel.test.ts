@@ -128,7 +128,10 @@ describe('calendar autosave', () => {
     const remote = { ...getGregorianCalendar(), hoursPerDay: 20 };
     advance(remote);
     expect(await card.save('explicit')).toBe(true);
-    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ buttons: ['Reload', 'Overwrite', 'Cancel'] }));
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      buttons: ['Reload', 'Overwrite', 'Cancel'],
+      detail: 'Reload to discard your edits and read the saved calendar. Overwrite replaces the other changes with your edits.',
+    }));
     expect(card.draft).toEqual(remote);
     expect(card.dirty).toBe(false);
     expect(putCalendar).toHaveBeenCalledOnce();

@@ -13,7 +13,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function setup(hooks: Pick<FieldCardAdapter<Draft>, 'validate' | 'review'> = {}) {
+function setup(hooks: Pick<FieldCardAdapter<Draft>, 'validate' | 'review' | 'conflictDetail'> = {}) {
   let snapshot: FieldCardSnapshot<Draft> = { value: initial, revision: 1 };
   const write = vi.fn(async (value: Draft, revision: number) => {
     if (!snapshot.value) {
@@ -301,4 +301,33 @@ test('does not autosave while the close prompt is open, so Discard still discard
   await expect(closing).resolves.toBe(true);
   expect(model.draft).toEqual(initial);
   expect(write).not.toHaveBeenCalled();
+});
+
+test('a failed impact check offers Keep Editing or Discard on close without writing', async () => {
+  const { model, write, prompt } = setup({ review: async () => { throw new Error('offline'); } });
+  const draft = { name: 'Pending' };
+  model.edit(draft);
+  expect(await model.save('explicit')).toBe(false);
+  prompt.mockReturnValueOnce({ result: Promise.resolve(0), close() {} });
+  expect(await model.confirmClose()).toBe(false);
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({
+    detail: 'Could not check what this change affects.',
+    buttons: ['Keep Editing', 'Discard'],
+    cancelButton: 0,
+  });
+  expect(model.draft).toBe(draft);
+  expect(model.dirty).toBe(true);
+  prompt.mockReturnValueOnce({ result: Promise.resolve(1), close() {} });
+  expect(await model.confirmClose()).toBe(true);
+  expect(model.draft).toEqual(initial);
+  expect(write).not.toHaveBeenCalled();
+});
+
+test('shows the adapter’s conflict detail when the same target has changed', async () => {
+  const conflictDetail = 'Reload the saved category fields or replace them.';
+  const { model, prompt, external } = setup({ conflictDetail });
+  model.edit({ name: 'Draft' });
+  external({ name: 'Remote' });
+  expect(await model.save('explicit')).toBe(false);
+  expect(prompt.mock.lastCall?.[0].detail).toBe(conflictDetail);
 });

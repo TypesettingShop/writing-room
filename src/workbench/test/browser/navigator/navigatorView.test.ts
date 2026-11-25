@@ -9,7 +9,7 @@ import { InstantiationService } from '../../../../platform/instantiation/common/
 import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { InMemoryStorageService } from '../../../../platform/storage/common/storage.js';
-import { CharactersDragAndDropObserver, ManuscriptDragAndDropObserver, isWorkbenchDrag } from '../../../browser/dnd.js';
+import { CharactersDragAndDropObserver, ManuscriptDragAndDropObserver, WorldDragAndDropObserver, isWorkbenchDrag } from '../../../browser/dnd.js';
 import { NavigatorView } from '../../../browser/navigator/navigatorView.js';
 import { NavigatorViewState, type NavigatorStore } from '../../../browser/navigator/navigatorViewState.js';
 import type { NavigatorNode } from '../../../common/navigator/navigatorTree.js';
@@ -27,11 +27,12 @@ const disposables = new DisposableStore();
 afterEach(() => {
   CharactersDragAndDropObserver.INSTANCE.endDrag();
   ManuscriptDragAndDropObserver.INSTANCE.endDrag();
+  WorldDragAndDropObserver.INSTANCE.endDrag();
   disposables.clear();
 });
 
-async function createView() {
-  let nodes = [folder, child, loose];
+async function createView(initialNodes: readonly ExampleNode[] = [folder, child, loose], emptyActions: readonly (readonly ['folder' | 'item', string])[] = []) {
+  let nodes = initialNodes;
   let revision = 1;
   const moveNodes = vi.fn(async () => ({ revision: ++revision }));
   const store: NavigatorStore<ExampleNode> = {
@@ -69,7 +70,7 @@ async function createView() {
     rowIcon: node => node.kind === 'folder' ? { id: 'folder' } :
       node.status === 'read' ? { id: 'check', label: 'Read' } : { id: 'circle', label: 'Unread' },
     emptyHint: 'No notes',
-    emptyActions: [],
+    emptyActions,
     loadingMessage: 'Loading notes',
     invalidTitle: 'Invalid title',
     titleReloaded: 'Reloaded',
@@ -88,7 +89,7 @@ async function createView() {
     return state.refresh();
   }
   return {
-    state, moveNodes, markRead,
+    state, moveNodes, markRead, parent,
     row: (key: string) => parent.querySelector<HTMLElement>(`[data-key="${key}"]`)!,
   };
 }
@@ -135,6 +136,25 @@ test('marks the lower edge of an expanded folder and inserts before its first ch
   await vi.waitFor(() => expect(moveNodes).toHaveBeenCalledExactlyOnceWith(
     'work', [loose.id], { parentId: folder.id, beforeId: child.id }, 1,
   ));
+});
+
+test('draws the hint and creation buttons when a view gives no empty-state renderer', async () => {
+  const { parent } = await createView([], [['folder', 'New Folder'], ['item', 'New Note']]);
+  const empty = parent.querySelector<HTMLElement>('.characters-empty')!;
+  expect(empty.hidden).toBe(false);
+  expect([...empty.children].map(element => `${element.tagName}:${element.textContent}`))
+    .toEqual(['P:No notes', 'BUTTON:New Folder', 'BUTTON:New Note']);
+});
+
+test('keeps a World row drag away from tree views by its marker and while it lasts', () => {
+  const world = WorldDragAndDropObserver.INSTANCE;
+  const transfer = createTransfer();
+  const event = dragEvent('dragstart', transfer);
+  world.startDrag(event, document.createElement('div'), { workId: 'work', nodeIds: ['node'] });
+  expect(isWorkbenchDrag(dragEvent('dragover', createTransfer()))).toBe(true);
+  world.endDrag();
+  expect(isWorkbenchDrag(event)).toBe(true);
+  expect(isWorkbenchDrag(dragEvent('dragover', createTransfer()))).toBe(false);
 });
 
 test('isolates simultaneous drag payloads even for the same work and node ID', () => {
