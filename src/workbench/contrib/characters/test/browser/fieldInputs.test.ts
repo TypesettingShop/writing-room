@@ -11,7 +11,7 @@ import type { IFileDialogService } from '../../../../services/dialogs/common/dia
 import { CharacterEditorInput } from '../../browser/characterEditorInput.js';
 import { CharacterEditorPane } from '../../browser/characterEditorPane.js';
 import type { CharactersViewState } from '../../browser/charactersViewState.js';
-import { FieldInput } from '../../browser/fieldInputs.js';
+import { FieldInput } from '../../../../browser/fieldCard/fieldInputs.js';
 
 test('exposes the label and description, forwards composing Ctrl+S, and leaves preedit in its control', () => {
   const change = vi.fn();
