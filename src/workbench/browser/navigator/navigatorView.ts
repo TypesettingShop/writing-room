@@ -1,6 +1,6 @@
 import { addDisposableListener } from '../../../base/browser/dom.js';
 import type { MenuAnchor } from '../../../base/browser/ui/menu/menu.js';
-import { Disposable, MutableDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, MutableDisposable, type IDisposable } from '../../../base/common/lifecycle.js';
 import type { IMenuService, MenuId } from '../../../platform/actions/common/actions.js';
 import type { IContextKeyService } from '../../../platform/contextkey/common/contextkey.js';
 import type { IContextMenuService } from '../../../platform/contextview/browser/contextMenuService.js';
@@ -37,8 +37,9 @@ interface NavigatorViewOptions<N extends NavigatorNode> {
   readonly treeLabel: string;
   readonly rowIcon: (node: N, dir: boolean) => RowIcon;
   readonly keyboardMultiSelect?: boolean;
-  readonly emptyHint: string;
-  readonly emptyActions: readonly (readonly [kind: N['kind'], title: string])[];
+  readonly emptyHint?: string;
+  readonly emptyActions?: readonly (readonly [kind: N['kind'], title: string])[];
+  readonly renderEmpty?: (parent: HTMLElement) => IDisposable;
   readonly loadingMessage: string;
   readonly invalidTitle: string;
   readonly titleReloaded: string;
@@ -87,15 +88,19 @@ export class NavigatorView<N extends NavigatorNode, S extends NavigatorStore<N>>
 
     this.empty = this.document.createElement('div');
     this.empty.className = `${this.options.cssPrefix}-empty`;
-    const hint = this.document.createElement('p');
-    hint.textContent = options.emptyHint;
-    this.empty.append(hint);
-    for (const [kind, title] of options.emptyActions) {
-      const button = this.document.createElement('button');
-      button.type = 'button';
-      button.textContent = title;
-      this.empty.append(button);
-      this._register(addDisposableListener(button, 'click', () => void this.state.create(kind)));
+    if (options.renderEmpty) {
+      this._register(options.renderEmpty(this.empty));
+    } else {
+      const hint = this.document.createElement('p');
+      hint.textContent = options.emptyHint ?? '';
+      this.empty.append(hint);
+      for (const [kind, title] of options.emptyActions ?? []) {
+        const button = this.document.createElement('button');
+        button.type = 'button';
+        button.textContent = title;
+        this.empty.append(button);
+        this._register(addDisposableListener(button, 'click', () => void this.state.create(kind)));
+      }
     }
 
     this.tree = this.document.createElement('div');
@@ -186,7 +191,9 @@ export class NavigatorView<N extends NavigatorNode, S extends NavigatorStore<N>>
     this.location.hidden = !path;
     this.status.textContent = this.state.error || (index ? '' : this.options.loadingMessage);
     this.status.hidden = !this.status.textContent;
-    this.empty.hidden = !index || index.nodes.size !== 0;
+    const hideEmpty = !index || index.nodes.size !== 0;
+    const focusTree = this.options.renderEmpty && hideEmpty && this.empty.contains(this.document.activeElement);
+    this.empty.hidden = hideEmpty;
     this.tree.setAttribute('aria-busy', String(this.state.busy || !index && !this.state.error));
     if (this.previousLines !== lines) {
       this.positions = new Map(lines.map((line, index) => [line.key, index]));
@@ -203,6 +210,9 @@ export class NavigatorView<N extends NavigatorNode, S extends NavigatorStore<N>>
     this.previousCursor = cursor;
     this.drawRows(true);
     this.drawEditor();
+    if (focusTree) {
+      this.tree.focus({ preventScroll: true });
+    }
   }
 
   private reveal(key: string): void {
