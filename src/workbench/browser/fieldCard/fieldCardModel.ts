@@ -77,6 +77,8 @@ export class FieldCardModel<T extends object> extends Disposable {
   private editVersion = 0;
   private revision: number;
   private saveInProgress: Promise<boolean> | undefined;
+  /** The edit version the in-flight save started from. */
+  private saveStartVersion = 0;
   private composition: DeferredPromise<void> | undefined;
   private compositions = 0;
   private deferredFocus: FieldCardSaveBlock | undefined;
@@ -104,6 +106,8 @@ export class FieldCardModel<T extends object> extends Disposable {
   get draft(): T { return this.current; }
   get deleted(): boolean { return this._deleted; }
   get dirty(): boolean { return !this.deleted && !this.adapter.sameContent(this.current, this.saved); }
+  /** Guarded saves check the draft first and drop a check that a newer edit replaced. */
+  private get guarded(): boolean { return !!(this.adapter.validate || this.adapter.review); }
 
   beginComposition(): IDisposable {
     this.compositions++;
@@ -299,8 +303,11 @@ export class FieldCardModel<T extends object> extends Disposable {
   private async saveDraft(reason: 'explicit' | 'auto', approval?: BlockedSave<T>): Promise<boolean> {
     if (this.saveInProgress) {
       const pending = this.saveInProgress;
+      const startVersion = this.saveStartVersion;
       const saved = await pending;
-      if (reason === 'explicit' && saved && this.dirty && !this.discardInProgress) {
+      // The pending save never tried an edit that replaced its draft while it was being checked.
+      const superseded = this.guarded && startVersion !== this.editVersion && !this.blocked;
+      if (reason === 'explicit' && (saved || superseded) && this.dirty && !this.discardInProgress) {
         return this.save(reason);
       }
       if (reason === 'explicit' && this.saveBlock) {
@@ -331,7 +338,7 @@ export class FieldCardModel<T extends object> extends Disposable {
     const draftAtStart = this.current;
     const editVersion = this.editVersion;
     // A block can emit synchronously. Register the in-flight operation before calling guarded adapters.
-    const write = this.adapter.validate || this.adapter.review
+    const write = this.guarded
       ? Promise.resolve().then(() => this.write(reason, editVersion, approval))
       : this.write(reason, editVersion, approval);
     const operation = write.finally(() => {
@@ -341,6 +348,7 @@ export class FieldCardModel<T extends object> extends Disposable {
       }
     });
     this.saveInProgress = operation;
+    this.saveStartVersion = editVersion;
     return operation;
   }
 
@@ -369,7 +377,7 @@ export class FieldCardModel<T extends object> extends Disposable {
   ): Promise<boolean> {
     let revision = approval?.revision ?? this.revision;
     let base = approval?.base ?? this.saved;
-    const guarded = !!(this.adapter.validate || this.adapter.review);
+    const guarded = this.guarded;
     const canSubmit = () => !this.deleted && !this.disposed && !this.discardInProgress
       && (reason === 'explicit' || (!this.composition && !this.autoPaused))
       && (!guarded || this.editVersion === editVersion);

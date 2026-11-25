@@ -224,3 +224,81 @@ test('an Apply confirmation does not carry over to a changed store revision', as
   await expect(model.applyChange()).resolves.toBe(true);
   expect(write.mock.calls.map(([, revision]) => revision)).toEqual([1, 2]);
 });
+
+test('an explicit save that waits on a review dropped for a newer edit checks and saves that edit', async () => {
+  const pending = new DeferredPromise<FieldCardHold | undefined>();
+  const review = vi.fn<NonNullable<FieldCardAdapter<Draft>['review']>>(async () => undefined);
+  review.mockReturnValueOnce(pending.p);
+  const { model, write } = setup({ review });
+  model.edit({ name: 'First' });
+  const auto = model.save('auto');
+  await Promise.resolve();
+  model.edit({ name: 'Second' });
+  const explicit = model.save('explicit');
+  await pending.complete(undefined);
+  await expect(auto).resolves.toBe(false);
+  await expect(explicit).resolves.toBe(true);
+  expect(review.mock.calls.map(([draft]) => draft.name)).toEqual(['First', 'Second']);
+  expect(write).toHaveBeenCalledExactlyOnceWith({ name: 'Second' }, 1);
+});
+
+test('holds wait for every composition to end before requesting focus', async () => {
+  const review = vi.fn(async () => hold);
+  const { model, write } = setup({ validate, review });
+  const focus = vi.fn();
+  disposables.add(model.onDidRequestSaveBlockFocus(focus));
+  const first = model.beginComposition();
+  const second = model.beginComposition();
+  model.edit({ name: ' ' });
+  await expect(model.save('explicit')).resolves.toBe(false);
+  expect(model.saveBlock?.kind).toBe('validation');
+  first.dispose();
+  expect(focus).not.toHaveBeenCalled();
+  second.dispose();
+  expect(focus).toHaveBeenCalledExactlyOnceWith(model.saveBlock);
+
+  const composing = model.beginComposition();
+  model.edit({ name: '한' });
+  await expect(model.save('explicit')).resolves.toBe(false);
+  expect(model.saveBlock).toEqual({ kind: 'confirmation', hold });
+  model.edit({ name: '한글' });
+  composing.dispose();
+  expect(focus).toHaveBeenCalledOnce();
+  expect(write).not.toHaveBeenCalled();
+});
+
+test('a review still pending at deletion or disposal never writes', async () => {
+  for (const end of ['delete', 'dispose'] as const) {
+    const pending = new DeferredPromise<FieldCardHold | undefined>();
+    const { model, write } = setup({ review: () => pending.p });
+    model.edit({ name: 'Draft' });
+    const save = model.save('explicit');
+    await Promise.resolve();
+    if (end === 'delete') {
+      model.markDeleted();
+    } else {
+      model.dispose();
+    }
+    await pending.complete(undefined);
+    await expect(save).resolves.toBe(false);
+    expect(write).not.toHaveBeenCalled();
+  }
+});
+
+test('does not autosave while the close prompt is open, so Discard still discards', async () => {
+  vi.useFakeTimers();
+  const { model, write, prompt } = setup();
+  const choice = new DeferredPromise<number | undefined>();
+  prompt.mockReturnValueOnce({ result: choice.p, close() {} });
+  model.edit({ name: 'Draft' });
+  const closing = model.confirmClose();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(prompt).toHaveBeenCalledOnce();
+  model.scheduleAutoSave(0);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(write).not.toHaveBeenCalled();
+  await choice.complete(1);
+  await expect(closing).resolves.toBe(true);
+  expect(model.draft).toEqual(initial);
+  expect(write).not.toHaveBeenCalled();
+});
