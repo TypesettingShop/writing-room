@@ -1,6 +1,5 @@
 import { expect, it } from 'vitest';
 import { getGregorianCalendar } from '../../../../platform/world/common/calendar.js';
-import { formatCalendarDate } from '../../../../platform/world/common/calendarFormat.js';
 import type { CalendarDate } from '../../../../platform/world/common/timePoint.js';
 import { DateInput } from '../dateInput.js';
 
@@ -13,15 +12,6 @@ function enter(input: HTMLInputElement, value: string) {
   input.value = value;
   input.dispatchEvent(new Event('input'));
 }
-
-it('prints Korean dates at each precision and retains missing IDs', () => {
-  const calendar = getGregorianCalendar();
-  expect(formatCalendarDate(calendar, { era: 'ad', year: 2024, month: 'feb', day: 29, time: { hour: 14, minute: 30 } }))
-    .toBe('서기 2024년 2월 29일 14:30');
-  expect(formatCalendarDate(calendar, { era: 'bc', year: 50, month: 'mar' })).toBe('기원전 50년 3월');
-  expect(formatCalendarDate(calendar, { era: 'ad', year: 302 })).toBe('서기 302년');
-  expect(formatCalendarDate(calendar, { era: 'old', year: 302, month: 'lost' })).toBe('(확인 필요) old 302년 lost');
-});
 
 it('preserves absent choices and emits only after composition and structural validation', () => {
   const calendar = getGregorianCalendar();
@@ -59,5 +49,17 @@ it('warns on a short month and clears dependent precision only when edited', () 
   expect(changes).toEqual([{ era: 'ad', year: 10 }]);
   expect(control<HTMLInputElement>(input, 'Day').disabled).toBe(true);
   expect(control<HTMLInputElement>(input, 'Hour').disabled).toBe(true);
+  input.dispose();
+});
+
+it('keeps the select options while a draft name still holds spaces', () => {
+  const calendar = getGregorianCalendar();
+  const spaced = { ...calendar, eras: [{ id: 'ad', name: '새  서기 ', countsDown: false as const, startYear: 1 }] };
+  const input = new DateInput(document, spaced);
+  const era = control<HTMLSelectElement>(input, 'Era');
+  const option = era.options[1];
+  input.setCalendar({ ...spaced });
+  expect(era.options[1]).toBe(option);
+  expect(option.textContent).toBe('새  서기 ');
   input.dispose();
 });

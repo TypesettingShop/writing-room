@@ -92,6 +92,16 @@
   padding-inline: 4px;
   align-self: center;
   cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.calendar-row[data-calendar-drop='before'] {
+  box-shadow: inset 0 2px 0 var(--vscode-focusBorder);
+}
+
+.calendar-row[data-calendar-drop='after'] {
+  box-shadow: inset 0 -2px 0 var(--vscode-focusBorder);
 }
 
 .calendar-problem {

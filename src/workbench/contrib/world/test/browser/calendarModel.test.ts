@@ -7,7 +7,7 @@ import { getGregorianCalendar, type Calendar } from '../../../../../platform/wor
 import { WorldStoreError } from '../../../../../platform/world/common/world.js';
 import { checkCalendarDate } from '../../../../../platform/world/common/timePoint.js';
 import { CalendarModel } from '../../browser/calendarModel.js';
-import { countCalendarImpact, registerCalendarUsageSource } from '../../browser/calendarUsage.js';
+import { countCalendarImpact, registerCalendarUsageSource, type CalendarUsageSource } from '../../browser/calendarUsage.js';
 
 const disposables = new DisposableStore();
 afterEach(() => {
@@ -16,8 +16,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function setup(choice = 0) {
-  let calendar = getGregorianCalendar();
+async function setup(choice = 0, initial = getGregorianCalendar()) {
+  let calendar = initial;
   let revision = 0;
   const getCalendar = vi.fn(async () => ({ calendar, revision }));
   const putCalendar = vi.fn(async (_workId: string, draft: Calendar, expected: number) => {
@@ -38,10 +38,10 @@ async function setup(choice = 0) {
 }
 
 function shorten(calendar: Calendar): Calendar {
-  return { ...calendar, months: calendar.months.map((row, i) => i === 0 ? { ...row, days: 30 } : row) };
+  return { ...calendar, months: calendar.months.map(row => row.id === 'jan' ? { ...row, days: 30 } : row) };
 }
 
-function addImpactSource(countAffected: () => Promise<number>) {
+function addImpactSource(countAffected: CalendarUsageSource['countAffected']) {
   disposables.add(registerCalendarUsageSource({ label: 'events', countAffected }));
 }
 
@@ -67,7 +67,7 @@ describe('calendar autosave', () => {
     expect(card.draft.months[0].name).toBe('첫 달 ');
   });
 
-  it('rechecks approval on a new shared world revision before writing', async () => {
+  it('rechecks approval when another window saves the same calendar at a newer revision', async () => {
     const { card, model, putCalendar, advance, prompt } = await setup();
     const count = vi.fn(async () => 3);
     addImpactSource(count);
@@ -146,13 +146,45 @@ describe('calendar autosave', () => {
     expect(putCalendar).not.toHaveBeenCalled();
   });
 
-  it('keeps row IDs distinct from the preset and from removed rows', async () => {
-    const { model } = await setup();
-    const uuid = (last: string) => `00000000-0000-4000-8000-00000000000${last}` as const;
+  it('keeps row IDs distinct from the preset, from generated IDs and from saved rows removed in this session', async () => {
+    const uuid = (last: string) => `00000000-0000-4000-8000-00000000000${last}` as ReturnType<Crypto['randomUUID']>;
+    const saved = getGregorianCalendar();
+    const { model, card } = await setup(0, { ...saved, months: [...saved.months, { id: uuid('9'), name: '윤달', days: 30 }] });
+    card.edit({ ...card.draft, months: card.draft.months.filter(month => month.id !== uuid('9')) });
     vi.spyOn(crypto, 'randomUUID').mockReturnValueOnce('jan' as ReturnType<Crypto['randomUUID']>)
-      .mockReturnValueOnce(uuid('1')).mockReturnValueOnce(uuid('1')).mockReturnValueOnce(uuid('2'));
+      .mockReturnValueOnce(uuid('9')).mockReturnValueOnce(uuid('1')).mockReturnValueOnce(uuid('1')).mockReturnValueOnce(uuid('2'));
     expect(model.newRowId()).toBe(uuid('1'));
     expect(model.newRowId()).toBe(uuid('2'));
+  });
+
+  it('counts impact against the saved calendar, not against the previous draft', async () => {
+    const { card, putCalendar } = await setup();
+    const date = { era: 'ad', year: 2024, month: 'jan', day: 31 };
+    const count = vi.fn<CalendarUsageSource['countAffected']>(async (_workId, saved, draft) =>
+      Number(checkCalendarDate(saved, date).ok && !checkCalendarDate(draft, date).ok));
+    addImpactSource(count);
+    card.edit({ ...card.draft, months: [...card.draft.months].reverse() });
+    expect(await card.save('explicit')).toBe(true);
+    expect(putCalendar).toHaveBeenCalledOnce();
+    card.edit(shorten(card.draft));
+    expect(await card.save('explicit')).toBe(false);
+    expect(card.saveBlock).toMatchObject({ kind: 'confirmation', hold: { message: expect.stringContaining('1 events') } });
+    card.edit({ ...card.draft, hoursPerDay: 20 });
+    expect(await card.save('explicit')).toBe(false);
+    expect(card.saveBlock?.kind).toBe('confirmation');
+    expect(putCalendar).toHaveBeenCalledOnce();
+  });
+
+  it('never sends a request while a field is composing, even when a save was requested', async () => {
+    const { model, card, putCalendar } = await setup();
+    const composing = model.beginComposition();
+    card.edit({ ...card.draft, hoursPerDay: 20 });
+    expect(await card.save('explicit')).toBe(false);
+    expect(putCalendar).not.toHaveBeenCalled();
+    expect(card.dirty).toBe(true);
+    composing.dispose();
+    expect(await card.save('explicit')).toBe(true);
+    expect(putCalendar).toHaveBeenCalledOnce();
   });
 });
 
@@ -166,16 +198,4 @@ it('combines source results and rejects a partial count', async () => {
   ]);
   addImpactSource(async () => { throw new Error('unavailable'); });
   await expect(countCalendarImpact('work', calendar, draft)).rejects.toThrow('unavailable');
-});
-
-it('leaves dates valid after reordering months', async () => {
-  const saved = getGregorianCalendar();
-  const date = { era: 'ad', year: 2024, month: 'jan', day: 31 };
-  disposables.add(registerCalendarUsageSource({
-    label: 'events',
-    countAffected: async (_id, baseline, draft) =>
-      Number(checkCalendarDate(baseline, date).ok && !checkCalendarDate(draft, date).ok),
-  }));
-  expect(await countCalendarImpact('work', saved, { ...saved, months: [...saved.months].reverse() }))
-    .toEqual([{ label: 'events', count: 0 }]);
 });

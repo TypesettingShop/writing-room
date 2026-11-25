@@ -9,6 +9,7 @@ import { getGregorianCalendar, type Calendar } from '../../../../../platform/wor
 import { IWorkService } from '../../../../services/work/common/work.js';
 import { IWorldService } from '../../../../services/world/common/worldService.js';
 import { CalendarEditorSerializer, ICalendarInputService } from '../../browser/calendarEditorInput.js';
+import { registerCalendarUsageSource } from '../../browser/calendarUsage.js';
 
 it('shares the work input, restores only that work and reports dirty changes across save', async () => {
   const disposables = new DisposableStore();
@@ -39,11 +40,15 @@ it('shares the work input, restores only that work and reports dirty changes acr
     expect(serializer.deserialize(instantiation, 'other')).toBeUndefined();
 
     await first.resolve();
+    const count = vi.fn(async () => 0);
+    disposables.add(registerCalendarUsageSource({ label: 'events', countAffected: count }));
     const dirty: boolean[] = [];
     first.onDidChangeDirty(() => dirty.push(first.isDirty()));
     const composition = first.model.beginComposition();
     first.model.card!.edit({ ...calendar, hoursPerDay: 20 });
     expect(await first.save(1)).toBeUndefined();
+    // Neither the save nor its impact check runs during composition.
+    expect(count).not.toHaveBeenCalled();
     expect(putCalendar).not.toHaveBeenCalled();
     composition.dispose();
     expect(await first.save(1)).toBe(first);

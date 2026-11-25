@@ -109,8 +109,9 @@ export class DateInput extends Disposable {
     if (selected && !rows.some(row => row.id === selected)) {
       options.push({ id: selected, name: `${selected} (Not in calendar)` });
     }
+    // Compare textContent: HTMLOptionElement.text collapses the spaces a draft name can still hold.
     if (select.options.length !== options.length || options.some((option, i) =>
-      select.options[i].value !== option.id || select.options[i].text !== option.name)) {
+      select.options[i].value !== option.id || select.options[i].textContent !== option.name)) {
       select.replaceChildren(...options.map(({ id, name }) => {
         const option = this.document.createElement('option');
         option.value = id;

@@ -51,6 +51,7 @@ test('opens one calendar tab for the work and restores saved data after reload',
   await era.fill('새 서기 ');
   await expect.poll(async () => (await work.calendar()).calendar.eras[1].name).toBe('새 서기');
   await expect(era).toHaveValue('새 서기 ');
+  expect((await work.calendar()).calendar.eras.map(era => era.id)).toEqual(['bc', 'ad']);
   await page.reload();
   await expect(tab(page)).toHaveAttribute('aria-selected', 'true');
   await expect(era).toHaveValue('새 서기');
@@ -79,18 +80,26 @@ test('holds invalid rows and native preedit, then saves the corrected draft with
   const moved = months.nth(11).getByRole('textbox', { name: 'Name' });
   await expect(moved).toBeFocused();
   await expect(moved).toHaveValue('새 달');
+  // Moving down is the case where the list would move the composing row itself instead of its neighbour.
+  await moved.press('Alt+ArrowDown');
+  const back = months.nth(12).getByRole('textbox', { name: 'Name' });
+  await expect(back).toBeFocused();
+  await expect(back).toHaveValue('새 달');
   expect((await work.calendar()).revision).toBe(0);
-  await moved.dispatchEvent('compositionend');
+  await back.dispatchEvent('compositionend');
 
-  const days = months.nth(11).getByRole('textbox', { name: 'Days' });
+  const days = months.nth(12).getByRole('textbox', { name: 'Days' });
   await days.fill('３０');
   await days.press('ControlOrMeta+s');
-  await expect.poll(async () => (await work.calendar()).calendar.months[11]).toMatchObject({ name: '새 달', days: 30 });
-  const oldId = (await work.calendar()).calendar.months[11].id;
-  await months.nth(11).getByRole('button', { name: 'Delete' }).press('Enter');
+  await expect.poll(async () => (await work.calendar()).calendar.months[12]).toMatchObject({ name: '새 달', days: 30 });
+  const saved = (await work.calendar()).calendar.months;
+  expect(saved.slice(0, 12).map(month => month.id)).toEqual(getGregorianCalendar().months.map(month => month.id));
+  const oldId = saved[12].id;
+  await months.nth(12).getByRole('button', { name: 'Delete' }).press('Enter');
+  await expect.poll(async () => (await work.calendar()).calendar.months.length).toBe(12);
   await pane(page).getByRole('button', { name: 'Add Month' }).press('Enter');
   await months.last().getByRole('textbox', { name: 'Name' }).fill('새 달');
-  await expect.poll(async () => (await work.calendar()).calendar.months.at(-1)?.name).toBe('새 달');
+  await expect.poll(async () => (await work.calendar()).calendar.months.at(12)?.name).toBe('새 달');
   const replacement = (await work.calendar()).calendar.months.at(-1);
   expect(replacement?.id).toMatch(/^[0-9a-f-]{36}$/);
   expect(replacement?.id).not.toBe(oldId);
@@ -120,6 +129,8 @@ test('keeps a preview date whose era was removed from the draft', async ({ page,
   await calendar.getByRole('textbox', { name: 'Minute', exact: true }).fill('30');
   await expect(calendar.getByText('서기 2024년 2월 29일 14:30')).toBeVisible();
   await rows(page, 'Eras').nth(1).getByRole('button', { name: 'Delete' }).click();
+  await rows(page, 'Months').first().getByRole('button', { name: 'Delete' }).click();
+  await expect(rows(page, 'Months')).toHaveCount(11);
   await expect(era).toHaveValue('ad');
   await expect(era.locator('option:checked')).toHaveText('ad (Not in calendar)');
   await expect(calendar.getByText('(확인 필요) ad 2024년 2월 29일 14:30')).toBeVisible();
@@ -129,6 +140,26 @@ test('keeps a preview date whose era was removed from the draft', async ({ page,
   await page.getByRole('dialog').getByRole('button', { name: 'Use Gregorian Calendar', exact: true }).click();
   await expect(calendar.getByText('서기 2024년 2월 29일 14:30')).toBeVisible();
   await expect.poll(async () => (await work.calendar()).calendar.eras.map(era => era.id)).toEqual(['bc', 'ad']);
+  expect((await work.calendar()).calendar.months.map(month => month.id)).toEqual(getGregorianCalendar().months.map(month => month.id));
+});
+
+test('reorders a row by dragging its grip inside the editor', async ({ page, request, baseURL }) => {
+  const work = await createWork(request, baseURL!);
+  await page.goto(work.url);
+  await openCalendar(page);
+  const months = rows(page, 'Months');
+  await months.nth(1).scrollIntoViewIfNeeded();
+  const grip = (await months.first().locator('.calendar-grip').boundingBox())!;
+  const target = (await months.nth(1).boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height - 10, { steps: 5 });
+  await expect(months.nth(1)).toHaveAttribute('data-calendar-drop', 'after');
+  await page.mouse.up();
+  await expect(months.first().getByRole('textbox', { name: 'Name' })).toHaveValue('2월');
+  await expect(months.nth(1)).not.toHaveAttribute('data-calendar-drop');
+  await expect.poll(async () => (await work.calendar()).calendar.months.slice(0, 3).map(month => month.id))
+    .toEqual(['feb', 'jan', 'mar']);
 });
 
 test('retries the first read and asks before closing an invalid draft', async ({ page, request, baseURL }) => {

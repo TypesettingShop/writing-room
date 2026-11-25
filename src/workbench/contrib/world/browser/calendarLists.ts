@@ -130,7 +130,8 @@ class CalendarRows<T extends Row> extends Disposable {
   private readonly add: HTMLButtonElement;
   private readonly problem: HTMLElement;
   private readonly nodes = new Map<string, CalendarRow<T>>();
-  private dragging?: string;
+  private drag?: { readonly id: string; readonly handle: HTMLElement; readonly pointerId: number };
+  private marked?: HTMLElement;
 
   constructor(
     parent: HTMLElement,
@@ -152,6 +153,25 @@ class CalendarRows<T extends Row> extends Disposable {
       this.edit([...this.read(), this.create(id)]);
       this.nodes.get(id)?.name.control.focus();
     }));
+    // The editor part refuses native drag events over every editor body, so rows reorder by pointer capture.
+    this._register(addDisposableListener(this.list, 'pointermove', event => {
+      if (event.pointerId === this.drag?.pointerId) {
+        this.mark(this.target(event));
+      }
+    }));
+    this._register(addDisposableListener(this.list, 'pointerup', event => this.drop(event)));
+    for (const type of ['pointercancel', 'lostpointercapture'] as const) {
+      this._register(addDisposableListener(this.list, type, event => {
+        if (event.pointerId === this.drag?.pointerId) {
+          this.endDrag();
+        }
+      }));
+    }
+    this._register(addDisposableListener(this.list, 'keydown', event => {
+      if (event.key === 'Escape' && this.drag) {
+        this.endDrag();
+      }
+    }));
   }
 
   render(problems: readonly { fieldId: string; message: string }[]): void {
@@ -161,6 +181,9 @@ class CalendarRows<T extends Row> extends Disposable {
     const ids = new Set(rows.map(row => row.id));
     for (const [id, node] of this.nodes) {
       if (!ids.has(id)) {
+        if (id === this.drag?.id) {
+          this.endDrag();
+        }
         this.nodes.delete(id);
         node.dispose();
       }
@@ -207,25 +230,15 @@ class CalendarRows<T extends Row> extends Disposable {
         }
       });
     this.nodes.set(id, node);
-    node.listen(node.grip, 'dragstart', event => {
-      this.dragging = id;
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', id);
+    node.listen(node.grip, 'pointerdown', event => {
+      if (this.model.composing || !event.isPrimary || event.button !== 0) {
+        return;
       }
-    });
-    node.listen(node.grip, 'dragend', () => { this.dragging = undefined; });
-    node.listen(node.element, 'dragover', event => {
-      if (this.dragging && this.dragging !== id) {
-        event.preventDefault();
-      }
-    });
-    node.listen(node.element, 'drop', event => {
-      if (this.dragging && this.dragging !== id) {
-        event.preventDefault();
-        this.move(this.dragging, this.read().findIndex(row => row.id === id));
-        this.dragging = undefined;
-      }
+      // Keep keyboard focus and any selection where they are while the pointer drags the row.
+      event.preventDefault();
+      this.endDrag();
+      node.grip.setPointerCapture(event.pointerId);
+      this.drag = { id, handle: node.grip, pointerId: event.pointerId };
     });
     return node;
   }
@@ -241,7 +254,56 @@ class CalendarRows<T extends Row> extends Disposable {
     this.edit(rows);
   }
 
+  /** The index the dragged row takes when dropped on the upper or lower half of the row under the pointer. */
+  private target(event: PointerEvent): { readonly row: HTMLElement; readonly after: boolean; readonly index: number } | undefined {
+    const drag = this.drag;
+    const element = this.list.ownerDocument.elementFromPoint(event.clientX, event.clientY)?.closest('li');
+    const target = [...this.nodes].find(([, node]) => node.element === element)?.[0];
+    if (!drag || !element || !target || target === drag.id) {
+      return undefined;
+    }
+    const rows = this.read();
+    const from = rows.findIndex(row => row.id === drag.id);
+    const bounds = element.getBoundingClientRect();
+    const after = event.clientY >= bounds.top + bounds.height / 2;
+    const boundary = rows.findIndex(row => row.id === target) + Number(after);
+    const index = boundary - Number(from < boundary);
+    return from >= 0 && index !== from ? { row: element, after, index } : undefined;
+  }
+
+  private mark(target: { readonly row: HTMLElement; readonly after: boolean } | undefined): void {
+    if (this.marked && this.marked !== target?.row) {
+      delete this.marked.dataset.calendarDrop;
+    }
+    this.marked = target?.row;
+    if (target) {
+      target.row.dataset.calendarDrop = target.after ? 'after' : 'before';
+    }
+  }
+
+  private drop(event: PointerEvent): void {
+    const drag = this.drag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    const target = this.target(event);
+    this.endDrag();
+    if (target && !this.model.composing) {
+      this.move(drag.id, target.index);
+    }
+  }
+
+  private endDrag(): void {
+    const drag = this.drag;
+    this.drag = undefined;
+    if (drag?.handle.hasPointerCapture(drag.pointerId)) {
+      drag.handle.releasePointerCapture(drag.pointerId);
+    }
+    this.mark(undefined);
+  }
+
   override dispose(): void {
+    this.endDrag();
     for (const node of this.nodes.values()) {
       node.dispose();
     }
@@ -289,7 +351,7 @@ class CalendarRow<T extends Row> extends Disposable {
       fields.appendChild(this.days.element);
     }
     const actions = append(this.element, $('.calendar-actions'));
-    this.grip = append(actions, $('span.calendar-grip', { draggable: true, title: 'Drag to reorder', 'aria-hidden': true }, '⋮⋮'));
+    this.grip = append(actions, $('span.calendar-grip', { title: 'Drag to reorder', 'aria-hidden': true }, '⋮⋮'));
     this.up = append(actions, $('button', { type: 'button' }, 'Move Up'));
     this.down = append(actions, $('button', { type: 'button' }, 'Move Down'));
     const del = append(actions, $('button', { type: 'button' }, 'Delete'));
