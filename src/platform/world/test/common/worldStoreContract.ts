@@ -103,6 +103,7 @@ export function worldStoreContract(name: string, makeStores: () => ContractStore
       await owner.updateNode(workId, item.id, { values: { note: 'keep' } }, 6);
       await owner.updateNode(workId, nested.id, { fields: [] }, 7);
       expect((await owner.getTree(workId)).nodes.map(node => node.id)).toEqual([root.id, first.id, nested.id, item.id, other.id]);
+      stores.advanceClock();
       await expect(owner.moveNodes(workId, [root.id], { parentId: nested.id }, 8)).rejects.toMatchObject({ code: 'invalid' });
       expect(await owner.moveNodes(workId, [nested.id, first.id], { parentId: other.id }, 8)).toEqual({ revision: 9 });
       expect(await owner.moveNodes(workId, [item.id], { parentId: other.id, beforeId: nested.id }, 9)).toEqual({ revision: 10 });
@@ -111,6 +112,8 @@ export function worldStoreContract(name: string, makeStores: () => ContractStore
         [root.id, null, 0], [other.id, null, 1], [first.id, other.id, 0], [item.id, other.id, 1], [nested.id, other.id, 2],
       ]);
       expect(tree.nodes[3].values).toEqual({ note: 'keep' });
+      // Moved and renumbered nodes record the move time; the untouched root nodes keep theirs.
+      expect(tree.nodes.map(node => node.updatedAt > node.createdAt)).toEqual([false, false, true, true, true]);
       expect(await owner.deleteNode(workId, other.id, 10))
         .toEqual({ revision: 11, deletedNodeIds: [other.id, first.id, item.id, nested.id] });
       expect((await owner.getTree(workId)).nodes.map(node => node.id)).toEqual([root.id]);
@@ -248,8 +251,11 @@ export function worldStoreContract(name: string, makeStores: () => ContractStore
       await expect(owner.updateNode(workId, emptyNodeId, { values: { note: 'x' } }, revision))
         .rejects.toMatchObject({ code: 'too_large' });
       await expect(create(revision)).rejects.toMatchObject({ code: 'too_large' });
-      const removed = await owner.deleteNode(workId, fullNodeId, revision);
-      expect((await owner.updateNode(workId, emptyNodeId, { values: fullWorldValue }, removed.revision)).revision).toBe(revision + 2);
+      // Only growth counts against a full budget: an equal-size replacement subtracts the stored size first.
+      const replacement = { note: 'y'.repeat(fullWorldValue.note.length) };
+      expect((await owner.updateNode(workId, fullNodeId, { values: replacement }, revision)).revision).toBe(revision + 1);
+      const removed = await owner.deleteNode(workId, fullNodeId, revision + 1);
+      expect((await owner.updateNode(workId, emptyNodeId, { values: fullWorldValue }, removed.revision)).revision).toBe(revision + 3);
     }, 30_000);
 
     it('applies a preset once, creates one protected calendar node and leaves the calendar revision independent', async () => {
