@@ -1,5 +1,74 @@
 import type { CharacterStoreErrorCode } from '../../characters/common/characters.js';
-import { isManuscriptRevision, ManuscriptStoreError } from '../../manuscript/common/manuscript.js';
+import type { CharacterTemplate, CharacterValues } from '../../characters/common/characterFields.js';
+import {
+  isManuscriptRevision, manuscriptLimits, ManuscriptStoreError, normalizeManuscriptTitle,
+} from '../../manuscript/common/manuscript.js';
+
+export type WorldNodeKind = 'category' | 'item' | 'calendar';
+
+interface WorldNodeType {
+  readonly id: WorldNodeKind;
+  readonly container: boolean;
+  readonly allowedParents: readonly (WorldNodeKind | null)[];
+}
+
+export const worldNodeTypes: Readonly<Record<WorldNodeKind, WorldNodeType>> = {
+  category: { id: 'category', container: true, allowedParents: [null, 'category'] },
+  item: { id: 'item', container: false, allowedParents: ['category'] },
+  calendar: { id: 'calendar', container: false, allowedParents: [null] },
+};
+
+interface WorldNodeBase {
+  id: string;
+  parentId: string | null;
+  title: string;
+  position: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorldCategory extends WorldNodeBase {
+  kind: 'category';
+  fields: CharacterTemplate;
+  values?: never;
+}
+
+export interface WorldItem extends WorldNodeBase {
+  kind: 'item';
+  fields?: never;
+  values: CharacterValues;
+}
+
+export interface WorldCalendarNode extends WorldNodeBase {
+  kind: 'calendar';
+  fields?: never;
+  values?: never;
+}
+
+export type WorldNode = WorldCategory | WorldItem | WorldCalendarNode;
+
+export interface WorldTree {
+  revision: number;
+  nodes: WorldNode[];
+}
+
+export const worldLimits = {
+  nodes: manuscriptLimits.nodes,
+  title: manuscriptLimits.title,
+  values: 64 * 1024,
+  workData: manuscriptLimits.workMetadata,
+} as const;
+
+export function normalizeWorldTitle(value: unknown): string {
+  try {
+    return normalizeManuscriptTitle(value, true);
+  } catch (error) {
+    if (error instanceof ManuscriptStoreError) {
+      throw new WorldStoreError('invalid');
+    }
+    throw error;
+  }
+}
 
 export type WorldStoreErrorCode = CharacterStoreErrorCode;
 
